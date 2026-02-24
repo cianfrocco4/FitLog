@@ -6,27 +6,25 @@
 //
 
 import SwiftUI
-import SwiftData
+import UserNotifications
 
 @main
 struct FitLogApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    @StateObject private var authVM = AuthViewModel()
+    @StateObject private var dataVM = DataManager()
+    @StateObject private var currentVM = CurrentWorkoutSessionViewModel()
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            if authVM.isLoggedIn {
+                MainTabView()
+                    .environmentObject(authVM)
+                    .environmentObject(dataVM)
+                    .environmentObject(currentVM)
+            } else {
+                LoginView()
+                    .environmentObject(authVM)
+            }
         }
-        .modelContainer(sharedModelContainer)
     }
 }
