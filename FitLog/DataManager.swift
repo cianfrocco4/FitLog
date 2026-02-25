@@ -33,9 +33,14 @@ final class DataManager: ObservableObject {
     
     // MARK: - Workouts
     func createWorkout(name: String) {
-        let new = Workout(id: UUID(), name: name, exercises: [])
-        userWorkouts.append(new)
+        let newWorkout = Workout(id: UUID(), name: name, exercises: [])
+        print("Creating workout: \(name) with ID \(newWorkout.id.uuidString)")
+        
+        userWorkouts.append(newWorkout)
+        print("Workouts after append: \(userWorkouts.count)")
+        
         saveWorkouts()
+        print("saveWorkouts() called")
     }
     
     func deleteWorkout(_ workout: Workout) {
@@ -50,15 +55,27 @@ final class DataManager: ObservableObject {
     }
     
     private func loadWorkouts() {
-        if let data = UserDefaults.standard.data(forKey: workoutsKey),
-           let decoded = try? JSONDecoder().decode([Workout].self, from: data) {
-            userWorkouts = decoded
+        if let data = UserDefaults.standard.data(forKey: workoutsKey) {
+            do {
+                let decoded = try JSONDecoder().decode([Workout].self, from: data)
+                userWorkouts = decoded
+                print("✅ Loaded \(decoded.count) workouts from UserDefaults")
+            } catch {
+                print("❌ Decoding failed: \(error.localizedDescription)")
+                userWorkouts = []
+            }
+        } else {
+            print("No saved workouts data found in UserDefaults")
         }
     }
     
     func saveWorkouts() {
-        if let data = try? JSONEncoder().encode(userWorkouts) {
+        do {
+            let data = try JSONEncoder().encode(userWorkouts)
             UserDefaults.standard.set(data, forKey: workoutsKey)
+            print("✅ Saved \(userWorkouts.count) workouts to UserDefaults")
+        } catch {
+            print("❌ Encoding failed: \(error.localizedDescription)")
         }
     }
     

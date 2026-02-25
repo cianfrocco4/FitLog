@@ -27,25 +27,33 @@ struct HomeView: View {
                             .font(.title2)
                             .fontWeight(.semibold)
                             .padding(.horizontal)
-                        List {
-                            ForEach(dataVM.userWorkouts) { workout in
-                                NavigationLink(destination: WorkoutPlanView(workout: workout)) {
-                                    Text(workout.name)
-                                        .font(.headline)
-                                }
-                                .swipeActions {
-                                    Button("Delete", role: .destructive) {
-                                        dataVM.deleteWorkout(workout)
+                        if dataVM.userWorkouts.isEmpty {
+                            Text("No workouts yet. Create one to get started!")
+                                .foregroundStyle(.secondary)
+                                .padding()
+                                .frame(maxWidth: .infinity, alignment: .center)
+                        } else {
+                            List {
+                                ForEach(dataVM.userWorkouts) { workout in
+                                    NavigationLink(destination: WorkoutPlanView(workout: workout)) {
+                                        Text(workout.name)
+                                            .font(.headline)
                                     }
-                                    Button("Rename") {
-                                        workoutToRename = workout
-                                        renameText = workout.name
+                                    .swipeActions(edge: .trailing) {
+                                        Button("Delete", role: .destructive) {
+                                            dataVM.deleteWorkout(workout)
+                                        }
+                                        
+                                        Button("Rename") {
+                                            workoutToRename = workout
+                                            renameText = workout.name
+                                        }
+                                        .tint(.blue)
                                     }
-                                    .tint(.blue)
                                 }
                             }
+                            .listStyle(.plain)
                         }
-                        .listStyle(.plain)
                     }
                 }
                 .padding(.vertical)
