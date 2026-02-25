@@ -44,15 +44,27 @@ struct HomeView: View {
                             
                             // TODO:
                             List {
-                                ForEach(dataVM.userWorkouts) { workout in
-                                    Text("→ \(workout.name)")
+                                ForEach(dataVM.userWorkouts.indices, id: \.self) { index in
+                                    let workout = dataVM.userWorkouts[index]
+                                    Text("→ \(workout.name) (index \(index))")
                                         .font(.headline)
                                         .padding()
                                         .background(Color.blue.opacity(0.1))
-                                        .clipShape(RoundedRectangle(cornerRadius: 8))
                                 }
                             }
                             .listStyle(.plain)
+                            
+                            // TODO:
+//                            List {
+//                                ForEach(dataVM.userWorkouts) { workout in
+//                                    Text("→ \(workout.name)")
+//                                        .font(.headline)
+//                                        .padding()
+//                                        .background(Color.blue.opacity(0.1))
+//                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+//                                }
+//                            }
+//                            .listStyle(.plain)
                             
                             // TODO: Original
 //                            List {
