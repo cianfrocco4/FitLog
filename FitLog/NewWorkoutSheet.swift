@@ -1,3 +1,10 @@
+//
+//  NewWorkoutSheet.swift
+//  FitLog
+//
+//  Created by Anthony Cianfrocco on 2/25/26.
+//
+
 import SwiftUI
 
 struct NewWorkoutSheet: View {

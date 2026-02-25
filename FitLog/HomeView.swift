@@ -19,13 +19,8 @@ struct HomeView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
-                    // Week summary (unchanged)
-                    VStack {
-                        Text("This Week").font(.title2.bold())
-                        Text("\(dataVM.workoutsThisWeek) workouts completed")
-                            .font(.system(size: 48, weight: .bold)).foregroundStyle(.blue)
-                    }
-                    .frame(maxWidth: .infinity).padding().background(.ultraThinMaterial).clipShape(RoundedRectangle(cornerRadius: 20))
+                    
+                    WeekSummaryView(completedWorkouts: dataVM.workoutsThisWeek)
                     
                     VStack(alignment: .leading) {
                         Text("My Workouts").font(.title2.bold())
@@ -50,7 +45,10 @@ struct HomeView: View {
             }
             .navigationTitle("Home")
             .toolbar { Button("New Workout") { showNewWorkout = true } }
-            .sheet(isPresented: $showNewWorkout) { /* same new workout sheet as before */ }
+            .sheet(isPresented: $showNewWorkout) {
+                NewWorkoutSheet()
+                    .environmentObject(dataVM)
+            }
             .alert("Rename Workout", isPresented: Binding(get: { workoutToRename != nil }, set: { if !$0 { workoutToRename = nil } })) {
                 TextField("New name", text: $renameText)
                 Button("Cancel", role: .cancel) {}
