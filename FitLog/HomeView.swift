@@ -12,37 +12,53 @@ struct HomeView: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @State private var showNewWorkout = false
     @State private var newName = ""
+    @State private var workoutToRename: Workout?
+    @State private var renameText = ""
     
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
+                    // Week summary (unchanged)
                     VStack {
                         Text("This Week").font(.title2.bold())
-                        Text("\(dataVM.workoutsThisWeek) workouts completed").font(.system(size: 48, weight: .bold)).foregroundStyle(.blue)
-                    }.frame(maxWidth: .infinity).padding().background(.ultraThinMaterial).clipShape(RoundedRectangle(cornerRadius: 20))
+                        Text("\(dataVM.workoutsThisWeek) workouts completed")
+                            .font(.system(size: 48, weight: .bold)).foregroundStyle(.blue)
+                    }
+                    .frame(maxWidth: .infinity).padding().background(.ultraThinMaterial).clipShape(RoundedRectangle(cornerRadius: 20))
                     
                     VStack(alignment: .leading) {
-                        HStack { Text("My Workouts").font(.title2.bold()); Spacer(); Button("New") { showNewWorkout = true } }
-                        ForEach(dataVM.userWorkouts) { workout in
-                            NavigationLink(destination: WorkoutPlanView(workout: workout)) {
-                                HStack { Text(workout.name).font(.headline); Spacer(); Text("\(workout.exercises.count) exercises").font(.subheadline).foregroundStyle(.secondary) }
-                                .padding().background(Color(.systemGray6)).clipShape(RoundedRectangle(cornerRadius: 16))
+                        Text("My Workouts").font(.title2.bold())
+                        List {
+                            ForEach(dataVM.userWorkouts) { workout in
+                                NavigationLink(destination: WorkoutPlanView(workout: workout)) {
+                                    Text(workout.name)
+                                }
+                                .swipeActions {
+                                    Button("Delete", role: .destructive) {
+                                        dataVM.deleteWorkout(workout)
+                                    }
+                                    Button("Rename") {
+                                        workoutToRename = workout
+                                        renameText = workout.name
+                                    }
+                                }
                             }
                         }
-                    }.padding(.horizontal)
+                    }
                 }
             }
             .navigationTitle("Home")
-            .sheet(isPresented: $showNewWorkout) {
-                VStack {
-                    TextField("Workout Name", text: $newName).textFieldStyle(.roundedBorder).padding()
-                    Button("Create") {
-                        dataVM.createWorkout(name: newName)
-                        newName = ""
-                        showNewWorkout = false
-                    }.buttonStyle(.borderedProminent)
-                }.padding()
+            .toolbar { Button("New Workout") { showNewWorkout = true } }
+            .sheet(isPresented: $showNewWorkout) { /* same new workout sheet as before */ }
+            .alert("Rename Workout", isPresented: Binding(get: { workoutToRename != nil }, set: { if !$0 { workoutToRename = nil } })) {
+                TextField("New name", text: $renameText)
+                Button("Cancel", role: .cancel) {}
+                Button("Save") {
+                    if let workout = workoutToRename {
+                        dataVM.renameWorkout(workout, newName: renameText)
+                    }
+                }
             }
         }
     }

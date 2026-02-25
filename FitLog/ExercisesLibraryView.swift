@@ -9,14 +9,29 @@ import SwiftUI
 
 struct ExercisesLibraryView: View {
     @EnvironmentObject var dataVM: DataManager
-    @State private var showRequest = false
+    @State private var showAddSheet = false
+    @State private var searchText = ""
+    
+    var filteredExercises: [Exercise] {
+        if searchText.isEmpty { return dataVM.globalExercises }
+        return dataVM.globalExercises.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+    }
     
     var body: some View {
         NavigationStack {
-            List(dataVM.globalExercises) { ex in NavigationLink(destination: ExerciseDetailView(exercise: ex)) { Text(ex.name) } }
+            List(filteredExercises) { ex in
+                NavigationLink(destination: ExerciseDetailView(exercise: ex)) {
+                    Text(ex.name)
+                }
+            }
             .navigationTitle("Exercise Library")
-            .toolbar { Button("Request New") { showRequest = true } }
-            .sheet(isPresented: $showRequest) { Text("Request form (mock)").navigationTitle("Request Exercise") }
+            .searchable(text: $searchText, prompt: "Search exercises")
+            .toolbar {
+                Button("Add New") { showAddSheet = true }
+            }
+            .sheet(isPresented: $showAddSheet) {
+                NewExerciseSheet()
+            }
         }
     }
 }
