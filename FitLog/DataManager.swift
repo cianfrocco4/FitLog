@@ -33,7 +33,8 @@ final class DataManager: ObservableObject {
     
     // MARK: - Workouts
     func createWorkout(name: String) {
-        let newWorkout = Workout(id: UUID(), name: name, exercises: [])
+        // TODO: Commenting out exercises temporarily
+        let newWorkout = Workout(id: UUID(), name: name)//, exercises: [])
         print("Creating workout: \(name) with ID \(newWorkout.id.uuidString)")
         
         userWorkouts.append(newWorkout)
@@ -188,14 +189,16 @@ final class DataManager: ObservableObject {
     // Delete exercise from workout (already existed)
     func deleteExercise(from workout: Workout, exerciseId: UUID) {
         guard let wIndex = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
-        userWorkouts[wIndex].exercises.removeAll { $0.id == exerciseId }
+        // TODO: Commenting out exercises temporarily
+//        userWorkouts[wIndex].exercises.removeAll { $0.id == exerciseId }
         saveWorkouts()
     }
     
     func addExercise(to workout: Workout, exercise: Exercise) {
         guard let index = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
         let we = WorkoutExercise(id: UUID(), exercise: exercise)
-        userWorkouts[index].exercises.append(we)
+        // TODO: Commenting out exercises temporarily
+//        userWorkouts[index].exercises.append(we)
         saveWorkouts()
     }
 }
