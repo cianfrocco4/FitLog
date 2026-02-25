@@ -90,7 +90,7 @@ final class DataManager: ObservableObject {
             Exercise(id: UUID(), name: "Decline Barbell Bench Press", description: "Decline barbell bench", targetedMuscles: ["Lower Chest", "Triceps"]),
             Exercise(id: UUID(), name: "Dumbbell Bench Press", description: "Flat dumbbell press", targetedMuscles: ["Chest", "Triceps"]),
             Exercise(id: UUID(), name: "Incline Dumbbell Press", description: "Incline dumbbell press", targetedMuscles: ["Upper Chest"]),
-            Exercise(id: UUID(), name: "Dumbbell Flyes", description: "Flat or incline flyes", targetedMuscles: ["Chest"]),
+            Exercise(id: UUID(), name: "Dumbbell Flies", description: "Flat or incline flies", targetedMuscles: ["Chest"]),
             Exercise(id: UUID(), name: "Cable Crossover", description: "High-to-low cable fly", targetedMuscles: ["Chest"]),
             Exercise(id: UUID(), name: "Overhead Barbell Press", description: "Standing military press", targetedMuscles: ["Shoulders", "Triceps"]),
             Exercise(id: UUID(), name: "Seated Dumbbell Press", description: "Seated overhead press", targetedMuscles: ["Shoulders"]),
