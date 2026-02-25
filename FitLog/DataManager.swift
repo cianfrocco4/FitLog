@@ -25,9 +25,23 @@ final class DataManager: ObservableObject {
         loadExercises()
         loadSessions()
         
+        // TODO:
+        UserDefaults.standard.removeObject(forKey: exercisesPreloadedKey)
+        UserDefaults.standard.removeObject(forKey: workoutsKey)
+        UserDefaults.standard.removeObject(forKey: exercisesKey)
+        print("Cleared UserDefaults keys for testing")
+        
         if !UserDefaults.standard.bool(forKey: exercisesPreloadedKey) {
             preloadFullExerciseLibrary()
             UserDefaults.standard.set(true, forKey: exercisesPreloadedKey)
+        }
+        
+        if userWorkouts.isEmpty {
+            userWorkouts = [
+                Workout(id: UUID(), name: "Test 1"),
+                Workout(id: UUID(), name: "Test 2")
+            ]
+            saveWorkouts()
         }
     }
     
@@ -42,6 +56,9 @@ final class DataManager: ObservableObject {
         
         saveWorkouts()
         print("saveWorkouts() called")
+        
+        // This line forces SwiftUI to re-render observers in almost all cases
+        objectWillChange.send()
     }
     
     func deleteWorkout(_ workout: Workout) {

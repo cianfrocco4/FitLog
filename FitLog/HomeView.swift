@@ -27,32 +27,41 @@ struct HomeView: View {
                             .font(.title2)
                             .fontWeight(.semibold)
                             .padding(.horizontal)
+                    
+                        Text("Workouts count: \(dataVM.userWorkouts.count)")
+                            .foregroundStyle(.purple)
+                            .padding()
+                    
                         if dataVM.userWorkouts.isEmpty {
                             Text("No workouts yet. Create one to get started!")
                                 .foregroundStyle(.secondary)
                                 .padding()
                                 .frame(maxWidth: .infinity, alignment: .center)
                         } else {
-                            List {
-                                ForEach(dataVM.userWorkouts) { workout in
-                                    NavigationLink(destination: WorkoutPlanView(workout: workout)) {
-                                        Text(workout.name)
-                                            .font(.headline)
-                                    }
-                                    .swipeActions(edge: .trailing) {
-                                        Button("Delete", role: .destructive) {
-                                            dataVM.deleteWorkout(workout)
-                                        }
-                                        
-                                        Button("Rename") {
-                                            workoutToRename = workout
-                                            renameText = workout.name
-                                        }
-                                        .tint(.blue)
-                                    }
-                                }
-                            }
-                            .listStyle(.plain)
+                            Text("Should show \(dataVM.userWorkouts.count) items")
+                                .foregroundStyle(.green)
+                                .padding()
+                            // TODO:
+//                            List {
+//                                ForEach(dataVM.userWorkouts) { workout in
+//                                    NavigationLink(destination: WorkoutPlanView(workout: workout)) {
+//                                        Text(workout.name)
+//                                            .font(.headline)
+//                                    }
+//                                    .swipeActions(edge: .trailing) {
+//                                        Button("Delete", role: .destructive) {
+//                                            dataVM.deleteWorkout(workout)
+//                                        }
+//                                        
+//                                        Button("Rename") {
+//                                            workoutToRename = workout
+//                                            renameText = workout.name
+//                                        }
+//                                        .tint(.blue)
+//                                    }
+//                                }
+//                            }
+//                            .listStyle(.plain)
                         }
                     }
                 }
