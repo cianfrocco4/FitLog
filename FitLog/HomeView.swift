@@ -41,7 +41,20 @@ struct HomeView: View {
                             Text("Should show \(dataVM.userWorkouts.count) items")
                                 .foregroundStyle(.green)
                                 .padding()
+                            
                             // TODO:
+                            List {
+                                ForEach(dataVM.userWorkouts) { workout in
+                                    Text("→ \(workout.name)")
+                                        .font(.headline)
+                                        .padding()
+                                        .background(Color.blue.opacity(0.1))
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                }
+                            }
+                            .listStyle(.plain)
+                            
+                            // TODO: Original
 //                            List {
 //                                ForEach(dataVM.userWorkouts) { workout in
 //                                    NavigationLink(destination: WorkoutPlanView(workout: workout)) {

@@ -48,31 +48,29 @@ struct WorkoutPlanView: View {
     // ────────────────────────────────────────────────
     
     private var exerciseListSection: some View {
-        // TODO: Commenting out exercises temporarily
-        Text("No exercises")
-//        ForEach(workout.exercises) { we in
-//            Button {
-//                if currentVM.currentSession?.workout.id == workout.id {
-//                    if let idx = workout.exercises.firstIndex(where: { $0.id == we.id }) {
-//                        selectedIndex = idx
-//                        showLogSheet = true
-//                    }
-//                }
-//            } label: {
-//                HStack {
-//                    Text(we.exercise.name)
-//                        .font(.headline)
-//                    Spacer()
-//                }
-//            }
-//        }
-//        .onDelete { indexSet in
-//            indexSet.forEach { i in
-//                let exerciseId = workout.exercises[i].id
-//                dataVM.deleteExercise(from: workout, exerciseId: exerciseId)
-//                workout.exercises.remove(at: i)
-//            }
-//        }
+        ForEach(workout.exercises) { we in
+            Button {
+                if currentVM.currentSession?.workout.id == workout.id {
+                    if let idx = workout.exercises.firstIndex(where: { $0.id == we.id }) {
+                        selectedIndex = idx
+                        showLogSheet = true
+                    }
+                }
+            } label: {
+                HStack {
+                    Text(we.exercise.name)
+                        .font(.headline)
+                    Spacer()
+                }
+            }
+        }
+        .onDelete { indexSet in
+            indexSet.forEach { i in
+                let exerciseId = workout.exercises[i].id
+                dataVM.deleteExercise(from: workout, exerciseId: exerciseId)
+                workout.exercises.remove(at: i)
+            }
+        }
     }
     
     private var addExerciseButton: some View {

@@ -25,30 +25,21 @@ final class DataManager: ObservableObject {
         loadExercises()
         loadSessions()
         
-        // TODO:
-        UserDefaults.standard.removeObject(forKey: exercisesPreloadedKey)
-        UserDefaults.standard.removeObject(forKey: workoutsKey)
-        UserDefaults.standard.removeObject(forKey: exercisesKey)
-        print("Cleared UserDefaults keys for testing")
+//        // TODO:
+//        UserDefaults.standard.removeObject(forKey: exercisesPreloadedKey)
+//        UserDefaults.standard.removeObject(forKey: workoutsKey)
+//        UserDefaults.standard.removeObject(forKey: exercisesKey)
+//        print("Cleared UserDefaults keys for testing")
         
         if !UserDefaults.standard.bool(forKey: exercisesPreloadedKey) {
             preloadFullExerciseLibrary()
             UserDefaults.standard.set(true, forKey: exercisesPreloadedKey)
         }
-        
-        if userWorkouts.isEmpty {
-            userWorkouts = [
-                Workout(id: UUID(), name: "Test 1"),
-                Workout(id: UUID(), name: "Test 2")
-            ]
-            saveWorkouts()
-        }
     }
     
     // MARK: - Workouts
     func createWorkout(name: String) {
-        // TODO: Commenting out exercises temporarily
-        let newWorkout = Workout(id: UUID(), name: name)//, exercises: [])
+        let newWorkout = Workout(id: UUID(), name: name, exercises: [])
         print("Creating workout: \(name) with ID \(newWorkout.id.uuidString)")
         
         userWorkouts.append(newWorkout)
@@ -206,16 +197,14 @@ final class DataManager: ObservableObject {
     // Delete exercise from workout (already existed)
     func deleteExercise(from workout: Workout, exerciseId: UUID) {
         guard let wIndex = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
-        // TODO: Commenting out exercises temporarily
-//        userWorkouts[wIndex].exercises.removeAll { $0.id == exerciseId }
+        userWorkouts[wIndex].exercises.removeAll { $0.id == exerciseId }
         saveWorkouts()
     }
     
     func addExercise(to workout: Workout, exercise: Exercise) {
         guard let index = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
         let we = WorkoutExercise(id: UUID(), exercise: exercise)
-        // TODO: Commenting out exercises temporarily
-//        userWorkouts[index].exercises.append(we)
+        userWorkouts[index].exercises.append(we)
         saveWorkouts()
     }
 }

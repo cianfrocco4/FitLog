@@ -14,11 +14,10 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     var isInProgress: Bool { currentSession != nil && currentSession?.endTime == nil }
     
     func startWorkout(_ workout: Workout) {
-        // TODO: Commenting out exercises temporarily
-//        let logs = workout.exercises.map { ex in
-//            ExerciseLog(id: UUID(), workoutExercise: ex, loggedSets: [])
-//        }
-//        currentSession = WorkoutSession(id: UUID(), workout: workout, startTime: Date(), endTime: nil, exerciseLogs: logs)
+        let logs = workout.exercises.map { ex in
+            ExerciseLog(id: UUID(), workoutExercise: ex, loggedSets: [])
+        }
+        currentSession = WorkoutSession(id: UUID(), workout: workout, startTime: Date(), endTime: nil, exerciseLogs: logs)
     }
     
     func stopWorkout() {

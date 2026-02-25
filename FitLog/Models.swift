@@ -23,8 +23,7 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
 struct Workout: Identifiable, Codable {
     let id: UUID
     var name: String
-    // TODO: Remove exercises temporarily
-//    var exercises: [WorkoutExercise]
+    var exercises: [WorkoutExercise]
 }
 
 struct LoggedSet: Identifiable, Codable {
