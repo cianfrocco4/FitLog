@@ -87,18 +87,34 @@ final class DataManager: ObservableObject {
     
     private func preloadSampleData() {
         globalExercises = [
-            Exercise(id: UUID(), name: "Bench Press", description: "Classic chest builder", targetedMuscles: ["Chest", "Triceps"]),
-            Exercise(id: UUID(), name: "Squat", description: "King of legs", targetedMuscles: ["Quads", "Glutes"]),
-            Exercise(id: UUID(), name: "Pull-Up", description: "Ultimate back", targetedMuscles: ["Lats", "Biceps"])
+            Exercise(id: UUID(), name: "Bench Press", description: "Classic chest builder", targetedMuscles: ["Chest", "Triceps", "Front Delts"]),
+            Exercise(id: UUID(), name: "Squat", description: "King of leg exercises", targetedMuscles: ["Quads", "Glutes", "Hamstrings"]),
+            Exercise(id: UUID(), name: "Deadlift", description: "Full posterior chain", targetedMuscles: ["Back", "Hamstrings", "Glutes"]),
+            Exercise(id: UUID(), name: "Pull-Up", description: "Ultimate back builder", targetedMuscles: ["Lats", "Biceps", "Rear Delts"]),
+            Exercise(id: UUID(), name: "Overhead Press", description: "Shoulder strength", targetedMuscles: ["Shoulders", "Triceps"])
         ]
-        saveExercises()  // implement saveExercises similarly
-        // Create 2 sample workouts as in original response
+        saveExercises()
+        
+        let bench = globalExercises[0]
+        let squat = globalExercises[1]
+        let pullup = globalExercises[3]
+        
+        let pushDay = Workout(id: UUID(), name: "Push Day", exercises: [
+            WorkoutExercise(id: UUID(), exercise: bench),
+            WorkoutExercise(id: UUID(), exercise: globalExercises[4])
+        ])
+        
+        let pullDay = Workout(id: UUID(), name: "Pull Day", exercises: [
+            WorkoutExercise(id: UUID(), exercise: pullup),
+            WorkoutExercise(id: UUID(), exercise: globalExercises[2])
+        ])
+        
+        userWorkouts = [pushDay, pullDay]
+        saveWorkouts()
     }
     
     var workoutsThisWeek: Int {
         let sevenDaysAgo = Date().addingTimeInterval(-7*86400)
         return completedSessions.filter { ($0.endTime ?? Date()) > sevenDaysAgo }.count
     }
-    
-    // createWorkout, deleteExercise, addExercise methods exactly as in first response
 }
