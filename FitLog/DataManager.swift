@@ -25,12 +25,6 @@ final class DataManager: ObservableObject {
         loadExercises()
         loadSessions()
         
-//        // TODO:
-//        UserDefaults.standard.removeObject(forKey: exercisesPreloadedKey)
-//        UserDefaults.standard.removeObject(forKey: workoutsKey)
-//        UserDefaults.standard.removeObject(forKey: exercisesKey)
-//        print("Cleared UserDefaults keys for testing")
-        
         if !UserDefaults.standard.bool(forKey: exercisesPreloadedKey) {
             preloadFullExerciseLibrary()
             UserDefaults.standard.set(true, forKey: exercisesPreloadedKey)
@@ -201,9 +195,11 @@ final class DataManager: ObservableObject {
         saveWorkouts()
     }
     
-    func addExercise(to workout: Workout, exercise: Exercise) {
+    func addExercise(to workout: Workout, exercise: Exercise, recommendedSets: Int, recommendedReps: String) {
         guard let index = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
-        let we = WorkoutExercise(id: UUID(), exercise: exercise)
+        var we = WorkoutExercise(id: UUID(), exercise: exercise)
+        we.recommendedSets = recommendedSets
+        we.recommendedReps = recommendedReps
         userWorkouts[index].exercises.append(we)
         saveWorkouts()
     }

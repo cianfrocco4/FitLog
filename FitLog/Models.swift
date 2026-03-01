@@ -19,6 +19,8 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
     let id: UUID
     var exercise: Exercise
     var defaultRestTime: Int = 90
+    var recommendedSets: Int = 3
+    var recommendedReps: String = "8-12"
 }
 
 struct Workout: Identifiable, Codable {

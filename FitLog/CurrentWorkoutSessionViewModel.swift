@@ -86,4 +86,19 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         
         UNUserNotificationCenter.current().add(request)
     }
+    
+    func addEmptySet(toExerciseIndex: Int) {
+        guard var session = currentSession, toExerciseIndex < session.exerciseLogs.count else { return }
+        
+        let emptySet = LoggedSet(id: UUID(), weight: 0.0, reps: 0, restTime: 90, timestamp: Date())
+        session.exerciseLogs[toExerciseIndex].loggedSets.append(emptySet)
+        currentSession = session
+    }
+
+    func deleteSet(exerciseIndex: Int, setIndex: Int) {
+        guard var session = currentSession, exerciseIndex < session.exerciseLogs.count, setIndex < session.exerciseLogs[exerciseIndex].loggedSets.count else { return }
+        
+        session.exerciseLogs[exerciseIndex].loggedSets.remove(at: setIndex)
+        currentSession = session
+    }
 }
