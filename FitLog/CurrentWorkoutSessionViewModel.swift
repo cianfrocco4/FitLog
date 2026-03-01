@@ -13,6 +13,8 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     @Published var remainingRestTime: Int = 0
     
     private var restTimer: Timer?
+    private var backgroundDate: Date?
+    private var wasTimerRunning = false
     
     var isInProgress: Bool { currentSession != nil && currentSession?.endTime == nil }
     
@@ -100,5 +102,30 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         
         session.exerciseLogs[exerciseIndex].loggedSets.remove(at: setIndex)
         currentSession = session
+    }
+    
+    // Call this when app enters background (see next step)
+    func appDidEnterBackground() {
+        if remainingRestTime > 0 {
+            wasTimerRunning = true
+            backgroundDate = Date()
+            restTimer?.invalidate()  // pause timer while backgrounded
+        }
+    }
+
+    // Call this when app becomes active
+    func appDidBecomeActive() {
+        if wasTimerRunning, let bgDate = backgroundDate {
+            let elapsed = Date().timeIntervalSince(bgDate)
+            remainingRestTime = max(0, remainingRestTime - Int(elapsed))
+            
+            // Restart live timer with remaining time
+            if remainingRestTime > 0 {
+                startRestCountdown(seconds: remainingRestTime)
+            }
+            
+            backgroundDate = nil
+            wasTimerRunning = false
+        }
     }
 }

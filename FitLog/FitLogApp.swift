@@ -10,6 +10,7 @@ import UserNotifications
 
 @main
 struct FitLogApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var authVM = AuthViewModel()
     @StateObject private var dataVM = DataManager()
     @StateObject private var currentVM = CurrentWorkoutSessionViewModel()
@@ -24,6 +25,13 @@ struct FitLogApp: App {
             } else {
                 LoginView()
                     .environmentObject(authVM)
+            }
+        }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            switch newPhase {
+            case .background: currentVM.appDidEnterBackground()
+            case .active:     currentVM.appDidBecomeActive()
+            default:          break
             }
         }
     }
