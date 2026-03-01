@@ -10,6 +10,9 @@ import UserNotifications
 
 final class CurrentWorkoutSessionViewModel: ObservableObject {
     @Published var currentSession: WorkoutSession?
+    @Published var remainingRestTime: Int = 0
+    
+    private var restTimer: Timer?
     
     var isInProgress: Bool { currentSession != nil && currentSession?.endTime == nil }
     
@@ -43,9 +46,33 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         session.exerciseLogs[exerciseIndex].loggedSets.append(set)
         currentSession = session
         
+        // Start live countdown
+        startRestCountdown(seconds: restTime)
+        
         if restTime > 0 {
             scheduleRestNotification(seconds: restTime)
         }
+    }
+    
+    private func startRestCountdown(seconds: Int) {
+        restTimer?.invalidate()
+        remainingRestTime = seconds
+        
+        restTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            self.remainingRestTime -= 1
+            if self.remainingRestTime <= 0 {
+                self.restTimer?.invalidate()
+                self.restTimer = nil
+                // Optional: play sound or haptic here
+            }
+        }
+    }
+    
+    func cancelRestTimer() {
+        restTimer?.invalidate()
+        restTimer = nil
+        remainingRestTime = 0
     }
     
     private func scheduleRestNotification(seconds: Int) {

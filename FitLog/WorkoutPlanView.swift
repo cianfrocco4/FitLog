@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct WorkoutPlanView: View {
-    @State var workout: Workout
+    @Binding var workout: Workout
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     
@@ -27,7 +27,8 @@ struct WorkoutPlanView: View {
         .toolbar { toolbarContent }
         .sheet(isPresented: $showLogSheet) {
             if let idx = selectedIndex {
-                LogSetView(workout: workout, exerciseIndex: idx)
+                LogSetView(exerciseIndex: idx)
+                    .environmentObject(currentVM)
             }
         }
         .sheet(isPresented: $showAddExercise) {

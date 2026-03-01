@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 struct Exercise: Identifiable, Codable, Equatable, Hashable {
     let id: UUID
@@ -48,3 +49,4 @@ struct WorkoutSession: Identifiable, Codable {
     var exerciseLogs: [ExerciseLog]
     var isCompleted: Bool { endTime != nil }
 }
+

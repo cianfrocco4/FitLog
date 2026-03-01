@@ -17,102 +17,54 @@ struct HomeView: View {
     
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    
-                    WeekSummaryView(completedWorkouts: dataVM.workoutsThisWeek)
-                    
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("My Workouts")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                            .padding(.horizontal)
-                    
-                        Text("Workouts count: \(dataVM.userWorkouts.count)")
-                            .foregroundStyle(.purple)
-                            .padding()
-                    
-                        if dataVM.userWorkouts.isEmpty {
-                            Text("No workouts yet. Create one to get started!")
-                                .foregroundStyle(.secondary)
-                                .padding()
-                                .frame(maxWidth: .infinity, alignment: .center)
-                        } else {
-                            Text("Should show \(dataVM.userWorkouts.count) items")
-                                .foregroundStyle(.green)
-                                .padding()
-                            
-                            // TODO:
-                            List {
-                                Text("Static row 1 – \(dataVM.userWorkouts[0].name)")
-                                    .font(.headline)
-                                    .padding()
-                                    .background(Color.red.opacity(0.2))
-                                
-                                Text("Static row 2 – \(dataVM.userWorkouts[1].name)")
-                                    .font(.headline)
-                                    .padding()
-                                    .background(Color.orange.opacity(0.2))
+            VStack(spacing: 0) {
+                WeekSummaryView(completedWorkouts: dataVM.workoutsThisWeek)
+                    .padding()
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                
+                Text("My Workouts")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                
+                List {
+                    ForEach(dataVM.userWorkouts) { workout in
+                        NavigationLink {
+                            if let binding = $dataVM.userWorkouts[workout.id] {
+                                WorkoutPlanView(workout: binding)
+                            } else {
+                                Text("Workout not found")  // fallback (should never hit)
+                                    .foregroundStyle(.red)
                             }
-                            .listStyle(.plain)
+                        } label: {
+                            Text(workout.name)
+                                .font(.headline)
+                        }
+                        .swipeActions(edge: .trailing) {
+                            Button("Delete", role: .destructive) {
+                                dataVM.deleteWorkout(workout)
+                            }
                             
-//                            // TODO:
-//                            List {
-//                                ForEach(dataVM.userWorkouts.indices, id: \.self) { index in
-//                                    let workout = dataVM.userWorkouts[index]
-//                                    Text("→ \(workout.name) (index \(index))")
-//                                        .font(.headline)
-//                                        .padding()
-//                                        .background(Color.blue.opacity(0.1))
-//                                }
-//                            }
-//                            .listStyle(.plain)
-                            
-                            // TODO:
-//                            List {
-//                                ForEach(dataVM.userWorkouts) { workout in
-//                                    Text("→ \(workout.name)")
-//                                        .font(.headline)
-//                                        .padding()
-//                                        .background(Color.blue.opacity(0.1))
-//                                        .clipShape(RoundedRectangle(cornerRadius: 8))
-//                                }
-//                            }
-//                            .listStyle(.plain)
-                            
-                            // TODO: Original
-//                            List {
-//                                ForEach(dataVM.userWorkouts) { workout in
-//                                    NavigationLink(destination: WorkoutPlanView(workout: workout)) {
-//                                        Text(workout.name)
-//                                            .font(.headline)
-//                                    }
-//                                    .swipeActions(edge: .trailing) {
-//                                        Button("Delete", role: .destructive) {
-//                                            dataVM.deleteWorkout(workout)
-//                                        }
-//                                        
-//                                        Button("Rename") {
-//                                            workoutToRename = workout
-//                                            renameText = workout.name
-//                                        }
-//                                        .tint(.blue)
-//                                    }
-//                                }
-//                            }
-//                            .listStyle(.plain)
+                            Button("Rename") {
+                                workoutToRename = workout
+                                renameText = workout.name
+                            }
+                            .tint(.blue)
                         }
                     }
                 }
-                .padding(.vertical)
+                .listStyle(.plain)
             }
             .navigationTitle("Home")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: {
+                    Button("New Workout") {
                         showNewWorkout = true
-                    }) {
-                        Label("New", systemImage: "plus")
                     }
                 }
             }
@@ -125,14 +77,12 @@ struct HomeView: View {
                 set: { if !$0 { workoutToRename = nil } }
             )) {
                 TextField("New name", text: $renameText)
-                Button("Cancel", role: .cancel) { }
+                Button("Cancel", role: .cancel) {}
                 Button("Save") {
                     if let workout = workoutToRename {
                         dataVM.renameWorkout(workout, newName: renameText)
                     }
                 }
-            } message: {
-                Text("Enter a new name for this workout")
             }
         }
     }
