@@ -44,12 +44,39 @@ struct CurrentWorkoutPullUpSheet: View {
                     .padding(.vertical, 12)
                 }
                 
-                // Workout name
+                // Workout name + timer + pause/play
                 if let session = currentVM.currentSession {
-                    Text(session.workout.name)
-                        .font(.title2.bold())
-                        .padding(.top, currentVM.remainingRestTime > 0 ? 0 : 16)
-                        .padding(.horizontal)
+                    VStack(spacing: 10) {
+                        Text(session.workout.name)
+                            .font(.title2.bold())
+                        HStack(spacing: 16) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "timer")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                Text(currentVM.workoutElapsedFormatted)
+                                    .font(.system(.title3, design: .monospaced))
+                                    .fontWeight(.medium)
+                            }
+                            Button {
+                                if currentVM.isWorkoutPaused {
+                                    currentVM.resumeWorkout()
+                                } else {
+                                    currentVM.pauseWorkout()
+                                }
+                            } label: {
+                                Label(currentVM.isWorkoutPaused ? "Resume" : "Pause", systemImage: currentVM.isWorkoutPaused ? "play.fill" : "pause.fill")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(currentVM.isWorkoutPaused ? .green : .orange)
+                        }
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 12)
+                        .background(Color(.systemGray6))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .padding(.top, currentVM.remainingRestTime > 0 ? 0 : 16)
+                    .padding(.horizontal)
                 }
                 
                 // One List with Section per exercise so expanded content is full-height and each set row is swipeable
