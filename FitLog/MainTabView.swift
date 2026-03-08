@@ -13,6 +13,7 @@ struct MainTabView: View {
     var body: some View {
         TabView {
             HomeView().tabItem { Label("Home", systemImage: "house") }
+            HistoryView().tabItem { Label("History", systemImage: "chart.bar") }
             ExercisesLibraryView().tabItem { Label("Exercises", systemImage: "list.bullet") }
         }
         .overlay(alignment: .bottom) {

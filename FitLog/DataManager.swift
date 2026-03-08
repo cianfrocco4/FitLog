@@ -174,12 +174,17 @@ final class DataManager: ObservableObject {
         saveExercises()
     }
     
-    // MARK: - Sessions & week summary (unchanged)
+    // MARK: - Sessions & week summary
     private func loadSessions() {
         if let data = UserDefaults.standard.data(forKey: sessionsKey),
            let decoded = try? JSONDecoder().decode([WorkoutSession].self, from: data) {
             completedSessions = decoded
         }
+    }
+    
+    /// Reload completed sessions from UserDefaults (e.g. when opening History so new completions are visible).
+    func refreshCompletedSessions() {
+        loadSessions()
     }
     
     func saveSessions() {
