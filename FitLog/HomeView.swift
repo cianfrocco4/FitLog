@@ -10,6 +10,7 @@ import SwiftUI
 struct HomeView: View {
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @EnvironmentObject var authVM: AuthViewModel
     
     @State private var showNewWorkout = false
     @State private var workoutToRename: Workout?
@@ -69,6 +70,15 @@ struct HomeView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("New Workout") {
                         showNewWorkout = true
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("Sign Out", role: .destructive) {
+                            authVM.logout()
+                        }
+                    } label: {
+                        Image(systemName: "person.circle")
                     }
                 }
             }

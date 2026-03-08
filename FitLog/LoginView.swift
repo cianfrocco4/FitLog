@@ -6,30 +6,56 @@
 //
 
 import SwiftUI
+import AuthenticationServices
 
 struct LoginView: View {
     @EnvironmentObject var authVM: AuthViewModel
-    @State private var email = ""
-    @State private var password = ""
-    @State private var isSignUp = false
     
     var body: some View {
         NavigationStack {
-            VStack(spacing: 30) {
-                Image(systemName: "dumbbell.fill").font(.system(size: 80)).foregroundStyle(.blue)
-                Text(isSignUp ? "Create Account" : "Welcome Back").font(.largeTitle.bold())
+            VStack(spacing: 32) {
+                Image(systemName: "dumbbell.fill")
+                    .font(.system(size: 80))
+                    .foregroundStyle(.blue)
                 
-                VStack(spacing: 16) {
-                    TextField("Email", text: $email).textFieldStyle(.roundedBorder).autocapitalization(.none)
-                    SecureField("Password", text: $password).textFieldStyle(.roundedBorder)
-                }.padding(.horizontal)
+                Text("The Workout Log")
+                    .font(.largeTitle.bold())
                 
-                Button(isSignUp ? "Sign Up" : "Login") {
-                    if isSignUp { authVM.signUp(email: email, password: password) } else { authVM.login(email: email, password: password) }
-                }.buttonStyle(.borderedProminent).controlSize(.large)
+                Text("Sign in to track your workouts and history.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
                 
-                Button(isSignUp ? "Already have an account? Login" : "Need an account? Sign Up") { isSignUp.toggle() }.foregroundStyle(.blue)
-            }.padding()
+                SignInWithAppleButton(.signIn) { request in
+                    request.requestedScopes = [.fullName, .email]
+                } onCompletion: { result in
+                    switch result {
+                    case .success(let authorization):
+                        if let credential = authorization.credential as? ASAuthorizationAppleIDCredential {
+                            authVM.handleAppleSignIn(credential: credential)
+                        }
+                    case .failure(let error):
+                        let code = (error as? ASAuthorizationError)?.code
+                        if code != .canceled {
+                            authVM.errorMessage = error.localizedDescription
+                        }
+                    }
+                }
+                .signInWithAppleButtonStyle(.black)
+                .frame(height: 50)
+                .padding(.horizontal, 40)
+                
+                if let message = authVM.errorMessage {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+            }
+            .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
