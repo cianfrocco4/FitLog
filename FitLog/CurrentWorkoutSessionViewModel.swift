@@ -68,10 +68,10 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         currentSession = session
     }
     
-    func logSet(exerciseIndex: Int, weight: Double, reps: Int, restTime: Int) {
+    func logSet(exerciseIndex: Int, weight: Double, reps: Int, restTime: Int, isWarmup: Bool = false) {
         guard var session = currentSession, exerciseIndex < session.exerciseLogs.count else { return }
         
-        let set = LoggedSet(id: UUID(), weight: weight, reps: reps, restTime: restTime, timestamp: Date())
+        let set = LoggedSet(id: UUID(), weight: weight, reps: reps, restTime: restTime, timestamp: Date(), isWarmup: isWarmup)
         session.exerciseLogs[exerciseIndex].loggedSets.append(set)
         currentSession = session
         
@@ -119,7 +119,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     func addEmptySet(toExerciseIndex: Int) {
         guard var session = currentSession, toExerciseIndex < session.exerciseLogs.count else { return }
         
-        let emptySet = LoggedSet(id: UUID(), weight: 0.0, reps: 0, restTime: 90, timestamp: Date())
+        let emptySet = LoggedSet(id: UUID(), weight: 0.0, reps: 0, restTime: 90, timestamp: Date(), isWarmup: false)
         session.exerciseLogs[toExerciseIndex].loggedSets.append(emptySet)
         currentSession = session
     }

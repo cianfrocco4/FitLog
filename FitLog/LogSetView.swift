@@ -16,6 +16,7 @@ struct LogSetView: View {
     @State private var weight: Double = 0.0
     @State private var reps: Int = 0
     @State private var restTime: Int = 90
+    @State private var isWarmup: Bool = false
     
     var body: some View {
         NavigationStack {
@@ -41,6 +42,8 @@ struct LogSetView: View {
                         in: 0...300,
                         step: 15
                     )
+                    
+                    Toggle("Mark as warm-up set", isOn: $isWarmup)
                 }
             }
             .navigationTitle("Log Set")
@@ -59,7 +62,8 @@ struct LogSetView: View {
                             exerciseIndex: exerciseIndex,
                             weight: weight,
                             reps: reps,
-                            restTime: restTime
+                            restTime: restTime,
+                            isWarmup: isWarmup
                         )
                         
                         // Small delay for UI updates before dismiss
@@ -116,6 +120,7 @@ struct LogSetView: View {
             weight = recent.weight
             reps = recent.reps
             restTime = recent.restTime
+            isWarmup = recent.isWarmup
         } else {
             // Fall back to the exercise's default rest time if nothing is logged yet.
             restTime = currentLog.workoutExercise.defaultRestTime

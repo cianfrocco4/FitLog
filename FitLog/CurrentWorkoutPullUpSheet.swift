@@ -76,6 +76,15 @@ struct CurrentWorkoutPullUpSheet: View {
                                                     Text("Set \(prevIndex + 1)")
                                                         .font(.caption)
                                                         .foregroundStyle(.secondary)
+                                                    if prevSet.isWarmup {
+                                                        Text("Warm-up")
+                                                            .font(.caption2)
+                                                            .padding(.horizontal, 6)
+                                                            .padding(.vertical, 2)
+                                                            .background(Color.orange.opacity(0.15))
+                                                            .foregroundStyle(.orange)
+                                                            .clipShape(Capsule())
+                                                    }
                                                     Spacer()
                                                     Text("\(prevSet.weight, specifier: "%.1f") lbs × \(prevSet.reps)")
                                                         .font(.caption)
@@ -111,6 +120,15 @@ struct CurrentWorkoutPullUpSheet: View {
                                             HStack {
                                                 Text("\(set.weight, specifier: "%.1f") lbs × \(set.reps)")
                                                     .font(.body)
+                                                if set.isWarmup {
+                                                    Text("Warm-up")
+                                                        .font(.caption2)
+                                                        .padding(.horizontal, 6)
+                                                        .padding(.vertical, 2)
+                                                        .background(Color.orange.opacity(0.15))
+                                                        .foregroundStyle(.orange)
+                                                        .clipShape(Capsule())
+                                                }
                                                 Spacer()
                                                 Text("Rest: \(set.restTime)s")
                                                     .font(.caption)

@@ -35,6 +35,7 @@ struct LoggedSet: Identifiable, Codable {
     var reps: Int
     var restTime: Int
     var timestamp: Date
+    var isWarmup: Bool = false
 }
 
 struct ExerciseLog: Identifiable, Codable {
