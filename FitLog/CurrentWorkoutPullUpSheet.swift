@@ -52,120 +52,77 @@ struct CurrentWorkoutPullUpSheet: View {
                         .padding(.horizontal)
                 }
                 
-                // Exercise list with collapsible set details
+                // One List with Section per exercise so expanded content is full-height and each set row is swipeable
                 List {
                     if let exerciseLogs = currentVM.currentSession?.exerciseLogs, !exerciseLogs.isEmpty {
                         ForEach(exerciseLogs.indices, id: \.self) { index in
                             let log = exerciseLogs[index]
+                            let isExpanded = expandedExerciseIndex == index
                             
-                            DisclosureGroup(isExpanded: Binding(
-                                get: { expandedExerciseIndex == index },
-                                set: { expandedExerciseIndex = $0 ? index : nil }
-                            )) {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    // Previous session summary for this exercise
-                                    if let previousLog = lastCompletedLog(for: log) {
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            Text("Last time for this exercise")
-                                                .font(.subheadline)
-                                                .fontWeight(.semibold)
-                                            
-                                            ForEach(previousLog.loggedSets.indices, id: \.self) { prevIndex in
-                                                let prevSet = previousLog.loggedSets[prevIndex]
-                                                HStack {
-                                                    Text("Set \(prevIndex + 1)")
-                                                        .font(.caption)
-                                                        .foregroundStyle(.secondary)
-                                                    if prevSet.isWarmup {
-                                                        Text("Warm-up")
-                                                            .font(.caption2)
-                                                            .padding(.horizontal, 6)
-                                                            .padding(.vertical, 2)
-                                                            .background(Color.orange.opacity(0.15))
-                                                            .foregroundStyle(.orange)
-                                                            .clipShape(Capsule())
-                                                    }
-                                                    Spacer()
-                                                    Text("\(prevSet.weight, specifier: "%.1f") lbs × \(prevSet.reps)")
-                                                        .font(.caption)
-                                                    Text("• \(prevSet.restTime)s rest")
-                                                        .font(.caption2)
-                                                        .foregroundStyle(.secondary)
-                                                }
-                                            }
-                                        }
-                                        .padding(10)
-                                        .background(Color(.systemGray6))
-                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                            Section {
+                                // Exercise name as first row so it uses normal list text color (not section header gray)
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        expandedExerciseIndex = isExpanded ? nil : index
                                     }
-
-                                    // Add new set button
+                                } label: {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(log.workoutExercise.exercise.name)
+                                                .font(.headline)
+                                            Text("Rec: \(log.workoutExercise.recommendedSets) × \(log.workoutExercise.recommendedReps)")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.secondary)
+                                        Text("\(log.loggedSets.count) sets")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.primary)
+                                if isExpanded {
+                                    if let previousLog = lastCompletedLog(for: log) {
+                                        previousSessionSummaryRow(previousLog: previousLog)
+                                    }
                                     Button("Add New Set") {
                                         selectedExerciseIndex = index
                                         showLogSetSheet = true
                                     }
                                     .buttonStyle(.borderedProminent)
                                     .tint(.blue)
-                                    .frame(maxWidth: .infinity, alignment: .center)
-                                    
-                                    // List of logged sets with details
+                                    .frame(maxWidth: .infinity)
+                                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                                     if log.loggedSets.isEmpty {
                                         Text("No sets logged yet")
                                             .foregroundStyle(.secondary)
                                             .italic()
-                                            .padding(.vertical, 8)
+                                            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                                     } else {
                                         ForEach(log.loggedSets.indices, id: \.self) { setIndex in
-                                            let set = log.loggedSets[setIndex]
-                                            HStack {
-                                                Text("\(set.weight, specifier: "%.1f") lbs × \(set.reps)")
-                                                    .font(.body)
-                                                if set.isWarmup {
-                                                    Text("Warm-up")
-                                                        .font(.caption2)
-                                                        .padding(.horizontal, 6)
-                                                        .padding(.vertical, 2)
-                                                        .background(Color.orange.opacity(0.15))
-                                                        .foregroundStyle(.orange)
-                                                        .clipShape(Capsule())
+                                            setRow(set: log.loggedSets[setIndex])
+                                                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                                    Button("Delete", role: .destructive) {
+                                                        currentVM.deleteSet(exerciseIndex: index, setIndex: setIndex)
+                                                    }
                                                 }
-                                                Spacer()
-                                                Text("Rest: \(set.restTime)s")
-                                                    .font(.caption)
-                                                    .foregroundStyle(.secondary)
-                                            }
-                                            .padding(10)
-                                            .background(Color.gray.opacity(0.1))
-                                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                                            .swipeActions {
-                                                Button("Delete", role: .destructive) {
-                                                    currentVM.deleteSet(exerciseIndex: index, setIndex: setIndex)
-                                                }
-                                            }
                                         }
                                     }
-                                }
-                                .padding(.top, 8)
-                            } label: {
-                                HStack {
-                                    VStack(alignment: .leading) {
-                                        Text(log.workoutExercise.exercise.name)
-                                            .font(.headline)
-                                        Text("Rec: \(log.workoutExercise.recommendedSets) × \(log.workoutExercise.recommendedReps)")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    Text("\(log.loggedSets.count) sets")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
                                 }
                             }
                         }
                     } else {
-                        Text("No exercises in current session")
-                            .foregroundStyle(.secondary)
-                            .padding()
+                        Section {
+                            Text("No exercises in current session")
+                                .foregroundStyle(.secondary)
+                                .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
+                        }
                     }
                 }
                 .listStyle(.plain)
@@ -238,5 +195,64 @@ struct CurrentWorkoutPullUpSheet: View {
 
         // 2. Fall back to any workout that includes this exercise.
         return latestLog(in: allSessions, for: exerciseId)
+    }
+    
+    private func previousSessionSummaryRow(previousLog: ExerciseLog) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Last time for this exercise")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+            ForEach(previousLog.loggedSets.indices, id: \.self) { prevIndex in
+                let prevSet = previousLog.loggedSets[prevIndex]
+                HStack {
+                    Text("Set \(prevIndex + 1)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if prevSet.isWarmup {
+                        Text("Warm-up")
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.orange.opacity(0.15))
+                            .foregroundStyle(.orange)
+                            .clipShape(Capsule())
+                    }
+                    Spacer()
+                    Text("\(prevSet.weight, specifier: "%.1f") lbs × \(prevSet.reps)")
+                        .font(.caption)
+                    Text("• \(prevSet.restTime)s rest")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+    }
+    
+    private func setRow(set: LoggedSet) -> some View {
+        HStack {
+            Text("\(set.weight, specifier: "%.1f") lbs × \(set.reps)")
+                .font(.body)
+            if set.isWarmup {
+                Text("Warm-up")
+                    .font(.caption2)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.orange.opacity(0.15))
+                    .foregroundStyle(.orange)
+                    .clipShape(Capsule())
+            }
+            Spacer()
+            Text("Rest: \(set.restTime)s")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .background(Color.gray.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
