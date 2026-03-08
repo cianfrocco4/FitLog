@@ -26,18 +26,24 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     }
     
     func stopWorkout() {
-        guard var session = currentSession else  { return }
+        guard var session = currentSession else { return }
         
         session.endTime = Date()
         
-        // Save to completed
-        if let data = try? JSONEncoder().encode([session]), let existing = UserDefaults.standard.data(forKey: "completedSessions"),
-           var all = try? JSONDecoder().decode([WorkoutSession].self, from: existing) {
-            all.append(session)
-            if let encoded = try? JSONEncoder().encode(all) {
-                UserDefaults.standard.set(encoded, forKey: "completedSessions")
-            }
+        // Load existing completed sessions (if any), append this one, and save back.
+        var allSessions: [WorkoutSession] = []
+        
+        if let existing = UserDefaults.standard.data(forKey: "completedSessions"),
+           let decoded = try? JSONDecoder().decode([WorkoutSession].self, from: existing) {
+            allSessions = decoded
         }
+        
+        allSessions.append(session)
+        
+        if let encoded = try? JSONEncoder().encode(allSessions) {
+            UserDefaults.standard.set(encoded, forKey: "completedSessions")
+        }
+        
         currentSession = nil
     }
 

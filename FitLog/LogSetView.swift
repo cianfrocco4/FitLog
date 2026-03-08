@@ -45,6 +45,9 @@ struct LogSetView: View {
             }
             .navigationTitle("Log Set")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                prefillFromRecentSet()
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -68,6 +71,54 @@ struct LogSetView: View {
                     .disabled(weight <= 0 || reps <= 0)
                 }
             }
+        }
+    }
+
+    private func prefillFromRecentSet() {
+        guard
+            let session = currentVM.currentSession,
+            exerciseIndex < session.exerciseLogs.count
+        else { return }
+
+        let currentLog = session.exerciseLogs[exerciseIndex]
+
+        // Prefer the most recent set from the current session for this exercise.
+        if let lastInSession = currentLog.loggedSets.last {
+            weight = lastInSession.weight
+            reps = lastInSession.reps
+            restTime = lastInSession.restTime
+            return
+        }
+
+        // Otherwise, look through *all* completed sessions for this exercise,
+        // reading from the same UserDefaults key that stopWorkout() uses.
+        let targetExerciseId = currentLog.workoutExercise.exercise.id
+        var latestSet: LoggedSet?
+        
+        if let data = UserDefaults.standard.data(forKey: "completedSessions"),
+           let allSessions = try? JSONDecoder().decode([WorkoutSession].self, from: data) {
+            for pastSession in allSessions {
+                for log in pastSession.exerciseLogs where log.workoutExercise.exercise.id == targetExerciseId {
+                    for set in log.loggedSets {
+                        if let existing = latestSet {
+                            if set.timestamp > existing.timestamp {
+                                latestSet = set
+                            }
+                        } else {
+                            latestSet = set
+                        }
+                    }
+                }
+            }
+        }
+
+        if let recent = latestSet {
+            weight = recent.weight
+            reps = recent.reps
+            restTime = recent.restTime
+        } else {
+            // Fall back to the exercise's default rest time if nothing is logged yet.
+            restTime = currentLog.workoutExercise.defaultRestTime
         }
     }
 }

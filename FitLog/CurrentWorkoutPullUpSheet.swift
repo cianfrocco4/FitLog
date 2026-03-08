@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Foundation
 
 struct CurrentWorkoutPullUpSheet: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
@@ -62,6 +63,33 @@ struct CurrentWorkoutPullUpSheet: View {
                                 set: { expandedExerciseIndex = $0 ? index : nil }
                             )) {
                                 VStack(alignment: .leading, spacing: 12) {
+                                    // Previous session summary for this exercise
+                                    if let previousLog = lastCompletedLog(for: log) {
+                                        VStack(alignment: .leading, spacing: 6) {
+                                            Text("Last time for this exercise")
+                                                .font(.subheadline)
+                                                .fontWeight(.semibold)
+                                            
+                                            ForEach(previousLog.loggedSets.indices, id: \.self) { prevIndex in
+                                                let prevSet = previousLog.loggedSets[prevIndex]
+                                                HStack {
+                                                    Text("Set \(prevIndex + 1)")
+                                                        .font(.caption)
+                                                        .foregroundStyle(.secondary)
+                                                    Spacer()
+                                                    Text("\(prevSet.weight, specifier: "%.1f") lbs × \(prevSet.reps)")
+                                                        .font(.caption)
+                                                    Text("• \(prevSet.restTime)s rest")
+                                                        .font(.caption2)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                            }
+                                        }
+                                        .padding(10)
+                                        .background(Color(.systemGray6))
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    }
+
                                     // Add new set button
                                     Button("Add New Set") {
                                         selectedExerciseIndex = index
@@ -144,5 +172,53 @@ struct CurrentWorkoutPullUpSheet: View {
                 }
             }
         }
+    }
+
+    /// Returns the most recent completed `ExerciseLog` for this exercise:
+    /// - Prefer sessions from the same workout as the current session.
+    /// - If none exist, fall back to any workout that includes the exercise.
+    private func lastCompletedLog(for currentLog: ExerciseLog) -> ExerciseLog? {
+        guard
+            let currentWorkoutId = currentVM.currentSession?.workout.id,
+            let data = UserDefaults.standard.data(forKey: "completedSessions"),
+            let allSessions = try? JSONDecoder().decode([WorkoutSession].self, from: data)
+        else {
+            return nil
+        }
+
+        let exerciseId = currentLog.workoutExercise.exercise.id
+
+        // Helper to find the latest log for a given set of sessions.
+        func latestLog(in sessions: [WorkoutSession], for exerciseId: UUID) -> ExerciseLog? {
+            var latest: (ExerciseLog, Date)?
+
+            for session in sessions {
+                for log in session.exerciseLogs where log.workoutExercise.exercise.id == exerciseId {
+                    // Only consider logs that actually have sets logged.
+                    guard let lastSetTime = log.loggedSets.max(by: { $0.timestamp < $1.timestamp })?.timestamp else {
+                        continue
+                    }
+
+                    if let existing = latest {
+                        if lastSetTime > existing.1 {
+                            latest = (log, lastSetTime)
+                        }
+                    } else {
+                        latest = (log, lastSetTime)
+                    }
+                }
+            }
+
+            return latest?.0
+        }
+
+        // 1. Prefer sessions from the same workout template.
+        let sameWorkoutSessions = allSessions.filter { $0.workout.id == currentWorkoutId }
+        if let log = latestLog(in: sameWorkoutSessions, for: exerciseId) {
+            return log
+        }
+
+        // 2. Fall back to any workout that includes this exercise.
+        return latestLog(in: allSessions, for: exerciseId)
     }
 }
