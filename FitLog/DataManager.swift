@@ -57,6 +57,11 @@ final class DataManager: ObservableObject {
         saveWorkouts()
     }
     
+    func moveWorkout(from source: IndexSet, to destination: Int) {
+        userWorkouts.move(fromOffsets: source, toOffset: destination)
+        saveWorkouts()
+    }
+    
     private func loadWorkouts() {
         if let data = UserDefaults.standard.data(forKey: workoutsKey) {
             do {
@@ -192,6 +197,12 @@ final class DataManager: ObservableObject {
     func deleteExercise(from workout: Workout, exerciseId: UUID) {
         guard let wIndex = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
         userWorkouts[wIndex].exercises.removeAll { $0.id == exerciseId }
+        saveWorkouts()
+    }
+    
+    func moveExercise(in workout: Workout, from source: IndexSet, to destination: Int) {
+        guard let wIndex = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
+        userWorkouts[wIndex].exercises.move(fromOffsets: source, toOffset: destination)
         saveWorkouts()
     }
     

@@ -7,6 +7,26 @@
 
 import SwiftUI
 
+/// View-only display order; persisted order is unchanged.
+enum ExerciseDisplayOrder: String, CaseIterable {
+    case defaultOrder = "Order"
+    case alphabetical = "A–Z"
+    case byMuscleGroup = "By muscle"
+}
+
+/// Wraps a workout exercise with its index in the persisted array (for tap/delete/move).
+private struct ExerciseDisplayItem: Identifiable {
+    let id: UUID
+    let workoutExercise: WorkoutExercise
+    let sourceIndex: Int
+    
+    init(workoutExercise: WorkoutExercise, sourceIndex: Int) {
+        self.id = workoutExercise.id
+        self.workoutExercise = workoutExercise
+        self.sourceIndex = sourceIndex
+    }
+}
+
 struct WorkoutPlanView: View {
     @Binding var workout: Workout
     @EnvironmentObject var dataVM: DataManager
@@ -16,33 +36,39 @@ struct WorkoutPlanView: View {
     @State private var showAddExercise = false
     @State private var showRenameAlert = false
     @State private var newWorkoutName = ""
+    @State private var displayOrder: ExerciseDisplayOrder = .defaultOrder
+    
+    /// Display list for default and alphabetical (flat). Order is view-only.
+    private var displayedItems: [ExerciseDisplayItem] {
+        let enumerated = workout.exercises.enumerated().map { ExerciseDisplayItem(workoutExercise: $0.element, sourceIndex: $0.offset) }
+        switch displayOrder {
+        case .defaultOrder:
+            return enumerated
+        case .alphabetical:
+            return enumerated.sorted { $0.workoutExercise.exercise.name.localizedCaseInsensitiveCompare($1.workoutExercise.exercise.name) == .orderedAscending }
+        case .byMuscleGroup:
+            return enumerated
+        }
+    }
+    
+    /// Sections for "By muscle" view only. Order is view-only.
+    private var displayedSections: [(String, [ExerciseDisplayItem])] {
+        let enumerated = workout.exercises.enumerated().map { ExerciseDisplayItem(workoutExercise: $0.element, sourceIndex: $0.offset) }
+        let grouped = Dictionary(grouping: enumerated) { item -> String in
+            item.workoutExercise.exercise.targetedMuscles.first ?? "Other"
+        }
+        return grouped.keys.sorted().map { key in
+            (key, (grouped[key] ?? []).sorted { $0.workoutExercise.exercise.name.localizedCaseInsensitiveCompare($1.workoutExercise.exercise.name) == .orderedAscending })
+        }
+    }
     
     var body: some View {
-        List {
-            ForEach(workout.exercises.indices, id: \.self) { i in
-                let we = workout.exercises[i]
-                Button {
-                    if currentVM.currentSession?.workout.id == workout.id {
-                        selectedIndex = i
-                        showLogSheet = true
-                    }
-                } label: {
-                    HStack {
-                        Text(we.exercise.name).font(.headline)
-                        Spacer()
-                        Text("Rec: \(we.recommendedSets) sets x \(we.recommendedReps)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+        Group {
+            if displayOrder == .byMuscleGroup {
+                listWithSections
+            } else {
+                listFlat
             }
-            .onDelete { indexSet in
-                indexSet.forEach { i in
-                    dataVM.deleteExercise(from: workout, exerciseId: workout.exercises[i].id)
-                }
-            }
-            
-            Button("Add Exercise") { showAddExercise = true }
         }
         .navigationTitle(workout.name)
         .toolbar {
@@ -57,17 +83,32 @@ struct WorkoutPlanView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(currentVM.currentSession?.workout.id == workout.id ? .red : .green)
             }
-            
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Rename") {
                     newWorkoutName = workout.name
                     showRenameAlert = true
                 }
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("View", selection: $displayOrder) {
+                        ForEach(ExerciseDisplayOrder.allCases, id: \.self) { order in
+                            Text(order.rawValue).tag(order)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    Label("View", systemImage: "line.3.horizontal.decrease.circle")
+                }
+            }
+            ToolbarItem(placement: .topBarLeading) {
+                EditButton()
+            }
         }
         .sheet(isPresented: $showLogSheet) {
             if let idx = selectedIndex {
                 LogSetView(exerciseIndex: idx)
+                    .environmentObject(currentVM)
             }
         }
         .sheet(isPresented: $showAddExercise) {
@@ -78,6 +119,64 @@ struct WorkoutPlanView: View {
             Button("Cancel", role: .cancel) { }
             Button("Save") {
                 dataVM.renameWorkout(workout, newName: newWorkoutName)
+            }
+        }
+    }
+    
+    private var listFlat: some View {
+        List {
+            if displayOrder == .defaultOrder {
+                ForEach(displayedItems) { item in
+                    exerciseRow(item: item)
+                }
+                .onDelete { indexSet in
+                    indexSet.map { displayedItems[$0] }.forEach { dataVM.deleteExercise(from: workout, exerciseId: $0.workoutExercise.id) }
+                }
+                .onMove { from, to in
+                    dataVM.moveExercise(in: workout, from: from, to: to)
+                }
+            } else {
+                ForEach(displayedItems) { item in
+                    exerciseRow(item: item)
+                }
+                .onDelete { indexSet in
+                    indexSet.map { displayedItems[$0] }.forEach { dataVM.deleteExercise(from: workout, exerciseId: $0.workoutExercise.id) }
+                }
+            }
+            Button("Add Exercise") { showAddExercise = true }
+        }
+    }
+    
+    private var listWithSections: some View {
+        List {
+            ForEach(displayedSections, id: \.0) { sectionName, items in
+                Section(header: Text(sectionName)) {
+                    ForEach(items) { item in
+                        exerciseRow(item: item)
+                    }
+                    .onDelete { indexSet in
+                        indexSet.map { items[$0] }.forEach { dataVM.deleteExercise(from: workout, exerciseId: $0.workoutExercise.id) }
+                    }
+                }
+            }
+            Button("Add Exercise") { showAddExercise = true }
+        }
+    }
+    
+    private func exerciseRow(item: ExerciseDisplayItem) -> some View {
+        let we = item.workoutExercise
+        return Button {
+            if currentVM.currentSession?.workout.id == workout.id {
+                selectedIndex = item.sourceIndex
+                showLogSheet = true
+            }
+        } label: {
+            HStack {
+                Text(we.exercise.name).font(.headline)
+                Spacer()
+                Text("Rec: \(we.recommendedSets) sets x \(we.recommendedReps)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }

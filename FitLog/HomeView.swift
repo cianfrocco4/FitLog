@@ -57,11 +57,15 @@ struct HomeView: View {
                             .tint(.blue)
                         }
                     }
+                    .onMove(perform: dataVM.moveWorkout)
                 }
                 .listStyle(.plain)
             }
             .navigationTitle("Home")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    EditButton()
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("New Workout") {
                         showNewWorkout = true
