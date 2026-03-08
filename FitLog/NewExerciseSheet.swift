@@ -13,7 +13,13 @@ struct NewExerciseSheet: View {
     
     @State private var name = ""
     @State private var description = ""
-    @State private var muscles = ""
+    /// Selected muscle groups in decreasing order of applicability (primary first), max 3.
+    @State private var selectedMuscles: [MuscleGroup] = []
+    @State private var showMusclePicker = false
+    
+    private var availableMuscles: [MuscleGroup] {
+        MuscleGroup.displayOrder.filter { !selectedMuscles.contains($0) }
+    }
     
     var body: some View {
         NavigationStack {
@@ -21,7 +27,29 @@ struct NewExerciseSheet: View {
                 Section("Exercise Info") {
                     TextField("Name", text: $name)
                     TextField("Description", text: $description, axis: .vertical)
-                    TextField("Muscles (comma separated)", text: $muscles)
+                }
+                Section("Muscle Groups (up to 3, in order of applicability)") {
+                    ForEach(selectedMuscles.indices, id: \.self) { index in
+                        HStack {
+                            Text("\(index + 1).")
+                                .foregroundStyle(.secondary)
+                                .frame(width: 20, alignment: .leading)
+                            Text(selectedMuscles[index].rawValue)
+                            Spacer()
+                            Button(role: .destructive) {
+                                selectedMuscles.remove(at: index)
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                            }
+                        }
+                    }
+                    if selectedMuscles.count < 3 {
+                        Button {
+                            showMusclePicker = true
+                        } label: {
+                            Label("Add muscle group", systemImage: "plus.circle")
+                        }
+                    }
                 }
             }
             .navigationTitle("Add New Exercise")
@@ -29,11 +57,27 @@ struct NewExerciseSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") {
-                        let muscleList = muscles.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-                        dataVM.addNewExercise(name: name, description: description, muscles: muscleList)
+                        dataVM.addNewExercise(name: name, description: description, muscles: selectedMuscles)
                         dismiss()
                     }
                     .disabled(name.isEmpty)
+                }
+            }
+            .sheet(isPresented: $showMusclePicker) {
+                NavigationStack {
+                    List(availableMuscles) { mg in
+                        Button(mg.rawValue) {
+                            selectedMuscles.append(mg)
+                            showMusclePicker = false
+                        }
+                    }
+                    .navigationTitle("Muscle Group")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Cancel") { showMusclePicker = false }
+                        }
+                    }
                 }
             }
         }

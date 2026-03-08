@@ -8,6 +8,58 @@
 import Foundation
 import SwiftUI
 
+/// Exhaustive list of muscle groups for categorizing exercises. Order of assignment = decreasing applicability (primary, secondary, tertiary).
+enum MuscleGroup: String, CaseIterable, Codable, Identifiable {
+    case chest = "Chest"
+    case upperChest = "Upper Chest"
+    case lowerChest = "Lower Chest"
+    case frontDelts = "Front Delts"
+    case sideDelts = "Side Delts"
+    case rearDelts = "Rear Delts"
+    case biceps = "Biceps"
+    case triceps = "Triceps"
+    case brachialis = "Brachialis"
+    case forearms = "Forearms"
+    case lats = "Lats"
+    case upperBack = "Upper Back"
+    case midBack = "Mid Back"
+    case rhomboids = "Rhomboids"
+    case traps = "Traps"
+    case lowerBack = "Lower Back"
+    case posteriorChain = "Posterior Chain"
+    case rotatorCuff = "Rotator Cuff"
+    case abs = "Abs"
+    case lowerAbs = "Lower Abs"
+    case obliques = "Obliques"
+    case core = "Core"
+    case quads = "Quads"
+    case hamstrings = "Hamstrings"
+    case glutes = "Glutes"
+    case calves = "Calves"
+    case soleus = "Soleus"
+    case hipFlexors = "Hip Flexors"
+    case adductors = "Adductors"
+    case abductors = "Abductors"
+    case neck = "Neck"
+    case serratusAnterior = "Serratus Anterior"
+    case other = "Other"
+    
+    var id: String { rawValue }
+    
+    /// All cases in display order (grouped logically for picker).
+    static var displayOrder: [MuscleGroup] {
+        [.chest, .upperChest, .lowerChest,
+         .frontDelts, .sideDelts, .rearDelts,
+         .biceps, .triceps, .brachialis, .forearms,
+         .lats, .upperBack, .midBack, .rhomboids, .traps, .lowerBack, .posteriorChain,
+         .rotatorCuff,
+         .abs, .lowerAbs, .obliques, .core,
+         .quads, .hamstrings, .glutes, .calves, .soleus,
+         .hipFlexors, .adductors, .abductors,
+         .neck, .serratusAnterior, .other]
+    }
+}
+
 struct Exercise: Identifiable, Codable, Equatable, Hashable {
     let id: UUID
     var name: String
