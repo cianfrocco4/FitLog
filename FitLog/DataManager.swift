@@ -195,12 +195,14 @@ final class DataManager: ObservableObject {
         saveWorkouts()
     }
     
-    func addExercise(to workout: Workout, exercise: Exercise, recommendedSets: Int, recommendedReps: String) {
-        guard let index = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
+    @discardableResult
+    func addExercise(to workout: Workout, exercise: Exercise, recommendedSets: Int, recommendedReps: String) -> WorkoutExercise? {
+        guard let index = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return nil }
         var we = WorkoutExercise(id: UUID(), exercise: exercise)
         we.recommendedSets = recommendedSets
         we.recommendedReps = recommendedReps
         userWorkouts[index].exercises.append(we)
         saveWorkouts()
+        return we
     }
 }

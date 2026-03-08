@@ -16,8 +16,15 @@ struct MainTabView: View {
             ExercisesLibraryView().tabItem { Label("Exercises", systemImage: "list.bullet") }
         }
         .overlay(alignment: .bottom) {
-            if currentVM.isInProgress { CurrentWorkoutCollapsedBar() }
+            if currentVM.isInProgress {
+                CurrentWorkoutCollapsedBar()
+                    // Move the collapsed bar fully above the tab bar
+                    // so it no longer overlaps or intercepts tab taps.
+                    .padding(.bottom, 72)
+            }
         }
-        .onAppear { UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in } }
+        .onAppear {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        }
     }
 }

@@ -86,6 +86,7 @@ struct WorkoutPlanView: View {
 struct AddExerciseSheet: View {
     let workout: Workout
     @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @Environment(\.dismiss) var dismiss
     
     @State private var selectedExercise: Exercise?
@@ -117,7 +118,16 @@ struct AddExerciseSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Add") {
                         if let ex = selectedExercise {
-                            dataVM.addExercise(to: workout, exercise: ex, recommendedSets: recommendedSets, recommendedReps: recommendedReps)
+                            if let newWE = dataVM.addExercise(to: workout,
+                                                              exercise: ex,
+                                                              recommendedSets: recommendedSets,
+                                                              recommendedReps: recommendedReps) {
+                                // If this workout is currently in progress, ensure the active session
+                                // gains a corresponding ExerciseLog so it shows up immediately.
+                                if let updatedWorkout = dataVM.userWorkouts.first(where: { $0.id == workout.id }) {
+                                    currentVM.syncExercises(withUpdatedWorkout: updatedWorkout)
+                                }
+                            }
                             dismiss()
                         }
                     }
