@@ -6,19 +6,20 @@
 //
 
 import SwiftUI
+import Charts
 
 struct HistoryView: View {
     @EnvironmentObject var dataVM: DataManager
     @State private var selectedDays: Int = 7
-    
+
     private let dayOptions = [7, 14, 30]
-    
+
     private var sessionsInRange: [WorkoutSession] {
         let cutoff = Date().addingTimeInterval(-Double(selectedDays) * 24 * 60 * 60)
         return dataVM.completedSessions.filter { ($0.endTime ?? Date()) >= cutoff }
             .sorted { ($0.endTime ?? .distantPast) > ($1.endTime ?? .distantPast) }
     }
-    
+
     var body: some View {
         NavigationStack {
             List {
@@ -32,7 +33,8 @@ struct HistoryView: View {
                 } header: {
                     Text("Time range")
                 }
-                
+
+                trendsChartsSection
                 workoutsCompletedSection
                 workoutAnalyticsSection
                 exerciseAnalyticsSection
@@ -43,6 +45,147 @@ struct HistoryView: View {
                 dataVM.refreshCompletedSessions()
             }
         }
+    }
+
+    // MARK: - Trend charts (weekly aggregates)
+    private var trendsChartsSection: some View {
+        Section {
+            if sessionsInRange.isEmpty {
+                Text("Complete workouts to see trends")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
+            } else {
+                VStack(alignment: .leading, spacing: 20) {
+                    workoutsPerWeekChart
+                    volumePerWeekChart
+                    setsPerWeekChart
+                }
+                .padding(.vertical, 8)
+            }
+        } header: {
+            Text("Trends")
+        }
+    }
+
+    private var workoutsPerWeekChart: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Workouts per week")
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
+            Chart(weeklyWorkoutCounts) { row in
+                BarMark(
+                    x: .value("Week", row.weekStart),
+                    y: .value("Workouts", row.count)
+                )
+                .foregroundStyle(.blue.gradient)
+            }
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .weekOfYear)) { _ in
+                    AxisGridLine()
+                    AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                }
+            }
+            .frame(height: 160)
+        }
+    }
+
+    private var volumePerWeekChart: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Volume per week (lb·rep)")
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
+            Chart(weeklyVolume) { row in
+                BarMark(
+                    x: .value("Week", row.weekStart),
+                    y: .value("Volume", row.volume)
+                )
+                .foregroundStyle(.orange.gradient)
+            }
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .weekOfYear)) { _ in
+                    AxisGridLine()
+                    AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                }
+            }
+            .frame(height: 160)
+        }
+    }
+
+    private var setsPerWeekChart: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Sets per week")
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
+            Chart(weeklySetCounts) { row in
+                BarMark(
+                    x: .value("Week", row.weekStart),
+                    y: .value("Sets", row.count)
+                )
+                .foregroundStyle(.green.gradient)
+            }
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .weekOfYear)) { _ in
+                    AxisGridLine()
+                    AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                }
+            }
+            .frame(height: 160)
+        }
+    }
+
+    private struct WeekData: Identifiable {
+        let id: Date
+        let weekStart: Date
+        let count: Int
+    }
+
+    private struct WeekVolumeData: Identifiable {
+        let id: Date
+        let weekStart: Date
+        let volume: Double
+    }
+
+    private var weeklyWorkoutCounts: [WeekData] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: sessionsInRange) { session -> Date in
+            let d = session.endTime ?? session.startTime
+            return calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: d)) ?? d
+        }
+        return grouped
+            .map { WeekData(id: $0.key, weekStart: $0.key, count: $0.value.count) }
+            .sorted { $0.weekStart < $1.weekStart }
+    }
+
+    private var weeklyVolume: [WeekVolumeData] {
+        let calendar = Calendar.current
+        var volumeByWeek: [Date: Double] = [:]
+        for session in sessionsInRange {
+            let d = session.endTime ?? session.startTime
+            let weekStart = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: d)) ?? d
+            let vol = session.exerciseLogs.flatMap(\.loggedSets).reduce(0) { $0 + $1.weight * Double($1.reps) }
+            volumeByWeek[weekStart, default: 0] += vol
+        }
+        return volumeByWeek
+            .map { WeekVolumeData(id: $0.key, weekStart: $0.key, volume: $0.value) }
+            .sorted { $0.weekStart < $1.weekStart }
+    }
+
+    private var weeklySetCounts: [WeekData] {
+        let calendar = Calendar.current
+        var setsByWeek: [Date: Int] = [:]
+        for session in sessionsInRange {
+            let d = session.endTime ?? session.startTime
+            let weekStart = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: d)) ?? d
+            let sets = session.exerciseLogs.reduce(0) { $0 + $1.loggedSets.count }
+            setsByWeek[weekStart, default: 0] += sets
+        }
+        return setsByWeek
+            .map { WeekData(id: $0.key, weekStart: $0.key, count: $0.value) }
+            .sorted { $0.weekStart < $1.weekStart }
     }
     
     // MARK: - Workouts completed in last N days
