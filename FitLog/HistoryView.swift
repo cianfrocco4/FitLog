@@ -196,18 +196,20 @@ struct HistoryView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(sessionsInRange) { session in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(session.workout.name)
-                                .font(.headline)
-                            Text(formatDate(session.endTime ?? session.startTime))
-                                .font(.caption)
+                    NavigationLink(destination: SessionDetailView(session: session)) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(session.workout.name)
+                                    .font(.headline)
+                                Text(formatDate(session.endTime ?? session.startTime))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(durationString(for: session))
+                                .font(.subheadline.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
-                        Spacer()
-                        Text(durationString(for: session))
-                            .font(.subheadline.monospacedDigit())
-                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -228,20 +230,22 @@ struct HistoryView: View {
                 ForEach(sorted, id: \.key) { workoutId, sessions in
                     let name = sessions.first?.workout.name ?? "Unknown"
                     let last = sessions.map(\.endTime).compactMap { $0 }.max()
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(name)
-                                .font(.headline)
-                            if let last = last {
-                                Text("Last: \(formatDate(last))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                    NavigationLink(destination: WorkoutHistoryDetailView(sessions: sessions, workoutName: name)) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(name)
+                                    .font(.headline)
+                                if let last = last {
+                                    Text("Last: \(formatDate(last))")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
+                            Spacer()
+                            Text("\(sessions.count) session\(sessions.count == 1 ? "" : "s")")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
                         }
-                        Spacer()
-                        Text("\(sessions.count) session\(sessions.count == 1 ? "" : "s")")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -259,18 +263,20 @@ struct HistoryView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(stats.sorted(by: { $0.sessions > $1.sessions }), id: \.name) { stat in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(stat.name)
-                            .font(.headline)
-                        HStack(spacing: 16) {
-                            Label("\(stat.sessions) session\(stat.sessions == 1 ? "" : "s")", systemImage: "calendar")
-                            Label("\(stat.totalSets) sets", systemImage: "square.stack.3d.up")
-                            if stat.volume > 0 {
-                                Label("\(Int(stat.volume)) lb·rep", systemImage: "scalemass")
+                    NavigationLink(destination: ExerciseHistoryDetailView(exerciseName: stat.name, sessions: sessionsInRange)) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(stat.name)
+                                .font(.headline)
+                            HStack(spacing: 16) {
+                                Label("\(stat.sessions) session\(stat.sessions == 1 ? "" : "s")", systemImage: "calendar")
+                                Label("\(stat.totalSets) sets", systemImage: "square.stack.3d.up")
+                                if stat.volume > 0 {
+                                    Label("\(Int(stat.volume)) lb·rep", systemImage: "scalemass")
+                                }
                             }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -288,17 +294,19 @@ struct HistoryView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(stats.sorted(by: { $0.sessions > $1.sessions }), id: \.name) { stat in
-                    HStack {
-                        Text(stat.name)
-                            .font(.headline)
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("\(stat.sessions) session\(stat.sessions == 1 ? "" : "s")")
-                            Text("\(stat.exerciseCount) exercise\(stat.exerciseCount == 1 ? "" : "s")")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    NavigationLink(destination: MuscleGroupHistoryDetailView(muscleGroupName: stat.name, sessions: sessionsInRange)) {
+                        HStack {
+                            Text(stat.name)
+                                .font(.headline)
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text("\(stat.sessions) session\(stat.sessions == 1 ? "" : "s")")
+                                Text("\(stat.exerciseCount) exercise\(stat.exerciseCount == 1 ? "" : "s")")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .font(.subheadline)
                         }
-                        .font(.subheadline)
                     }
                 }
             }
@@ -378,5 +386,213 @@ struct HistoryView: View {
         return byGroup.map { name, data in
             MuscleGroupStat(name: name, sessions: data.sessions.count, exerciseCount: data.exercises.count)
         }
+    }
+}
+
+// MARK: - Session detail (single workout session: exercises + logged sets)
+private struct SessionDetailView: View {
+    let session: WorkoutSession
+
+    private var endDate: Date { session.endTime ?? session.startTime }
+
+    var body: some View {
+        List {
+            Section {
+                HStack {
+                    Text("Date")
+                    Spacer()
+                    Text(HistoryView.formatDateStatic(endDate))
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text("Duration")
+                    Spacer()
+                    Text(HistoryView.durationStringStatic(for: session))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            ForEach(session.exerciseLogs) { log in
+                Section(log.workoutExercise.exercise.name) {
+                    ForEach(log.loggedSets) { set in
+                        HStack {
+                            Text("\(Int(set.weight)) lb × \(set.reps) rep\(set.reps == 1 ? "" : "s")")
+                            if set.isWarmup {
+                                Text("Warm-up")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(.quaternary, in: Capsule())
+                            }
+                            Spacer()
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle(session.workout.name)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - Workout history (list of sessions for one workout)
+private struct WorkoutHistoryDetailView: View {
+    let sessions: [WorkoutSession]
+    let workoutName: String
+
+    private var sortedSessions: [WorkoutSession] {
+        sessions.sorted { ($0.endTime ?? $0.startTime) > ($1.endTime ?? $1.startTime) }
+    }
+
+    var body: some View {
+        List(sortedSessions) { session in
+            NavigationLink(destination: SessionDetailView(session: session)) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(HistoryView.formatDateStatic(session.endTime ?? session.startTime))
+                            .font(.headline)
+                        Text("\(session.exerciseLogs.count) exercise\(session.exerciseLogs.count == 1 ? "" : "s")")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text(HistoryView.durationStringStatic(for: session))
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .navigationTitle(workoutName)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - Exercise history (each session where exercise was done + logged sets)
+private struct ExerciseHistoryDetailView: View {
+    let exerciseName: String
+    let sessions: [WorkoutSession]
+
+    private var sessionLogs: [(session: WorkoutSession, log: ExerciseLog)] {
+        sessions.compactMap { session in
+            guard let log = session.exerciseLogs.first(where: { $0.workoutExercise.exercise.name == exerciseName }) else { return nil }
+            return (session, log)
+        }.sorted { ($0.session.endTime ?? $0.session.startTime) > ($1.session.endTime ?? $1.session.startTime) }
+    }
+
+    var body: some View {
+        List {
+            ForEach(sessionLogs, id: \.session.id) { item in
+                Section {
+                    HStack {
+                        Text("Workout")
+                        Spacer()
+                        Text(item.session.workout.name)
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("Date")
+                        Spacer()
+                        Text(HistoryView.formatDateStatic(item.session.endTime ?? item.session.startTime))
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(item.log.loggedSets) { set in
+                        HStack {
+                            Text("\(Int(set.weight)) lb × \(set.reps) rep\(set.reps == 1 ? "" : "s")")
+                            if set.isWarmup {
+                                Text("Warm-up")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(.quaternary, in: Capsule())
+                            }
+                            Spacer()
+                        }
+                    }
+                } header: {
+                    Text(HistoryView.formatDateStatic(item.session.endTime ?? item.session.startTime))
+                }
+            }
+        }
+        .navigationTitle(exerciseName)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - Muscle group history (sessions + exercises that targeted this muscle + sets)
+private struct MuscleGroupHistoryDetailView: View {
+    let muscleGroupName: String
+    let sessions: [WorkoutSession]
+
+    private var sessionLogs: [(session: WorkoutSession, logs: [ExerciseLog])] {
+        sessions.compactMap { session in
+            let logs = session.exerciseLogs.filter { log in
+                log.workoutExercise.exercise.targetedMuscles.contains(where: { $0.rawValue == muscleGroupName })
+                    || (log.workoutExercise.exercise.targetedMuscles.isEmpty && muscleGroupName == MuscleGroup.other.rawValue)
+            }
+            if logs.isEmpty { return nil }
+            return (session, logs)
+        }.sorted { ($0.session.endTime ?? $0.session.startTime) > ($1.session.endTime ?? $1.session.startTime) }
+    }
+
+    var body: some View {
+        List {
+            ForEach(sessionLogs, id: \.session.id) { item in
+                Section {
+                    HStack {
+                        Text("Date")
+                        Spacer()
+                        Text(HistoryView.formatDateStatic(item.session.endTime ?? item.session.startTime))
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("Workout")
+                        Spacer()
+                        Text(item.session.workout.name)
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(item.logs) { log in
+                        DisclosureGroup(log.workoutExercise.exercise.name) {
+                            ForEach(log.loggedSets) { set in
+                                HStack {
+                                    Text("\(Int(set.weight)) lb × \(set.reps) rep\(set.reps == 1 ? "" : "s")")
+                                    if set.isWarmup {
+                                        Text("Warm-up")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(.quaternary, in: Capsule())
+                                    }
+                                    Spacer()
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text(HistoryView.formatDateStatic(item.session.endTime ?? item.session.startTime))
+                }
+            }
+        }
+        .navigationTitle(muscleGroupName)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - Shared formatters (used by detail views)
+extension HistoryView {
+    static func formatDateStatic(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+
+    static func durationStringStatic(for session: WorkoutSession) -> String {
+        let end = session.endTime ?? session.startTime
+        let secs = Int(end.timeIntervalSince(session.startTime))
+        let m = secs / 60
+        let s = secs % 60
+        return String(format: "%d:%02d", m, s)
     }
 }
