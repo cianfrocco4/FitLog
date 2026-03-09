@@ -69,15 +69,13 @@ struct ExercisesLibraryView: View {
                                 }
                             }
                         }
-                        .contextMenu {
-                            if ex.isCustom {
-                                Button {
-                                    exerciseToEdit = EditableExerciseItem(exercise: ex)
-                                } label: {
-                                    Label("Edit", systemImage: "pencil")
-                                }
-                            }
-                        }
+                .contextMenu {
+                    Button {
+                        exerciseToEdit = EditableExerciseItem(exercise: ex)
+                    } label: {
+                        Label(ex.isCustom ? "Edit" : "Configuration options", systemImage: "pencil")
+                    }
+                }
                     }
                 }
             }

@@ -132,7 +132,7 @@ struct CurrentWorkoutPullUpSheet: View {
                                             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                                     } else {
                                         ForEach(log.loggedSets.indices, id: \.self) { setIndex in
-                                            setRow(set: log.loggedSets[setIndex])
+                                            setRow(set: log.loggedSets[setIndex], exercise: log.workoutExercise.exercise)
                                                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                                                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                                     Button("Delete", role: .destructive) {
@@ -225,31 +225,39 @@ struct CurrentWorkoutPullUpSheet: View {
     }
     
     private func previousSessionSummaryRow(previousLog: ExerciseLog) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let ex = previousLog.workoutExercise.exercise
+        return VStack(alignment: .leading, spacing: 6) {
             Text("Last time for this exercise")
                 .font(.subheadline)
                 .fontWeight(.semibold)
             ForEach(previousLog.loggedSets.indices, id: \.self) { prevIndex in
                 let prevSet = previousLog.loggedSets[prevIndex]
-                HStack {
-                    Text("Set \(prevIndex + 1)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if prevSet.isWarmup {
-                        Text("Warm-up")
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text("Set \(prevIndex + 1)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if prevSet.isWarmup {
+                            Text("Warm-up")
+                                .font(.caption2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.orange.opacity(0.15))
+                                .foregroundStyle(.orange)
+                                .clipShape(Capsule())
+                        }
+                        Spacer()
+                        Text("\(prevSet.weight, specifier: "%.1f") lbs × \(prevSet.reps)")
+                            .font(.caption)
+                        Text("• \(prevSet.restTime)s rest")
                             .font(.caption2)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.orange.opacity(0.15))
-                            .foregroundStyle(.orange)
-                            .clipShape(Capsule())
+                            .foregroundStyle(.secondary)
                     }
-                    Spacer()
-                    Text("\(prevSet.weight, specifier: "%.1f") lbs × \(prevSet.reps)")
-                        .font(.caption)
-                    Text("• \(prevSet.restTime)s rest")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    if !prevSet.configurationSummary(options: ex.configurationOptions).isEmpty {
+                        Text(prevSet.configurationSummary(options: ex.configurationOptions))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
@@ -259,24 +267,31 @@ struct CurrentWorkoutPullUpSheet: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
     }
-    
-    private func setRow(set: LoggedSet) -> some View {
-        HStack {
-            Text("\(set.weight, specifier: "%.1f") lbs × \(set.reps)")
-                .font(.body)
-            if set.isWarmup {
-                Text("Warm-up")
-                    .font(.caption2)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.orange.opacity(0.15))
-                    .foregroundStyle(.orange)
-                    .clipShape(Capsule())
+
+    private func setRow(set: LoggedSet, exercise: Exercise) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("\(set.weight, specifier: "%.1f") lbs × \(set.reps)")
+                    .font(.body)
+                if set.isWarmup {
+                    Text("Warm-up")
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.orange.opacity(0.15))
+                        .foregroundStyle(.orange)
+                        .clipShape(Capsule())
+                }
+                Spacer()
+                Text("Rest: \(set.restTime)s")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            Spacer()
-            Text("Rest: \(set.restTime)s")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if !set.configurationSummary(options: exercise.configurationOptions).isEmpty {
+                Text(set.configurationSummary(options: exercise.configurationOptions))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(10)
         .background(Color.gray.opacity(0.1))

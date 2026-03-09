@@ -33,16 +33,16 @@ struct ExerciseDetailView: View {
                     .padding()
                 }
                 .toolbar {
-                    if ex.isCustom {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Edit") {
-                                showEditSheet = true
-                            }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(ex.isCustom ? "Edit" : "Configuration options") {
+                            showEditSheet = true
                         }
                     }
                 }
                 .sheet(isPresented: $showEditSheet) {
-                    EditExerciseSheet(exercise: ex)
+                    if let ex = exercise {
+                        EditExerciseSheet(exercise: ex)
+                    }
                 }
             } else {
                 ContentUnavailableView(

@@ -88,8 +88,8 @@ final class DataManager: ObservableObject {
     }
     
     // MARK: - Global Exercises (now 60+ default)
-    func addNewExercise(name: String, description: String, muscles: [MuscleGroup]) {
-        let new = Exercise(id: UUID(), name: name, description: description, targetedMuscles: muscles, isCustom: true)
+    func addNewExercise(name: String, description: String, muscles: [MuscleGroup], configurationOptions: [ExerciseConfigurationOption] = []) {
+        let new = Exercise(id: UUID(), name: name, description: description, targetedMuscles: muscles, isCustom: true, configurationOptions: configurationOptions)
         globalExercises.append(new)
         saveExercises()
     }

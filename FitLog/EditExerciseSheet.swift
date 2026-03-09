@@ -7,68 +7,52 @@
 
 import SwiftUI
 
+private struct ConfigOptionEditRow: Identifiable {
+    var id: UUID = UUID()
+    var name: String = ""
+    var choicesString: String = ""
+}
+
 struct EditExerciseSheet: View {
     @EnvironmentObject var dataVM: DataManager
     @Environment(\.dismiss) var dismiss
-    
+
     let exercise: Exercise
-    
+
     @State private var name: String
     @State private var description: String
     @State private var selectedMuscles: [MuscleGroup]
+    @State private var configRows: [ConfigOptionEditRow]
     @State private var showMusclePicker = false
     @State private var showDeleteConfirmation = false
-    
+
     init(exercise: Exercise) {
         self.exercise = exercise
         _name = State(initialValue: exercise.name)
         _description = State(initialValue: exercise.description)
         _selectedMuscles = State(initialValue: exercise.targetedMuscles)
+        _configRows = State(initialValue: exercise.configurationOptions.map { opt in
+            ConfigOptionEditRow(id: opt.id, name: opt.name, choicesString: opt.choices.joined(separator: ", "))
+        })
     }
     
     private var availableMuscles: [MuscleGroup] {
         MuscleGroup.displayOrder.filter { !selectedMuscles.contains($0) }
     }
-    
+
+    private var isBuiltIn: Bool { !exercise.isCustom }
+
     var body: some View {
         NavigationStack {
             Form {
-                Section("Exercise Info") {
-                    TextField("Name", text: $name)
-                    TextField("Description", text: $description, axis: .vertical)
-                }
-                Section("Muscle Groups (up to 3, in order of applicability)") {
-                    ForEach(selectedMuscles.indices, id: \.self) { index in
-                        HStack {
-                            Text("\(index + 1).")
-                                .foregroundStyle(.secondary)
-                                .frame(width: 20, alignment: .leading)
-                            Text(selectedMuscles[index].rawValue)
-                            Spacer()
-                            Button(role: .destructive) {
-                                selectedMuscles.remove(at: index)
-                            } label: {
-                                Image(systemName: "minus.circle.fill")
-                            }
-                        }
-                    }
-                    if selectedMuscles.count < 3 {
-                        Button {
-                            showMusclePicker = true
-                        } label: {
-                            Label("Add muscle group", systemImage: "plus.circle")
-                        }
-                    }
-                }
-                Section {
-                    Button(role: .destructive) {
-                        showDeleteConfirmation = true
-                    } label: {
-                        Label("Delete Exercise", systemImage: "trash")
-                    }
+                exerciseInfoSection
+                muscleGroupsSection
+                configOptionsSection
+                if exercise.isCustom {
+                    deleteSection
                 }
             }
-            .navigationTitle("Edit Exercise")
+            .navigationTitle(isBuiltIn ? "Configuration options" : "Edit Exercise")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -76,35 +60,13 @@ struct EditExerciseSheet: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") {
-                        let updated = Exercise(
-                            id: exercise.id,
-                            name: name,
-                            description: description,
-                            targetedMuscles: selectedMuscles,
-                            isCustom: true
-                        )
-                        dataVM.updateExercise(updated)
-                        dismiss()
+                        saveAndDismiss()
                     }
-                    .disabled(name.isEmpty)
+                    .disabled(!isBuiltIn && name.isEmpty)
                 }
             }
             .sheet(isPresented: $showMusclePicker) {
-                NavigationStack {
-                    List(availableMuscles) { mg in
-                        Button(mg.rawValue) {
-                            selectedMuscles.append(mg)
-                            showMusclePicker = false
-                        }
-                    }
-                    .navigationTitle("Muscle Group")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button("Cancel") { showMusclePicker = false }
-                        }
-                    }
-                }
+                musclePickerSheet
             }
             .confirmationDialog("Delete Exercise?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) {
@@ -116,5 +78,134 @@ struct EditExerciseSheet: View {
                 Text("This will remove \"\(exercise.name)\" from the library and from any workouts that include it. This cannot be undone.")
             }
         }
+    }
+
+    private var exerciseInfoSection: some View {
+        Section("Exercise Info") {
+            if isBuiltIn {
+                Text(exercise.name)
+                Text(exercise.description)
+                    .foregroundStyle(.secondary)
+            } else {
+                TextField("Name", text: $name)
+                TextField("Description", text: $description, axis: .vertical)
+            }
+        }
+    }
+
+    private var muscleGroupsSection: some View {
+        Section("Muscle Groups (up to 3, in order of applicability)") {
+            if isBuiltIn {
+                ForEach(selectedMuscles.indices, id: \.self) { index in
+                    Text(selectedMuscles[index].rawValue)
+                }
+            } else {
+                ForEach(selectedMuscles.indices, id: \.self) { index in
+                    HStack {
+                        Text("\(index + 1).")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 20, alignment: .leading)
+                        Text(selectedMuscles[index].rawValue)
+                        Spacer()
+                        Button(role: .destructive) {
+                            selectedMuscles.remove(at: index)
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                        }
+                    }
+                }
+                if selectedMuscles.count < 3 {
+                    Button {
+                        showMusclePicker = true
+                    } label: {
+                        Label("Add muscle group", systemImage: "plus.circle")
+                    }
+                }
+            }
+        }
+    }
+
+    private var configOptionsSection: some View {
+        Section {
+            ForEach(configRows.indices, id: \.self) { index in
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField("Option name (e.g. Grip, Seat)", text: $configRows[index].name)
+                    TextField("Choices (comma-separated; leave empty for free-form)", text: $configRows[index].choicesString, axis: .vertical)
+                        .font(.caption)
+                }
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            }
+            Button {
+                configRows.append(ConfigOptionEditRow())
+            } label: {
+                Label("Add configuration option", systemImage: "plus.circle")
+            }
+        } header: {
+            Text("Set options (optional)")
+        } footer: {
+            Text("Track variants per set. Shown when logging a set and in history.")
+        }
+    }
+
+    private var deleteSection: some View {
+        Section {
+            Button(role: .destructive) {
+                showDeleteConfirmation = true
+            } label: {
+                Label("Delete Exercise", systemImage: "trash")
+            }
+        }
+    }
+
+    private var musclePickerSheet: some View {
+        NavigationStack {
+            List(availableMuscles) { mg in
+                Button(mg.rawValue) {
+                    selectedMuscles.append(mg)
+                    showMusclePicker = false
+                }
+            }
+            .navigationTitle("Muscle Group")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { showMusclePicker = false }
+                }
+            }
+        }
+    }
+
+    private func saveAndDismiss() {
+        let opts = configRows
+            .filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
+            .map { row in
+                let choices = row.choicesString
+                    .split(separator: ",")
+                    .map { String($0.trimmingCharacters(in: .whitespaces)) }
+                    .filter { !$0.isEmpty }
+                return ExerciseConfigurationOption(id: row.id, name: row.name.trimmingCharacters(in: .whitespaces), choices: choices)
+            }
+        let updated: Exercise
+        if isBuiltIn {
+            updated = Exercise(
+                id: exercise.id,
+                name: exercise.name,
+                description: exercise.description,
+                targetedMuscles: exercise.targetedMuscles,
+                isCustom: false,
+                configurationOptions: opts
+            )
+        } else {
+            updated = Exercise(
+                id: exercise.id,
+                name: name,
+                description: description,
+                targetedMuscles: selectedMuscles,
+                isCustom: true,
+                configurationOptions: opts
+            )
+        }
+        dataVM.updateExercise(updated)
+        dismiss()
     }
 }

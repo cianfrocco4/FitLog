@@ -412,19 +412,27 @@ private struct SessionDetailView: View {
                 }
             }
             ForEach(session.exerciseLogs) { log in
+                let ex = log.workoutExercise.exercise
                 Section(log.workoutExercise.exercise.name) {
                     ForEach(log.loggedSets) { set in
-                        HStack {
-                            Text("\(Int(set.weight)) lb × \(set.reps) rep\(set.reps == 1 ? "" : "s")")
-                            if set.isWarmup {
-                                Text("Warm-up")
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("\(Int(set.weight)) lb × \(set.reps) rep\(set.reps == 1 ? "" : "s")")
+                                if set.isWarmup {
+                                    Text("Warm-up")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(.quaternary, in: Capsule())
+                                }
+                                Spacer()
+                            }
+                            if !set.configurationSummary(options: ex.configurationOptions).isEmpty {
+                                Text(set.configurationSummary(options: ex.configurationOptions))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.quaternary, in: Capsule())
                             }
-                            Spacer()
                         }
                     }
                 }
@@ -496,17 +504,25 @@ private struct ExerciseHistoryDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(item.log.loggedSets) { set in
-                        HStack {
-                            Text("\(Int(set.weight)) lb × \(set.reps) rep\(set.reps == 1 ? "" : "s")")
-                            if set.isWarmup {
-                                Text("Warm-up")
+                        let ex = item.log.workoutExercise.exercise
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("\(Int(set.weight)) lb × \(set.reps) rep\(set.reps == 1 ? "" : "s")")
+                                if set.isWarmup {
+                                    Text("Warm-up")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(.quaternary, in: Capsule())
+                                }
+                                Spacer()
+                            }
+                            if !set.configurationSummary(options: ex.configurationOptions).isEmpty {
+                                Text(set.configurationSummary(options: ex.configurationOptions))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.quaternary, in: Capsule())
                             }
-                            Spacer()
                         }
                     }
                 } header: {
@@ -552,19 +568,27 @@ private struct MuscleGroupHistoryDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(item.logs) { log in
+                        let ex = log.workoutExercise.exercise
                         DisclosureGroup(log.workoutExercise.exercise.name) {
                             ForEach(log.loggedSets) { set in
-                                HStack {
-                                    Text("\(Int(set.weight)) lb × \(set.reps) rep\(set.reps == 1 ? "" : "s")")
-                                    if set.isWarmup {
-                                        Text("Warm-up")
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text("\(Int(set.weight)) lb × \(set.reps) rep\(set.reps == 1 ? "" : "s")")
+                                        if set.isWarmup {
+                                            Text("Warm-up")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(.quaternary, in: Capsule())
+                                        }
+                                        Spacer()
+                                    }
+                                    if !set.configurationSummary(options: ex.configurationOptions).isEmpty {
+                                        Text(set.configurationSummary(options: ex.configurationOptions))
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
-                                            .background(.quaternary, in: Capsule())
                                     }
-                                    Spacer()
                                 }
                             }
                         }
