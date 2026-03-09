@@ -64,7 +64,40 @@ struct Exercise: Identifiable, Codable, Equatable, Hashable {
     let id: UUID
     var name: String
     var description: String
-    var targetedMuscles: [String]
+    var targetedMuscles: [MuscleGroup]
+    /// True when the exercise was added by the user (editable/deletable in the library).
+    var isCustom: Bool
+    
+    init(id: UUID, name: String, description: String, targetedMuscles: [MuscleGroup], isCustom: Bool = false) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.targetedMuscles = targetedMuscles
+        self.isCustom = isCustom
+    }
+    
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        description = try c.decode(String.self, forKey: .description)
+        let strings = try c.decode([String].self, forKey: .targetedMuscles)
+        targetedMuscles = strings.map { MuscleGroup(rawValue: $0) ?? .other }
+        isCustom = (try? c.decode(Bool.self, forKey: .isCustom)) ?? false
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(description, forKey: .description)
+        try c.encode(targetedMuscles.map(\.rawValue), forKey: .targetedMuscles)
+        try c.encode(isCustom, forKey: .isCustom)
+    }
+    
+    private enum CodingKeys: String, CodingKey {
+        case id, name, description, targetedMuscles, isCustom
+    }
 }
 
 struct WorkoutExercise: Identifiable, Codable, Equatable {

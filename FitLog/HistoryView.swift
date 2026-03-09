@@ -223,10 +223,11 @@ struct HistoryView: View {
                     byGroup[g] = e
                 } else {
                     for m in muscles {
-                        var e = byGroup[m] ?? (sessions: [], exercises: [])
+                        let key = m.rawValue
+                        var e = byGroup[key] ?? (sessions: [], exercises: [])
                         e.sessions.insert(session.id)
                         e.exercises.insert(log.workoutExercise.exercise.id)
-                        byGroup[m] = e
+                        byGroup[key] = e
                     }
                 }
             }

@@ -55,7 +55,7 @@ struct WorkoutPlanView: View {
     private var displayedSections: [(String, [ExerciseDisplayItem])] {
         let enumerated = workout.exercises.enumerated().map { ExerciseDisplayItem(workoutExercise: $0.element, sourceIndex: $0.offset) }
         let grouped = Dictionary(grouping: enumerated) { item -> String in
-            item.workoutExercise.exercise.targetedMuscles.first ?? "Other"
+            item.workoutExercise.exercise.targetedMuscles.first?.rawValue ?? MuscleGroup.other.rawValue
         }
         return grouped.keys.sorted().map { key in
             (key, (grouped[key] ?? []).sorted { $0.workoutExercise.exercise.name.localizedCaseInsensitiveCompare($1.workoutExercise.exercise.name) == .orderedAscending })
