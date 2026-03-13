@@ -97,6 +97,12 @@ struct CurrentWorkoutPullUpSheet: View {
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(log.workoutExercise.exercise.name)
                                                 .font(.headline)
+                                            HStack(spacing: 6) {
+                                                statusDot(for: log)
+                                                Text(statusText(for: log))
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
                                             Text("Rec: \(log.workoutExercise.recommendedSets) × \(log.workoutExercise.recommendedReps)")
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)
@@ -120,13 +126,29 @@ struct CurrentWorkoutPullUpSheet: View {
                                     if let previousLog = lastCompletedLog(for: log) {
                                         previousSessionSummaryRow(previousLog: previousLog)
                                     }
-                                    Button("Add New Set") {
-                                        selectedExerciseIndex = index
-                                        showLogSetSheet = true
+                                    HStack(spacing: 12) {
+                                        Button("Add New Set") {
+                                            selectedExerciseIndex = index
+                                            showLogSetSheet = true
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                        .tint(.blue)
+
+                                        Menu {
+                                            Button("Set as current") {
+                                                currentVM.setPrimaryExercise(exerciseId: log.workoutExercise.exercise.id)
+                                            }
+                                            Button(statusSupersetToggleTitle(for: log)) {
+                                                currentVM.toggleSupersetExercise(exerciseId: log.workoutExercise.exercise.id)
+                                            }
+                                            Button("Mark completed") {
+                                                currentVM.markExerciseCompleted(exerciseId: log.workoutExercise.exercise.id)
+                                            }
+                                        } label: {
+                                            Label("More", systemImage: "ellipsis.circle")
+                                        }
                                     }
-                                    .buttonStyle(.borderedProminent)
-                                    .tint(.blue)
-                                    .frame(maxWidth: .infinity)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                                     if log.loggedSets.isEmpty {
                                         Text("No sets logged yet")
@@ -357,5 +379,63 @@ struct CurrentWorkoutPullUpSheet: View {
             return "\(field): \(value)"
         }
         return parts.joined(separator: ", ")
+    }
+
+    // MARK: - Status helpers
+
+    private func isExerciseActive(_ log: ExerciseLog) -> Bool {
+        guard let session = currentVM.currentSession else { return false }
+        let id = log.workoutExercise.exercise.id
+        return session.activeExerciseIds.contains(id)
+    }
+
+    private func isExerciseCompleted(_ log: ExerciseLog) -> Bool {
+        guard let session = currentVM.currentSession else { return false }
+        let id = log.workoutExercise.exercise.id
+        return session.completedExerciseIds.contains(id)
+    }
+
+    private func isPrimaryExercise(_ log: ExerciseLog) -> Bool {
+        guard let session = currentVM.currentSession else { return false }
+        let id = log.workoutExercise.exercise.id
+        return session.activeExerciseIds.first == id
+    }
+
+    private func statusText(for log: ExerciseLog) -> String {
+        if isExerciseCompleted(log) {
+            return "Completed"
+        }
+        if isPrimaryExercise(log) {
+            return "Current"
+        }
+        if isExerciseActive(log) {
+            return "Superset"
+        }
+        if !log.loggedSets.isEmpty {
+            return "In progress"
+        }
+        return "Not started"
+    }
+
+    private func statusDot(for log: ExerciseLog) -> some View {
+        let color: Color
+        if isExerciseCompleted(log) {
+            color = .gray
+        } else if isPrimaryExercise(log) {
+            color = .green
+        } else if isExerciseActive(log) {
+            color = .blue
+        } else if !log.loggedSets.isEmpty {
+            color = .orange
+        } else {
+            color = .secondary
+        }
+        return Circle()
+            .fill(color)
+            .frame(width: 8, height: 8)
+    }
+
+    private func statusSupersetToggleTitle(for log: ExerciseLog) -> String {
+        isExerciseActive(log) ? "Remove from superset" : "Add to superset"
     }
 }

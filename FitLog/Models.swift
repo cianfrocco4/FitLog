@@ -197,6 +197,10 @@ struct WorkoutSession: Identifiable, Codable {
     var startTime: Date
     var endTime: Date?
     var exerciseLogs: [ExerciseLog]
+    /// IDs of exercises in this workout that are currently considered \"active\" (in progress).
+    var activeExerciseIds: [UUID] = []
+    /// IDs of exercises in this workout that the user has explicitly marked as completed.
+    var completedExerciseIds: [UUID] = []
     var isCompleted: Bool { endTime != nil }
 }
 

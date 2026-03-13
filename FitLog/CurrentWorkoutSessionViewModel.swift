@@ -40,6 +40,11 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     var isInProgress: Bool { currentSession != nil && currentSession?.endTime == nil }
     var isWorkoutPaused: Bool { workoutPausedAt != nil }
     
+    /// ID of the primary \"current\" exercise (first in the active list), if any.
+    var primaryActiveExerciseId: UUID? {
+        currentSession?.activeExerciseIds.first
+    }
+    
     init() {
         restoreActiveSessionIfNeeded()
     }
@@ -48,7 +53,12 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         let logs = workout.exercises.map { ex in
             ExerciseLog(id: UUID(), workoutExercise: ex, loggedSets: [])
         }
-        currentSession = WorkoutSession(id: UUID(), workout: workout, startTime: Date(), endTime: nil, exerciseLogs: logs)
+        var session = WorkoutSession(id: UUID(), workout: workout, startTime: Date(), endTime: nil, exerciseLogs: logs)
+        if let firstId = workout.exercises.first?.exercise.id {
+            session.activeExerciseIds = [firstId]
+        }
+        session.completedExerciseIds = []
+        currentSession = session
         totalPausedDuration = 0
         workoutPausedAt = nil
         recordWorkoutActivity()
@@ -206,8 +216,29 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
 
         let set = LoggedSet(id: UUID(), weight: weight, reps: reps, restTime: restTime, timestamp: Date(), isWarmup: isWarmup, configuration: configuration)
         session.exerciseLogs[exerciseIndex].loggedSets.append(set)
-        currentSession = session
 
+        let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exercise.id
+        let isAlreadyActive = session.activeExerciseIds.contains(exId)
+
+        // If logging a set on a different, not-yet-active exercise, complete the previous primary
+        // and switch the primary to this exercise.
+        if let current = session.activeExerciseIds.first,
+           current != exId,
+           !isAlreadyActive {
+            if !session.completedExerciseIds.contains(current) {
+                session.completedExerciseIds.append(current)
+            }
+            session.activeExerciseIds.removeAll { $0 == current }
+        }
+
+        // Ensure this exercise is active and primary.
+        session.activeExerciseIds.removeAll { $0 == exId }
+        session.activeExerciseIds.insert(exId, at: 0)
+
+        // Once we log a set again, it is no longer considered explicitly completed.
+        session.completedExerciseIds.removeAll { $0 == exId }
+
+        currentSession = session
         recordWorkoutActivity()
 
         // Start live countdown
@@ -266,6 +297,12 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         guard var session = currentSession, exerciseIndex < session.exerciseLogs.count, setIndex < session.exerciseLogs[exerciseIndex].loggedSets.count else { return }
         
         session.exerciseLogs[exerciseIndex].loggedSets.remove(at: setIndex)
+        let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exercise.id
+        // If no sets remain, this exercise is no longer active or completed.
+        if session.exerciseLogs[exerciseIndex].loggedSets.isEmpty {
+            session.activeExerciseIds.removeAll { $0 == exId }
+            session.completedExerciseIds.removeAll { $0 == exId }
+        }
         currentSession = session
         recordWorkoutActivity()
     }
@@ -342,5 +379,45 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [id])
         }
         inactivityNotificationIdentifier = nil
+    }
+
+    // MARK: - Exercise status helpers (current / superset)
+
+    /// Mark the given exercise as the primary current exercise and ensure it's active.
+    func setPrimaryExercise(exerciseId: UUID) {
+        guard var session = currentSession else { return }
+        // Ensure in active list
+        if !session.activeExerciseIds.contains(exerciseId) {
+            session.activeExerciseIds.append(exerciseId)
+        }
+        // Move to front to make it primary
+        session.activeExerciseIds.removeAll { $0 == exerciseId }
+        session.activeExerciseIds.insert(exerciseId, at: 0)
+        currentSession = session
+        recordWorkoutActivity()
+    }
+
+    /// Toggle this exercise in the superset list (activeExerciseIds) without changing primary.
+    func toggleSupersetExercise(exerciseId: UUID) {
+        guard var session = currentSession else { return }
+        if let idx = session.activeExerciseIds.firstIndex(of: exerciseId) {
+            session.activeExerciseIds.remove(at: idx)
+        } else {
+            session.activeExerciseIds.append(exerciseId)
+        }
+        currentSession = session
+        recordWorkoutActivity()
+    }
+
+    /// Explicitly mark an exercise as completed; it will be shown as completed in the UI.
+    func markExerciseCompleted(exerciseId: UUID) {
+        guard var session = currentSession else { return }
+        if !session.completedExerciseIds.contains(exerciseId) {
+            session.completedExerciseIds.append(exerciseId)
+        }
+        // Once completed, it's no longer active unless user reactivates via logging or toggle.
+        session.activeExerciseIds.removeAll { $0 == exerciseId }
+        currentSession = session
+        recordWorkoutActivity()
     }
 }
