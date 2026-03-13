@@ -20,6 +20,8 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     @Published var remainingRestTime: Int = 0
     /// Elapsed workout time in seconds (excluding paused time). Updates every second when running.
     @Published var workoutElapsedSeconds: Int = 0
+    /// Set to true when a rest countdown naturally reaches zero (not when cancelled).
+    @Published var showRestCompleteAlert: Bool = false
     
     private var restTimer: Timer?
     private var workoutTimer: Timer?
@@ -216,7 +218,8 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             if self.remainingRestTime <= 0 {
                 self.restTimer?.invalidate()
                 self.restTimer = nil
-                // Optional: play sound or haptic here
+                // Trigger in-app alert for rest completion.
+                self.showRestCompleteAlert = true
             }
         }
     }
@@ -225,6 +228,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         restTimer?.invalidate()
         restTimer = nil
         remainingRestTime = 0
+        showRestCompleteAlert = false
     }
     
     private func scheduleRestNotification(seconds: Int) {

@@ -173,6 +173,21 @@ struct CurrentWorkoutPullUpSheet: View {
                         .environmentObject(currentVM)
                 }
             }
+            .alert(
+                "Rest over",
+                isPresented: Binding(
+                    get: { currentVM.showRestCompleteAlert },
+                    set: { newValue in
+                        currentVM.showRestCompleteAlert = newValue
+                    }
+                )
+            ) {
+                Button("OK", role: .cancel) {
+                    currentVM.showRestCompleteAlert = false
+                }
+            } message: {
+                Text("Time for your next set.")
+            }
         }
     }
 
