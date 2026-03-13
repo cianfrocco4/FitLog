@@ -14,8 +14,11 @@ final class DataManager: ObservableObject {
     @Published var completedSessions: [WorkoutSession] = []
     
     private let workoutsKey = "userWorkouts"
+    /// One-time backup of the raw workouts payload, used for recovery if a future schema change breaks decoding.
+    private let workoutsBackupKey = "userWorkouts_backup_v1"
     private let exercisesKey = "globalExercises"
     private let sessionsKey = "completedSessions"
+    private let sessionsBackupKey = "completedSessions_backup_v1"
     private let exercisesPreloadedKey = "exercisesPreloaded"
     
     init() { loadAll() }
@@ -70,8 +73,19 @@ final class DataManager: ObservableObject {
                 print("✅ Loaded \(decoded.count) workouts from UserDefaults")
             } catch {
                 // IMPORTANT: Do not wipe existing data on decode failure.
-                // Keep the raw data in UserDefaults so a future migration can recover it.
+                // Try to recover from a previous backup snapshot, if available.
                 print("❌ Decoding workouts failed: \(error.localizedDescription)")
+                if let backupData = UserDefaults.standard.data(forKey: workoutsBackupKey) {
+                    do {
+                        let recovered = try JSONDecoder().decode([Workout].self, from: backupData)
+                        userWorkouts = recovered
+                        print("✅ Recovered \(recovered.count) workouts from legacy backup snapshot")
+                        // Re-save to the primary key so the app continues normally.
+                        saveWorkouts()
+                    } catch {
+                        print("❌ Failed to recover workouts from backup: \(error.localizedDescription)")
+                    }
+                }
             }
         } else {
             print("No saved workouts data found in UserDefaults")
@@ -83,6 +97,11 @@ final class DataManager: ObservableObject {
             let data = try JSONEncoder().encode(userWorkouts)
             UserDefaults.standard.set(data, forKey: workoutsKey)
             print("✅ Saved \(userWorkouts.count) workouts to UserDefaults")
+            // Create a one-time backup snapshot for recovery from future schema changes.
+            if UserDefaults.standard.data(forKey: workoutsBackupKey) == nil {
+                UserDefaults.standard.set(data, forKey: workoutsBackupKey)
+                print("💾 Created workouts backup snapshot")
+            }
         } catch {
             print("❌ Encoding failed: \(error.localizedDescription)")
         }
@@ -237,8 +256,20 @@ final class DataManager: ObservableObject {
             do {
                 let decoded = try JSONDecoder().decode([WorkoutSession].self, from: data)
                 completedSessions = decoded
+                print("✅ Loaded \(decoded.count) sessions from UserDefaults")
             } catch {
                 print("❌ Decoding sessions failed: \(error.localizedDescription)")
+                // Attempt to recover from backup snapshot if it exists.
+                if let backupData = UserDefaults.standard.data(forKey: sessionsBackupKey) {
+                    do {
+                        let recovered = try JSONDecoder().decode([WorkoutSession].self, from: backupData)
+                        completedSessions = recovered
+                        print("✅ Recovered \(recovered.count) sessions from legacy backup snapshot")
+                        saveSessions()
+                    } catch {
+                        print("❌ Failed to recover sessions from backup: \(error.localizedDescription)")
+                    }
+                }
             }
         }
     }
@@ -251,6 +282,10 @@ final class DataManager: ObservableObject {
     func saveSessions() {
         if let data = try? JSONEncoder().encode(completedSessions) {
             UserDefaults.standard.set(data, forKey: sessionsKey)
+            if UserDefaults.standard.data(forKey: sessionsBackupKey) == nil {
+                UserDefaults.standard.set(data, forKey: sessionsBackupKey)
+                print("💾 Created sessions backup snapshot")
+            }
         }
     }
     
