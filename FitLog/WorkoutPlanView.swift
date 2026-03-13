@@ -31,12 +31,16 @@ struct WorkoutPlanView: View {
     @Binding var workout: Workout
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @EnvironmentObject var aiService: AIService
     @State private var showLogSheet = false
     @State private var selectedIndex: Int?
     @State private var showAddExercise = false
     @State private var showRenameAlert = false
     @State private var newWorkoutName = ""
     @State private var displayOrder: ExerciseDisplayOrder = .defaultOrder
+    @State private var suggestionsResult: Result<[String], Error>?
+    @State private var suggestionsLoading = false
+    @State private var suggestionsExpanded = true
     
     /// Display list for default and alphabetical (flat). Order is view-only.
     private var displayedItems: [ExerciseDisplayItem] {
@@ -62,44 +66,14 @@ struct WorkoutPlanView: View {
         }
     }
     
-    /// Simple heuristic \"improvement\" suggestions for the current workout.
-    private var improvementSuggestions: [String] {
-        guard !workout.exercises.isEmpty else {
-            return ["Add 4–6 compound and accessory movements that cover all major muscle groups you want to train."]
+    /// Displayed suggestions: from AI when configured and successful, else heuristic.
+    private var displayedSuggestions: [String] {
+        switch suggestionsResult {
+        case .success(let list): return list
+        case .failure, .none: return heuristicImprovementSuggestions(for: workout)
         }
-        
-        var suggestions: [String] = []
-        
-        // Volume by primary muscle group (first targetedMuscle).
-        var setsByMuscle: [MuscleGroup: Int] = [:]
-        for we in workout.exercises {
-            let primary = we.exercise.targetedMuscles.first ?? .other
-            setsByMuscle[primary, default: 0] += we.recommendedSets
-        }
-        
-        let quadSets = (setsByMuscle[.quads] ?? 0)
-        let hamSets = (setsByMuscle[.hamstrings] ?? 0)
-        if quadSets > 0 && hamSets == 0 {
-            suggestions.append("You have quad work but no direct hamstring work; consider adding a hinge or leg curl variation.")
-        }
-        
-        let pushSets = (setsByMuscle[.chest] ?? 0) + (setsByMuscle[.frontDelts] ?? 0) + (setsByMuscle[.triceps] ?? 0)
-        let pullSets = (setsByMuscle[.lats] ?? 0) + (setsByMuscle[.upperBack] ?? 0) + (setsByMuscle[.biceps] ?? 0)
-        if pushSets >= pullSets * 2 && pullSets > 0 {
-            suggestions.append("Push volume is much higher than pull; consider adding rowing or pulldown work to balance your upper body.")
-        }
-        
-        if workout.exercises.count > 8 {
-            suggestions.append("You have a lot of exercises in this workout; consider trimming to 4–6 key movements and adding sets instead.")
-        }
-        
-        if suggestions.isEmpty {
-            suggestions.append("Your workout looks reasonably balanced. Focus on adding small amounts of volume or load over time to progress.")
-        }
-        
-        return suggestions
     }
-    
+
     var body: some View {
         Group {
             if displayOrder == .byMuscleGroup {
@@ -181,15 +155,7 @@ struct WorkoutPlanView: View {
                     indexSet.map { displayedItems[$0] }.forEach { dataVM.deleteExercise(from: workout, exerciseId: $0.workoutExercise.id) }
                 }
             }
-            if !improvementSuggestions.isEmpty {
-                Section("Suggestions") {
-                    ForEach(improvementSuggestions, id: \.self) { suggestion in
-                        Text("• \(suggestion)")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
+            suggestionsSection
             Button("Add Exercise") { showAddExercise = true }
         }
     }
@@ -206,16 +172,43 @@ struct WorkoutPlanView: View {
                     }
                 }
             }
-            if !improvementSuggestions.isEmpty {
-                Section("Suggestions") {
-                    ForEach(improvementSuggestions, id: \.self) { suggestion in
+            suggestionsSection
+            Button("Add Exercise") { showAddExercise = true }
+        }
+    }
+
+    private var suggestionsSection: some View {
+        Section("Suggestions") {
+            Button {
+                Task { await loadSuggestions() }
+            } label: {
+                Label("Get Suggestions", systemImage: "lightbulb")
+            }
+            .disabled(suggestionsLoading)
+            if suggestionsLoading {
+                HStack {
+                    ProgressView()
+                    Text("Loading…")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if suggestionsResult != nil {
+                DisclosureGroup(isExpanded: $suggestionsExpanded) {
+                    if case .failure(let error) = suggestionsResult {
+                        Text(error.localizedDescription)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                    ForEach(displayedSuggestions, id: \.self) { suggestion in
                         Text("• \(suggestion)")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
+                } label: {
+                    Text("Suggestions")
                 }
             }
-            Button("Add Exercise") { showAddExercise = true }
         }
     }
     
@@ -236,6 +229,52 @@ struct WorkoutPlanView: View {
             }
         }
     }
+
+    private func loadSuggestions() async {
+        guard aiService.isConfigured else {
+            suggestionsResult = .success(heuristicImprovementSuggestions(for: workout))
+            return
+        }
+        suggestionsLoading = true
+        suggestionsResult = nil
+        defer { suggestionsLoading = false }
+        do {
+            let list = try await aiService.fetchWorkoutSuggestions(for: workout)
+            suggestionsResult = .success(list)
+        } catch {
+            suggestionsResult = .failure(error)
+        }
+    }
+}
+
+// MARK: - Heuristic fallback suggestions
+private func heuristicImprovementSuggestions(for workout: Workout) -> [String] {
+    guard !workout.exercises.isEmpty else {
+        return ["Add 4–6 compound and accessory movements that cover all major muscle groups you want to train."]
+    }
+    var suggestions: [String] = []
+    var setsByMuscle: [MuscleGroup: Int] = [:]
+    for we in workout.exercises {
+        let primary = we.exercise.targetedMuscles.first ?? .other
+        setsByMuscle[primary, default: 0] += we.recommendedSets
+    }
+    let quadSets = (setsByMuscle[.quads] ?? 0)
+    let hamSets = (setsByMuscle[.hamstrings] ?? 0)
+    if quadSets > 0 && hamSets == 0 {
+        suggestions.append("You have quad work but no direct hamstring work; consider adding a hinge or leg curl variation.")
+    }
+    let pushSets = (setsByMuscle[.chest] ?? 0) + (setsByMuscle[.frontDelts] ?? 0) + (setsByMuscle[.triceps] ?? 0)
+    let pullSets = (setsByMuscle[.lats] ?? 0) + (setsByMuscle[.upperBack] ?? 0) + (setsByMuscle[.biceps] ?? 0)
+    if pushSets >= pullSets * 2 && pullSets > 0 {
+        suggestions.append("Push volume is much higher than pull; consider adding rowing or pulldown work to balance your upper body.")
+    }
+    if workout.exercises.count > 8 {
+        suggestions.append("You have a lot of exercises in this workout; consider trimming to 4–6 key movements and adding sets instead.")
+    }
+    if suggestions.isEmpty {
+        suggestions.append("Your workout looks reasonably balanced. Focus on adding small amounts of volume or load over time to progress.")
+    }
+    return suggestions
 }
 
 struct AddExerciseSheet: View {

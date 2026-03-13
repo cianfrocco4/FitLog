@@ -9,12 +9,23 @@ import SwiftUI
 
 struct ExerciseDetailView: View {
     @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var aiService: AIService
     @Environment(\.dismiss) var dismiss
     let exerciseId: UUID
     @State private var showEditSheet = false
+    @State private var formTipsResult: Result<[String], Error>?
+    @State private var formTipsLoading = false
 
     private var exercise: Exercise? {
         dataVM.globalExercises.first { $0.id == exerciseId }
+    }
+
+    private var displayedFormTips: [String] {
+        switch formTipsResult {
+        case .success(let tips): return tips
+        case .failure: return []
+        case .none: return []
+        }
     }
 
     var body: some View {
@@ -36,14 +47,39 @@ struct ExerciseDetailView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Form tips & cues")
                                 .font(.headline)
-                            ForEach(formTips(for: ex), id: \.self) { tip in
-                                Text("• \(tip)")
-                                    .font(.subheadline)
+                            if formTipsLoading {
+                                ProgressView()
+                                    .padding(.vertical, 4)
+                            } else if case .failure(let error) = formTipsResult {
+                                Text(error.localizedDescription)
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                                ForEach(heuristicFormTips(for: ex), id: \.self) { tip in
+                                    Text("• \(tip)")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Text("(Showing default tips)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            } else if !displayedFormTips.isEmpty {
+                                ForEach(displayedFormTips, id: \.self) { tip in
+                                    Text("• \(tip)")
+                                        .font(.subheadline)
+                                }
+                            } else {
+                                ForEach(heuristicFormTips(for: ex), id: \.self) { tip in
+                                    Text("• \(tip)")
+                                        .font(.subheadline)
+                                }
                             }
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
+                }
+                .task(id: ex.id) {
+                    await loadFormTips(for: ex)
                 }
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -67,10 +103,26 @@ struct ExerciseDetailView: View {
             }
         }
     }
+
+    private func loadFormTips(for ex: Exercise) async {
+        guard aiService.isConfigured else {
+            formTipsResult = .success(heuristicFormTips(for: ex))
+            return
+        }
+        formTipsLoading = true
+        formTipsResult = nil
+        defer { formTipsLoading = false }
+        do {
+            let tips = try await aiService.fetchFormTips(for: ex)
+            formTipsResult = .success(tips)
+        } catch {
+            formTipsResult = .failure(error)
+        }
+    }
 }
 
-// MARK: - Heuristic \"AI-like\" form tips
-private func formTips(for exercise: Exercise) -> [String] {
+// MARK: - Heuristic fallback form tips
+private func heuristicFormTips(for exercise: Exercise) -> [String] {
     let name = exercise.name.lowercased()
     let muscles = exercise.targetedMuscles
     

@@ -16,5 +16,9 @@
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>OPENAI_API_KEY</key>
+	<string></string>
+	<key>FITLOG_AI_BASE_URL</key>
+	<string>https://the-workout-log.onrender.com</string>
 </dict>
 </plist>
