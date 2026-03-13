@@ -62,6 +62,44 @@ struct WorkoutPlanView: View {
         }
     }
     
+    /// Simple heuristic \"improvement\" suggestions for the current workout.
+    private var improvementSuggestions: [String] {
+        guard !workout.exercises.isEmpty else {
+            return ["Add 4–6 compound and accessory movements that cover all major muscle groups you want to train."]
+        }
+        
+        var suggestions: [String] = []
+        
+        // Volume by primary muscle group (first targetedMuscle).
+        var setsByMuscle: [MuscleGroup: Int] = [:]
+        for we in workout.exercises {
+            let primary = we.exercise.targetedMuscles.first ?? .other
+            setsByMuscle[primary, default: 0] += we.recommendedSets
+        }
+        
+        let quadSets = (setsByMuscle[.quads] ?? 0)
+        let hamSets = (setsByMuscle[.hamstrings] ?? 0)
+        if quadSets > 0 && hamSets == 0 {
+            suggestions.append("You have quad work but no direct hamstring work; consider adding a hinge or leg curl variation.")
+        }
+        
+        let pushSets = (setsByMuscle[.chest] ?? 0) + (setsByMuscle[.frontDelts] ?? 0) + (setsByMuscle[.triceps] ?? 0)
+        let pullSets = (setsByMuscle[.lats] ?? 0) + (setsByMuscle[.upperBack] ?? 0) + (setsByMuscle[.biceps] ?? 0)
+        if pushSets >= pullSets * 2 && pullSets > 0 {
+            suggestions.append("Push volume is much higher than pull; consider adding rowing or pulldown work to balance your upper body.")
+        }
+        
+        if workout.exercises.count > 8 {
+            suggestions.append("You have a lot of exercises in this workout; consider trimming to 4–6 key movements and adding sets instead.")
+        }
+        
+        if suggestions.isEmpty {
+            suggestions.append("Your workout looks reasonably balanced. Focus on adding small amounts of volume or load over time to progress.")
+        }
+        
+        return suggestions
+    }
+    
     var body: some View {
         Group {
             if displayOrder == .byMuscleGroup {
@@ -143,6 +181,15 @@ struct WorkoutPlanView: View {
                     indexSet.map { displayedItems[$0] }.forEach { dataVM.deleteExercise(from: workout, exerciseId: $0.workoutExercise.id) }
                 }
             }
+            if !improvementSuggestions.isEmpty {
+                Section("Suggestions") {
+                    ForEach(improvementSuggestions, id: \.self) { suggestion in
+                        Text("• \(suggestion)")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
             Button("Add Exercise") { showAddExercise = true }
         }
     }
@@ -156,6 +203,15 @@ struct WorkoutPlanView: View {
                     }
                     .onDelete { indexSet in
                         indexSet.map { items[$0] }.forEach { dataVM.deleteExercise(from: workout, exerciseId: $0.workoutExercise.id) }
+                    }
+                }
+            }
+            if !improvementSuggestions.isEmpty {
+                Section("Suggestions") {
+                    ForEach(improvementSuggestions, id: \.self) { suggestion in
+                        Text("• \(suggestion)")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
