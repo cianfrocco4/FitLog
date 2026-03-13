@@ -191,6 +191,7 @@ struct AddExerciseSheet: View {
     @State private var selectedExercise: Exercise?
     @State private var recommendedSets = 3
     @State private var recommendedReps = "8-12"
+    @State private var autoPausedWorkout = false
     
     var body: some View {
         NavigationStack {
@@ -209,6 +210,25 @@ struct AddExerciseSheet: View {
                 }
             }
             .navigationTitle("Add Exercise")
+            .onAppear {
+                // To avoid the timer-driven view updates causing the picker to jump back to the top,
+                // temporarily pause the workout (if this workout is currently active) while the sheet is open.
+                if currentVM.isInProgress,
+                   currentVM.currentSession?.workout.id == workout.id,
+                   !currentVM.isWorkoutPaused {
+                    currentVM.pauseWorkout()
+                    autoPausedWorkout = true
+                }
+            }
+            .onDisappear {
+                if autoPausedWorkout,
+                   currentVM.isInProgress,
+                   currentVM.currentSession?.workout.id == workout.id,
+                   currentVM.isWorkoutPaused {
+                    currentVM.resumeWorkout()
+                }
+                autoPausedWorkout = false
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
