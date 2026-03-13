@@ -32,6 +32,10 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     private var totalPausedDuration: TimeInterval = 0
     /// When the user tapped Pause (nil when running).
     private var workoutPausedAt: Date?
+    /// Tracks the most recent user activity within an active workout (logging sets, pausing, etc.).
+    private var lastActivityDate: Date?
+    /// Identifier for the pending \"workout still active\" reminder notification, so it can be rescheduled.
+    private var inactivityNotificationIdentifier: String?
     
     var isInProgress: Bool { currentSession != nil && currentSession?.endTime == nil }
     var isWorkoutPaused: Bool { workoutPausedAt != nil }
@@ -47,6 +51,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         currentSession = WorkoutSession(id: UUID(), workout: workout, startTime: Date(), endTime: nil, exerciseLogs: logs)
         totalPausedDuration = 0
         workoutPausedAt = nil
+        recordWorkoutActivity()
         saveActiveSession()
         saveTimerState()
         startWorkoutTimer()
@@ -72,12 +77,14 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         workoutTimer = nil
         currentSession = nil
         workoutElapsedSeconds = 0
+        clearInactivityReminder()
         clearPersistedActiveSession()
     }
     
     func pauseWorkout() {
         guard currentSession != nil, workoutPausedAt == nil else { return }
         workoutPausedAt = Date()
+        recordWorkoutActivity()
         saveTimerState()
         saveActiveSession()
         workoutTimer?.invalidate()
@@ -89,6 +96,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         guard let pausedAt = workoutPausedAt else { return }
         totalPausedDuration += Date().timeIntervalSince(pausedAt)
         workoutPausedAt = nil
+        recordWorkoutActivity()
         saveTimerState()
         saveActiveSession()
         startWorkoutTimer()
@@ -199,10 +207,12 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         let set = LoggedSet(id: UUID(), weight: weight, reps: reps, restTime: restTime, timestamp: Date(), isWarmup: isWarmup, configuration: configuration)
         session.exerciseLogs[exerciseIndex].loggedSets.append(set)
         currentSession = session
-        
+
+        recordWorkoutActivity()
+
         // Start live countdown
         startRestCountdown(seconds: restTime)
-        
+
         if restTime > 0 {
             scheduleRestNotification(seconds: restTime)
         }
@@ -249,6 +259,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         let emptySet = LoggedSet(id: UUID(), weight: 0.0, reps: 0, restTime: 90, timestamp: Date(), isWarmup: false, configuration: [:])
         session.exerciseLogs[toExerciseIndex].loggedSets.append(emptySet)
         currentSession = session
+        recordWorkoutActivity()
     }
 
     func deleteSet(exerciseIndex: Int, setIndex: Int) {
@@ -256,6 +267,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         
         session.exerciseLogs[exerciseIndex].loggedSets.remove(at: setIndex)
         currentSession = session
+        recordWorkoutActivity()
     }
     
     func appDidEnterBackground() {
@@ -283,5 +295,52 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         if currentSession != nil && workoutPausedAt == nil {
             updateWorkoutElapsed()
         }
+    }
+
+    // MARK: - Inactivity reminder
+
+    /// Call whenever the user performs an action within an active workout (e.g. log set, pause/resume).
+    private func recordWorkoutActivity() {
+        guard isInProgress else {
+            clearInactivityReminder()
+            return
+        }
+        lastActivityDate = Date()
+        scheduleInactivityReminder()
+    }
+
+    /// Schedules (or reschedules) a local notification to remind the user that a workout is still active
+    /// if there is no further activity for 10 minutes.
+    private func scheduleInactivityReminder() {
+        guard isInProgress else {
+            clearInactivityReminder()
+            return
+        }
+
+        // Cancel any existing reminder.
+        if let id = inactivityNotificationIdentifier {
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [id])
+        }
+
+        let newId = UUID().uuidString
+        inactivityNotificationIdentifier = newId
+
+        let content = UNMutableNotificationContent()
+        content.title = "Workout still in progress"
+        content.body = "You have an active workout in The Workout Log. End it if you're finished."
+        content.sound = .default
+
+        // Fire in 10 minutes unless more activity occurs (which will reschedule).
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 10 * 60, repeats: false)
+        let request = UNNotificationRequest(identifier: newId, content: content, trigger: trigger)
+
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    private func clearInactivityReminder() {
+        if let id = inactivityNotificationIdentifier {
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [id])
+        }
+        inactivityNotificationIdentifier = nil
     }
 }
