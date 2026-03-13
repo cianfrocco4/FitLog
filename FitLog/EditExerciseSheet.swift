@@ -7,12 +7,6 @@
 
 import SwiftUI
 
-private struct ConfigOptionEditRow: Identifiable {
-    var id: UUID = UUID()
-    var name: String = ""
-    var choicesString: String = ""
-}
-
 struct EditExerciseSheet: View {
     @EnvironmentObject var dataVM: DataManager
     @Environment(\.dismiss) var dismiss
@@ -22,7 +16,6 @@ struct EditExerciseSheet: View {
     @State private var name: String
     @State private var description: String
     @State private var selectedMuscles: [MuscleGroup]
-    @State private var configRows: [ConfigOptionEditRow]
     @State private var showMusclePicker = false
     @State private var showDeleteConfirmation = false
 
@@ -31,9 +24,6 @@ struct EditExerciseSheet: View {
         _name = State(initialValue: exercise.name)
         _description = State(initialValue: exercise.description)
         _selectedMuscles = State(initialValue: exercise.targetedMuscles)
-        _configRows = State(initialValue: exercise.configurationOptions.map { opt in
-            ConfigOptionEditRow(id: opt.id, name: opt.name, choicesString: opt.choices.joined(separator: ", "))
-        })
     }
     
     private var availableMuscles: [MuscleGroup] {
@@ -47,7 +37,6 @@ struct EditExerciseSheet: View {
             Form {
                 exerciseInfoSection
                 muscleGroupsSection
-                configOptionsSection
                 if exercise.isCustom {
                     deleteSection
                 }
@@ -125,28 +114,6 @@ struct EditExerciseSheet: View {
         }
     }
 
-    private var configOptionsSection: some View {
-        Section {
-            ForEach(configRows.indices, id: \.self) { index in
-                VStack(alignment: .leading, spacing: 8) {
-                    TextField("Option name (e.g. Grip, Seat)", text: $configRows[index].name)
-                    TextField("Choices (comma-separated; leave empty for free-form)", text: $configRows[index].choicesString, axis: .vertical)
-                        .font(.caption)
-                }
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-            }
-            Button {
-                configRows.append(ConfigOptionEditRow())
-            } label: {
-                Label("Add configuration option", systemImage: "plus.circle")
-            }
-        } header: {
-            Text("Set options (optional)")
-        } footer: {
-            Text("Track variants per set. Shown when logging a set and in history.")
-        }
-    }
-
     private var deleteSection: some View {
         Section {
             Button(role: .destructive) {
@@ -176,15 +143,6 @@ struct EditExerciseSheet: View {
     }
 
     private func saveAndDismiss() {
-        let opts = configRows
-            .filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
-            .map { row in
-                let choices = row.choicesString
-                    .split(separator: ",")
-                    .map { String($0.trimmingCharacters(in: .whitespaces)) }
-                    .filter { !$0.isEmpty }
-                return ExerciseConfigurationOption(id: row.id, name: row.name.trimmingCharacters(in: .whitespaces), choices: choices)
-            }
         let updated: Exercise
         if isBuiltIn {
             updated = Exercise(
@@ -193,7 +151,7 @@ struct EditExerciseSheet: View {
                 description: exercise.description,
                 targetedMuscles: exercise.targetedMuscles,
                 isCustom: false,
-                configurationOptions: opts
+                configurationOptions: exercise.configurationOptions
             )
         } else {
             updated = Exercise(
@@ -202,7 +160,7 @@ struct EditExerciseSheet: View {
                 description: description,
                 targetedMuscles: selectedMuscles,
                 isCustom: true,
-                configurationOptions: opts
+                configurationOptions: exercise.configurationOptions
             )
         }
         dataVM.updateExercise(updated)

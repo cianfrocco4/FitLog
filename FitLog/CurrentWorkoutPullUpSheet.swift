@@ -114,6 +114,9 @@ struct CurrentWorkoutPullUpSheet: View {
                                 .buttonStyle(.plain)
                                 .foregroundStyle(.primary)
                                 if isExpanded {
+                                    if !log.workoutExercise.configurationFields.isEmpty {
+                                        recommendedConfigurationRow(for: log.workoutExercise)
+                                    }
                                     if let previousLog = lastCompletedLog(for: log) {
                                         previousSessionSummaryRow(previousLog: previousLog)
                                     }
@@ -132,7 +135,7 @@ struct CurrentWorkoutPullUpSheet: View {
                                             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                                     } else {
                                         ForEach(log.loggedSets.indices, id: \.self) { setIndex in
-                                            setRow(set: log.loggedSets[setIndex], exercise: log.workoutExercise.exercise)
+                                            setRow(set: log.loggedSets[setIndex], workoutExercise: log.workoutExercise)
                                                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                                                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                                     Button("Delete", role: .destructive) {
@@ -240,7 +243,7 @@ struct CurrentWorkoutPullUpSheet: View {
     }
     
     private func previousSessionSummaryRow(previousLog: ExerciseLog) -> some View {
-        let ex = previousLog.workoutExercise.exercise
+        let we = previousLog.workoutExercise
         return VStack(alignment: .leading, spacing: 6) {
             Text("Last time for this exercise")
                 .font(.subheadline)
@@ -268,8 +271,8 @@ struct CurrentWorkoutPullUpSheet: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
-                    if !prevSet.configurationSummary(options: ex.configurationOptions).isEmpty {
-                        Text(prevSet.configurationSummary(options: ex.configurationOptions))
+                    if !prevSet.configurationSummary(fieldNames: we.configurationFields).isEmpty {
+                        Text(prevSet.configurationSummary(fieldNames: we.configurationFields))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -283,7 +286,7 @@ struct CurrentWorkoutPullUpSheet: View {
         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
     }
 
-    private func setRow(set: LoggedSet, exercise: Exercise) -> some View {
+    private func setRow(set: LoggedSet, workoutExercise: WorkoutExercise) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text("\(set.weight, specifier: "%.1f") lbs × \(set.reps)")
@@ -302,8 +305,8 @@ struct CurrentWorkoutPullUpSheet: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            if !set.configurationSummary(options: exercise.configurationOptions).isEmpty {
-                Text(set.configurationSummary(options: exercise.configurationOptions))
+            if !set.configurationSummary(fieldNames: workoutExercise.configurationFields).isEmpty {
+                Text(set.configurationSummary(fieldNames: workoutExercise.configurationFields))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -311,5 +314,48 @@ struct CurrentWorkoutPullUpSheet: View {
         .padding(10)
         .background(Color.gray.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// Shows the recommended configuration for each set in this workout, if any.
+    private func recommendedConfigurationRow(for workoutExercise: WorkoutExercise) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Recommended configuration for this workout")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+            ForEach(Array(0..<workoutExercise.recommendedSets), id: \.self) { setIndex in
+                let summary = configurationSummaryForSet(workoutExercise: workoutExercise, setIndex: setIndex)
+                HStack(alignment: .top, spacing: 8) {
+                    Text("Set \(setIndex + 1)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 48, alignment: .leading)
+                    if summary.isEmpty {
+                        Text("—")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    } else {
+                        Text(summary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+    }
+
+    private func configurationSummaryForSet(workoutExercise: WorkoutExercise, setIndex: Int) -> String {
+        guard setIndex < workoutExercise.recommendedConfigBySet.count else { return "" }
+        let config = workoutExercise.recommendedConfigBySet[setIndex]
+        guard !config.isEmpty else { return "" }
+        let parts: [String] = workoutExercise.configurationFields.compactMap { (field: String) -> String? in
+            guard let value = config[field], !value.isEmpty else { return nil }
+            return "\(field): \(value)"
+        }
+        return parts.joined(separator: ", ")
     }
 }

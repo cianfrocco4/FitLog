@@ -69,8 +69,9 @@ final class DataManager: ObservableObject {
                 userWorkouts = decoded
                 print("✅ Loaded \(decoded.count) workouts from UserDefaults")
             } catch {
-                print("❌ Decoding failed: \(error.localizedDescription)")
-                userWorkouts = []
+                // IMPORTANT: Do not wipe existing data on decode failure.
+                // Keep the raw data in UserDefaults so a future migration can recover it.
+                print("❌ Decoding workouts failed: \(error.localizedDescription)")
             }
         } else {
             print("No saved workouts data found in UserDefaults")
@@ -88,8 +89,8 @@ final class DataManager: ObservableObject {
     }
     
     // MARK: - Global Exercises (now 60+ default)
-    func addNewExercise(name: String, description: String, muscles: [MuscleGroup], configurationOptions: [ExerciseConfigurationOption] = []) {
-        let new = Exercise(id: UUID(), name: name, description: description, targetedMuscles: muscles, isCustom: true, configurationOptions: configurationOptions)
+    func addNewExercise(name: String, description: String, muscles: [MuscleGroup]) {
+        let new = Exercise(id: UUID(), name: name, description: description, targetedMuscles: muscles, isCustom: true, configurationOptions: [])
         globalExercises.append(new)
         saveExercises()
     }
@@ -133,10 +134,15 @@ final class DataManager: ObservableObject {
     ]
 
     private func loadExercises() {
-        if let data = UserDefaults.standard.data(forKey: exercisesKey),
-           let decoded = try? JSONDecoder().decode([Exercise].self, from: data) {
-            globalExercises = decoded
-            migrateLegacyCustomExercises()
+        if let data = UserDefaults.standard.data(forKey: exercisesKey) {
+            do {
+                let decoded = try JSONDecoder().decode([Exercise].self, from: data)
+                globalExercises = decoded
+                migrateLegacyCustomExercises()
+            } catch {
+                // Do not clear existing data if decoding fails; keep raw bytes for potential future migration.
+                print("❌ Decoding exercises failed: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -227,9 +233,13 @@ final class DataManager: ObservableObject {
     
     // MARK: - Sessions & week summary
     private func loadSessions() {
-        if let data = UserDefaults.standard.data(forKey: sessionsKey),
-           let decoded = try? JSONDecoder().decode([WorkoutSession].self, from: data) {
-            completedSessions = decoded
+        if let data = UserDefaults.standard.data(forKey: sessionsKey) {
+            do {
+                let decoded = try JSONDecoder().decode([WorkoutSession].self, from: data)
+                completedSessions = decoded
+            } catch {
+                print("❌ Decoding sessions failed: \(error.localizedDescription)")
+            }
         }
     }
     
@@ -263,11 +273,20 @@ final class DataManager: ObservableObject {
     }
     
     @discardableResult
-    func addExercise(to workout: Workout, exercise: Exercise, recommendedSets: Int, recommendedReps: String) -> WorkoutExercise? {
+    func addExercise(
+        to workout: Workout,
+        exercise: Exercise,
+        recommendedSets: Int,
+        recommendedReps: String,
+        configurationFields: [String],
+        recommendedConfigBySet: [[String: String]]
+    ) -> WorkoutExercise? {
         guard let index = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return nil }
         var we = WorkoutExercise(id: UUID(), exercise: exercise)
         we.recommendedSets = recommendedSets
         we.recommendedReps = recommendedReps
+        we.configurationFields = configurationFields
+        we.recommendedConfigBySet = recommendedConfigBySet
         userWorkouts[index].exercises.append(we)
         saveWorkouts()
         return we

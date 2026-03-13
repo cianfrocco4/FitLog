@@ -191,6 +191,8 @@ struct AddExerciseSheet: View {
     @State private var selectedExercise: Exercise?
     @State private var recommendedSets = 3
     @State private var recommendedReps = "8-12"
+    @State private var configFieldRows: [ConfigFieldRow] = []
+    @State private var perSetConfig: [Int: [String: String]] = [:]
     @State private var autoPausedWorkout = false
     
     var body: some View {
@@ -207,6 +209,41 @@ struct AddExerciseSheet: View {
                 Section("Recommended") {
                     Stepper("Sets: \(recommendedSets)", value: $recommendedSets, in: 1...10)
                     TextField("Reps (e.g. 8-12)", text: $recommendedReps)
+                }
+
+                if selectedExercise != nil {
+                    Section("Configuration fields (optional)") {
+                        ForEach(configFieldRows.indices, id: \.self) { idx in
+                            HStack {
+                                TextField("Field name (e.g. Grip, Seat)", text: $configFieldRows[idx].name)
+                                Button(role: .destructive) {
+                                    configFieldRows.remove(at: idx)
+                                } label: {
+                                    Image(systemName: "minus.circle.fill")
+                                }
+                            }
+                        }
+                        Button {
+                            configFieldRows.append(ConfigFieldRow())
+                        } label: {
+                            Label("Add field", systemImage: "plus.circle")
+                        }
+                    }
+
+                    if !configFieldRows.isEmpty {
+                        Section("Per-set recommended configuration") {
+                            ForEach(0..<recommendedSets, id: \.self) { setIndex in
+                                DisclosureGroup("Set \(setIndex + 1)") {
+                                    ForEach(configFieldRows.indices, id: \.self) { idx in
+                                        let fieldName = configFieldRows[idx].name.trimmingCharacters(in: .whitespaces)
+                                        if !fieldName.isEmpty {
+                                            TextField(fieldName, text: bindingForSetField(setIndex: setIndex, field: fieldName))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             .navigationTitle("Add Exercise")
@@ -237,10 +274,27 @@ struct AddExerciseSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Add") {
                         if let ex = selectedExercise {
-                            if let newWE = dataVM.addExercise(to: workout,
-                                                              exercise: ex,
-                                                              recommendedSets: recommendedSets,
-                                                              recommendedReps: recommendedReps) {
+                            let fieldNames = configFieldRows
+                                .map { $0.name.trimmingCharacters(in: .whitespaces) }
+                                .filter { !$0.isEmpty }
+                            let recommendedConfigBySet: [[String: String]] = (0..<recommendedSets).map { idx in
+                                let raw = perSetConfig[idx] ?? [:]
+                                // Keep only known fields and non-empty values
+                                var cleaned: [String: String] = [:]
+                                for name in fieldNames {
+                                    if let value = raw[name], !value.trimmingCharacters(in: .whitespaces).isEmpty {
+                                        cleaned[name] = value.trimmingCharacters(in: .whitespaces)
+                                    }
+                                }
+                                return cleaned
+                            }
+
+                            if let _ = dataVM.addExercise(to: workout,
+                                                          exercise: ex,
+                                                          recommendedSets: recommendedSets,
+                                                          recommendedReps: recommendedReps,
+                                                          configurationFields: fieldNames,
+                                                          recommendedConfigBySet: recommendedConfigBySet) {
                                 // If this workout is currently in progress, ensure the active session
                                 // gains a corresponding ExerciseLog so it shows up immediately.
                                 if let updatedWorkout = dataVM.userWorkouts.first(where: { $0.id == workout.id }) {
@@ -254,5 +308,27 @@ struct AddExerciseSheet: View {
                 }
             }
         }
+    }
+}
+
+private struct ConfigFieldRow: Identifiable {
+    var id: UUID = UUID()
+    var name: String = ""
+}
+
+private extension AddExerciseSheet {
+    func bindingForSetField(setIndex: Int, field: String) -> Binding<String> {
+        Binding(
+            get: {
+                perSetConfig[setIndex]?[field] ?? ""
+            },
+            set: { newValue in
+                var copy = perSetConfig[setIndex] ?? [:]
+                copy[field] = newValue
+               var all = perSetConfig
+                all[setIndex] = copy
+                perSetConfig = all
+            }
+        )
     }
 }

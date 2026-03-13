@@ -412,7 +412,6 @@ private struct SessionDetailView: View {
                 }
             }
             ForEach(session.exerciseLogs) { log in
-                let ex = log.workoutExercise.exercise
                 Section(log.workoutExercise.exercise.name) {
                     ForEach(log.loggedSets) { set in
                         VStack(alignment: .leading, spacing: 4) {
@@ -428,8 +427,9 @@ private struct SessionDetailView: View {
                                 }
                                 Spacer()
                             }
-                            if !set.configurationSummary(options: ex.configurationOptions).isEmpty {
-                                Text(set.configurationSummary(options: ex.configurationOptions))
+                            let summary = set.configurationSummary(fieldNames: log.workoutExercise.configurationFields)
+                            if !summary.isEmpty {
+                                Text(summary)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -504,7 +504,6 @@ private struct ExerciseHistoryDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(item.log.loggedSets) { set in
-                        let ex = item.log.workoutExercise.exercise
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
                                 Text("\(Int(set.weight)) lb × \(set.reps) rep\(set.reps == 1 ? "" : "s")")
@@ -518,8 +517,9 @@ private struct ExerciseHistoryDetailView: View {
                                 }
                                 Spacer()
                             }
-                            if !set.configurationSummary(options: ex.configurationOptions).isEmpty {
-                                Text(set.configurationSummary(options: ex.configurationOptions))
+                            let summary = set.configurationSummary(fieldNames: item.log.workoutExercise.configurationFields)
+                            if !summary.isEmpty {
+                                Text(summary)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -568,7 +568,6 @@ private struct MuscleGroupHistoryDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(item.logs) { log in
-                        let ex = log.workoutExercise.exercise
                         DisclosureGroup(log.workoutExercise.exercise.name) {
                             ForEach(log.loggedSets) { set in
                                 VStack(alignment: .leading, spacing: 4) {
@@ -584,8 +583,9 @@ private struct MuscleGroupHistoryDetailView: View {
                                         }
                                         Spacer()
                                     }
-                                    if !set.configurationSummary(options: ex.configurationOptions).isEmpty {
-                                        Text(set.configurationSummary(options: ex.configurationOptions))
+                                    let summary = set.configurationSummary(fieldNames: log.workoutExercise.configurationFields)
+                                    if !summary.isEmpty {
+                                        Text(summary)
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }

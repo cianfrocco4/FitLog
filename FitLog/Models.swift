@@ -125,6 +125,11 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
     var defaultRestTime: Int = 90
     var recommendedSets: Int = 3
     var recommendedReps: String = "8-12"
+    /// Names of configuration fields for this exercise in this workout (e.g. ["Grip", "Seat"]).
+    var configurationFields: [String] = []
+    /// Recommended configuration values per set index, aligned with `recommendedSets`.
+    /// Each entry is fieldName -> value (e.g. ["Grip": "Narrow"]).
+    var recommendedConfigBySet: [[String: String]] = []
 }
 
 struct Workout: Identifiable, Codable {
@@ -196,14 +201,14 @@ struct WorkoutSession: Identifiable, Codable {
 }
 
 extension LoggedSet {
-    /// Human-readable summary of configuration (e.g. "Grip: Narrow, Seat: 2") using option names from the exercise.
-    func configurationSummary(options: [ExerciseConfigurationOption]) -> String {
+    /// Human-readable summary of configuration (e.g. "Grip: Narrow, Seat: 2") using field names from the workout exercise.
+    func configurationSummary(fieldNames: [String]) -> String {
         guard !configuration.isEmpty else { return "" }
-        let namesByKey = Dictionary(uniqueKeysWithValues: options.map { ($0.id.uuidString, $0.name) })
-        return configuration.compactMap { key, value in
-            guard !value.isEmpty, let name = namesByKey[key] else { return nil }
+        let parts = fieldNames.compactMap { name -> String? in
+            guard let value = configuration[name], !value.isEmpty else { return nil }
             return "\(name): \(value)"
-        }.joined(separator: ", ")
+        }
+        return parts.joined(separator: ", ")
     }
 }
 

@@ -17,12 +17,12 @@ struct LogSetView: View {
     @State private var reps: Int = 0
     @State private var restTime: Int = 90
     @State private var isWarmup: Bool = false
-    /// Option id (uuidString) -> value. Populated when exercise has configuration options.
+    /// Field name -> value for this set.
     @State private var configValues: [String: String] = [:]
 
-    private var exercise: Exercise? {
+    private var workoutExercise: WorkoutExercise? {
         guard let session = currentVM.currentSession, exerciseIndex < session.exerciseLogs.count else { return nil }
-        return session.exerciseLogs[exerciseIndex].workoutExercise.exercise
+        return session.exerciseLogs[exerciseIndex].workoutExercise
     }
 
     var body: some View {
@@ -52,19 +52,10 @@ struct LogSetView: View {
 
                     Toggle("Mark as warm-up set", isOn: $isWarmup)
                 }
-                if let ex = exercise, !ex.configurationOptions.isEmpty {
+                if let we = workoutExercise, !we.configurationFields.isEmpty {
                     Section("Configuration") {
-                        ForEach(ex.configurationOptions) { opt in
-                            if opt.choices.isEmpty {
-                                TextField(opt.name, text: bindingForOption(opt.id))
-                            } else {
-                                Picker(opt.name, selection: bindingForOption(opt.id)) {
-                                    Text("—").tag("")
-                                    ForEach(opt.choices, id: \.self) { choice in
-                                        Text(choice).tag(choice)
-                                    }
-                                }
-                            }
+                        ForEach(we.configurationFields, id: \.self) { field in
+                            TextField(field, text: bindingForField(field))
                         }
                     }
                 }
@@ -114,6 +105,10 @@ struct LogSetView: View {
             weight = lastInSession.weight
             reps = lastInSession.reps
             restTime = lastInSession.restTime
+            isWarmup = lastInSession.isWarmup
+            if !lastInSession.configuration.isEmpty {
+                configValues = lastInSession.configuration
+            }
             return
         }
 
@@ -147,11 +142,19 @@ struct LogSetView: View {
             if !recent.configuration.isEmpty { configValues = recent.configuration }
         } else {
             restTime = currentLog.workoutExercise.defaultRestTime
+
+            // If there are recommended configuration values for this set index, prefill them.
+            if !currentLog.workoutExercise.recommendedConfigBySet.isEmpty {
+                let nextIndex = currentLog.loggedSets.count
+                if nextIndex < currentLog.workoutExercise.recommendedConfigBySet.count {
+                    configValues = currentLog.workoutExercise.recommendedConfigBySet[nextIndex]
+                }
+            }
         }
     }
 
-    private func bindingForOption(_ id: UUID) -> Binding<String> {
-        let key = id.uuidString
+    private func bindingForField(_ name: String) -> Binding<String> {
+        let key = name
         return Binding(
             get: { configValues[key] ?? "" },
             set: { newValue in
