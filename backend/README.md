@@ -4,6 +4,13 @@ Small backend that forwards FitLog’s AI requests to OpenAI using **your** API 
 
 **Requires:** Node 18+ (for `fetch`).
 
+**Environment variables:**
+
+| Variable         | Required | Default      | Description                    |
+|------------------|----------|--------------|--------------------------------|
+| `OPENAI_API_KEY` | Yes      | —            | Your OpenAI API key            |
+| `OPENAI_MODEL`   | No       | `gpt-4o-mini`| Model ID (e.g. `gpt-5-mini`)   |
+
 ## Run locally
 
 ```bash

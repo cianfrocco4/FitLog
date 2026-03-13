@@ -9,8 +9,8 @@ import Foundation
 
 final class AIService: ObservableObject {
     private static let openAIURL = URL(string: "https://api.openai.com/v1/chat/completions")!
-    /// Use gpt-4o-mini (available to all accounts). gpt-5-mini may require org verification.
-    private let model = "gpt-4o-mini"
+    /// Model ID from OpenAIConfig.aiModel (configurable via FITLOG_AI_MODEL).
+    private let model: String
     private let session: URLSession
     private var formTipsCache: [UUID: [String]] = [:]
     private var suggestionsCache: [String: [String]] = [:]
@@ -20,11 +20,12 @@ final class AIService: ObservableObject {
     private let proxyBaseURL: String?
     private let apiKey: String?
 
-    init(apiKey: String?, baseURL: String?) {
+    init(apiKey: String?, baseURL: String?, model: String? = nil) {
         let trimmedKey = apiKey?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.apiKey = (trimmedKey?.isEmpty ?? true) ? nil : trimmedKey
         let trimmedBase = baseURL?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.proxyBaseURL = (trimmedBase?.isEmpty ?? true) ? nil : trimmedBase
+        self.model = (model?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? OpenAIConfig.aiModel
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         self.session = URLSession(configuration: config)

@@ -31,6 +31,18 @@ enum OpenAIConfig {
         return (Bundle.main.object(forInfoDictionaryKey: "FITLOG_AI_BASE_URL") as? String).flatMap(trimmed)
     }
 
+    /// Model ID for Chat Completions (e.g. "gpt-4o-mini", "gpt-5-mini").
+    /// From env FITLOG_AI_MODEL or Info.plist FITLOG_AI_MODEL. Default: gpt-4o-mini.
+    static var aiModel: String {
+        if let env = ProcessInfo.processInfo.environment["FITLOG_AI_MODEL"].flatMap(trimmed) {
+            return env
+        }
+        if let plist = (Bundle.main.object(forInfoDictionaryKey: "FITLOG_AI_MODEL") as? String).flatMap(trimmed) {
+            return plist
+        }
+        return "gpt-4o-mini"
+    }
+
     /// True if either proxy base URL or API key is set.
     static var isConfigured: Bool { aiBaseURL != nil || apiKey != nil }
 }

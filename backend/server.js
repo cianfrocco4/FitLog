@@ -1,16 +1,24 @@
 /**
  * FitLog AI proxy – forwards Chat Completions to OpenAI with the server's API key.
- * Deploy to Railway, Render, Fly.io, or any Node host. Set env OPENAI_API_KEY.
+ * Deploy to Railway, Render, Fly.io, or any Node host.
+ *
+ * Env:
+ *   OPENAI_API_KEY  (required)
+ *   OPENAI_MODEL    (optional) e.g. gpt-4o-mini, gpt-5-mini. Default: gpt-4o-mini
  *
  * POST /v1/chat/completions
- * Body: { "messages": [{"role":"system","content":"..."},{"role":"user","content":"..."}], "max_tokens": 500 }
- * (model is fixed to gpt-4o-mini on the server)
+ * Body: { "messages": [...], "max_tokens": 500 }
  */
 
 const http = require('http');
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
-const MODEL = 'gpt-4o-mini';
+const DEFAULT_MODEL = 'gpt-4o-mini';
+
+function getModel() {
+  const v = process.env.OPENAI_MODEL;
+  return (v && v.trim()) ? v.trim() : DEFAULT_MODEL;
+}
 
 function getEnv(name) {
   const v = process.env[name];
@@ -19,8 +27,9 @@ function getEnv(name) {
 }
 
 async function forwardToOpenAI(apiKey, body) {
+  const model = getModel();
   const payload = JSON.stringify({
-    model: MODEL,
+    model,
     messages: body.messages,
     max_tokens: body.max_tokens ?? 500,
   });

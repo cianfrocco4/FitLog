@@ -20,5 +20,7 @@
 	<string></string>
 	<key>FITLOG_AI_BASE_URL</key>
 	<string>https://the-workout-log.onrender.com</string>
+	<key>FITLOG_AI_MODEL</key>
+	<string></string>
 </dict>
 </plist>

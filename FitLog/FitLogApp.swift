@@ -14,7 +14,7 @@ struct FitLogApp: App {
     @StateObject private var authVM = AuthViewModel()
     @StateObject private var dataVM = DataManager()
     @StateObject private var currentVM = CurrentWorkoutSessionViewModel()
-    @StateObject private var aiService = AIService(apiKey: OpenAIConfig.apiKey, baseURL: OpenAIConfig.aiBaseURL)
+    @StateObject private var aiService = AIService(apiKey: OpenAIConfig.apiKey, baseURL: OpenAIConfig.aiBaseURL, model: OpenAIConfig.aiModel)
 
     var body: some Scene {
         WindowGroup {
