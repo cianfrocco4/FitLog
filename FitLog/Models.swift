@@ -130,12 +130,58 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
     /// Recommended configuration values per set index, aligned with `recommendedSets`.
     /// Each entry is fieldName -> value (e.g. ["Grip": "Narrow"]).
     var recommendedConfigBySet: [[String: String]] = []
+
+    init(id: UUID = UUID(), exercise: Exercise, defaultRestTime: Int = 90, recommendedSets: Int = 3, recommendedReps: String = "8-12", configurationFields: [String] = [], recommendedConfigBySet: [[String: String]] = []) {
+        self.id = id
+        self.exercise = exercise
+        self.defaultRestTime = defaultRestTime
+        self.recommendedSets = recommendedSets
+        self.recommendedReps = recommendedReps
+        self.configurationFields = configurationFields
+        self.recommendedConfigBySet = recommendedConfigBySet
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        exercise = try c.decode(Exercise.self, forKey: .exercise)
+        defaultRestTime = (try? c.decode(Int.self, forKey: .defaultRestTime)) ?? 90
+        recommendedSets = (try? c.decode(Int.self, forKey: .recommendedSets)) ?? 3
+        recommendedReps = (try? c.decode(String.self, forKey: .recommendedReps)) ?? "8-12"
+        configurationFields = (try? c.decode([String].self, forKey: .configurationFields)) ?? []
+        recommendedConfigBySet = (try? c.decode([[String: String]].self, forKey: .recommendedConfigBySet)) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, exercise, defaultRestTime, recommendedSets, recommendedReps, configurationFields, recommendedConfigBySet
+    }
 }
 
 struct Workout: Identifiable, Codable {
     let id: UUID
     var name: String
     var exercises: [WorkoutExercise]
+    /// Configuration fields that apply to every set in this workout (e.g. "RPE", "Energy Level").
+    var workoutConfigurationFields: [String] = []
+
+    init(id: UUID, name: String, exercises: [WorkoutExercise], workoutConfigurationFields: [String] = []) {
+        self.id = id
+        self.name = name
+        self.exercises = exercises
+        self.workoutConfigurationFields = workoutConfigurationFields
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        exercises = try c.decode([WorkoutExercise].self, forKey: .exercises)
+        workoutConfigurationFields = (try? c.decode([String].self, forKey: .workoutConfigurationFields)) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, exercises, workoutConfigurationFields
+    }
 }
 
 struct LoggedSet: Identifiable, Codable {

@@ -25,6 +25,15 @@ struct LogSetView: View {
         return session.exerciseLogs[exerciseIndex].workoutExercise
     }
 
+    /// All configuration field names to show: exercise-level fields first, then any workout-level
+    /// fields that aren't already in the exercise-level list (to avoid duplicates).
+    private var allConfigFields: [String] {
+        let exerciseFields = workoutExercise?.configurationFields ?? []
+        let workoutFields = (currentVM.currentSession?.workout.workoutConfigurationFields ?? [])
+            .filter { !exerciseFields.contains($0) }
+        return exerciseFields + workoutFields
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -52,9 +61,9 @@ struct LogSetView: View {
 
                     Toggle("Mark as warm-up set", isOn: $isWarmup)
                 }
-                if let we = workoutExercise, !we.configurationFields.isEmpty {
+                if !allConfigFields.isEmpty {
                     Section("Configuration") {
-                        ForEach(we.configurationFields, id: \.self) { field in
+                        ForEach(allConfigFields, id: \.self) { field in
                             TextField(field, text: bindingForField(field))
                         }
                     }
