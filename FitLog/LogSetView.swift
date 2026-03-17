@@ -35,6 +35,11 @@ struct LogSetView: View {
                         in: 0...1100,
                         step: 5
                     )
+                    if weight == 0 {
+                        Text("0 lbs = body weight only")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
 
                     Stepper(
                         "Reps: \(reps)",
@@ -86,7 +91,7 @@ struct LogSetView: View {
                         }
                     }
                     .fontWeight(.semibold)
-                    .disabled(weight <= 0 || reps <= 0)
+                    .disabled(reps <= 0)
                 }
             }
         }
