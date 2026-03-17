@@ -124,7 +124,7 @@ struct WorkoutPlanView: View {
             }
         }
         .sheet(isPresented: $showAddExercise) {
-            AddExerciseSheet(workout: workout)
+            AddExerciseSheet(workout: workout, currentVM: currentVM)
         }
         .alert("Rename Workout", isPresented: $showRenameAlert) {
             TextField("New name", text: $newWorkoutName)
@@ -279,8 +279,9 @@ private func heuristicImprovementSuggestions(for workout: Workout) -> [String] {
 
 struct AddExerciseSheet: View {
     let workout: Workout
+    /// Passed in so the sheet doesn't observe it; avoids timer-driven re-renders that reset scroll position.
+    let currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var dataVM: DataManager
-    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @Environment(\.dismiss) var dismiss
     
     @State private var selectedExercise: Exercise?
@@ -289,13 +290,15 @@ struct AddExerciseSheet: View {
     @State private var configFieldRows: [ConfigFieldRow] = []
     @State private var perSetConfig: [Int: [String: String]] = [:]
     @State private var autoPausedWorkout = false
+    /// Snapshot so the Picker doesn't depend on dataVM and re-scroll when parent updates.
+    @State private var exerciseList: [Exercise] = []
     
     var body: some View {
         NavigationStack {
             Form {
                 Section("Select Exercise") {
                     Picker("Exercise", selection: $selectedExercise) {
-                        ForEach(dataVM.globalExercises) { ex in
+                        ForEach(exerciseList) { ex in
                             Text(ex.name).tag(ex as Exercise?)
                         }
                     }
@@ -343,8 +346,8 @@ struct AddExerciseSheet: View {
             }
             .navigationTitle("Add Exercise")
             .onAppear {
-                // To avoid the timer-driven view updates causing the picker to jump back to the top,
-                // temporarily pause the workout (if this workout is currently active) while the sheet is open.
+                exerciseList = dataVM.globalExercises
+                // Pause the workout while the sheet is open so timer-driven updates don't affect the parent.
                 if currentVM.isInProgress,
                    currentVM.currentSession?.workout.id == workout.id,
                    !currentVM.isWorkoutPaused {
