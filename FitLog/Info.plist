@@ -5,7 +5,7 @@
 	<key>CFBundleDisplayName</key>
 	<string>The Workout Log</string>
 	<key>CFBundleIdentifier</key>
-	<string></string>
+	<string>com.acianfrocco.FitLog</string>
 	<key>NSUserNotificationsUsageDescription</key>
 	<string>The Workout Log uses notifications to remind you when rest time is over during workouts.</string>
 	<key>CFBundleIconName</key>
