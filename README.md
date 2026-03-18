@@ -81,5 +81,17 @@ Apple Watch companion
 Body measurements + photo tracking
 Grok AI suggestions in-app
 
-Contributing
+## Privacy Policy & App Store
+
+A privacy policy is in **`PRIVACY_POLICY.md`**. Before publishing:
+
+1. **Replace the contact email** in that file with your real support address.
+2. **Host it at a public URL** so you can paste the link into App Store Connect (required for Sign in with Apple). Options:
+   - **GitHub Pages:** Enable Pages for this repo (Settings → Pages → Source: Deploy from branch → main, folder **/docs**). Then your privacy policy URL is: `https://<username>.github.io/FitLog/privacy-policy.html` (the repo is `FitLog`; the file is `docs/privacy-policy.html`).
+   - **Any static host:** Upload `docs/privacy-policy.html` and use that page’s URL.
+
+Use that URL as the **Privacy Policy URL** in App Store Connect (App Information).
+
+## Contributing
+
 Feel free to open issues or PRs for bug fixes, features, or polish.
