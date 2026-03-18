@@ -277,6 +277,213 @@ private func heuristicImprovementSuggestions(for workout: Workout) -> [String] {
     return suggestions
 }
 
+// MARK: - Favorites & recent (exercise picker)
+private enum ExercisePickerPersistence {
+    static let favoritesKey = "exercisePickerFavorites"
+    static let recentKey = "exercisePickerRecent"
+    static let recentMaxCount = 15
+
+    static func loadFavorites() -> Set<UUID> {
+        guard let raw = UserDefaults.standard.stringArray(forKey: favoritesKey) else { return [] }
+        return Set(raw.compactMap { UUID(uuidString: $0) })
+    }
+
+    static func saveFavorites(_ ids: Set<UUID>) {
+        UserDefaults.standard.set(ids.map(\.uuidString), forKey: favoritesKey)
+    }
+
+    static func loadRecent() -> [UUID] {
+        (UserDefaults.standard.stringArray(forKey: recentKey) ?? []).compactMap { UUID(uuidString: $0) }
+    }
+
+    static func recordRecent(exerciseId: UUID) {
+        var ids = loadRecent()
+        ids.removeAll { $0 == exerciseId }
+        ids.insert(exerciseId, at: 0)
+        ids = Array(ids.prefix(recentMaxCount))
+        UserDefaults.standard.set(ids.map(\.uuidString), forKey: recentKey)
+    }
+}
+
+// MARK: - Muscle group → Push/Pull/Legs/Core/Other
+private extension MuscleGroup {
+    var exerciseBucket: String {
+        switch self {
+        case .chest, .upperChest, .lowerChest, .frontDelts, .sideDelts, .rearDelts, .triceps: return "Push"
+        case .lats, .upperBack, .midBack, .rhomboids, .traps, .biceps: return "Pull"
+        case .quads, .hamstrings, .glutes, .calves, .soleus, .hipFlexors, .adductors, .abductors: return "Legs"
+        case .abs, .lowerAbs, .obliques, .core: return "Core"
+        default: return "Other"
+        }
+    }
+}
+
+private let bucketOrder = ["Push", "Pull", "Legs", "Core", "Other"]
+
+// MARK: - Exercise picker (search, favorites, recent, subgrouping, section index)
+private struct ExercisePickerView: View {
+    let exercises: [Exercise]
+    @Binding var selection: Exercise?
+    @Environment(\.dismiss) var dismiss
+    @State private var searchText = ""
+    @State private var favoriteIds: Set<UUID> = []
+    @State private var recentIds: [UUID] = []
+
+    /// Search by exercise name or primary muscle name.
+    private var filtered: [Exercise] {
+        let q = searchText.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return exercises }
+        return exercises.filter { ex in
+            ex.name.localizedCaseInsensitiveContains(q)
+            || (ex.targetedMuscles.first ?? .other).rawValue.localizedCaseInsensitiveContains(q)
+        }
+    }
+
+    private var favoriteExercises: [Exercise] {
+        filtered.filter { favoriteIds.contains($0.id) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private var recentExercises: [Exercise] {
+        let byId = Dictionary(uniqueKeysWithValues: exercises.map { ($0.id, $0) })
+        return recentIds.compactMap { byId[$0] }.filter { filtered.contains($0) }
+    }
+
+    /// Subgrouped: (bucketName, [(muscle, [Exercise])]) in bucket order.
+    private var bucketedSections: [(String, [(MuscleGroup, [Exercise])])] {
+        let grouped = Dictionary(grouping: filtered) { ex in
+            ex.targetedMuscles.first ?? .other
+        }
+        var result: [(String, [(MuscleGroup, [Exercise])])] = []
+        for bucket in bucketOrder {
+            let musclesInBucket = MuscleGroup.displayOrder.filter { $0.exerciseBucket == bucket }
+            let pairs = musclesInBucket.compactMap { muscle -> (MuscleGroup, [Exercise])? in
+                let list = (grouped[muscle] ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                return list.isEmpty ? nil : (muscle, list)
+            }
+            if !pairs.isEmpty { result.append((bucket, pairs)) }
+        }
+        return result
+    }
+
+    /// Section IDs for scroll-to (section index).
+    private var sectionIds: [String] {
+        var ids: [String] = []
+        if !favoriteExercises.isEmpty { ids.append("favorites") }
+        if !recentExercises.isEmpty { ids.append("recent") }
+        ids.append(contentsOf: bucketedSections.map { $0.0.lowercased() })
+        return ids
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ZStack(alignment: .trailing) {
+                List {
+                    if !favoriteExercises.isEmpty {
+                        Section(header: Text("Favorites")) {
+                            exerciseRows(favoriteExercises, showFavorite: true)
+                        }
+                        .id("favorites")
+                    }
+                    if !recentExercises.isEmpty {
+                        Section(header: Text("Recent")) {
+                            exerciseRows(recentExercises, showFavorite: true)
+                        }
+                        .id("recent")
+                    }
+                    ForEach(bucketedSections, id: \.0) { bucket, musclePairs in
+                        Section(header: Text(bucket)) {
+                            ForEach(musclePairs, id: \.0.id) { muscle, list in
+                                Section(header: Text(muscle.rawValue)) {
+                                    exerciseRows(list, showFavorite: true)
+                                }
+                            }
+                        }
+                        .id(bucket.lowercased())
+                    }
+                }
+                .searchable(text: $searchText, prompt: "Search by name or muscle")
+                .navigationTitle("Select Exercise")
+                .navigationBarTitleDisplayMode(.inline)
+                .onAppear {
+                    favoriteIds = ExercisePickerPersistence.loadFavorites()
+                    recentIds = ExercisePickerPersistence.loadRecent()
+                }
+
+                if sectionIds.count > 1 {
+                    sectionIndexStrip(proxy: proxy, ids: sectionIds)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func exerciseRows(_ list: [Exercise], showFavorite: Bool) -> some View {
+        ForEach(list) { ex in
+            Button {
+                selection = ex
+                dismiss()
+            } label: {
+                HStack {
+                    Text(ex.name)
+                    Spacer()
+                    if showFavorite {
+                        Button {
+                            toggleFavorite(ex.id)
+                        } label: {
+                            Image(systemName: favoriteIds.contains(ex.id) ? "heart.fill" : "heart")
+                                .foregroundStyle(favoriteIds.contains(ex.id) ? .red : .secondary)
+                                .font(.body)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if selection?.id == ex.id {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.tint)
+                    }
+                }
+            }
+        }
+    }
+
+    private func toggleFavorite(_ id: UUID) {
+        if favoriteIds.contains(id) {
+            favoriteIds.remove(id)
+        } else {
+            favoriteIds.insert(id)
+        }
+        ExercisePickerPersistence.saveFavorites(favoriteIds)
+    }
+
+    private func sectionIndexStrip(proxy: ScrollViewProxy, ids: [String]) -> some View {
+        VStack(spacing: 2) {
+            ForEach(ids, id: \.self) { id in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        proxy.scrollTo(id, anchor: .top)
+                    }
+                } label: {
+                    Text(indexLabel(for: id))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 8)
+        .padding(.leading, 4)
+    }
+
+    private func indexLabel(for id: String) -> String {
+        switch id {
+        case "favorites": return "★"
+        case "recent": return "○"
+        default: return String(id.prefix(1)).uppercased()
+        }
+    }
+}
+
+
 struct AddExerciseSheet: View {
     let workout: Workout
     /// Passed in so the sheet doesn't observe it; avoids timer-driven re-renders that reset scroll position.
@@ -290,16 +497,21 @@ struct AddExerciseSheet: View {
     @State private var configFieldRows: [ConfigFieldRow] = []
     @State private var perSetConfig: [Int: [String: String]] = [:]
     @State private var autoPausedWorkout = false
-    /// Snapshot so the Picker doesn't depend on dataVM and re-scroll when parent updates.
+    /// Snapshot so the list doesn't depend on dataVM and re-scroll when parent updates.
     @State private var exerciseList: [Exercise] = []
-    
+
     var body: some View {
         NavigationStack {
             Form {
                 Section("Select Exercise") {
-                    Picker("Exercise", selection: $selectedExercise) {
-                        ForEach(exerciseList) { ex in
-                            Text(ex.name).tag(ex as Exercise?)
+                    NavigationLink {
+                        ExercisePickerView(exercises: exerciseList, selection: $selectedExercise)
+                    } label: {
+                        HStack {
+                            Text("Exercise")
+                            Spacer()
+                            Text(selectedExercise?.name ?? "Tap to choose")
+                                .foregroundStyle(selectedExercise == nil ? .secondary : .primary)
                         }
                     }
                 }
@@ -393,6 +605,7 @@ struct AddExerciseSheet: View {
                                                           recommendedReps: recommendedReps,
                                                           configurationFields: fieldNames,
                                                           recommendedConfigBySet: recommendedConfigBySet) {
+                                ExercisePickerPersistence.recordRecent(exerciseId: ex.id)
                                 // If this workout is currently in progress, ensure the active session
                                 // gains a corresponding ExerciseLog so it shows up immediately.
                                 if let updatedWorkout = dataVM.userWorkouts.first(where: { $0.id == workout.id }) {
