@@ -37,14 +37,8 @@ final class DataManager: ObservableObject {
     // MARK: - Workouts
     func createWorkout(name: String) {
         let newWorkout = Workout(id: UUID(), name: name, exercises: [])
-        print("Creating workout: \(name) with ID \(newWorkout.id.uuidString)")
-        
         userWorkouts.append(newWorkout)
-        print("Workouts after append: \(userWorkouts.count)")
-        
         saveWorkouts()
-        print("saveWorkouts() called")
-        
         // This line forces SwiftUI to re-render observers in almost all cases
         objectWillChange.send()
     }
@@ -70,25 +64,31 @@ final class DataManager: ObservableObject {
             do {
                 let decoded = try JSONDecoder().decode([Workout].self, from: data)
                 userWorkouts = decoded
+                #if DEBUG
                 print("✅ Loaded \(decoded.count) workouts from UserDefaults")
+                #endif
             } catch {
                 // IMPORTANT: Do not wipe existing data on decode failure.
                 // Try to recover from a previous backup snapshot, if available.
+                #if DEBUG
                 print("❌ Decoding workouts failed: \(error.localizedDescription)")
+                #endif
                 if let backupData = UserDefaults.standard.data(forKey: workoutsBackupKey) {
                     do {
                         let recovered = try JSONDecoder().decode([Workout].self, from: backupData)
                         userWorkouts = recovered
+                        #if DEBUG
                         print("✅ Recovered \(recovered.count) workouts from legacy backup snapshot")
+                        #endif
                         // Re-save to the primary key so the app continues normally.
                         saveWorkouts()
                     } catch {
+                        #if DEBUG
                         print("❌ Failed to recover workouts from backup: \(error.localizedDescription)")
+                        #endif
                     }
                 }
             }
-        } else {
-            print("No saved workouts data found in UserDefaults")
         }
     }
     
@@ -96,14 +96,20 @@ final class DataManager: ObservableObject {
         do {
             let data = try JSONEncoder().encode(userWorkouts)
             UserDefaults.standard.set(data, forKey: workoutsKey)
+            #if DEBUG
             print("✅ Saved \(userWorkouts.count) workouts to UserDefaults")
+            #endif
             // Create a one-time backup snapshot for recovery from future schema changes.
             if UserDefaults.standard.data(forKey: workoutsBackupKey) == nil {
                 UserDefaults.standard.set(data, forKey: workoutsBackupKey)
+                #if DEBUG
                 print("💾 Created workouts backup snapshot")
+                #endif
             }
         } catch {
+            #if DEBUG
             print("❌ Encoding failed: \(error.localizedDescription)")
+            #endif
         }
     }
     
@@ -160,7 +166,9 @@ final class DataManager: ObservableObject {
                 migrateLegacyCustomExercises()
             } catch {
                 // Do not clear existing data if decoding fails; keep raw bytes for potential future migration.
+                #if DEBUG
                 print("❌ Decoding exercises failed: \(error.localizedDescription)")
+                #endif
             }
         }
     }
@@ -256,18 +264,26 @@ final class DataManager: ObservableObject {
             do {
                 let decoded = try JSONDecoder().decode([WorkoutSession].self, from: data)
                 completedSessions = decoded
+                #if DEBUG
                 print("✅ Loaded \(decoded.count) sessions from UserDefaults")
+                #endif
             } catch {
+                #if DEBUG
                 print("❌ Decoding sessions failed: \(error.localizedDescription)")
+                #endif
                 // Attempt to recover from backup snapshot if it exists.
                 if let backupData = UserDefaults.standard.data(forKey: sessionsBackupKey) {
                     do {
                         let recovered = try JSONDecoder().decode([WorkoutSession].self, from: backupData)
                         completedSessions = recovered
+                        #if DEBUG
                         print("✅ Recovered \(recovered.count) sessions from legacy backup snapshot")
+                        #endif
                         saveSessions()
                     } catch {
+                        #if DEBUG
                         print("❌ Failed to recover sessions from backup: \(error.localizedDescription)")
+                        #endif
                     }
                 }
             }
@@ -284,7 +300,9 @@ final class DataManager: ObservableObject {
             UserDefaults.standard.set(data, forKey: sessionsKey)
             if UserDefaults.standard.data(forKey: sessionsBackupKey) == nil {
                 UserDefaults.standard.set(data, forKey: sessionsBackupKey)
+                #if DEBUG
                 print("💾 Created sessions backup snapshot")
+                #endif
             }
         }
     }
