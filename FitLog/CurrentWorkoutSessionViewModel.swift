@@ -191,24 +191,24 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     }
 
     /// Sync the current session's workout and exercise logs with an updated workout definition.
-    /// This ensures that exercises added to a workout while a session is in progress
-    /// appear in the current session (with empty logs initially).
+    /// - Updates the session's stored workout snapshot (including workout-level config fields).
+    /// - Updates the `workoutExercise` definition in existing logs (e.g. when config fields change).
+    /// - Adds `ExerciseLog` entries for any exercises newly added to the workout mid-session.
     func syncExercises(withUpdatedWorkout workout: Workout) {
         guard var session = currentSession, session.workout.id == workout.id else { return }
 
-        // Update the stored workout copy
         session.workout = workout
 
-        // Add ExerciseLog entries for any new exercises that weren't present
         for we in workout.exercises {
-            let alreadyLogged = session.exerciseLogs.contains { $0.workoutExercise.id == we.id }
-            if !alreadyLogged {
-                let newLog = ExerciseLog(id: UUID(), workoutExercise: we, loggedSets: [])
-                session.exerciseLogs.append(newLog)
+            if let idx = session.exerciseLogs.firstIndex(where: { $0.workoutExercise.id == we.id }) {
+                session.exerciseLogs[idx].workoutExercise = we
+            } else {
+                session.exerciseLogs.append(ExerciseLog(id: UUID(), workoutExercise: we, loggedSets: []))
             }
         }
 
         currentSession = session
+        saveActiveSession()
     }
     
     func logSet(exerciseIndex: Int, weight: Double, reps: Int, restTime: Int, isWarmup: Bool = false, configuration: [String: String] = [:]) {

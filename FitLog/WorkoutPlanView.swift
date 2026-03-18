@@ -41,6 +41,9 @@ struct WorkoutPlanView: View {
     @State private var suggestionsResult: Result<[String], Error>?
     @State private var suggestionsLoading = false
     @State private var suggestionsExpanded = true
+    @State private var exerciseToEdit: WorkoutExercise? = nil
+    @State private var showEditExercise = false
+    @State private var showWorkoutConfig = false
     
     /// Display list for default and alphabetical (flat). Order is view-only.
     private var displayedItems: [ExerciseDisplayItem] {
@@ -126,6 +129,18 @@ struct WorkoutPlanView: View {
         .sheet(isPresented: $showAddExercise) {
             AddExerciseSheet(workout: workout, currentVM: currentVM)
         }
+        .sheet(isPresented: $showEditExercise) {
+            if let we = exerciseToEdit {
+                EditWorkoutExerciseSheet(workout: workout, workoutExercise: we)
+                    .environmentObject(dataVM)
+                    .environmentObject(currentVM)
+            }
+        }
+        .sheet(isPresented: $showWorkoutConfig) {
+            WorkoutConfigFieldsSheet(workout: workout)
+                .environmentObject(dataVM)
+                .environmentObject(currentVM)
+        }
         .alert("Rename Workout", isPresented: $showRenameAlert) {
             TextField("New name", text: $newWorkoutName)
             Button("Cancel", role: .cancel) { }
@@ -157,6 +172,11 @@ struct WorkoutPlanView: View {
             }
             suggestionsSection
             Button("Add Exercise") { showAddExercise = true }
+            Button {
+                showWorkoutConfig = true
+            } label: {
+                Label("Manage Workout Configuration", systemImage: "gearshape")
+            }
         }
     }
     
@@ -174,6 +194,11 @@ struct WorkoutPlanView: View {
             }
             suggestionsSection
             Button("Add Exercise") { showAddExercise = true }
+            Button {
+                showWorkoutConfig = true
+            } label: {
+                Label("Manage Workout Configuration", systemImage: "gearshape")
+            }
         }
     }
 
@@ -214,18 +239,34 @@ struct WorkoutPlanView: View {
     
     private func exerciseRow(item: ExerciseDisplayItem) -> some View {
         let we = item.workoutExercise
+        let isActiveSession = currentVM.currentSession?.workout.id == workout.id
         return Button {
-            if currentVM.currentSession?.workout.id == workout.id {
+            if isActiveSession {
                 selectedIndex = item.sourceIndex
                 showLogSheet = true
+            } else {
+                exerciseToEdit = we
+                showEditExercise = true
             }
         } label: {
             HStack {
-                Text(we.exercise.name).font(.headline)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(we.exercise.name).font(.headline)
+                    if !we.configurationFields.isEmpty {
+                        Text(we.configurationFields.joined(separator: ", "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 Spacer()
-                Text("Rec: \(we.recommendedSets) sets x \(we.recommendedReps)")
+                Text("Rec: \(we.recommendedSets) sets × \(we.recommendedReps)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if !isActiveSession {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
             }
         }
     }
@@ -623,8 +664,13 @@ struct AddExerciseSheet: View {
 }
 
 private struct ConfigFieldRow: Identifiable {
-    var id: UUID = UUID()
-    var name: String = ""
+    var id: UUID
+    var name: String
+
+    init(id: UUID = UUID(), name: String = "") {
+        self.id = id
+        self.name = name
+    }
 }
 
 private extension AddExerciseSheet {
@@ -641,5 +687,205 @@ private extension AddExerciseSheet {
                 perSetConfig = all
             }
         )
+    }
+}
+
+// MARK: - Edit Workout Exercise Sheet
+
+struct EditWorkoutExerciseSheet: View {
+    let workout: Workout
+    let workoutExercise: WorkoutExercise
+    @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(\.dismiss) var dismiss
+
+    @State private var recommendedSets: Int
+    @State private var recommendedReps: String
+    @State private var configFieldRows: [ConfigFieldRow]
+    @State private var perSetConfig: [Int: [String: String]]
+
+    init(workout: Workout, workoutExercise: WorkoutExercise) {
+        self.workout = workout
+        self.workoutExercise = workoutExercise
+        _recommendedSets = State(initialValue: workoutExercise.recommendedSets)
+        _recommendedReps = State(initialValue: workoutExercise.recommendedReps)
+        _configFieldRows = State(initialValue: workoutExercise.configurationFields.map { ConfigFieldRow(name: $0) })
+        var psConfig: [Int: [String: String]] = [:]
+        for (idx, configDict) in workoutExercise.recommendedConfigBySet.enumerated() {
+            psConfig[idx] = configDict
+        }
+        _perSetConfig = State(initialValue: psConfig)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Exercise") {
+                    Text(workoutExercise.exercise.name)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Recommended") {
+                    Stepper("Sets: \(recommendedSets)", value: $recommendedSets, in: 1...10)
+                    TextField("Reps (e.g. 8-12)", text: $recommendedReps)
+                }
+
+                Section("Configuration fields (optional)") {
+                    ForEach(configFieldRows.indices, id: \.self) { idx in
+                        HStack {
+                            TextField("Field name (e.g. Grip, Seat)", text: $configFieldRows[idx].name)
+                            Button(role: .destructive) {
+                                configFieldRows.remove(at: idx)
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                            }
+                        }
+                    }
+                    Button {
+                        configFieldRows.append(ConfigFieldRow())
+                    } label: {
+                        Label("Add field", systemImage: "plus.circle")
+                    }
+                }
+
+                if !configFieldRows.isEmpty {
+                    Section("Per-set recommended configuration") {
+                        ForEach(0..<recommendedSets, id: \.self) { setIndex in
+                            DisclosureGroup("Set \(setIndex + 1)") {
+                                ForEach(configFieldRows.indices, id: \.self) { idx in
+                                    let fieldName = configFieldRows[idx].name.trimmingCharacters(in: .whitespaces)
+                                    if !fieldName.isEmpty {
+                                        TextField(fieldName, text: bindingForSetField(setIndex: setIndex, field: fieldName))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Edit Exercise")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save") {
+                        saveChanges()
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+    }
+
+    private func saveChanges() {
+        let fieldNames = configFieldRows
+            .map { $0.name.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        let recommendedConfigBySet: [[String: String]] = (0..<recommendedSets).map { idx in
+            let raw = perSetConfig[idx] ?? [:]
+            var cleaned: [String: String] = [:]
+            for name in fieldNames {
+                if let value = raw[name], !value.trimmingCharacters(in: .whitespaces).isEmpty {
+                    cleaned[name] = value.trimmingCharacters(in: .whitespaces)
+                }
+            }
+            return cleaned
+        }
+
+        var updated = workoutExercise
+        updated.recommendedSets = recommendedSets
+        updated.recommendedReps = recommendedReps
+        updated.configurationFields = fieldNames
+        updated.recommendedConfigBySet = recommendedConfigBySet
+
+        dataVM.updateWorkoutExercise(in: workout, updatedExercise: updated)
+
+        if let updatedWorkout = dataVM.userWorkouts.first(where: { $0.id == workout.id }) {
+            currentVM.syncExercises(withUpdatedWorkout: updatedWorkout)
+        }
+    }
+
+    private func bindingForSetField(setIndex: Int, field: String) -> Binding<String> {
+        Binding(
+            get: { perSetConfig[setIndex]?[field] ?? "" },
+            set: { newValue in
+                var copy = perSetConfig[setIndex] ?? [:]
+                copy[field] = newValue
+                var all = perSetConfig
+                all[setIndex] = copy
+                perSetConfig = all
+            }
+        )
+    }
+}
+
+// MARK: - Workout Config Fields Sheet
+
+struct WorkoutConfigFieldsSheet: View {
+    let workout: Workout
+    @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(\.dismiss) var dismiss
+
+    @State private var fieldRows: [ConfigFieldRow]
+
+    init(workout: Workout) {
+        self.workout = workout
+        _fieldRows = State(initialValue: workout.workoutConfigurationFields.map { ConfigFieldRow(name: $0) })
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("These fields appear when logging any set in this workout, in addition to per-exercise fields.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Configuration fields") {
+                    ForEach(fieldRows.indices, id: \.self) { idx in
+                        HStack {
+                            TextField("Field name (e.g. RPE, Energy Level)", text: $fieldRows[idx].name)
+                            Button(role: .destructive) {
+                                fieldRows.remove(at: idx)
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                            }
+                        }
+                    }
+                    Button {
+                        fieldRows.append(ConfigFieldRow())
+                    } label: {
+                        Label("Add field", systemImage: "plus.circle")
+                    }
+                }
+            }
+            .navigationTitle("Workout Configuration")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save") {
+                        saveChanges()
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+    }
+
+    private func saveChanges() {
+        let fields = fieldRows
+            .map { $0.name.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        dataVM.setWorkoutConfigurationFields(for: workout, fields: fields)
+        if let updatedWorkout = dataVM.userWorkouts.first(where: { $0.id == workout.id }) {
+            currentVM.syncExercises(withUpdatedWorkout: updatedWorkout)
+        }
     }
 }

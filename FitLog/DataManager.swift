@@ -326,4 +326,19 @@ final class DataManager: ObservableObject {
         saveWorkouts()
         return we
     }
+
+    /// Update an existing `WorkoutExercise` within a workout (e.g. after editing config fields post-addition).
+    func updateWorkoutExercise(in workout: Workout, updatedExercise: WorkoutExercise) {
+        guard let wIndex = userWorkouts.firstIndex(where: { $0.id == workout.id }),
+              let eIndex = userWorkouts[wIndex].exercises.firstIndex(where: { $0.id == updatedExercise.id }) else { return }
+        userWorkouts[wIndex].exercises[eIndex] = updatedExercise
+        saveWorkouts()
+    }
+
+    /// Set the workout-level configuration fields (apply to every set in the workout).
+    func setWorkoutConfigurationFields(for workout: Workout, fields: [String]) {
+        guard let wIndex = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
+        userWorkouts[wIndex].workoutConfigurationFields = fields
+        saveWorkouts()
+    }
 }

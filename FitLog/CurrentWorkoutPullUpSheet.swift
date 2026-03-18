@@ -266,6 +266,7 @@ struct CurrentWorkoutPullUpSheet: View {
     
     private func previousSessionSummaryRow(previousLog: ExerciseLog) -> some View {
         let we = previousLog.workoutExercise
+        let configFields = allConfigFields(for: we)
         return VStack(alignment: .leading, spacing: 6) {
             Text("Last time for this exercise")
                 .font(.subheadline)
@@ -293,8 +294,8 @@ struct CurrentWorkoutPullUpSheet: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
-                    if !prevSet.configurationSummary(fieldNames: we.configurationFields).isEmpty {
-                        Text(prevSet.configurationSummary(fieldNames: we.configurationFields))
+                    if !prevSet.configurationSummary(fieldNames: configFields).isEmpty {
+                        Text(prevSet.configurationSummary(fieldNames: configFields))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -308,8 +309,16 @@ struct CurrentWorkoutPullUpSheet: View {
         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
     }
 
+    private func allConfigFields(for workoutExercise: WorkoutExercise) -> [String] {
+        let exerciseFields = workoutExercise.configurationFields
+        let workoutFields = (currentVM.currentSession?.workout.workoutConfigurationFields ?? [])
+            .filter { !exerciseFields.contains($0) }
+        return exerciseFields + workoutFields
+    }
+
     private func setRow(set: LoggedSet, workoutExercise: WorkoutExercise) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        let configFields = allConfigFields(for: workoutExercise)
+        return VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text("\(set.weight, specifier: "%.1f") lbs × \(set.reps)")
                     .font(.body)
@@ -327,8 +336,8 @@ struct CurrentWorkoutPullUpSheet: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            if !set.configurationSummary(fieldNames: workoutExercise.configurationFields).isEmpty {
-                Text(set.configurationSummary(fieldNames: workoutExercise.configurationFields))
+            if !set.configurationSummary(fieldNames: configFields).isEmpty {
+                Text(set.configurationSummary(fieldNames: configFields))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
