@@ -36,6 +36,9 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     private var lastActivityDate: Date?
     /// Identifier for the pending \"workout still active\" reminder notification, so it can be rescheduled.
     private var inactivityNotificationIdentifier: String?
+
+    /// Fixed id so the scheduled \"rest over\" notification can be cancelled when the user skips rest or ends the workout.
+    private static let restCompleteNotificationIdentifier = "com.fitlog.restTimer.complete"
     
     var isInProgress: Bool { currentSession != nil && currentSession?.endTime == nil }
     var isWorkoutPaused: Bool { workoutPausedAt != nil }
@@ -85,6 +88,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         
         workoutTimer?.invalidate()
         workoutTimer = nil
+        cancelRestTimer()
         currentSession = nil
         workoutElapsedSeconds = 0
         clearInactivityReminder()
@@ -246,6 +250,8 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
 
         if restTime > 0 {
             scheduleRestNotification(seconds: restTime)
+        } else {
+            clearRestCompletionNotification()
         }
     }
     
@@ -270,18 +276,30 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         restTimer = nil
         remainingRestTime = 0
         showRestCompleteAlert = false
+        clearRestCompletionNotification()
+    }
+
+    private func clearRestCompletionNotification() {
+        let id = Self.restCompleteNotificationIdentifier
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [id])
+        center.removeDeliveredNotifications(withIdentifiers: [id])
     }
     
     private func scheduleRestNotification(seconds: Int) {
+        let center = UNUserNotificationCenter.current()
+        let id = Self.restCompleteNotificationIdentifier
+        center.removePendingNotificationRequests(withIdentifiers: [id])
+
         let content = UNMutableNotificationContent()
         content.title = "Rest Over! 💪"
         content.body = "Time for the next set"
         content.sound = .default
         
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: TimeInterval(seconds), repeats: false)
-        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
+        let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
         
-        UNUserNotificationCenter.current().add(request)
+        center.add(request)
     }
     
     func addEmptySet(toExerciseIndex: Int) {
