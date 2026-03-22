@@ -288,7 +288,7 @@ struct CurrentWorkoutPullUpSheet: View {
                                 .clipShape(Capsule())
                         }
                         Spacer()
-                        Text("\(prevSet.weight, specifier: "%.1f") lbs × \(prevSet.reps)")
+                        Text(prevSet.weightRepsDisplaySummary(unit: "lbs"))
                             .font(.caption)
                         Text("• \(prevSet.restTime)s rest")
                             .font(.caption2)
@@ -311,9 +311,10 @@ struct CurrentWorkoutPullUpSheet: View {
 
     private func setRow(set: LoggedSet, workoutExercise: WorkoutExercise) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("\(set.weight, specifier: "%.1f") lbs × \(set.reps)")
+            HStack(alignment: .top) {
+                Text(set.weightRepsDisplaySummary(unit: "lbs"))
                     .font(.body)
+                    .fixedSize(horizontal: false, vertical: true)
                 if set.isWarmup {
                     Text("Warm-up")
                         .font(.caption2)

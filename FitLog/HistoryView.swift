@@ -166,7 +166,7 @@ struct HistoryView: View {
         for session in sessionsInRange {
             let d = session.endTime ?? session.startTime
             let weekStart = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: d)) ?? d
-            let vol = session.exerciseLogs.flatMap(\.loggedSets).reduce(0) { $0 + $1.weight * Double($1.reps) }
+            let vol = session.exerciseLogs.flatMap(\.loggedSets).reduce(0) { $0 + $1.totalVolumeLoad }
             volumeByWeek[weekStart, default: 0] += vol
         }
         return volumeByWeek
@@ -347,7 +347,7 @@ struct HistoryView: View {
                 var entry = byId[ex.id] ?? (sample: ex, sessions: [], sets: 0, volume: 0)
                 entry.sessions.insert(session.id)
                 entry.sets += log.loggedSets.count
-                entry.volume += log.loggedSets.reduce(0) { $0 + Double($1.reps) * $1.weight }
+                entry.volume += log.loggedSets.reduce(0) { $0 + $1.totalVolumeLoad }
                 byId[ex.id] = entry
             }
         }
@@ -418,7 +418,7 @@ private struct SessionDetailView: View {
                     ForEach(log.loggedSets) { set in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
-                                Text("\(Int(set.weight)) lb × \(set.reps) rep\(set.reps == 1 ? "" : "s")")
+                                Text(set.weightRepsDisplaySummary())
                                 if set.isWarmup {
                                     Text("Warm-up")
                                         .font(.caption)
@@ -520,7 +520,7 @@ private struct ExerciseHistoryDetailView: View {
                     ForEach(item.log.loggedSets) { set in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
-                                Text("\(Int(set.weight)) lb × \(set.reps) rep\(set.reps == 1 ? "" : "s")")
+                                Text(set.weightRepsDisplaySummary())
                                 if set.isWarmup {
                                     Text("Warm-up")
                                         .font(.caption)
@@ -587,7 +587,7 @@ private struct MuscleGroupHistoryDetailView: View {
                             ForEach(log.loggedSets) { set in
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack {
-                                        Text("\(Int(set.weight)) lb × \(set.reps) rep\(set.reps == 1 ? "" : "s")")
+                                        Text(set.weightRepsDisplaySummary())
                                         if set.isWarmup {
                                             Text("Warm-up")
                                                 .font(.caption)

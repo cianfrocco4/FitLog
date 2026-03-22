@@ -138,6 +138,12 @@ struct Workout: Identifiable, Codable {
     var exercises: [WorkoutExercise]
 }
 
+/// One step in a drop set after the top weight (same set, one rest after the full sequence).
+struct DropSetSegment: Codable, Equatable, Hashable {
+    var weight: Double
+    var reps: Int
+}
+
 struct LoggedSet: Identifiable, Codable {
     let id: UUID
     var weight: Double
@@ -147,8 +153,10 @@ struct LoggedSet: Identifiable, Codable {
     var isWarmup: Bool = false
     /// Option id (uuidString) -> chosen value. Only present when exercise has configuration options.
     var configuration: [String: String]
+    /// Lighter loads after `weight` × `reps`, in order (optional).
+    var dropSegments: [DropSetSegment]
 
-    init(id: UUID, weight: Double, reps: Int, restTime: Int, timestamp: Date, isWarmup: Bool = false, configuration: [String: String] = [:]) {
+    init(id: UUID, weight: Double, reps: Int, restTime: Int, timestamp: Date, isWarmup: Bool = false, configuration: [String: String] = [:], dropSegments: [DropSetSegment] = []) {
         self.id = id
         self.weight = weight
         self.reps = reps
@@ -156,6 +164,7 @@ struct LoggedSet: Identifiable, Codable {
         self.timestamp = timestamp
         self.isWarmup = isWarmup
         self.configuration = configuration
+        self.dropSegments = dropSegments
     }
 
     init(from decoder: Decoder) throws {
@@ -167,6 +176,7 @@ struct LoggedSet: Identifiable, Codable {
         timestamp = try c.decode(Date.self, forKey: .timestamp)
         isWarmup = (try? c.decode(Bool.self, forKey: .isWarmup)) ?? false
         configuration = (try? c.decode([String: String].self, forKey: .configuration)) ?? [:]
+        dropSegments = (try? c.decode([DropSetSegment].self, forKey: .dropSegments)) ?? []
     }
 
     func encode(to encoder: Encoder) throws {
@@ -178,10 +188,11 @@ struct LoggedSet: Identifiable, Codable {
         try c.encode(timestamp, forKey: .timestamp)
         try c.encode(isWarmup, forKey: .isWarmup)
         if !configuration.isEmpty { try c.encode(configuration, forKey: .configuration) }
+        if !dropSegments.isEmpty { try c.encode(dropSegments, forKey: .dropSegments) }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, weight, reps, restTime, timestamp, isWarmup, configuration
+        case id, weight, reps, restTime, timestamp, isWarmup, configuration, dropSegments
     }
 }
 
@@ -213,6 +224,27 @@ extension LoggedSet {
             return "\(name): \(value)"
         }
         return parts.joined(separator: ", ")
+    }
+
+    /// Volume for analytics (top set + all drops).
+    var totalVolumeLoad: Double {
+        weight * Double(reps) + dropSegments.reduce(0) { $0 + $1.weight * Double($1.reps) }
+    }
+
+    /// Single-line summary for history / workout UI, e.g. `225 lb × 8 reps → 185 lb × 6 reps`.
+    func weightRepsDisplaySummary(unit: String = "lb") -> String {
+        func wStr(_ w: Double) -> String {
+            w == floor(w) ? "\(Int(w))" : String(format: "%.1f", w)
+        }
+        func seg(_ w: Double, _ r: Int) -> String {
+            let rw = r == 1 ? "rep" : "reps"
+            return "\(wStr(w)) \(unit) × \(r) \(rw)"
+        }
+        var parts = [seg(weight, reps)]
+        for d in dropSegments {
+            parts.append("→ " + seg(d.weight, d.reps))
+        }
+        return parts.joined(separator: " ")
     }
 }
 
