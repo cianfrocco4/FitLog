@@ -25,18 +25,43 @@ struct LogSetView: View {
         return session.exerciseLogs[exerciseIndex].workoutExercise
     }
 
+    private static let weightRange: ClosedRange<Double> = 0...1100
+
+    /// Keeps weight in range for both typing and the stepper (no negatives, no values above max).
+    private var clampedWeightBinding: Binding<Double> {
+        Binding(
+            get: { weight },
+            set: { new in
+                guard new.isFinite else { return }
+                weight = Self.clampWeight(new)
+            }
+        )
+    }
+
+    private static func clampWeight(_ w: Double) -> Double {
+        guard w.isFinite else { return 0 }
+        return min(weightRange.upperBound, max(weightRange.lowerBound, w))
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 Section("Log Set") {
-                    Stepper(
-                        "Weight: \(weight, specifier: "%.1f") lbs",
-                        value: $weight,
-                        in: 0...1100,
-                        step: 5
-                    )
+                    LabeledContent("Weight") {
+                        HStack(spacing: 10) {
+                            TextField("0", value: clampedWeightBinding, format: .number.precision(.fractionLength(0...2)))
+                                .keyboardType(.decimalPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(minWidth: 56)
+                            Text("lb")
+                                .foregroundStyle(.secondary)
+                            Stepper("", value: clampedWeightBinding, in: Self.weightRange, step: 5)
+                                .labelsHidden()
+                                .accessibilityLabel("Adjust weight by 5 pounds")
+                        }
+                    }
                     if weight == 0 {
-                        Text("0 lbs = body weight only")
+                        Text("0 lb = body weight only")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -108,7 +133,7 @@ struct LogSetView: View {
 
         // Prefer the most recent set from the current session for this exercise.
         if let lastInSession = currentLog.loggedSets.last {
-            weight = lastInSession.weight
+            weight = Self.clampWeight(lastInSession.weight)
             reps = lastInSession.reps
             restTime = lastInSession.restTime
             isWarmup = lastInSession.isWarmup
@@ -141,7 +166,7 @@ struct LogSetView: View {
         }
 
         if let recent = latestSet {
-            weight = recent.weight
+            weight = Self.clampWeight(recent.weight)
             reps = recent.reps
             restTime = recent.restTime
             isWarmup = recent.isWarmup
