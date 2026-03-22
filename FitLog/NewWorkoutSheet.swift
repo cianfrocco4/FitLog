@@ -41,6 +41,7 @@ struct NewWorkoutSheet: View {
                     .buttonStyle(.borderedProminent)
                 }
             }
+            .keyboardDismissToolbar()
         }
     }
 }

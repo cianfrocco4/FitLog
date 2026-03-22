@@ -54,6 +54,7 @@ struct EditExerciseSheet: View {
                     .disabled(!isBuiltIn && name.isEmpty)
                 }
             }
+            .keyboardDismissToolbar()
             .sheet(isPresented: $showMusclePicker) {
                 musclePickerSheet
             }

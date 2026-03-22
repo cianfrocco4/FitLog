@@ -62,6 +62,7 @@ struct NewExerciseSheet: View {
                     .disabled(name.isEmpty)
                 }
             }
+            .keyboardDismissToolbar()
             .sheet(isPresented: $showMusclePicker) {
                 NavigationStack {
                     List(availableMuscles) { mg in

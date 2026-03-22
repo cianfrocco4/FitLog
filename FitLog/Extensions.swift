@@ -6,6 +6,21 @@
 //
 
 import SwiftUI
+import UIKit
+
+extension View {
+    /// Keyboard accessory with a trailing Done button; use on every screen that shows text fields.
+    func keyboardDismissToolbar() -> some View {
+        toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                }
+            }
+        }
+    }
+}
 
 //extension Array where Element == Workout {
 //    subscript(id: UUID) -> Binding<Workout>? {

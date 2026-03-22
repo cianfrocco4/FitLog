@@ -618,6 +618,7 @@ struct AddExerciseSheet: View {
                     .disabled(selectedExercise == nil)
                 }
             }
+            .keyboardDismissToolbar()
         }
     }
 }

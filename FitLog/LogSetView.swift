@@ -94,6 +94,7 @@ struct LogSetView: View {
                     .disabled(reps <= 0)
                 }
             }
+            .keyboardDismissToolbar()
         }
     }
 
