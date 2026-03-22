@@ -49,7 +49,10 @@ struct WorkoutPlanView: View {
         case .defaultOrder:
             return enumerated
         case .alphabetical:
-            return enumerated.sorted { $0.workoutExercise.exercise.name.localizedCaseInsensitiveCompare($1.workoutExercise.exercise.name) == .orderedAscending }
+            return enumerated.sorted {
+                dataVM.resolvedDisplayName(for: $0.workoutExercise.exercise)
+                    .localizedCaseInsensitiveCompare(dataVM.resolvedDisplayName(for: $1.workoutExercise.exercise)) == .orderedAscending
+            }
         case .byMuscleGroup:
             return enumerated
         }
@@ -62,7 +65,10 @@ struct WorkoutPlanView: View {
             item.workoutExercise.exercise.targetedMuscles.first?.rawValue ?? MuscleGroup.other.rawValue
         }
         return grouped.keys.sorted().map { key in
-            (key, (grouped[key] ?? []).sorted { $0.workoutExercise.exercise.name.localizedCaseInsensitiveCompare($1.workoutExercise.exercise.name) == .orderedAscending })
+            (key, (grouped[key] ?? []).sorted {
+                dataVM.resolvedDisplayName(for: $0.workoutExercise.exercise)
+                    .localizedCaseInsensitiveCompare(dataVM.resolvedDisplayName(for: $1.workoutExercise.exercise)) == .orderedAscending
+            })
         }
     }
     
@@ -221,7 +227,7 @@ struct WorkoutPlanView: View {
             }
         } label: {
             HStack {
-                Text(we.exercise.name).font(.headline)
+                Text(dataVM.resolvedDisplayName(for: we.exercise)).font(.headline)
                 Spacer()
                 Text("Rec: \(we.recommendedSets) sets x \(we.recommendedReps)")
                     .font(.caption)
@@ -324,6 +330,7 @@ private let bucketOrder = ["Push", "Pull", "Legs", "Core", "Other"]
 private struct ExercisePickerView: View {
     let exercises: [Exercise]
     @Binding var selection: Exercise?
+    @EnvironmentObject var dataVM: DataManager
     @Environment(\.dismiss) var dismiss
     @State private var searchText = ""
     @State private var favoriteIds: Set<UUID> = []
@@ -334,14 +341,17 @@ private struct ExercisePickerView: View {
         let q = searchText.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return exercises }
         return exercises.filter { ex in
-            ex.name.localizedCaseInsensitiveContains(q)
+            dataVM.resolvedDisplayName(for: ex).localizedCaseInsensitiveContains(q)
+            || ex.name.localizedCaseInsensitiveContains(q)
             || (ex.targetedMuscles.first ?? .other).rawValue.localizedCaseInsensitiveContains(q)
         }
     }
 
     private var favoriteExercises: [Exercise] {
         filtered.filter { favoriteIds.contains($0.id) }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .sorted {
+                dataVM.resolvedDisplayName(for: $0).localizedCaseInsensitiveCompare(dataVM.resolvedDisplayName(for: $1)) == .orderedAscending
+            }
     }
 
     private var recentExercises: [Exercise] {
@@ -358,7 +368,9 @@ private struct ExercisePickerView: View {
         for bucket in bucketOrder {
             let musclesInBucket = MuscleGroup.displayOrder.filter { $0.exerciseBucket == bucket }
             let pairs = musclesInBucket.compactMap { muscle -> (MuscleGroup, [Exercise])? in
-                let list = (grouped[muscle] ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                let list = (grouped[muscle] ?? []).sorted {
+                    dataVM.resolvedDisplayName(for: $0).localizedCaseInsensitiveCompare(dataVM.resolvedDisplayName(for: $1)) == .orderedAscending
+                }
                 return list.isEmpty ? nil : (muscle, list)
             }
             if !pairs.isEmpty { result.append((bucket, pairs)) }
@@ -425,7 +437,7 @@ private struct ExercisePickerView: View {
                 dismiss()
             } label: {
                 HStack {
-                    Text(ex.name)
+                    Text(dataVM.resolvedDisplayName(for: ex))
                     Spacer()
                     if showFavorite {
                         Button {
@@ -489,6 +501,7 @@ struct AddExerciseSheet: View {
     /// Passed in so the sheet doesn't observe it; avoids timer-driven re-renders that reset scroll position.
     let currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject private var aiService: AIService
     @Environment(\.dismiss) var dismiss
     
     @State private var selectedExercise: Exercise?
@@ -507,11 +520,12 @@ struct AddExerciseSheet: View {
                 Section("Select Exercise") {
                     NavigationLink {
                         ExercisePickerView(exercises: exerciseList, selection: $selectedExercise)
+                            .environmentObject(dataVM)
                     } label: {
                         HStack {
                             Text("Exercise")
                             Spacer()
-                            Text(selectedExercise?.name ?? "Tap to choose")
+                            Text(selectedExercise.map { dataVM.resolvedDisplayName(for: $0) } ?? "Tap to choose")
                                 .foregroundStyle(selectedExercise == nil ? .secondary : .primary)
                         }
                     }
@@ -631,6 +645,7 @@ struct AddExerciseSheet: View {
                     selectedExercise = created
                 })
                 .environmentObject(dataVM)
+                .environmentObject(aiService)
             }
         }
     }

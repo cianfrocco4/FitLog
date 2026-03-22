@@ -9,7 +9,8 @@ import SwiftUI
 
 struct MainTabView: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
-    
+    @EnvironmentObject var dataVM: DataManager
+
     var body: some View {
         TabView {
             HomeView().tabItem { Label("Home", systemImage: "house") }
@@ -19,6 +20,7 @@ struct MainTabView: View {
         .overlay(alignment: .bottom) {
             if currentVM.isInProgress {
                 CurrentWorkoutCollapsedBar()
+                    .environmentObject(dataVM)
                     // Move the collapsed bar fully above the tab bar
                     // so it no longer overlaps or intercepts tab taps.
                     .padding(.bottom, 72)

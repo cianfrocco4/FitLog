@@ -9,7 +9,13 @@ import SwiftUI
 
 struct CurrentWorkoutCollapsedBar: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @EnvironmentObject var dataVM: DataManager
     @State private var showPullUp = false
+
+    private var primaryExerciseLine: String {
+        guard let ex = currentVM.currentSession?.exerciseLogs.first?.workoutExercise.exercise else { return "" }
+        return dataVM.resolvedDisplayName(for: ex)
+    }
     
     var body: some View {
         HStack(spacing: 12) {
@@ -17,7 +23,7 @@ struct CurrentWorkoutCollapsedBar: View {
                 HStack {
                     VStack(alignment: .leading) {
                         Text(currentVM.currentSession?.workout.name ?? "")
-                        Text(currentVM.currentSession?.exerciseLogs.first?.workoutExercise.exercise.name ?? "")
+                        Text(primaryExerciseLine)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -61,6 +67,7 @@ struct CurrentWorkoutCollapsedBar: View {
         .sheet(isPresented: $showPullUp) {
             CurrentWorkoutPullUpSheet()
                 .environmentObject(currentVM)
+                .environmentObject(dataVM)
         }
     }
 }

@@ -13,6 +13,11 @@ private struct EditableExerciseItem: Identifiable {
     var id: UUID { exercise.id }
 }
 
+private struct LocalRenameExerciseItem: Identifiable {
+    let exercise: Exercise
+    var id: UUID { exercise.id }
+}
+
 enum ExerciseLibraryFilter: String, CaseIterable {
     case all = "All"
     case custom = "Custom"
@@ -21,8 +26,10 @@ enum ExerciseLibraryFilter: String, CaseIterable {
 
 struct ExercisesLibraryView: View {
     @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject private var aiService: AIService
     @State private var showAddSheet = false
     @State private var exerciseToEdit: EditableExerciseItem?
+    @State private var exerciseToRenameLocally: LocalRenameExerciseItem?
     @State private var searchText = ""
     @State private var libraryFilter: ExerciseLibraryFilter = .all
 
@@ -34,7 +41,11 @@ struct ExercisesLibraryView: View {
         case .builtIn: list = list.filter { !$0.isCustom }
         }
         if !searchText.isEmpty {
-            list = list.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+            let q = searchText
+            list = list.filter { ex in
+                dataVM.resolvedDisplayName(for: ex).localizedCaseInsensitiveContains(q)
+                    || ex.name.localizedCaseInsensitiveContains(q)
+            }
         }
         return list
     }
@@ -56,20 +67,38 @@ struct ExercisesLibraryView: View {
                     ForEach(filteredExercises) { ex in
                         NavigationLink(destination: ExerciseDetailView(exerciseId: ex.id)) {
                             HStack(spacing: 8) {
-                                Text(ex.name)
+                                Text(dataVM.resolvedDisplayName(for: ex))
                                 Spacer(minLength: 8)
-                                if ex.isCustom {
-                                    Text("Custom")
-                                        .font(.caption2)
-                                        .fontWeight(.medium)
-                                        .foregroundStyle(.secondary)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 3)
-                                        .background(.quaternary, in: Capsule())
+                                HStack(spacing: 6) {
+                                    if dataVM.hasLocalDisplayName(for: ex.id) {
+                                        Text("Renamed")
+                                            .font(.caption2)
+                                            .fontWeight(.medium)
+                                            .foregroundStyle(.secondary)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 3)
+                                            .background(.quaternary, in: Capsule())
+                                    }
+                                    if ex.isCustom {
+                                        Text("Custom")
+                                            .font(.caption2)
+                                            .fontWeight(.medium)
+                                            .foregroundStyle(.secondary)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 3)
+                                            .background(.quaternary, in: Capsule())
+                                    }
                                 }
                             }
                         }
                 .contextMenu {
+                    if !ex.isCustom {
+                        Button {
+                            exerciseToRenameLocally = LocalRenameExerciseItem(exercise: ex)
+                        } label: {
+                            Label("Rename locally", systemImage: "textformat")
+                        }
+                    }
                     Button {
                         exerciseToEdit = EditableExerciseItem(exercise: ex)
                     } label: {
@@ -87,6 +116,15 @@ struct ExercisesLibraryView: View {
             }
             .sheet(isPresented: $showAddSheet) {
                 NewExerciseSheet()
+                    .environmentObject(dataVM)
+                    .environmentObject(aiService)
+            }
+            .sheet(item: $exerciseToRenameLocally) { item in
+                LocalExerciseRenameSheet(
+                    exercise: item.exercise,
+                    initialDisplayName: dataVM.resolvedDisplayName(for: item.exercise)
+                )
+                .environmentObject(dataVM)
             }
             .sheet(item: $exerciseToEdit, onDismiss: { exerciseToEdit = nil }) { item in
                 EditExerciseSheet(exercise: item.exercise)

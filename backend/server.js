@@ -6,6 +6,7 @@
  *   OPENAI_API_KEY  (required)
  *   OPENAI_MODEL    (optional) e.g. gpt-4o-mini, gpt-5-mini. Default: gpt-4o-mini
  *
+ * GET /health  — no OpenAI call; use this to wake free-tier hosts (e.g. Render) on app launch.
  * POST /v1/chat/completions
  * Body: { "messages": [...], "max_tokens": 500 }
  */
@@ -45,9 +46,15 @@ async function forwardToOpenAI(apiKey, body) {
   return { status: res.status, body: data };
 }
 
+function pathOnly(url) {
+  if (!url) return '';
+  const q = url.indexOf('?');
+  return q === -1 ? url : url.slice(0, q);
+}
+
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
@@ -56,7 +63,20 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+  const path = pathOnly(req.url);
+  if (path === '/health' || path === '/') {
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      if (req.method === 'GET') {
+        res.end(JSON.stringify({ ok: true, service: 'fitlog-ai-proxy' }));
+      } else {
+        res.end();
+      }
+      return;
+    }
+  }
+
+  if (req.method !== 'POST' || path !== '/v1/chat/completions') {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not found' }));
     return;

@@ -196,7 +196,7 @@ struct HistoryView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(sessionsInRange) { session in
-                    NavigationLink(destination: SessionDetailView(session: session)) {
+                    NavigationLink(destination: SessionDetailView(session: session).environmentObject(dataVM)) {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(session.workout.name)
@@ -230,7 +230,7 @@ struct HistoryView: View {
                 ForEach(sorted, id: \.key) { workoutId, sessions in
                     let name = sessions.first?.workout.name ?? "Unknown"
                     let last = sessions.map(\.endTime).compactMap { $0 }.max()
-                    NavigationLink(destination: WorkoutHistoryDetailView(sessions: sessions, workoutName: name)) {
+                    NavigationLink(destination: WorkoutHistoryDetailView(sessions: sessions, workoutName: name).environmentObject(dataVM)) {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(name)
@@ -262,10 +262,10 @@ struct HistoryView: View {
                 Text("No exercise data in this range")
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(stats.sorted(by: { $0.sessions > $1.sessions }), id: \.name) { stat in
-                    NavigationLink(destination: ExerciseHistoryDetailView(exerciseName: stat.name, sessions: sessionsInRange)) {
+                ForEach(stats.sorted(by: { $0.sessions > $1.sessions }), id: \.id) { stat in
+                    NavigationLink(destination: ExerciseHistoryDetailView(exerciseId: stat.id, sessions: sessionsInRange).environmentObject(dataVM)) {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(stat.name)
+                            Text(dataVM.resolvedDisplayName(for: stat.sampleExercise))
                                 .font(.headline)
                             HStack(spacing: 16) {
                                 Label("\(stat.sessions) session\(stat.sessions == 1 ? "" : "s")", systemImage: "calendar")
@@ -294,7 +294,7 @@ struct HistoryView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(stats.sorted(by: { $0.sessions > $1.sessions }), id: \.name) { stat in
-                    NavigationLink(destination: MuscleGroupHistoryDetailView(muscleGroupName: stat.name, sessions: sessionsInRange)) {
+                    NavigationLink(destination: MuscleGroupHistoryDetailView(muscleGroupName: stat.name, sessions: sessionsInRange).environmentObject(dataVM)) {
                         HStack {
                             Text(stat.name)
                                 .font(.headline)
@@ -331,27 +331,28 @@ struct HistoryView: View {
         return String(format: "%d:%02d", m, s)
     }
     
-    private struct ExerciseStat {
-        let name: String
+    private struct ExerciseStat: Identifiable {
+        let id: UUID
+        let sampleExercise: Exercise
         let sessions: Int
         let totalSets: Int
         let volume: Double
     }
     
     private func exerciseStats(in sessions: [WorkoutSession]) -> [ExerciseStat] {
-        var byName: [String: (sessions: Set<UUID>, sets: Int, volume: Double)] = [:]
+        var byId: [UUID: (sample: Exercise, sessions: Set<UUID>, sets: Int, volume: Double)] = [:]
         for session in sessions {
             for log in session.exerciseLogs {
-                let name = log.workoutExercise.exercise.name
-                var entry = byName[name] ?? (sessions: [], sets: 0, volume: 0)
+                let ex = log.workoutExercise.exercise
+                var entry = byId[ex.id] ?? (sample: ex, sessions: [], sets: 0, volume: 0)
                 entry.sessions.insert(session.id)
                 entry.sets += log.loggedSets.count
                 entry.volume += log.loggedSets.reduce(0) { $0 + Double($1.reps) * $1.weight }
-                byName[name] = entry
+                byId[ex.id] = entry
             }
         }
-        return byName.map { name, data in
-            ExerciseStat(name: name, sessions: data.sessions.count, totalSets: data.sets, volume: data.volume)
+        return byId.map { id, data in
+            ExerciseStat(id: id, sampleExercise: data.sample, sessions: data.sessions.count, totalSets: data.sets, volume: data.volume)
         }
     }
     
@@ -391,6 +392,7 @@ struct HistoryView: View {
 
 // MARK: - Session detail (single workout session: exercises + logged sets)
 private struct SessionDetailView: View {
+    @EnvironmentObject var dataVM: DataManager
     let session: WorkoutSession
 
     private var endDate: Date { session.endTime ?? session.startTime }
@@ -412,7 +414,7 @@ private struct SessionDetailView: View {
                 }
             }
             ForEach(session.exerciseLogs) { log in
-                Section(log.workoutExercise.exercise.name) {
+                Section(dataVM.resolvedDisplayName(for: log.workoutExercise.exercise)) {
                     ForEach(log.loggedSets) { set in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
@@ -445,6 +447,7 @@ private struct SessionDetailView: View {
 
 // MARK: - Workout history (list of sessions for one workout)
 private struct WorkoutHistoryDetailView: View {
+    @EnvironmentObject var dataVM: DataManager
     let sessions: [WorkoutSession]
     let workoutName: String
 
@@ -454,7 +457,7 @@ private struct WorkoutHistoryDetailView: View {
 
     var body: some View {
         List(sortedSessions) { session in
-            NavigationLink(destination: SessionDetailView(session: session)) {
+            NavigationLink(destination: SessionDetailView(session: session).environmentObject(dataVM)) {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(HistoryView.formatDateStatic(session.endTime ?? session.startTime))
@@ -477,14 +480,25 @@ private struct WorkoutHistoryDetailView: View {
 
 // MARK: - Exercise history (each session where exercise was done + logged sets)
 private struct ExerciseHistoryDetailView: View {
-    let exerciseName: String
+    @EnvironmentObject var dataVM: DataManager
+    let exerciseId: UUID
     let sessions: [WorkoutSession]
 
     private var sessionLogs: [(session: WorkoutSession, log: ExerciseLog)] {
         sessions.compactMap { session in
-            guard let log = session.exerciseLogs.first(where: { $0.workoutExercise.exercise.name == exerciseName }) else { return nil }
+            guard let log = session.exerciseLogs.first(where: { $0.workoutExercise.exercise.id == exerciseId }) else { return nil }
             return (session, log)
         }.sorted { ($0.session.endTime ?? $0.session.startTime) > ($1.session.endTime ?? $1.session.startTime) }
+    }
+
+    private var navigationTitle: String {
+        if let ex = dataVM.globalExercises.first(where: { $0.id == exerciseId }) {
+            return dataVM.resolvedDisplayName(for: ex)
+        }
+        if let log = sessionLogs.first?.log {
+            return dataVM.resolvedDisplayName(for: log.workoutExercise.exercise)
+        }
+        return "Exercise"
     }
 
     var body: some View {
@@ -530,13 +544,14 @@ private struct ExerciseHistoryDetailView: View {
                 }
             }
         }
-        .navigationTitle(exerciseName)
+        .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
     }
 }
 
 // MARK: - Muscle group history (sessions + exercises that targeted this muscle + sets)
 private struct MuscleGroupHistoryDetailView: View {
+    @EnvironmentObject var dataVM: DataManager
     let muscleGroupName: String
     let sessions: [WorkoutSession]
 
@@ -568,7 +583,7 @@ private struct MuscleGroupHistoryDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(item.logs) { log in
-                        DisclosureGroup(log.workoutExercise.exercise.name) {
+                        DisclosureGroup(dataVM.resolvedDisplayName(for: log.workoutExercise.exercise)) {
                             ForEach(log.loggedSets) { set in
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack {

@@ -54,7 +54,9 @@ Use `https://your-app-name.fly.dev` as the base URL.
 
 ## API
 
-Single endpoint, same shape as OpenAI Chat Completions (so the iOS app can call it the same way):
+- **GET** `/health` — returns `{"ok":true,"service":"fitlog-ai-proxy"}`. Does **not** call OpenAI. The iOS app pings this on launch when using this base URL so hosts that sleep after idle (e.g. Render free tier) start warming up before the user needs AI features.
+
+Single forwarding endpoint, same shape as OpenAI Chat Completions (so the iOS app can call it the same way):
 
 - **POST** `/v1/chat/completions`
 - **Body:** `{ "messages": [{"role":"system","content":"..."},{"role":"user","content":"..."}], "max_tokens": 500 }`

@@ -73,7 +73,13 @@ struct EditExerciseSheet: View {
     private var exerciseInfoSection: some View {
         Section("Exercise Info") {
             if isBuiltIn {
-                Text(exercise.name)
+                Text(dataVM.resolvedDisplayName(for: exercise))
+                    .font(.headline)
+                if dataVM.hasLocalDisplayName(for: exercise.id) {
+                    Text("Standard name: \(exercise.name)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Text(exercise.description)
                     .foregroundStyle(.secondary)
             } else {

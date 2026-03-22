@@ -7,6 +7,23 @@
 
 import Foundation
 
+/// Result of the one-shot AI check when creating a custom exercise (duplicate name, muscles, optional description).
+struct NewExerciseAIReview: Equatable {
+    /// Existing library name when the model thinks this is the same exercise under another name (high/medium confidence only).
+    let matchingLibraryName: String?
+    let duplicateNote: String
+    let musclesCorrect: Bool
+    let suggestedMuscles: [MuscleGroup]
+    let muscleNote: String
+    /// Non-nil only when the user left the description blank and the model proposed text.
+    let suggestedDescription: String?
+
+    /// Whether to show the review sheet (anything the user should confirm).
+    var needsReviewSheet: Bool {
+        matchingLibraryName != nil || !musclesCorrect || suggestedDescription != nil
+    }
+}
+
 final class AIService: ObservableObject {
     private static let openAIURL = URL(string: "https://api.openai.com/v1/chat/completions")!
     /// Model ID from OpenAIConfig.aiModel (configurable via FITLOG_AI_MODEL).
@@ -19,6 +36,11 @@ final class AIService: ObservableObject {
     /// When set, requests go to this base URL (option 1 proxy); key is not sent. Otherwise use OpenAI and apiKey.
     private let proxyBaseURL: String?
     private let apiKey: String?
+
+    private let proxyWakeLock = NSLock()
+    private var lastProxyWakeDate: Date?
+    /// Avoid hammering the proxy when switching apps repeatedly.
+    private let proxyWakeCooldown: TimeInterval = 180
 
     init(apiKey: String?, baseURL: String?, model: String? = nil) {
         let trimmedKey = apiKey?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -34,6 +56,31 @@ final class AIService: ObservableObject {
     var isConfigured: Bool {
         if proxyBaseURL != nil { return true }
         return apiKey != nil && !(apiKey?.isEmpty ?? true)
+    }
+
+    /// GET `/health` on the AI proxy so hosts that sleep after idle (e.g. Render) start cold-booting. No OpenAI usage. Ignores errors.
+    func wakeProxyHostIfNeeded() {
+        guard let baseRaw = proxyBaseURL?.trimmingCharacters(in: .whitespacesAndNewlines), !baseRaw.isEmpty,
+              let root = URL(string: baseRaw) else { return }
+
+        proxyWakeLock.lock()
+        let now = Date()
+        if let last = lastProxyWakeDate, now.timeIntervalSince(last) < proxyWakeCooldown {
+            proxyWakeLock.unlock()
+            return
+        }
+        lastProxyWakeDate = now
+        proxyWakeLock.unlock()
+
+        let url = root.appendingPathComponent("health")
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 25
+
+        let sess = session
+        Task(priority: .utility) {
+            _ = try? await sess.data(for: request)
+        }
     }
 
     private var chatCompletionsURL: URL {
@@ -100,9 +147,99 @@ final class AIService: ObservableObject {
         }
         return lines.joined(separator: "\n")
     }
+
+    // MARK: - New custom exercise (single request: duplicate name, muscles, optional description)
+
+    /// One API call: fuzzy duplicate, muscle check, and (if description is empty) a short suggested description.
+    func reviewNewExerciseDraft(
+        name: String,
+        description: String,
+        muscles: [MuscleGroup],
+        existingExerciseNames: [String]
+    ) async throws -> NewExerciseAIReview {
+        if !isConfigured {
+            throw AIServiceError.notConfigured
+        }
+        let namesData = try JSONEncoder().encode(existingExerciseNames)
+        let namesJSON = String(data: namesData, encoding: .utf8) ?? "[]"
+        let muscleLine = muscles.map(\.rawValue).joined(separator: ", ")
+        let allowedMuscles = MuscleGroup.allCases.map(\.rawValue).sorted().joined(separator: ", ")
+        let hadDescription = !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let system = """
+        You validate a new custom strength-training exercise for a workout app. Reply with ONLY a compact JSON object, no markdown or prose.
+        Keys (camelCase): likelyDuplicateOf (string or null), duplicateConfidence ("high"|"medium"|"low"|"none"), duplicateNote (string), musclesCorrect (boolean), suggestedMuscleNames (array of 0–3 strings), muscleNote (string), suggestedDescription (string).
+        Rules:
+        - likelyDuplicateOf must be null OR exactly one string from the provided library JSON array (same spelling as in the array). If the user's name is the same exercise under a synonym, abbreviation, or minor spelling variation, set it to that library string and set duplicateConfidence to high or medium. If no real duplicate, null and duplicateConfidence none.
+        - musclesCorrect: true if the user's ordered muscles (primary→tertiary) fit the exercise; false if wrong groups, wrong order, or an important prime mover is missing. If the user listed no muscles, set musclesCorrect false unless the exercise is ambiguous—then true with empty suggestedMuscleNames.
+        - suggestedMuscleNames: only when musclesCorrect is false, 1–3 entries using EXACT labels from the allowed list; order most-to-least applicable. Otherwise [].
+        - suggestedDescription: If the user already provided a description below, set this to an empty string "". If the user did NOT provide a description, write 1–2 short factual sentences describing the movement (equipment, position, pattern). No marketing tone. If the exercise name is too vague to describe, use one short generic sentence.
+        - Keep duplicateNote and muscleNote short (one sentence each, can be empty).
+        """
+        let userPrompt = """
+        Proposed name: \(name)
+        Proposed description: \(hadDescription ? description : "(none — user left blank; fill suggestedDescription)")
+        User's muscle groups in order (most applicable first, up to 3): \(muscleLine.isEmpty ? "(none selected)" : muscleLine)
+
+        Existing exercise names (JSON array of strings):
+        \(namesJSON)
+
+        Allowed muscle labels (use these strings exactly in suggestedMuscleNames): \(allowedMuscles)
+        """
+        let content = try await performRequest(system: system, user: userPrompt, maxTokens: 520, jsonObject: true)
+        return try parseNewExerciseReview(jsonString: content, existingExerciseNames: existingExerciseNames, hadUserDescription: hadDescription)
+    }
+
+    private func parseNewExerciseReview(jsonString: String, existingExerciseNames: [String], hadUserDescription: Bool) throws -> NewExerciseAIReview {
+        let trimmed = jsonString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let slice: String = {
+            if let start = trimmed.firstIndex(of: "{"), let end = trimmed.lastIndex(of: "}"), start < end {
+                return String(trimmed[start...end])
+            }
+            return trimmed
+        }()
+        guard let data = slice.data(using: .utf8) else { throw AIServiceError.emptyContent }
+        let json: NewExerciseReviewJSON
+        do {
+            json = try JSONDecoder().decode(NewExerciseReviewJSON.self, from: data)
+        } catch {
+            throw AIServiceError.invalidJSONContent
+        }
+
+        func resolveLibraryName(_ raw: String?) -> String? {
+            guard let s = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return nil }
+            if existingExerciseNames.contains(s) { return s }
+            return existingExerciseNames.first { $0.caseInsensitiveCompare(s) == .orderedSame }
+        }
+
+        let resolvedDup = resolveLibraryName(json.likelyDuplicateOf)
+        let conf = (json.duplicateConfidence ?? "none").lowercased()
+        let showDup = resolvedDup != nil && (conf == "high" || conf == "medium")
+
+        let musclesOK = json.musclesCorrect ?? true
+        let rawSuggested = json.suggestedMuscleNames ?? []
+        let suggested: [MuscleGroup] = rawSuggested.prefix(3).compactMap {
+            let t = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            return MuscleGroup(rawValue: t)
+        }
+
+        let rawSuggestedDesc = (json.suggestedDescription ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let suggestedDesc: String? = {
+            guard !hadUserDescription else { return nil }
+            return rawSuggestedDesc.isEmpty ? nil : rawSuggestedDesc
+        }()
+
+        return NewExerciseAIReview(
+            matchingLibraryName: showDup ? resolvedDup : nil,
+            duplicateNote: (json.duplicateNote ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            musclesCorrect: musclesOK,
+            suggestedMuscles: suggested,
+            muscleNote: (json.muscleNote ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            suggestedDescription: suggestedDesc
+        )
+    }
     
     // MARK: - API
-    private func performRequest(system: String, user: String, maxTokens: Int = 500) async throws -> String {
+    private func performRequest(system: String, user: String, maxTokens: Int = 500, jsonObject: Bool = false) async throws -> String {
         let useProxy = proxyBaseURL != nil
         if !useProxy, (apiKey == nil || apiKey!.isEmpty) { throw AIServiceError.notConfigured }
         var request = URLRequest(url: chatCompletionsURL)
@@ -111,7 +248,7 @@ final class AIService: ObservableObject {
             request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": model,
             "messages": [
                 ["role": "system", "content": system],
@@ -119,6 +256,9 @@ final class AIService: ObservableObject {
             ],
             "max_tokens": maxTokens
         ]
+        if jsonObject {
+            body["response_format"] = ["type": "json_object"]
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw AIServiceError.invalidResponse }
@@ -138,6 +278,7 @@ enum AIServiceError: LocalizedError {
     case notConfigured
     case invalidResponse
     case emptyContent
+    case invalidJSONContent
     case apiError(statusCode: Int, message: String)
     
     var errorDescription: String? {
@@ -148,6 +289,8 @@ enum AIServiceError: LocalizedError {
             return "Invalid response from server."
         case .emptyContent:
             return "Empty response from model."
+        case .invalidJSONContent:
+            return "Could not read the AI response."
         case .apiError(let code, let message):
             return "API error (\(code)): \(message)"
         }
@@ -162,4 +305,14 @@ private struct OpenAICompletionResponse: Decodable {
             let content: String?
         }
     }
+}
+
+private struct NewExerciseReviewJSON: Decodable {
+    let likelyDuplicateOf: String?
+    let duplicateConfidence: String?
+    let duplicateNote: String?
+    let musclesCorrect: Bool?
+    let suggestedMuscleNames: [String]?
+    let muscleNote: String?
+    let suggestedDescription: String?
 }

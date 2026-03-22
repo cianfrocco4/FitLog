@@ -10,6 +10,7 @@ import Foundation
 
 struct CurrentWorkoutPullUpSheet: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @EnvironmentObject var dataVM: DataManager
     @Environment(\.dismiss) var dismiss
     
     @State private var expandedExerciseIndex: Int? = nil
@@ -95,7 +96,7 @@ struct CurrentWorkoutPullUpSheet: View {
                                 } label: {
                                     HStack {
                                         VStack(alignment: .leading, spacing: 2) {
-                                            Text(log.workoutExercise.exercise.name)
+                                            Text(dataVM.resolvedDisplayName(for: log.workoutExercise.exercise))
                                                 .font(.headline)
                                             HStack(spacing: 6) {
                                                 statusDot(for: log)

@@ -13,6 +13,7 @@ struct ExerciseDetailView: View {
     @Environment(\.dismiss) var dismiss
     let exerciseId: UUID
     @State private var showEditSheet = false
+    @State private var showLocalRenameSheet = false
     @State private var formTipsResult: Result<[String], Error>?
     @State private var formTipsLoading = false
 
@@ -34,8 +35,13 @@ struct ExerciseDetailView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(ex.name)
+                            Text(dataVM.resolvedDisplayName(for: ex))
                                 .font(.largeTitle)
+                            if dataVM.hasLocalDisplayName(for: ex.id) {
+                                Text("Standard name: \(ex.name)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                             Text(ex.description)
                                 .foregroundStyle(.secondary)
                             Text(ex.targetedMuscles.map(\.rawValue).joined(separator: ", "))
@@ -83,14 +89,36 @@ struct ExerciseDetailView: View {
                 }
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button(ex.isCustom ? "Edit" : "Configuration options") {
-                            showEditSheet = true
+                        if ex.isCustom {
+                            Button("Edit") {
+                                showEditSheet = true
+                            }
+                        } else {
+                            Menu {
+                                Button("Rename locally") {
+                                    showLocalRenameSheet = true
+                                }
+                                Button("Configuration options") {
+                                    showEditSheet = true
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis.circle")
+                            }
                         }
                     }
                 }
                 .sheet(isPresented: $showEditSheet) {
                     if let ex = exercise {
                         EditExerciseSheet(exercise: ex)
+                    }
+                }
+                .sheet(isPresented: $showLocalRenameSheet) {
+                    if let ex = exercise {
+                        LocalExerciseRenameSheet(
+                            exercise: ex,
+                            initialDisplayName: dataVM.resolvedDisplayName(for: ex)
+                        )
+                        .environmentObject(dataVM)
                     }
                 }
             } else {

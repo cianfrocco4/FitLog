@@ -7,8 +7,14 @@
 
 import SwiftUI
 
+private struct ExerciseReviewPayload: Identifiable {
+    let id = UUID()
+    let review: NewExerciseAIReview
+}
+
 struct NewExerciseSheet: View {
     @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject private var aiService: AIService
     @Environment(\.dismiss) var dismiss
 
     /// When set (e.g. from Add Exercise to workout), called with the new exercise after save.
@@ -22,6 +28,17 @@ struct NewExerciseSheet: View {
     @State private var description = ""
     @State private var selectedMuscles: [MuscleGroup] = []
     @State private var showMusclePicker = false
+
+    @State private var isCheckingWithAI = false
+    @State private var reviewPayload: ExerciseReviewPayload?
+    @State private var reviewEditedName = ""
+    @State private var reviewEditedMuscles: [MuscleGroup] = []
+    @State private var reviewEditedDescription = ""
+
+    @State private var showExactNameConflict = false
+    @State private var showAIFailureAlert = false
+    @State private var aiFailureMessage = ""
+    @State private var showNameTakenInReview = false
 
     private var availableMuscles: [MuscleGroup] {
         MuscleGroup.displayOrder.filter { !selectedMuscles.contains($0) }
@@ -57,17 +74,24 @@ struct NewExerciseSheet: View {
                         }
                     }
                 }
+                if !aiService.isConfigured {
+                    Section {
+                        Text("Set OPENAI_API_KEY or FITLOG_AI_BASE_URL in your scheme or Info.plist to get a one-time duplicate and muscle check when you save.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
             .navigationTitle("Add New Exercise")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Save") {
-                        let created = dataVM.addNewExercise(name: name, description: description, muscles: selectedMuscles)
-                        onCreated?(created)
-                        dismiss()
+                    if isCheckingWithAI {
+                        ProgressView()
+                    } else {
+                        Button("Save", action: saveTapped)
+                            .disabled(trimmedDisplayName(name).isEmpty)
                     }
-                    .disabled(name.isEmpty)
                 }
             }
             .keyboardDismissToolbar()
@@ -88,6 +112,186 @@ struct NewExerciseSheet: View {
                     }
                 }
             }
+            .sheet(item: $reviewPayload) { payload in
+                reviewSheet(for: payload.review)
+            }
+            .alert("Name already in library", isPresented: $showExactNameConflict) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("An exercise with this name already exists. Choose a different name to save a new custom exercise.")
+            }
+            .alert("Couldn’t verify with AI", isPresented: $showAIFailureAlert) {
+                Button("Save anyway") {
+                    finalizeSave(
+                        displayName: trimmedDisplayName(name),
+                        muscles: selectedMuscles,
+                        description: trimmedDisplayName(description)
+                    )
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(aiFailureMessage)
+            }
+            .alert("That name is taken", isPresented: $showNameTakenInReview) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Another exercise already uses this name. Change the name and try again.")
+            }
         }
+    }
+
+    @ViewBuilder
+    private func reviewSheet(for review: NewExerciseAIReview) -> some View {
+        NavigationStack {
+            Form {
+                if let match = review.matchingLibraryName {
+                    Section("Possible duplicate") {
+                        if !review.duplicateNote.isEmpty {
+                            Text(review.duplicateNote)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text("Library exercise:")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Text(match)
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                        }
+                        TextField("Your exercise name", text: $reviewEditedName)
+                        Text("You can keep your wording or rename—this only affects how the exercise appears for you.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if !review.musclesCorrect {
+                    Section("Muscle groups") {
+                        if !review.muscleNote.isEmpty {
+                            Text(review.muscleNote)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        if !review.suggestedMuscles.isEmpty {
+                            Text("Suggested order: \(review.suggestedMuscles.map(\.rawValue).joined(separator: " → "))")
+                                .font(.subheadline)
+                            Button("Apply suggestion") {
+                                reviewEditedMuscles = review.suggestedMuscles
+                            }
+                        } else {
+                            Text("Review your muscle list on the previous screen, or save with what you have.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                if let suggested = review.suggestedDescription {
+                    Section("Description") {
+                        Text("You didn’t add a description. Here’s a suggested one—edit it or clear it before saving.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("Description", text: $reviewEditedDescription, axis: .vertical)
+                            .lineLimit(3...8)
+                        Button("Reset to suggestion") {
+                            reviewEditedDescription = suggested
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Review")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Back") {
+                        reviewPayload = nil
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save exercise") {
+                        commitAfterReview()
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(trimmedDisplayName(reviewEditedName).isEmpty)
+                }
+            }
+            .keyboardDismissToolbar()
+        }
+    }
+
+    private func trimmedDisplayName(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func nameAlreadyInLibrary(_ n: String) -> Bool {
+        dataVM.globalExercises.contains { $0.name.caseInsensitiveCompare(n) == .orderedSame }
+    }
+
+    private func saveTapped() {
+        let trimmedName = trimmedDisplayName(name)
+        guard !trimmedName.isEmpty else { return }
+
+        if nameAlreadyInLibrary(trimmedName) {
+            showExactNameConflict = true
+            return
+        }
+
+        if !aiService.isConfigured {
+            finalizeSave(displayName: trimmedName, muscles: selectedMuscles, description: trimmedDisplayName(description))
+            return
+        }
+
+        isCheckingWithAI = true
+        Task {
+            let desc = trimmedDisplayName(description)
+            let muscles = selectedMuscles
+            let names = dataVM.globalExercises.map(\.name)
+            do {
+                let review = try await aiService.reviewNewExerciseDraft(
+                    name: trimmedName,
+                    description: desc,
+                    muscles: muscles,
+                    existingExerciseNames: names
+                )
+                await MainActor.run {
+                    isCheckingWithAI = false
+                    if review.needsReviewSheet {
+                        reviewEditedName = trimmedName
+                        reviewEditedMuscles = muscles
+                        let descEmpty = desc.isEmpty
+                        reviewEditedDescription = descEmpty ? (review.suggestedDescription ?? "") : desc
+                        reviewPayload = ExerciseReviewPayload(review: review)
+                    } else {
+                        finalizeSave(displayName: trimmedName, muscles: muscles, description: desc)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isCheckingWithAI = false
+                    aiFailureMessage = error.localizedDescription
+                    showAIFailureAlert = true
+                }
+            }
+        }
+    }
+
+    private func commitAfterReview() {
+        let trimmed = trimmedDisplayName(reviewEditedName)
+        guard !trimmed.isEmpty else { return }
+        if nameAlreadyInLibrary(trimmed) {
+            showNameTakenInReview = true
+            return
+        }
+        reviewPayload = nil
+        finalizeSave(
+            displayName: trimmed,
+            muscles: reviewEditedMuscles,
+            description: trimmedDisplayName(reviewEditedDescription)
+        )
+    }
+
+    private func finalizeSave(displayName: String, muscles: [MuscleGroup], description: String) {
+        let created = dataVM.addNewExercise(name: displayName, description: description, muscles: muscles)
+        onCreated?(created)
+        dismiss()
     }
 }

@@ -11,12 +11,15 @@ import Foundation
 final class DataManager: ObservableObject {
     @Published var userWorkouts: [Workout] = []
     @Published var globalExercises: [Exercise] = []
+    /// Per-exercise display name overrides (by exercise id). Does not change canonical `Exercise.name`.
+    @Published private(set) var exerciseLocalDisplayNames: [UUID: String] = [:]
     @Published var completedSessions: [WorkoutSession] = []
     
     private let workoutsKey = "userWorkouts"
     /// One-time backup of the raw workouts payload, used for recovery if a future schema change breaks decoding.
     private let workoutsBackupKey = "userWorkouts_backup_v1"
     private let exercisesKey = "globalExercises"
+    private let exerciseLocalDisplayNamesKey = "exerciseLocalDisplayNames"
     private let sessionsKey = "completedSessions"
     private let sessionsBackupKey = "completedSessions_backup_v1"
     private let exercisesPreloadedKey = "exercisesPreloaded"
@@ -26,6 +29,7 @@ final class DataManager: ObservableObject {
     func loadAll() {
         loadWorkouts()
         loadExercises()
+        loadExerciseLocalDisplayNames()
         loadSessions()
         
         if !UserDefaults.standard.bool(forKey: exercisesPreloadedKey) {
@@ -137,12 +141,72 @@ final class DataManager: ObservableObject {
     }
     
     func deleteGlobalExercise(_ exercise: Exercise) {
+        clearLocalExerciseDisplayName(for: exercise.id)
         globalExercises.removeAll { $0.id == exercise.id }
         for i in userWorkouts.indices {
             userWorkouts[i].exercises.removeAll { $0.exercise.id == exercise.id }
         }
         saveExercises()
         saveWorkouts()
+    }
+
+    // MARK: - Local exercise display names
+
+    /// Name shown in the UI: custom local label if set, otherwise the canonical library name (from `globalExercises` when present).
+    func resolvedDisplayName(for exercise: Exercise) -> String {
+        let canonical = globalExercises.first(where: { $0.id == exercise.id })?.name ?? exercise.name
+        if let custom = exerciseLocalDisplayNames[exercise.id] {
+            let t = custom.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !t.isEmpty { return t }
+        }
+        return canonical
+    }
+
+    func hasLocalDisplayName(for exerciseId: UUID) -> Bool {
+        guard let s = exerciseLocalDisplayNames[exerciseId] else { return false }
+        return !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    func setLocalExerciseDisplayName(for exerciseId: UUID, customName: String?) {
+        guard let ex = globalExercises.first(where: { $0.id == exerciseId }) else { return }
+        let trimmed = customName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var next = exerciseLocalDisplayNames
+        if trimmed.isEmpty || trimmed.caseInsensitiveCompare(ex.name) == .orderedSame {
+            next.removeValue(forKey: exerciseId)
+        } else {
+            next[exerciseId] = trimmed
+        }
+        exerciseLocalDisplayNames = next
+        saveExerciseLocalDisplayNames()
+    }
+
+    func clearLocalExerciseDisplayName(for exerciseId: UUID) {
+        var next = exerciseLocalDisplayNames
+        next.removeValue(forKey: exerciseId)
+        exerciseLocalDisplayNames = next
+        saveExerciseLocalDisplayNames()
+    }
+
+    private func loadExerciseLocalDisplayNames() {
+        guard let data = UserDefaults.standard.data(forKey: exerciseLocalDisplayNamesKey),
+              let raw = try? JSONDecoder().decode([String: String].self, from: data) else {
+            exerciseLocalDisplayNames = [:]
+            return
+        }
+        var out: [UUID: String] = [:]
+        for (key, value) in raw {
+            guard let id = UUID(uuidString: key) else { continue }
+            let t = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !t.isEmpty { out[id] = t }
+        }
+        exerciseLocalDisplayNames = out
+    }
+
+    private func saveExerciseLocalDisplayNames() {
+        let raw = Dictionary(uniqueKeysWithValues: exerciseLocalDisplayNames.map { ($0.key.uuidString, $0.value) })
+        if let data = try? JSONEncoder().encode(raw) {
+            UserDefaults.standard.set(data, forKey: exerciseLocalDisplayNamesKey)
+        }
     }
     
     /// Names of exercises in the built-in library. Used to treat legacy user-added exercises as custom (editable/deletable) after app update.

@@ -24,6 +24,9 @@ struct FitLogApp: App {
                     .environmentObject(dataVM)
                     .environmentObject(currentVM)
                     .environmentObject(aiService)
+                    .onAppear {
+                        aiService.wakeProxyHostIfNeeded()
+                    }
             } else {
                 LoginView()
                     .environmentObject(authVM)
@@ -31,9 +34,15 @@ struct FitLogApp: App {
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             switch newPhase {
-            case .background: currentVM.appDidEnterBackground()
-            case .active:     currentVM.appDidBecomeActive()
-            default:          break
+            case .background:
+                currentVM.appDidEnterBackground()
+            case .active:
+                currentVM.appDidBecomeActive()
+                if authVM.isLoggedIn {
+                    aiService.wakeProxyHostIfNeeded()
+                }
+            default:
+                break
             }
         }
     }
