@@ -39,6 +39,7 @@ struct NewExerciseSheet: View {
     @State private var showAIFailureAlert = false
     @State private var aiFailureMessage = ""
     @State private var showNameTakenInReview = false
+    @State private var muscleSuggestionWasAppliedInReview = false
 
     private var availableMuscles: [MuscleGroup] {
         MuscleGroup.displayOrder.filter { !selectedMuscles.contains($0) }
@@ -175,8 +176,18 @@ struct NewExerciseSheet: View {
                         if !review.suggestedMuscles.isEmpty {
                             Text("Suggested order: \(review.suggestedMuscles.map(\.rawValue).joined(separator: " → "))")
                                 .font(.subheadline)
-                            Button("Apply suggestion") {
-                                reviewEditedMuscles = review.suggestedMuscles
+                            if muscleSuggestionWasAppliedInReview {
+                                Label("Applied to this exercise", systemImage: "checkmark.circle.fill")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                    .foregroundStyle(.green)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical, 4)
+                            } else {
+                                Button("Apply suggestion") {
+                                    reviewEditedMuscles = review.suggestedMuscles
+                                    muscleSuggestionWasAppliedInReview = true
+                                }
                             }
                         } else {
                             Text("Review your muscle list on the previous screen, or save with what you have.")
@@ -203,6 +214,7 @@ struct NewExerciseSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Back") {
+                        muscleSuggestionWasAppliedInReview = false
                         reviewPayload = nil
                     }
                 }
@@ -255,6 +267,7 @@ struct NewExerciseSheet: View {
                 await MainActor.run {
                     isCheckingWithAI = false
                     if review.needsReviewSheet {
+                        muscleSuggestionWasAppliedInReview = false
                         reviewEditedName = trimmedName
                         reviewEditedMuscles = muscles
                         let descEmpty = desc.isEmpty
@@ -281,6 +294,7 @@ struct NewExerciseSheet: View {
             showNameTakenInReview = true
             return
         }
+        muscleSuggestionWasAppliedInReview = false
         reviewPayload = nil
         finalizeSave(
             displayName: trimmed,
