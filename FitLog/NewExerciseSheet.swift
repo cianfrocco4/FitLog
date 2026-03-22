@@ -11,6 +11,13 @@ struct NewExerciseSheet: View {
     @EnvironmentObject var dataVM: DataManager
     @Environment(\.dismiss) var dismiss
 
+    /// When set (e.g. from Add Exercise to workout), called with the new exercise after save.
+    var onCreated: ((Exercise) -> Void)?
+
+    init(onCreated: ((Exercise) -> Void)? = nil) {
+        self.onCreated = onCreated
+    }
+
     @State private var name = ""
     @State private var description = ""
     @State private var selectedMuscles: [MuscleGroup] = []
@@ -56,7 +63,8 @@ struct NewExerciseSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") {
-                        dataVM.addNewExercise(name: name, description: description, muscles: selectedMuscles)
+                        let created = dataVM.addNewExercise(name: name, description: description, muscles: selectedMuscles)
+                        onCreated?(created)
                         dismiss()
                     }
                     .disabled(name.isEmpty)

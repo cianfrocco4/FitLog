@@ -499,6 +499,7 @@ struct AddExerciseSheet: View {
     @State private var autoPausedWorkout = false
     /// Snapshot so the list doesn't depend on dataVM and re-scroll when parent updates.
     @State private var exerciseList: [Exercise] = []
+    @State private var showCreateCustomExercise = false
 
     var body: some View {
         NavigationStack {
@@ -513,6 +514,11 @@ struct AddExerciseSheet: View {
                             Text(selectedExercise?.name ?? "Tap to choose")
                                 .foregroundStyle(selectedExercise == nil ? .secondary : .primary)
                         }
+                    }
+                    Button {
+                        showCreateCustomExercise = true
+                    } label: {
+                        Label("Create new custom exercise", systemImage: "plus.circle")
                     }
                 }
                 
@@ -619,6 +625,13 @@ struct AddExerciseSheet: View {
                 }
             }
             .keyboardDismissToolbar()
+            .sheet(isPresented: $showCreateCustomExercise) {
+                NewExerciseSheet(onCreated: { created in
+                    exerciseList = dataVM.globalExercises
+                    selectedExercise = created
+                })
+                .environmentObject(dataVM)
+            }
         }
     }
 }
