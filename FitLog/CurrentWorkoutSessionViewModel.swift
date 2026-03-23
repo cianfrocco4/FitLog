@@ -16,6 +16,9 @@ private enum PersistenceKey {
 }
 
 final class CurrentWorkoutSessionViewModel: ObservableObject {
+    /// Set from the app root so completed workouts persist through `DataManager` (backups + in-memory list stay in sync).
+    weak var dataManager: DataManager?
+
     @Published var currentSession: WorkoutSession?
     @Published var remainingRestTime: Int = 0
     /// Elapsed workout time in seconds (excluding paused time). Updates every second when running.
@@ -75,17 +78,21 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         guard var session = currentSession else { return }
         
         session.endTime = Date()
-        
-        var allSessions: [WorkoutSession] = []
-        if let existing = UserDefaults.standard.data(forKey: "completedSessions"),
-           let decoded = try? JSONDecoder().decode([WorkoutSession].self, from: existing) {
-            allSessions = decoded
+
+        if let dm = dataManager {
+            dm.appendCompletedSession(session)
+        } else {
+            var allSessions: [WorkoutSession] = []
+            if let existing = UserDefaults.standard.data(forKey: "completedSessions"),
+               let decoded = try? JSONDecoder().decode([WorkoutSession].self, from: existing) {
+                allSessions = decoded
+            }
+            allSessions.append(session)
+            if let encoded = try? JSONEncoder().encode(allSessions) {
+                UserDefaults.standard.set(encoded, forKey: "completedSessions")
+            }
         }
-        allSessions.append(session)
-        if let encoded = try? JSONEncoder().encode(allSessions) {
-            UserDefaults.standard.set(encoded, forKey: "completedSessions")
-        }
-        
+
         workoutTimer?.invalidate()
         workoutTimer = nil
         cancelRestTimer()

@@ -25,6 +25,7 @@ struct FitLogApp: App {
                     .environmentObject(currentVM)
                     .environmentObject(aiService)
                     .onAppear {
+                        currentVM.dataManager = dataVM
                         aiService.wakeProxyHostIfNeeded()
                     }
             } else {

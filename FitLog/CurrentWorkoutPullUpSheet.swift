@@ -197,6 +197,7 @@ struct CurrentWorkoutPullUpSheet: View {
                 if let idx = selectedExerciseIndex {
                     LogSetView(exerciseIndex: idx)
                         .environmentObject(currentVM)
+                        .environmentObject(dataVM)
                 }
             }
             .alert(
@@ -221,13 +222,10 @@ struct CurrentWorkoutPullUpSheet: View {
     /// - Prefer sessions from the same workout as the current session.
     /// - If none exist, fall back to any workout that includes the exercise.
     private func lastCompletedLog(for currentLog: ExerciseLog) -> ExerciseLog? {
-        guard
-            let currentWorkoutId = currentVM.currentSession?.workout.id,
-            let data = UserDefaults.standard.data(forKey: "completedSessions"),
-            let allSessions = try? JSONDecoder().decode([WorkoutSession].self, from: data)
-        else {
+        guard let currentWorkoutId = currentVM.currentSession?.workout.id else {
             return nil
         }
+        let allSessions = dataVM.completedSessions
 
         let exerciseId = currentLog.workoutExercise.exercise.id
 

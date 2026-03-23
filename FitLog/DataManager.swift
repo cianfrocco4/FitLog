@@ -14,7 +14,8 @@ final class DataManager: ObservableObject {
     /// Per-exercise display name overrides (by exercise id). Does not change canonical `Exercise.name`.
     @Published private(set) var exerciseLocalDisplayNames: [UUID: String] = [:]
     @Published var completedSessions: [WorkoutSession] = []
-    
+    @Published var trainingProgram: TrainingProgramState = TrainingProgramState.empty(anchorDayKey: TrainingProgramState.dayKey(for: Date()))
+
     private let workoutsKey = "userWorkouts"
     /// One-time backup of the raw workouts payload, used for recovery if a future schema change breaks decoding.
     private let workoutsBackupKey = "userWorkouts_backup_v1"
@@ -23,14 +24,20 @@ final class DataManager: ObservableObject {
     private let sessionsKey = "completedSessions"
     private let sessionsBackupKey = "completedSessions_backup_v1"
     private let exercisesPreloadedKey = "exercisesPreloaded"
-    
+    private let trainingProgramKey = "trainingProgram_v1"
+    /// One-time raw snapshot of workouts + sessions before the first training-program save (extra safety on top of `_backup_v1`).
+    private let schedulePrecheckFlagKey = "fitlog_schedule_precheck_backup_v1"
+    private let workoutsPrecheckSnapshotKey = "userWorkouts_precheck_schedule_v1"
+    private let sessionsPrecheckSnapshotKey = "completedSessions_precheck_schedule_v1"
+
     init() { loadAll() }
-    
+
     func loadAll() {
         loadWorkouts()
         loadExercises()
         loadExerciseLocalDisplayNames()
         loadSessions()
+        loadTrainingProgram()
         
         if !UserDefaults.standard.bool(forKey: exercisesPreloadedKey) {
             preloadFullExerciseLibrary()
@@ -361,8 +368,18 @@ final class DataManager: ObservableObject {
         loadSessions()
     }
     
+    /// Appends a completed session and persists. Use this instead of writing `completedSessions` to UserDefaults directly.
+    func appendCompletedSession(_ session: WorkoutSession) {
+        refreshCompletedSessions()
+        var next = completedSessions
+        next.append(session)
+        completedSessions = next
+        saveSessions()
+    }
+    
     func saveSessions() {
-        if let data = try? JSONEncoder().encode(completedSessions) {
+        do {
+            let data = try JSONEncoder().encode(completedSessions)
             UserDefaults.standard.set(data, forKey: sessionsKey)
             if UserDefaults.standard.data(forKey: sessionsBackupKey) == nil {
                 UserDefaults.standard.set(data, forKey: sessionsBackupKey)
@@ -370,6 +387,10 @@ final class DataManager: ObservableObject {
                 print("💾 Created sessions backup snapshot")
                 #endif
             }
+        } catch {
+            #if DEBUG
+            print("❌ Encoding sessions failed: \(error.localizedDescription)")
+            #endif
         }
     }
     
@@ -409,5 +430,131 @@ final class DataManager: ObservableObject {
         userWorkouts[index].exercises.append(we)
         saveWorkouts()
         return we
+    }
+
+    // MARK: - Training program (split + calendar)
+
+    private func loadTrainingProgram() {
+        guard let data = UserDefaults.standard.data(forKey: trainingProgramKey) else { return }
+        do {
+            trainingProgram = try JSONDecoder().decode(TrainingProgramState.self, from: data)
+        } catch {
+            #if DEBUG
+            print("❌ Decoding training program failed: \(error.localizedDescription)")
+            #endif
+            trainingProgram = TrainingProgramState.empty(anchorDayKey: TrainingProgramState.dayKey(for: Date()))
+        }
+    }
+
+    private func ensureSchedulePrecheckBackupBeforeFirstScheduleWrite() {
+        guard !UserDefaults.standard.bool(forKey: schedulePrecheckFlagKey) else { return }
+        if let d = UserDefaults.standard.data(forKey: workoutsKey) {
+            UserDefaults.standard.set(d, forKey: workoutsPrecheckSnapshotKey)
+        }
+        if let d = UserDefaults.standard.data(forKey: sessionsKey) {
+            UserDefaults.standard.set(d, forKey: sessionsPrecheckSnapshotKey)
+        }
+        UserDefaults.standard.set(true, forKey: schedulePrecheckFlagKey)
+        #if DEBUG
+        print("💾 Precheck snapshots stored before first training program write")
+        #endif
+    }
+
+    func saveTrainingProgram() {
+        ensureSchedulePrecheckBackupBeforeFirstScheduleWrite()
+        do {
+            let data = try JSONEncoder().encode(trainingProgram)
+            UserDefaults.standard.set(data, forKey: trainingProgramKey)
+        } catch {
+            #if DEBUG
+            print("❌ Encoding training program failed: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
+    func applyTrainingProgramSuggestion(
+        cycleWorkoutIds: [UUID],
+        sessionsPerWeek: Int,
+        preferredWeekdays: [Int],
+        anchorDate: Date = Date()
+    ) {
+        var p = trainingProgram
+        p.cycleWorkoutIds = cycleWorkoutIds
+        p.sessionsPerWeek = min(max(1, sessionsPerWeek), 7)
+        p.preferredWeekdays = preferredWeekdays
+        p.anchorDayKey = TrainingProgramState.dayKey(for: anchorDate)
+        trainingProgram = p
+        saveTrainingProgram()
+    }
+
+    func setTrainingCycleWorkoutIds(_ ids: [UUID]) {
+        var p = trainingProgram
+        p.cycleWorkoutIds = ids
+        trainingProgram = p
+        saveTrainingProgram()
+    }
+
+    func setTrainingSessionsPerWeek(_ n: Int) {
+        var p = trainingProgram
+        p.sessionsPerWeek = min(max(1, n), 7)
+        trainingProgram = p
+        saveTrainingProgram()
+    }
+
+    func setTrainingPreferredWeekdays(_ days: [Int]) {
+        var p = trainingProgram
+        p.preferredWeekdays = days
+        trainingProgram = p
+        saveTrainingProgram()
+    }
+
+    func setTrainingAnchorDate(_ date: Date) {
+        var p = trainingProgram
+        p.anchorDayKey = TrainingProgramState.dayKey(for: date)
+        trainingProgram = p
+        saveTrainingProgram()
+    }
+
+    /// Persisted override removed ⇒ day/week fall through to defaults.
+    func clearTrainingDayOverride(dayKey: String) {
+        var p = trainingProgram
+        p.dayOverrides.removeValue(forKey: dayKey)
+        trainingProgram = p
+        saveTrainingProgram()
+    }
+
+    func setTrainingDayOverride(dayKey: String, intent: ScheduleDayIntent, workoutId: UUID? = nil) {
+        var p = trainingProgram
+        p.dayOverrides[dayKey] = ScheduleDayOverride(intent: intent, workoutId: workoutId)
+        trainingProgram = p
+        saveTrainingProgram()
+    }
+
+    func clearWeekOverride(weekKey: String) {
+        var p = trainingProgram
+        p.weekOverrides.removeValue(forKey: weekKey)
+        trainingProgram = p
+        saveTrainingProgram()
+    }
+
+    func setWeekDayOverride(weekKey: String, weekday: Int, intent: ScheduleDayIntent, workoutId: UUID? = nil) {
+        var p = trainingProgram
+        var w = p.weekOverrides[weekKey] ?? ScheduleWeekOverride()
+        if intent == .inherit {
+            w.weekdayOverrides.removeValue(forKey: String(weekday))
+        } else {
+            w.weekdayOverrides[String(weekday)] = ScheduleDayOverride(intent: intent, workoutId: workoutId)
+        }
+        if w.weekdayOverrides.isEmpty {
+            p.weekOverrides.removeValue(forKey: weekKey)
+        } else {
+            p.weekOverrides[weekKey] = w
+        }
+        trainingProgram = p
+        saveTrainingProgram()
+    }
+
+    func workoutDisplayName(forWorkoutId id: UUID) -> String {
+        userWorkouts.first(where: { $0.id == id })?.name ?? "Missing workout"
     }
 }

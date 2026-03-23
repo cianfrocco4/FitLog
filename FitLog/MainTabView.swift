@@ -14,6 +14,7 @@ struct MainTabView: View {
     var body: some View {
         TabView {
             HomeView().tabItem { Label("Home", systemImage: "house") }
+            PlanCalendarView().tabItem { Label("Plan", systemImage: "calendar") }
             HistoryView().tabItem { Label("History", systemImage: "chart.bar") }
             ExercisesLibraryView().tabItem { Label("Exercises", systemImage: "list.bullet") }
         }

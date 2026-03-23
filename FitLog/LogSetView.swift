@@ -21,6 +21,7 @@ private struct EditableDropRow: Identifiable {
 
 struct LogSetView: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @EnvironmentObject var dataVM: DataManager
     @Environment(\.dismiss) var dismiss
 
     let exerciseIndex: Int
@@ -240,23 +241,19 @@ struct LogSetView: View {
             return
         }
 
-        // Otherwise, look through *all* completed sessions for this exercise,
-        // reading from the same UserDefaults key that stopWorkout() uses.
+        // Otherwise, look through *all* completed sessions for this exercise (via DataManager).
         let targetExerciseId = currentLog.workoutExercise.exercise.id
         var latestSet: LoggedSet?
-        
-        if let data = UserDefaults.standard.data(forKey: "completedSessions"),
-           let allSessions = try? JSONDecoder().decode([WorkoutSession].self, from: data) {
-            for pastSession in allSessions {
-                for log in pastSession.exerciseLogs where log.workoutExercise.exercise.id == targetExerciseId {
-                    for set in log.loggedSets {
-                        if let existing = latestSet {
-                            if set.timestamp > existing.timestamp {
-                                latestSet = set
-                            }
-                        } else {
+
+        for pastSession in dataVM.completedSessions {
+            for log in pastSession.exerciseLogs where log.workoutExercise.exercise.id == targetExerciseId {
+                for set in log.loggedSets {
+                    if let existing = latestSet {
+                        if set.timestamp > existing.timestamp {
                             latestSet = set
                         }
+                    } else {
+                        latestSet = set
                     }
                 }
             }
