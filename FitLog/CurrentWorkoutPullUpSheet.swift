@@ -195,8 +195,7 @@ struct CurrentWorkoutPullUpSheet: View {
             // Open LogSetView when adding a set
             .sheet(isPresented: $showLogSetSheet) {
                 if let idx = selectedExerciseIndex {
-                    LogSetView(exerciseIndex: idx)
-                        .environmentObject(currentVM)
+                    LogSetView(exerciseIndex: idx, sessionVM: currentVM)
                         .environmentObject(dataVM)
                 }
             }
