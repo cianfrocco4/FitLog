@@ -125,7 +125,7 @@ struct WorkoutPlanView: View {
         }
         .sheet(isPresented: $showLogSheet) {
             if let idx = selectedIndex {
-                LogSetView(exerciseIndex: idx, sessionVM: currentVM)
+                LogSetView(sessionVM: currentVM, exerciseIndex: idx)
                     .environmentObject(dataVM)
             }
         }
