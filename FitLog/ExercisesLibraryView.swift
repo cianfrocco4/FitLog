@@ -109,6 +109,7 @@ struct ExercisesLibraryView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .fitlogWorkoutBarContentInset()
             .navigationTitle("Exercise Library")
             .searchable(text: $searchText, prompt: "Search exercises")
             .toolbar {

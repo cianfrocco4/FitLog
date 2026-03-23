@@ -34,6 +34,7 @@ struct PlanCalendarView: View {
                 calendarGrid
                 legend
             }
+            .fitlogWorkoutBarContentInset()
             .navigationTitle("Plan")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

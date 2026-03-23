@@ -40,6 +40,7 @@ struct HistoryView: View {
                 exerciseAnalyticsSection
                 muscleGroupAnalyticsSection
             }
+            .fitlogWorkoutBarContentInset()
             .navigationTitle("History & Analytics")
             .onAppear {
                 dataVM.refreshCompletedSessions()

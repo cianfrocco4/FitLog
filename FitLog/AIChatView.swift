@@ -158,6 +158,7 @@ struct AIChatView: View {
 
                 composer
             }
+            .fitlogWorkoutBarContentInset()
             .navigationTitle("Coach")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -11,6 +11,7 @@ struct MainTabView: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var aiService: AIService
+    @State private var showCurrentWorkoutPullUp = false
 
     var body: some View {
         TabView {
@@ -21,12 +22,26 @@ struct MainTabView: View {
             AIChatView()
                 .tabItem { Label("Coach", systemImage: "bubble.left.and.bubble.right") }
         }
-        // Reserve layout space for the in-progress workout strip so tab content
-        // (Coach composer, lists, etc.) stays above it instead of sitting underneath.
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .environment(\.fitlogWorkoutBarContentInset, currentVM.isInProgress ? FitlogWorkoutBarLayout.contentBottomPadding : 0)
+        .overlay {
             if currentVM.isInProgress {
-                CurrentWorkoutCollapsedBar()
-                    .environmentObject(dataVM)
+                WorkoutBarPassthroughOverlay(
+                    showPullUp: $showCurrentWorkoutPullUp,
+                    currentVM: currentVM,
+                    dataVM: dataVM
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea()
+            }
+        }
+        .sheet(isPresented: $showCurrentWorkoutPullUp) {
+            CurrentWorkoutPullUpSheet()
+                .environmentObject(currentVM)
+                .environmentObject(dataVM)
+        }
+        .onChange(of: currentVM.isInProgress) { _, inProgress in
+            if !inProgress {
+                showCurrentWorkoutPullUp = false
             }
         }
         .onAppear {

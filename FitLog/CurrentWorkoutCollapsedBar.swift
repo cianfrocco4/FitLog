@@ -10,7 +10,7 @@ import SwiftUI
 struct CurrentWorkoutCollapsedBar: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var dataVM: DataManager
-    @State private var showPullUp = false
+    @Binding var showPullUp: Bool
 
     private var primaryExerciseLine: String {
         guard let ex = currentVM.currentSession?.exerciseLogs.first?.workoutExercise.exercise else { return "" }
@@ -64,10 +64,5 @@ struct CurrentWorkoutCollapsedBar: View {
             .clipShape(RoundedRectangle(cornerRadius: 20))
         }
         .padding(.horizontal)
-        .sheet(isPresented: $showPullUp) {
-            CurrentWorkoutPullUpSheet()
-                .environmentObject(currentVM)
-                .environmentObject(dataVM)
-        }
     }
 }

@@ -72,6 +72,7 @@ struct HomeView: View {
                 }
                 .listStyle(.plain)
             }
+            .fitlogWorkoutBarContentInset()
             .navigationTitle("Home")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
