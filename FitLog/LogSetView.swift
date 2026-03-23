@@ -20,7 +20,9 @@ private struct EditableDropRow: Identifiable {
 }
 
 struct LogSetView: View {
-    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    /// Passed in instead of `@EnvironmentObject` so rest/workout timers on the session VM do not
+    /// re-render this sheet every second (which could re-run `onAppear` and wipe weight while typing).
+    let sessionVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var dataVM: DataManager
     @Environment(\.dismiss) var dismiss
 
@@ -36,7 +38,7 @@ struct LogSetView: View {
     @State private var dropRows: [EditableDropRow] = []
 
     private var workoutExercise: WorkoutExercise? {
-        guard let session = currentVM.currentSession, exerciseIndex < session.exerciseLogs.count else { return nil }
+        guard let session = sessionVM.currentSession, exerciseIndex < session.exerciseLogs.count else { return nil }
         return session.exerciseLogs[exerciseIndex].workoutExercise
     }
 
@@ -192,7 +194,7 @@ struct LogSetView: View {
                 
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        currentVM.logSet(
+                        sessionVM.logSet(
                             exerciseIndex: exerciseIndex,
                             weight: weight,
                             reps: reps,
@@ -216,7 +218,7 @@ struct LogSetView: View {
 
     private func prefillFromRecentSet() {
         guard
-            let session = currentVM.currentSession,
+            let session = sessionVM.currentSession,
             exerciseIndex < session.exerciseLogs.count
         else { return }
 
