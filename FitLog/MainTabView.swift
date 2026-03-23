@@ -21,13 +21,12 @@ struct MainTabView: View {
             AIChatView()
                 .tabItem { Label("Coach", systemImage: "bubble.left.and.bubble.right") }
         }
-        .overlay(alignment: .bottom) {
+        // Reserve layout space for the in-progress workout strip so tab content
+        // (Coach composer, lists, etc.) stays above it instead of sitting underneath.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             if currentVM.isInProgress {
                 CurrentWorkoutCollapsedBar()
                     .environmentObject(dataVM)
-                    // Move the collapsed bar fully above the tab bar
-                    // so it no longer overlaps or intercepts tab taps.
-                    .padding(.bottom, 72)
             }
         }
         .onAppear {
