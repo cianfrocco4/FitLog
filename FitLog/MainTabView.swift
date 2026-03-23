@@ -10,6 +10,7 @@ import SwiftUI
 struct MainTabView: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var aiService: AIService
 
     var body: some View {
         TabView {
@@ -17,6 +18,8 @@ struct MainTabView: View {
             PlanCalendarView().tabItem { Label("Plan", systemImage: "calendar") }
             HistoryView().tabItem { Label("History", systemImage: "chart.bar") }
             ExercisesLibraryView().tabItem { Label("Exercises", systemImage: "list.bullet") }
+            AIChatView()
+                .tabItem { Label("Coach", systemImage: "bubble.left.and.bubble.right") }
         }
         .overlay(alignment: .bottom) {
             if currentVM.isInProgress {
