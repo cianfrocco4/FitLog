@@ -46,12 +46,64 @@ final class DataManager: ObservableObject {
     }
     
     // MARK: - Workouts
-    func createWorkout(name: String) {
+    @discardableResult
+    func createWorkout(name: String) -> UUID {
         let newWorkout = Workout(id: UUID(), name: name, exercises: [])
         userWorkouts.append(newWorkout)
         saveWorkouts()
-        // This line forces SwiftUI to re-render observers in almost all cases
         objectWillChange.send()
+        return newWorkout.id
+    }
+
+    /// Picks a template name that does not collide with existing workout names.
+    func uniqueWorkoutTemplateName(_ base: String) -> String {
+        let trimmed = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        let root = trimmed.isEmpty ? "Workout" : trimmed
+        let existing = Set(userWorkouts.map(\.name))
+        if !existing.contains(root) { return root }
+        var n = 2
+        while existing.contains("\(root) (\(n))") {
+            n += 1
+        }
+        return "\(root) (\(n))"
+    }
+
+    /// Creates new workout templates with exercises, optionally sets the training program cycle and schedule.
+    func applySplitBuilderTemplates(
+        workouts: [(templateName: String, exercises: [(exercise: Exercise, sets: Int, reps: String)])],
+        sessionsPerWeek: Int,
+        preferredWeekdays: [Int],
+        updateTrainingProgram: Bool,
+        anchorDate: Date = Date()
+    ) {
+        var newIds: [UUID] = []
+        for w in workouts {
+            let name = uniqueWorkoutTemplateName(w.templateName)
+            let id = createWorkout(name: name)
+            newIds.append(id)
+            for ex in w.exercises {
+                guard let fresh = userWorkouts.first(where: { $0.id == id }) else { break }
+                let sets = min(max(1, ex.sets), 10)
+                let reps = ex.reps.trimmingCharacters(in: .whitespacesAndNewlines)
+                let repsFinal = reps.isEmpty ? "8-12" : reps
+                _ = addExercise(
+                    to: fresh,
+                    exercise: ex.exercise,
+                    recommendedSets: sets,
+                    recommendedReps: repsFinal,
+                    configurationFields: [],
+                    recommendedConfigBySet: Array(repeating: [:], count: sets)
+                )
+            }
+        }
+        if updateTrainingProgram, !newIds.isEmpty {
+            applyTrainingProgramSuggestion(
+                cycleWorkoutIds: newIds,
+                sessionsPerWeek: sessionsPerWeek,
+                preferredWeekdays: preferredWeekdays,
+                anchorDate: anchorDate
+            )
+        }
     }
     
     func deleteWorkout(_ workout: Workout) {

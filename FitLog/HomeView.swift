@@ -11,8 +11,10 @@ struct HomeView: View {
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var authVM: AuthViewModel
+    @EnvironmentObject var aiService: AIService
 
     @State private var showNewWorkout = false
+    @State private var showSplitBuilder = false
     @State private var workoutToRename: Workout?
     @State private var renameText = ""
 
@@ -22,28 +24,35 @@ struct HomeView: View {
         scheduleEngine.resolve(date: Date(), program: dataVM.trainingProgram)
     }
 
+    private var homeDashboardRowInsets: EdgeInsets {
+        EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16)
+    }
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                WeekSummaryView(completedWorkouts: dataVM.workoutsThisWeek)
-                    .padding()
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
+            List {
+                Section {
+                    WeekSummaryView(completedWorkouts: dataVM.workoutsThisWeek)
+                        .listRowInsets(homeDashboardRowInsets)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                }
 
-                todayPlanSuggestionCard
-                    .padding(.horizontal)
-                    .padding(.bottom, 4)
+                Section {
+                    aiSplitBuilderCard
+                        .listRowInsets(homeDashboardRowInsets)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                }
 
-                Text("My Workouts")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-                
-                List {
+                Section {
+                    todayPlanSuggestionCard
+                        .listRowInsets(homeDashboardRowInsets)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                }
+
+                Section {
                     ForEach(dataVM.userWorkouts) { workout in
                         NavigationLink {
                             if let binding = $dataVM.userWorkouts[workout.id] {
@@ -60,7 +69,7 @@ struct HomeView: View {
                             Button("Delete", role: .destructive) {
                                 dataVM.deleteWorkout(workout)
                             }
-                            
+
                             Button("Rename") {
                                 workoutToRename = workout
                                 renameText = workout.name
@@ -69,9 +78,18 @@ struct HomeView: View {
                         }
                     }
                     .onMove(perform: dataVM.moveWorkout)
+                } header: {
+                    Text("My Workouts")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 4)
+                        .textCase(nil)
                 }
-                .listStyle(.plain)
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .listSectionSpacing(8)
             .fitlogWorkoutBarContentInset()
             .navigationTitle("Home")
             .toolbar {
@@ -97,6 +115,11 @@ struct HomeView: View {
                 NewWorkoutSheet()
                     .environmentObject(dataVM)
             }
+            .sheet(isPresented: $showSplitBuilder) {
+                AISplitBuilderView()
+                    .environmentObject(dataVM)
+                    .environmentObject(aiService)
+            }
             .alert("Rename Workout", isPresented: Binding(
                 get: { workoutToRename != nil },
                 set: { if !$0 { workoutToRename = nil } }
@@ -110,6 +133,36 @@ struct HomeView: View {
                 }
             }
         }
+    }
+
+    private var aiSplitBuilderCard: some View {
+        Button {
+            showSplitBuilder = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "sparkles")
+                    .font(.title2)
+                    .foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Build split with AI")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text("Goals, schedule, and exercises from your library.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder

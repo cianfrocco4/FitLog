@@ -31,6 +31,5 @@ struct WeekSummaryView: View {
                 .fill(.ultraThinMaterial)
                 .shadow(color: .black.opacity(0.08), radius: 10, x: 0, y: 4)
         )
-        .padding(.horizontal)
     }
 }

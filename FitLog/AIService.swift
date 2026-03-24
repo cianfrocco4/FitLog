@@ -24,6 +24,27 @@ struct NewExerciseAIReview: Equatable {
     }
 }
 
+// MARK: - Workout split builder (JSON proposal)
+
+struct WorkoutSplitProposalExerciseItem: Equatable {
+    let name: String
+    let sets: Int
+    let reps: String
+}
+
+struct WorkoutSplitProposalDay: Equatable {
+    let name: String
+    let focus: String?
+    let exercises: [WorkoutSplitProposalExerciseItem]
+}
+
+struct WorkoutSplitProposal: Equatable {
+    let rationale: String
+    let sessionsPerWeek: Int
+    let preferredWeekdays: [Int]
+    let workouts: [WorkoutSplitProposalDay]
+}
+
 final class AIService: ObservableObject {
     private static let openAIURL = URL(string: "https://api.openai.com/v1/chat/completions")!
     /// Model ID from OpenAIConfig.aiModel (configurable via FITLOG_AI_MODEL).
@@ -146,6 +167,154 @@ final class AIService: ObservableObject {
             lines.append("- \(we.exercise.name) (\(we.recommendedSets) sets x \(we.recommendedReps)) — \(muscles)")
         }
         return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Workout split builder
+
+    /// Proposes a training split using only exercise names from `allowedExerciseNames` (exact strings from the app library).
+    func generateWorkoutSplitProposal(
+        interests: String,
+        sessionsPerWeek: Int,
+        preferredWeekdays: [Int],
+        experienceLevel: String?,
+        allowedExerciseNames: [String],
+        existingWorkoutTemplateNames: [String]
+    ) async throws -> WorkoutSplitProposal {
+        if !isConfigured {
+            throw AIServiceError.notConfigured
+        }
+        let maxSessions = min(max(1, sessionsPerWeek), 7)
+        let userDays = Set(preferredWeekdays.filter { $0 >= 1 && $0 <= 7 })
+        let daysSorted = userDays.sorted()
+        let daysNote: String = {
+            if daysSorted.isEmpty {
+                return "Preferred training days: none selected — treat Mon–Fri as the available pool for scheduling context."
+            }
+            let labels = daysSorted.map { weekdaySymbol($0) }.joined(separator: ", ")
+            return "Preferred training days (weekday numbers \(daysSorted.map(String.init).joined(separator: ", ")), 1=Sun…7=Sat): \(labels)"
+        }()
+
+        let trimmedInterests = String(interests.prefix(600))
+        let namesData = try JSONEncoder().encode(allowedExerciseNames)
+        let namesJSON = String(data: namesData, encoding: .utf8) ?? "[]"
+        let templatesData = try JSONEncoder().encode(existingWorkoutTemplateNames)
+        let templatesJSON = String(data: templatesData, encoding: .utf8) ?? "[]"
+        let expLine = (experienceLevel?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? "not specified"
+
+        let system = """
+        You design strength-training workout splits for the FitLog iOS app. Reply with ONLY a compact JSON object, no markdown or prose.
+
+        Required keys (camelCase): rationale (string), sessionsPerWeek (integer), preferredWeekdays (array of integers), workouts (array).
+
+        Rules:
+        - rationale: 1–3 short sentences on why this split fits the user.
+        - sessionsPerWeek: integer from 1 to \(maxSessions) inclusive (must not exceed \(maxSessions)).
+        - preferredWeekdays: subset of the user's allowed weekday numbers (see user message). Use [] only if the user selected no specific days — then the app will use its default pool.
+        - workouts: ordered cycle for the split. At least 1 and at most 6 objects. Each object: name (string), focus (string or empty), exercises (array).
+        - Each exercises entry: name (string), sets (integer 1–10), reps (string, e.g. "5", "8-12", "AMRAP").
+        - Every exercises[].name MUST be exactly one string from the allowed exercise names JSON array (identical spelling and casing as in that array). No extra exercises, no synonyms, no invented names.
+        - Each workout: at least 3 exercises, at most 12 exercises when possible for a real session.
+        - Use distinct workout template names; avoid duplicating names in the existing workout templates list unless intentionally reusing a concept (prefer new clear names like "Upper A", "Pull").
+
+        Training safety: this is not medical advice. Favor balanced programming and avoid reckless volume.
+        """
+
+        let userPrompt = """
+        User goals, equipment, and constraints (may be brief):
+        \(trimmedInterests)
+
+        Experience: \(expLine)
+        Target sessions per week (maximum \(maxSessions)): \(maxSessions)
+        \(daysNote)
+
+        Allowed exercise names (JSON array — use ONLY these strings for exercises[].name):
+        \(namesJSON)
+
+        Existing workout template names for reference (JSON array):
+        \(templatesJSON)
+        """
+
+        let content = try await performRequest(system: system, user: userPrompt, maxTokens: 3_500, jsonObject: true)
+        return try parseWorkoutSplitProposal(
+            jsonString: content,
+            maxSessions: maxSessions,
+            userPreferredWeekdays: daysSorted
+        )
+    }
+
+    private func weekdaySymbol(_ weekday: Int) -> String {
+        let cal = Calendar.current
+        let symbols = cal.shortWeekdaySymbols
+        guard weekday >= 1, weekday <= symbols.count else { return "\(weekday)" }
+        return symbols[weekday - 1]
+    }
+
+    private func parseWorkoutSplitProposal(
+        jsonString: String,
+        maxSessions: Int,
+        userPreferredWeekdays: [Int]
+    ) throws -> WorkoutSplitProposal {
+        let trimmed = jsonString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let slice: String = {
+            if let start = trimmed.firstIndex(of: "{"), let end = trimmed.lastIndex(of: "}"), start < end {
+                return String(trimmed[start...end])
+            }
+            return trimmed
+        }()
+        guard let data = slice.data(using: .utf8) else { throw AIServiceError.emptyContent }
+        let json: SplitProposalJSON
+        do {
+            json = try JSONDecoder().decode(SplitProposalJSON.self, from: data)
+        } catch {
+            throw AIServiceError.invalidJSONContent
+        }
+
+        let rawSessions = json.sessionsPerWeek ?? maxSessions
+        let sessions = min(max(1, rawSessions), maxSessions)
+
+        let userDaySet = Set(userPreferredWeekdays)
+        let rawPrefs = (json.preferredWeekdays ?? []).filter { $0 >= 1 && $0 <= 7 }
+        let prefs: [Int] = {
+            if userDaySet.isEmpty {
+                return Array(Set(rawPrefs)).sorted()
+            }
+            let intersected = rawPrefs.filter { userDaySet.contains($0) }
+            if intersected.isEmpty {
+                return userPreferredWeekdays.sorted()
+            }
+            return Array(Set(intersected)).sorted()
+        }()
+
+        var days: [WorkoutSplitProposalDay] = []
+        for w in (json.workouts ?? []).prefix(6) {
+            let name = w.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if name.isEmpty { continue }
+            let focus = (w.focus?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
+            var items: [WorkoutSplitProposalExerciseItem] = []
+            for ex in (w.exercises ?? []).prefix(12) {
+                let exName = ex.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                if exName.isEmpty { continue }
+                let sets = min(max(1, ex.sets ?? 3), 10)
+                let repsRaw = (ex.reps ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let reps = repsRaw.isEmpty ? "8-12" : repsRaw
+                items.append(WorkoutSplitProposalExerciseItem(name: exName, sets: sets, reps: reps))
+            }
+            days.append(WorkoutSplitProposalDay(name: name, focus: focus, exercises: items))
+        }
+
+        if days.isEmpty {
+            throw AIServiceError.invalidJSONContent
+        }
+
+        let rationale = (json.rationale ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let rationaleFinal = rationale.isEmpty ? "Here is a split based on your inputs." : rationale
+
+        return WorkoutSplitProposal(
+            rationale: rationaleFinal,
+            sessionsPerWeek: sessions,
+            preferredWeekdays: prefs,
+            workouts: days
+        )
     }
 
     // MARK: - New custom exercise (single request: duplicate name, muscles, optional description)
@@ -330,6 +499,25 @@ enum AIServiceError: LocalizedError {
             return "API error (\(code)): \(message)"
         }
     }
+}
+
+private struct SplitProposalJSON: Decodable {
+    let rationale: String?
+    let sessionsPerWeek: Int?
+    let preferredWeekdays: [Int]?
+    let workouts: [SplitProposalWorkoutJSON]?
+}
+
+private struct SplitProposalWorkoutJSON: Decodable {
+    let name: String
+    let focus: String?
+    let exercises: [SplitProposalExerciseJSON]?
+}
+
+private struct SplitProposalExerciseJSON: Decodable {
+    let name: String
+    let sets: Int?
+    let reps: String?
 }
 
 private struct OpenAICompletionResponse: Decodable {
