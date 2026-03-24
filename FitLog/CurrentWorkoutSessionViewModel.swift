@@ -264,15 +264,18 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     
     private func startRestCountdown(seconds: Int) {
         restTimer?.invalidate()
-        remainingRestTime = seconds
-        
+        restTimer = nil
+        remainingRestTime = max(0, seconds)
+        showRestCompleteAlert = false
+
+        guard seconds > 0 else { return }
+
         restTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             self.remainingRestTime -= 1
             if self.remainingRestTime <= 0 {
                 self.restTimer?.invalidate()
                 self.restTimer = nil
-                // Trigger in-app alert for rest completion.
                 self.showRestCompleteAlert = true
             }
         }

@@ -36,10 +36,18 @@ struct LogSetView: View {
     @State private var configValues: [String: String] = [:]
     @State private var dropSetEnabled = false
     @State private var dropRows: [EditableDropRow] = []
+    /// When false, rest is treated as intra-superset (saved as 0). Only shown in superset context.
+    @State private var restAfterThisSet = true
 
     private var workoutExercise: WorkoutExercise? {
         guard let session = sessionVM.currentSession, exerciseIndex < session.exerciseLogs.count else { return nil }
         return session.exerciseLogs[exerciseIndex].workoutExercise
+    }
+
+    private var isSupersetContext: Bool {
+        guard let session = sessionVM.currentSession,
+              let id = workoutExercise?.exercise.id else { return false }
+        return session.activeExerciseIds.count > 1 && session.activeExerciseIds.contains(id)
     }
 
     private static let weightRange: ClosedRange<Double> = 0...1100
@@ -132,12 +140,21 @@ struct LogSetView: View {
                         step: 1
                     )
 
-                    Stepper(
-                        "Rest after set: \(restTime)s",
-                        value: $restTime,
-                        in: 0...300,
-                        step: 15
-                    )
+                    if isSupersetContext {
+                        Toggle("Rest after this set", isOn: $restAfterThisSet)
+                        Text("Turn on when this set finishes the superset round so rest and the timer run.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if !isSupersetContext || restAfterThisSet {
+                        Stepper(
+                            "Rest after set: \(restTime)s",
+                            value: $restTime,
+                            in: 0...300,
+                            step: 15
+                        )
+                    }
 
                     Toggle("Mark as warm-up set", isOn: $isWarmup)
                 }
@@ -179,6 +196,14 @@ struct LogSetView: View {
             .onAppear {
                 prefillFromRecentSet()
             }
+            .onChange(of: restAfterThisSet) { _, on in
+                guard isSupersetContext else { return }
+                if on {
+                    restTime = suggestedRestForNextSet()
+                } else {
+                    restTime = 0
+                }
+            }
             .onChange(of: dropSetEnabled) { _, on in
                 if on, dropRows.isEmpty {
                     dropRows = [EditableDropRow()]
@@ -194,11 +219,12 @@ struct LogSetView: View {
                 
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
+                        let effectiveRest = (isSupersetContext && !restAfterThisSet) ? 0 : restTime
                         sessionVM.logSet(
                             exerciseIndex: exerciseIndex,
                             weight: weight,
                             reps: reps,
-                            restTime: restTime,
+                            restTime: effectiveRest,
                             isWarmup: isWarmup,
                             configuration: configValues,
                             dropSegments: dropSetEnabled ? sanitizedDropSegments : []
@@ -240,6 +266,9 @@ struct LogSetView: View {
                 dropSetEnabled = false
                 dropRows = []
             }
+            restAfterThisSet = isSupersetContextForSession(session, exerciseId: currentLog.workoutExercise.exercise.id)
+                ? (restTime > 0)
+                : true
             return
         }
 
@@ -287,6 +316,54 @@ struct LogSetView: View {
             dropSetEnabled = false
             dropRows = []
         }
+
+        if isSupersetContextForSession(session, exerciseId: currentLog.workoutExercise.exercise.id),
+           currentLog.loggedSets.isEmpty {
+            restTime = 0
+        }
+        restAfterThisSet = isSupersetContextForSession(session, exerciseId: currentLog.workoutExercise.exercise.id)
+            ? (restTime > 0)
+            : true
+    }
+
+    private func isSupersetContextForSession(_ session: WorkoutSession, exerciseId: UUID) -> Bool {
+        session.activeExerciseIds.count > 1 && session.activeExerciseIds.contains(exerciseId)
+    }
+
+    /// Rest duration to use when turning “Rest after this set” on (matches prefill priority).
+    private func suggestedRestForNextSet() -> Int {
+        guard let session = sessionVM.currentSession,
+              exerciseIndex < session.exerciseLogs.count
+        else { return 90 }
+
+        let currentLog = session.exerciseLogs[exerciseIndex]
+
+        if let last = currentLog.loggedSets.last {
+            return last.restTime
+        }
+
+        let targetExerciseId = currentLog.workoutExercise.exercise.id
+        var latestSet: LoggedSet?
+
+        for pastSession in dataVM.completedSessions {
+            for log in pastSession.exerciseLogs where log.workoutExercise.exercise.id == targetExerciseId {
+                for set in log.loggedSets {
+                    if let existing = latestSet {
+                        if set.timestamp > existing.timestamp {
+                            latestSet = set
+                        }
+                    } else {
+                        latestSet = set
+                    }
+                }
+            }
+        }
+
+        if let recent = latestSet {
+            return recent.restTime
+        }
+
+        return currentLog.workoutExercise.defaultRestTime
     }
 
     @ViewBuilder

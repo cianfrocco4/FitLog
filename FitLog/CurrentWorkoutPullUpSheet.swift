@@ -8,14 +8,19 @@
 import SwiftUI
 import Foundation
 
+/// Drives `LogSetView` presentation so the sheet always has a defined exercise index (avoids empty `sheet` content).
+private struct LogSetSheetSelection: Identifiable {
+    let id = UUID()
+    let exerciseIndex: Int
+}
+
 struct CurrentWorkoutPullUpSheet: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var dataVM: DataManager
     @Environment(\.dismiss) var dismiss
     
     @State private var expandedExerciseIndex: Int? = nil
-    @State private var selectedExerciseIndex: Int? = nil
-    @State private var showLogSetSheet = false
+    @State private var logSetSheetSelection: LogSetSheetSelection?
     
     var body: some View {
         NavigationStack {
@@ -79,6 +84,16 @@ struct CurrentWorkoutPullUpSheet: View {
                     .padding(.top, currentVM.remainingRestTime > 0 ? 0 : 16)
                     .padding(.horizontal)
                 }
+
+                if let session = currentVM.currentSession, session.activeExerciseIds.count > 1 {
+                    Text("Superset active: in Log Set, leave “Rest after this set” off until the last move of the round.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                }
                 
                 // One List with Section per exercise so expanded content is full-height and each set row is swipeable
                 List {
@@ -129,8 +144,7 @@ struct CurrentWorkoutPullUpSheet: View {
                                     }
                                     HStack(spacing: 12) {
                                         Button("Add New Set") {
-                                            selectedExerciseIndex = index
-                                            showLogSetSheet = true
+                                            logSetSheetSelection = LogSetSheetSelection(exerciseIndex: index)
                                         }
                                         .buttonStyle(.borderedProminent)
                                         .tint(.blue)
@@ -192,12 +206,9 @@ struct CurrentWorkoutPullUpSheet: View {
                     .fontWeight(.semibold)
                 }
             }
-            // Open LogSetView when adding a set
-            .sheet(isPresented: $showLogSetSheet) {
-                if let idx = selectedExerciseIndex {
-                    LogSetView(sessionVM: currentVM, exerciseIndex: idx)
-                        .environmentObject(dataVM)
-                }
+            .sheet(item: $logSetSheetSelection) { selection in
+                LogSetView(sessionVM: currentVM, exerciseIndex: selection.exerciseIndex)
+                    .environmentObject(dataVM)
             }
             .alert(
                 "Rest over",
