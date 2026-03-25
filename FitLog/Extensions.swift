@@ -8,6 +8,20 @@
 import SwiftUI
 import UIKit
 
+// MARK: - Calendar day refresh (midnight / foreground)
+
+private enum CalendarDayRefreshKey: EnvironmentKey {
+    static let defaultValue: Int = 0
+}
+
+extension EnvironmentValues {
+    /// Incremented when the local calendar day may have changed so date-dependent UI re-renders.
+    var calendarDayRefresh: Int {
+        get { self[CalendarDayRefreshKey.self] }
+        set { self[CalendarDayRefreshKey.self] = newValue }
+    }
+}
+
 extension View {
     /// Keyboard accessory with a trailing Done button; use on every screen that shows text fields.
     func keyboardDismissToolbar() -> some View {

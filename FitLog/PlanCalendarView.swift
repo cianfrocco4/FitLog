@@ -8,6 +8,7 @@ import SwiftUI
 // MARK: - Calendar grid
 
 struct PlanCalendarView: View {
+    @Environment(\.calendarDayRefresh) private var calendarDayRefresh
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
 
@@ -34,6 +35,7 @@ struct PlanCalendarView: View {
                 calendarGrid
                 legend
             }
+            .id(calendarDayRefresh)
             .fitlogWorkoutBarContentInset()
             .navigationTitle("Plan")
             .toolbar {

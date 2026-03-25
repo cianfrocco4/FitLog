@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct HomeView: View {
+    @Environment(\.calendarDayRefresh) private var calendarDayRefresh
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var authVM: AuthViewModel
@@ -21,7 +22,8 @@ struct HomeView: View {
     private var scheduleEngine: TrainingScheduleEngine { TrainingScheduleEngine(calendar: .current) }
 
     private var todayPlan: ResolvedScheduleDay {
-        scheduleEngine.resolve(date: Date(), program: dataVM.trainingProgram)
+        _ = calendarDayRefresh
+        return scheduleEngine.resolve(date: Date(), program: dataVM.trainingProgram)
     }
 
     private var homeDashboardRowInsets: EdgeInsets {
