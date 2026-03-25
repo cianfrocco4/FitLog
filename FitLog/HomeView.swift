@@ -26,6 +26,11 @@ struct HomeView: View {
         return scheduleEngine.resolve(date: Date(), program: dataVM.trainingProgram)
     }
 
+    private var weekAtAGlance: DataManager.WeekAtAGlance {
+        _ = calendarDayRefresh
+        return dataVM.weekAtAGlance(referenceDate: Date(), calendar: .current)
+    }
+
     /// True when there is a finished session for this template whose end time falls on the current calendar day.
     private func isPlannedWorkoutCompletedToday(templateId: UUID) -> Bool {
         _ = calendarDayRefresh
@@ -44,13 +49,6 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    WeekSummaryView(completedWorkouts: dataVM.workoutsThisWeek)
-                        .listRowInsets(homeDashboardRowInsets)
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                }
-
                 Section {
                     aiSplitBuilderCard
                         .listRowInsets(homeDashboardRowInsets)
@@ -262,10 +260,101 @@ struct HomeView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            thisWeekSubsection(weekAtAGlance)
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 20))
+    }
+
+    @ViewBuilder
+    private func thisWeekSubsection(_ glance: DataManager.WeekAtAGlance) -> some View {
+        let cal = Calendar.current
+        VStack(alignment: .leading, spacing: 10) {
+            Divider()
+                .padding(.top, 2)
+
+            Text("This week")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            if let goal = glance.weeklyGoal {
+                if glance.completedCount >= goal {
+                    Text("Goal met")
+                        .font(.subheadline.weight(.semibold))
+                    Text(workoutsPlural(glance.completedCount))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("\(glance.completedCount) of \(goal) workouts")
+                        .font(.subheadline.weight(.semibold))
+                    ProgressView(value: Double(glance.completedCount), total: Double(goal))
+                        .progressViewStyle(.linear)
+                        .tint(.blue)
+                        .frame(height: 4)
+                }
+            } else {
+                Text("\(glance.completedCount) workout\(glance.completedCount == 1 ? "" : "s") this week")
+                    .font(.subheadline.weight(.semibold))
+            }
+
+            HStack(spacing: 0) {
+                ForEach(glance.days, id: \.date) { day in
+                    weekStripDayColumn(
+                        weekday: day.weekday,
+                        date: day.date,
+                        hasWorkout: day.hasWorkout,
+                        calendar: cal
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(.top, 2)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(weekStripAccessibilityLabel(glance))
+        }
+    }
+
+    private func workoutsPlural(_ n: Int) -> String {
+        n == 1 ? "1 workout logged" : "\(n) workouts logged"
+    }
+
+    private func shortWeekdayLabel(_ weekday: Int, calendar: Calendar) -> String {
+        let symbols = calendar.shortWeekdaySymbols
+        guard weekday >= 1, weekday <= symbols.count else { return "—" }
+        return symbols[weekday - 1].prefix(1).uppercased()
+    }
+
+    private func weekStripDayColumn(weekday: Int, date: Date, hasWorkout: Bool, calendar: Calendar) -> some View {
+        let isToday = calendar.isDateInToday(date)
+        return VStack(spacing: 6) {
+            Text(shortWeekdayLabel(weekday, calendar: calendar))
+                .font(.caption2.weight(isToday ? .semibold : .regular))
+                .foregroundStyle(isToday ? .primary : .secondary)
+            Capsule()
+                .fill(hasWorkout ? Color.accentColor : Color.secondary.opacity(0.2))
+                .frame(width: isToday ? 10 : 8, height: isToday ? 5 : 4)
+                .accessibilityHidden(true)
+        }
+        .accessibilityLabel(weekDayAccessibilityLabel(weekday: weekday, date: date, hasWorkout: hasWorkout, calendar: calendar))
+    }
+
+    private func weekDayAccessibilityLabel(weekday: Int, date: Date, hasWorkout: Bool, calendar: Calendar) -> String {
+        let symbols = calendar.weekdaySymbols
+        let name: String
+        if weekday >= 1, weekday <= symbols.count {
+            name = symbols[weekday - 1]
+        } else {
+            name = "Day"
+        }
+        let dayNum = calendar.component(.day, from: date)
+        let status = hasWorkout ? "workout logged" : "no workout logged"
+        return "\(name) \(dayNum), \(status)"
+    }
+
+    private func weekStripAccessibilityLabel(_ glance: DataManager.WeekAtAGlance) -> String {
+        let filled = glance.days.filter { $0.hasWorkout }.count
+        return "This calendar week, \(filled) days with a completed workout"
     }
 }

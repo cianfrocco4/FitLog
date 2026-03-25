@@ -101,6 +101,19 @@ struct TrainingProgramState: Codable, Equatable {
         return String(format: "%d-W%02d", y, w)
     }
 
+    /// Start-of-day for each day in the `weekOfYear` interval containing `date`, ordered from `interval.start` (same as Plan tab / week override editor).
+    static func orderedCalendarDaysInWeek(containing date: Date, calendar: Calendar = .current) -> [Date] {
+        guard let interval = calendar.dateInterval(of: .weekOfYear, for: date) else { return [] }
+        var d = interval.start
+        var out: [Date] = []
+        while d < interval.end {
+            out.append(calendar.startOfDay(for: d))
+            guard let next = calendar.date(byAdding: .day, value: 1, to: d) else { break }
+            d = next
+        }
+        return out
+    }
+
     init(
         cycleWorkoutIds: [UUID],
         sessionsPerWeek: Int,

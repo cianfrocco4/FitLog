@@ -451,6 +451,55 @@ final class DataManager: ObservableObject {
         let sevenDaysAgo = Date().addingTimeInterval(-7*24*60*60)
         return completedSessions.filter { ($0.endTime ?? Date()) > sevenDaysAgo }.count
     }
+
+    /// Snapshot for Home “This week” (calendar `weekOfYear`, aligned with Plan tab).
+    struct WeekAtAGlance: Equatable {
+        let isoWeekKey: String
+        let days: [(date: Date, weekday: Int, hasWorkout: Bool)]
+        let completedCount: Int
+        /// When set, show “x of y” toward weekly target (requires a non-empty program cycle).
+        let weeklyGoal: Int?
+
+        static func == (lhs: WeekAtAGlance, rhs: WeekAtAGlance) -> Bool {
+            lhs.isoWeekKey == rhs.isoWeekKey
+                && lhs.completedCount == rhs.completedCount
+                && lhs.weeklyGoal == rhs.weeklyGoal
+                && lhs.days.elementsEqual(rhs.days) { a, b in
+                    a.date == b.date && a.weekday == b.weekday && a.hasWorkout == b.hasWorkout
+                }
+        }
+    }
+
+    func weekAtAGlance(referenceDate: Date = Date(), calendar: Calendar = .current) -> WeekAtAGlance {
+        let weekKey = TrainingProgramState.isoWeekKey(for: referenceDate, calendar: calendar)
+        let dayStarts = TrainingProgramState.orderedCalendarDaysInWeek(containing: referenceDate, calendar: calendar)
+        let days: [(date: Date, weekday: Int, hasWorkout: Bool)] = dayStarts.map { start in
+            let wd = calendar.component(.weekday, from: start)
+            return (date: start, weekday: wd, hasWorkout: hasCompletedSessionEnding(on: start, calendar: calendar))
+        }
+        let completed = completedSessionCount(inWeekContaining: referenceDate, calendar: calendar)
+        let goal: Int? = trainingProgram.cycleWorkoutIds.isEmpty
+            ? nil
+            : min(max(1, trainingProgram.sessionsPerWeek), 7)
+        return WeekAtAGlance(isoWeekKey: weekKey, days: days, completedCount: completed, weeklyGoal: goal)
+    }
+
+    private func completedSessionCount(inWeekContaining referenceDate: Date, calendar: Calendar) -> Int {
+        guard let interval = calendar.dateInterval(of: .weekOfYear, for: referenceDate) else { return 0 }
+        return completedSessions.filter { session in
+            guard let end = session.endTime else { return false }
+            return end >= interval.start && end < interval.end
+        }.count
+    }
+
+    private func hasCompletedSessionEnding(on dayStart: Date, calendar: Calendar) -> Bool {
+        let start = calendar.startOfDay(for: dayStart)
+        guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: start) else { return false }
+        return completedSessions.contains { session in
+            guard let end = session.endTime else { return false }
+            return end >= start && end < dayEnd
+        }
+    }
     // Delete exercise from workout (already existed)
     func deleteExercise(from workout: Workout, exerciseId: UUID) {
         guard let wIndex = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
