@@ -20,8 +20,8 @@ extension DataManager {
                 return "Rest day"
             case .unscheduled:
                 return "No workout scheduled (off)"
-            case .workout(let id):
-                return "Workout: \(workoutDisplayName(forWorkoutId: id))"
+            case .workout(let ref):
+                return "Workout: \(planLabel(for: ref))"
             }
         }()
 
@@ -34,10 +34,10 @@ extension DataManager {
         lines.append("")
 
         lines.append("## Training program")
-        if trainingProgram.cycleWorkoutIds.isEmpty {
+        if trainingProgram.cycleEntries.isEmpty {
             lines.append("- Split cycle: (not configured)")
         } else {
-            let names = trainingProgram.cycleWorkoutIds.map { workoutDisplayName(forWorkoutId: $0) }
+            let names = trainingProgram.cycleEntries.map { cycleEntryDisplayLabel($0) }
             lines.append("- Split cycle (order): \(names.joined(separator: " → "))")
         }
         lines.append("- Sessions per week: \(trainingProgram.sessionsPerWeek)")
@@ -51,7 +51,7 @@ extension DataManager {
         lines.append("- Day overrides: \(trainingProgram.dayOverrides.count) entries; week overrides: \(trainingProgram.weekOverrides.count) weeks")
         lines.append("")
 
-        lines.append("## Workout templates (\(userWorkouts.count))")
+        lines.append("## Concrete workouts (\(userWorkouts.count))")
         for w in userWorkouts {
             lines.append("### \(w.name)")
             if w.exercises.isEmpty {
@@ -62,6 +62,22 @@ extension DataManager {
                 let exName = resolvedDisplayName(for: we.exercise)
                 let muscles = we.exercise.targetedMuscles.prefix(4).map(\.rawValue).joined(separator: ", ")
                 lines.append("- \(exName): \(we.recommendedSets)×\(we.recommendedReps), rest \(we.defaultRestTime)s — muscles: \(muscles)")
+            }
+        }
+        lines.append("")
+
+        lines.append("## Slot templates (\(userWorkoutTemplates.count))")
+        for t in userWorkoutTemplates {
+            lines.append("### \(t.name) (blueprint)")
+            if t.slots.isEmpty {
+                lines.append("- (no slots yet)")
+                continue
+            }
+            for s in t.slots {
+                let muscles = s.targetedMuscles.prefix(4).map(\.rawValue).joined(separator: ", ")
+                let role = s.exerciseRole?.rawValue ?? "any"
+                let pat = s.movementPattern?.rawValue ?? "any"
+                lines.append("- \(s.label): \(s.recommendedSets)×\(s.recommendedReps), rest \(s.defaultRestTime)s — muscles: \(muscles), role: \(role), pattern: \(pat)")
             }
         }
         lines.append("")

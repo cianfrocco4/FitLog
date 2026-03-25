@@ -8,16 +8,62 @@
 import SwiftUI
 import Charts
 
+private enum HistorySessionOriginFilter: String, CaseIterable, Identifiable {
+    case all
+    case concreteAndOlder
+    case slotTemplate
+
+    var id: String { rawValue }
+
+    var shortLabel: String {
+        switch self {
+        case .all: return "All"
+        case .concreteAndOlder: return "Concrete"
+        case .slotTemplate: return "Slot"
+        }
+    }
+
+    var footerExplanation: String {
+        switch self {
+        case .all:
+            return "Analytics use every completed session in the time range."
+        case .concreteAndOlder:
+            return "Saved workout plans and older sessions logged before source tracking."
+        case .slotTemplate:
+            return "Only sessions started from a slot template on Plan."
+        }
+    }
+
+    func includes(_ session: WorkoutSession) -> Bool {
+        switch self {
+        case .all: return true
+        case .concreteAndOlder:
+            switch session.sessionPlanOrigin {
+            case nil, .concreteWorkout: return true
+            case .slotTemplate: return false
+            }
+        case .slotTemplate:
+            if case .slotTemplate = session.sessionPlanOrigin { return true }
+            return false
+        }
+    }
+}
+
 struct HistoryView: View {
     @EnvironmentObject var dataVM: DataManager
     @State private var selectedDays: Int = 7
+    @State private var sessionOriginFilter: HistorySessionOriginFilter = .all
 
     private let dayOptions = [7, 14, 30]
 
-    private var sessionsInRange: [WorkoutSession] {
+    private var sessionsInDateRange: [WorkoutSession] {
         let cutoff = Date().addingTimeInterval(-Double(selectedDays) * 24 * 60 * 60)
         return dataVM.completedSessions.filter { ($0.endTime ?? Date()) >= cutoff }
             .sorted { ($0.endTime ?? .distantPast) > ($1.endTime ?? .distantPast) }
+    }
+
+    private var filteredSessions: [WorkoutSession] {
+        sessionsInDateRange.filter { sessionOriginFilter.includes($0) }
     }
 
     var body: some View {
@@ -30,8 +76,17 @@ struct HistoryView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    Picker("Session source", selection: $sessionOriginFilter) {
+                        ForEach(HistorySessionOriginFilter.allCases) { f in
+                            Text(f.shortLabel).tag(f)
+                        }
+                    }
+                    .pickerStyle(.segmented)
                 } header: {
                     Text("Time range")
+                } footer: {
+                    Text(sessionOriginFilter.footerExplanation)
+                        .font(.caption2)
                 }
 
                 trendsChartsSection
@@ -51,8 +106,8 @@ struct HistoryView: View {
     // MARK: - Trend charts (weekly aggregates)
     private var trendsChartsSection: some View {
         Section {
-            if sessionsInRange.isEmpty {
-                Text("Complete workouts to see trends")
+            if filteredSessions.isEmpty {
+                Text(sessionsInDateRange.isEmpty ? "Complete workouts to see trends" : "No sessions match this source filter")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 24)
@@ -75,12 +130,12 @@ struct HistoryView: View {
                 .font(.subheadline)
                 .fontWeight(.medium)
                 .foregroundStyle(.secondary)
-            Chart(weeklyWorkoutCounts) { row in
+            Chart(weeklyWorkoutsByOrigin) { row in
                 BarMark(
                     x: .value("Week", row.weekStart),
                     y: .value("Workouts", row.count)
                 )
-                .foregroundStyle(.blue.gradient)
+                .foregroundStyle(by: .value("Source", row.segment))
             }
             .chartXAxis {
                 AxisMarks(values: .stride(by: .weekOfYear)) { _ in
@@ -98,7 +153,7 @@ struct HistoryView: View {
                 .font(.subheadline)
                 .fontWeight(.medium)
                 .foregroundStyle(.secondary)
-            Chart(weeklyVolume) { row in
+            Chart(weeklyVolumeFiltered) { row in
                 BarMark(
                     x: .value("Week", row.weekStart),
                     y: .value("Volume", row.volume)
@@ -121,7 +176,7 @@ struct HistoryView: View {
                 .font(.subheadline)
                 .fontWeight(.medium)
                 .foregroundStyle(.secondary)
-            Chart(weeklySetCounts) { row in
+            Chart(weeklySetCountsFiltered) { row in
                 BarMark(
                     x: .value("Week", row.weekStart),
                     y: .value("Sets", row.count)
@@ -144,27 +199,66 @@ struct HistoryView: View {
         let count: Int
     }
 
+    private struct WeekOriginBar: Identifiable {
+        let id: String
+        let weekStart: Date
+        let segment: String
+        let count: Int
+    }
+
     private struct WeekVolumeData: Identifiable {
         let id: Date
         let weekStart: Date
         let volume: Double
     }
 
-    private var weeklyWorkoutCounts: [WeekData] {
-        let calendar = Calendar.current
-        let grouped = Dictionary(grouping: sessionsInRange) { session -> Date in
-            let d = session.endTime ?? session.startTime
-            return calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: d)) ?? d
+    private func weekSegmentLabel(for session: WorkoutSession) -> String {
+        switch session.sessionPlanOrigin {
+        case nil:
+            return "Older"
+        case .concreteWorkout:
+            return "Concrete"
+        case .slotTemplate:
+            return "Slot template"
         }
-        return grouped
-            .map { WeekData(id: $0.key, weekStart: $0.key, count: $0.value.count) }
-            .sorted { $0.weekStart < $1.weekStart }
     }
 
-    private var weeklyVolume: [WeekVolumeData] {
+    private var weeklyWorkoutsByOrigin: [WeekOriginBar] {
+        let calendar = Calendar.current
+        var tallies: [Date: [String: Int]] = [:]
+        for session in filteredSessions {
+            let d = session.endTime ?? session.startTime
+            let weekStart = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: d)) ?? d
+            let seg = weekSegmentLabel(for: session)
+            var m = tallies[weekStart] ?? [:]
+            m[seg, default: 0] += 1
+            tallies[weekStart] = m
+        }
+        let segmentOrder = ["Concrete", "Slot template", "Older"]
+        return tallies.flatMap { weekStart, counts in
+            segmentOrder.compactMap { seg in
+                let c = counts[seg] ?? 0
+                guard c > 0 else { return nil }
+                return WeekOriginBar(
+                    id: "\(weekStart.timeIntervalSince1970)-\(seg)",
+                    weekStart: weekStart,
+                    segment: seg,
+                    count: c
+                )
+            }
+        }
+        .sorted { a, b in
+            if a.weekStart != b.weekStart { return a.weekStart < b.weekStart }
+            let oa = segmentOrder.firstIndex(of: a.segment) ?? 99
+            let ob = segmentOrder.firstIndex(of: b.segment) ?? 99
+            return oa < ob
+        }
+    }
+
+    private var weeklyVolumeFiltered: [WeekVolumeData] {
         let calendar = Calendar.current
         var volumeByWeek: [Date: Double] = [:]
-        for session in sessionsInRange {
+        for session in filteredSessions {
             let d = session.endTime ?? session.startTime
             let weekStart = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: d)) ?? d
             let vol = session.exerciseLogs.flatMap(\.loggedSets).reduce(0) { $0 + $1.totalVolumeLoad }
@@ -175,10 +269,10 @@ struct HistoryView: View {
             .sorted { $0.weekStart < $1.weekStart }
     }
 
-    private var weeklySetCounts: [WeekData] {
+    private var weeklySetCountsFiltered: [WeekData] {
         let calendar = Calendar.current
         var setsByWeek: [Date: Int] = [:]
-        for session in sessionsInRange {
+        for session in filteredSessions {
             let d = session.endTime ?? session.startTime
             let weekStart = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: d)) ?? d
             let sets = session.exerciseLogs.reduce(0) { $0 + $1.loggedSets.count }
@@ -192,11 +286,11 @@ struct HistoryView: View {
     // MARK: - Workouts completed in last N days
     private var workoutsCompletedSection: some View {
         Section {
-            if sessionsInRange.isEmpty {
-                Text("No workouts completed in the last \(selectedDays) days")
+            if filteredSessions.isEmpty {
+                Text(sessionsInDateRange.isEmpty ? "No workouts completed in the last \(selectedDays) days" : "No sessions match this source filter")
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(sessionsInRange) { session in
+                ForEach(filteredSessions) { session in
                     NavigationLink(destination: SessionDetailView(session: session).environmentObject(dataVM)) {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
@@ -205,6 +299,9 @@ struct HistoryView: View {
                                 Text(formatDate(session.endTime ?? session.startTime))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+                                Text(sessionOriginCaption(session))
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
                             }
                             Spacer()
                             Text(durationString(for: session))
@@ -222,7 +319,7 @@ struct HistoryView: View {
     // MARK: - Workout-level analytics (sessions per workout in range)
     private var workoutAnalyticsSection: some View {
         Section {
-            let grouped = Dictionary(grouping: sessionsInRange) { $0.workout.id }
+            let grouped = Dictionary(grouping: filteredSessions) { $0.workout.id }
             let sorted = grouped.sorted { ($1.value.first?.endTime ?? .distantPast) > ($0.value.first?.endTime ?? .distantPast) }
             if sorted.isEmpty {
                 Text("No workout data in this range")
@@ -258,13 +355,13 @@ struct HistoryView: View {
     // MARK: - Exercise-level analytics (in range)
     private var exerciseAnalyticsSection: some View {
         Section {
-            let stats = exerciseStats(in: sessionsInRange)
+            let stats = exerciseStats(in: filteredSessions)
             if stats.isEmpty {
                 Text("No exercise data in this range")
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(stats.sorted(by: { $0.sessions > $1.sessions }), id: \.id) { stat in
-                    NavigationLink(destination: ExerciseHistoryDetailView(exerciseId: stat.id, sessions: sessionsInRange).environmentObject(dataVM)) {
+                    NavigationLink(destination: ExerciseHistoryDetailView(exerciseId: stat.id, sessions: filteredSessions).environmentObject(dataVM)) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(dataVM.resolvedDisplayName(for: stat.sampleExercise))
                                 .font(.headline)
@@ -289,13 +386,13 @@ struct HistoryView: View {
     // MARK: - Muscle group analytics (in range)
     private var muscleGroupAnalyticsSection: some View {
         Section {
-            let stats = muscleGroupStats(in: sessionsInRange)
+            let stats = muscleGroupStats(in: filteredSessions)
             if stats.isEmpty {
                 Text("No muscle group data in this range")
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(stats.sorted(by: { $0.sessions > $1.sessions }), id: \.name) { stat in
-                    NavigationLink(destination: MuscleGroupHistoryDetailView(muscleGroupName: stat.name, sessions: sessionsInRange).environmentObject(dataVM)) {
+                    NavigationLink(destination: MuscleGroupHistoryDetailView(muscleGroupName: stat.name, sessions: filteredSessions).environmentObject(dataVM)) {
                         HStack {
                             Text(stat.name)
                                 .font(.headline)
@@ -330,6 +427,17 @@ struct HistoryView: View {
         let m = secs / 60
         let s = secs % 60
         return String(format: "%d:%02d", m, s)
+    }
+
+    private func sessionOriginCaption(_ session: WorkoutSession) -> String {
+        switch session.sessionPlanOrigin {
+        case nil:
+            return "Older session"
+        case .concreteWorkout:
+            return "Concrete workout"
+        case .slotTemplate:
+            return "Slot template"
+        }
     }
     
     private struct ExerciseStat: Identifiable {
@@ -398,6 +506,18 @@ private struct SessionDetailView: View {
 
     private var endDate: Date { session.endTime ?? session.startTime }
 
+    private var sessionPlanLine: String {
+        switch session.sessionPlanOrigin {
+        case nil:
+            return "Not recorded (older log)"
+        case .concreteWorkout:
+            return "Saved workout"
+        case .slotTemplate(let id):
+            let name = dataVM.slotTemplate(id: id)?.name
+            return name.map { "Template: \($0)" } ?? "Slot template"
+        }
+    }
+
     var body: some View {
         List {
             Section {
@@ -412,6 +532,13 @@ private struct SessionDetailView: View {
                     Spacer()
                     Text(HistoryView.durationStringStatic(for: session))
                         .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text("Session plan")
+                    Spacer()
+                    Text(sessionPlanLine)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
                 }
             }
             ForEach(session.exerciseLogs) { log in

@@ -20,7 +20,11 @@ struct FitLogTests {
         let anchor = cal.date(from: DateComponents(year: 2026, month: 3, day: 16))!
         let dayKey = TrainingProgramState.dayKey(for: anchor, calendar: cal)
         var program = TrainingProgramState(
-            cycleWorkoutIds: [idPush, idPull, idLegs],
+            cycleEntries: [
+                ProgramCycleEntry(kind: .concreteWorkout, id: idPush),
+                ProgramCycleEntry(kind: .concreteWorkout, id: idPull),
+                ProgramCycleEntry(kind: .concreteWorkout, id: idLegs)
+            ],
             sessionsPerWeek: 3,
             preferredWeekdays: [2, 4, 6],
             anchorDayKey: dayKey,
@@ -30,9 +34,9 @@ struct FitLogTests {
         let mon = anchor
         let wed = cal.date(byAdding: .day, value: 2, to: mon)!
         let fri = cal.date(byAdding: .day, value: 4, to: mon)!
-        #expect(engine.resolve(date: mon, program: program) == .workout(idPush))
-        #expect(engine.resolve(date: wed, program: program) == .workout(idPull))
-        #expect(engine.resolve(date: fri, program: program) == .workout(idLegs))
+        #expect(engine.resolve(date: mon, program: program) == .workout(.concreteWorkout(idPush)))
+        #expect(engine.resolve(date: wed, program: program) == .workout(.concreteWorkout(idPull)))
+        #expect(engine.resolve(date: fri, program: program) == .workout(.concreteWorkout(idLegs)))
     }
 
     @Test func trainingScheduleEngine_dayOverrideBeatsDefault() {
@@ -43,21 +47,21 @@ struct FitLogTests {
         let mon = anchor
         let dayKey = TrainingProgramState.dayKey(for: mon, calendar: cal)
         var program = TrainingProgramState(
-            cycleWorkoutIds: [idA],
+            cycleEntries: [ProgramCycleEntry(kind: .concreteWorkout, id: idA)],
             sessionsPerWeek: 3,
             preferredWeekdays: [2, 3, 4],
             anchorDayKey: TrainingProgramState.dayKey(for: anchor, calendar: cal),
             dayOverrides: [dayKey: ScheduleDayOverride(intent: .workout, workoutId: idB)],
             weekOverrides: [:]
         )
-        #expect(engine.resolve(date: mon, program: program) == .workout(idB))
+        #expect(engine.resolve(date: mon, program: program) == .workout(.concreteWorkout(idB)))
     }
 
     @Test func trainingProgramState_decodesPartialJSONWithoutThrowing() throws {
         let json = Data(#"{"cycleWorkoutIds":[],"sessionsPerWeek":4}"#.utf8)
         let decoded = try JSONDecoder().decode(TrainingProgramState.self, from: json)
         #expect(decoded.sessionsPerWeek == 4)
-        #expect(decoded.cycleWorkoutIds.isEmpty)
+        #expect(decoded.cycleEntries.isEmpty)
         #expect(decoded.preferredWeekdays.isEmpty)
     }
 }

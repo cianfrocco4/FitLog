@@ -21,7 +21,7 @@ struct TrainingScheduleEngine {
             case .rest:
                 return .rest
             case .workout:
-                if let id = o.workoutId { return .workout(id) }
+                if let id = o.workoutId { return .workout(.concreteWorkout(id)) }
                 break
             }
         }
@@ -36,7 +36,7 @@ struct TrainingScheduleEngine {
             case .rest:
                 return .rest
             case .workout:
-                if let id = slot.workoutId { return .workout(id) }
+                if let id = slot.workoutId { return .workout(.concreteWorkout(id)) }
                 break
             }
         }
@@ -45,9 +45,14 @@ struct TrainingScheduleEngine {
     }
 
     func defaultPlan(for date: Date, program: TrainingProgramState) -> ResolvedScheduleDay {
-        guard !program.cycleWorkoutIds.isEmpty else { return .unscheduled }
-        guard let wid = defaultWorkoutId(for: date, program: program) else { return .unscheduled }
-        return .workout(wid)
+        guard !program.cycleEntries.isEmpty else { return .unscheduled }
+        guard let entry = defaultCycleEntry(for: date, program: program) else { return .unscheduled }
+        switch entry.kind {
+        case .concreteWorkout:
+            return .workout(.concreteWorkout(entry.id))
+        case .slotTemplate:
+            return .workout(.slotTemplate(entry.id))
+        }
     }
 
     /// Whether `date` would be a training day under the base program (ignoring overrides).
@@ -81,13 +86,12 @@ struct TrainingScheduleEngine {
         return Set(picked.map { TrainingProgramState.dayKey(for: $0, calendar: calendar) })
     }
 
-    func defaultWorkoutId(for date: Date, program: TrainingProgramState) -> UUID? {
-        guard !program.cycleWorkoutIds.isEmpty else { return nil }
-        let n = program.cycleWorkoutIds.count
-        let dk = TrainingProgramState.dayKey(for: date, calendar: calendar)
+    func defaultCycleEntry(for date: Date, program: TrainingProgramState) -> ProgramCycleEntry? {
+        guard !program.cycleEntries.isEmpty else { return nil }
+        let n = program.cycleEntries.count
         guard isDefaultTrainingDay(date, program: program) else { return nil }
         guard let anchorDate = TrainingProgramState.date(fromDayKey: program.anchorDayKey, calendar: calendar) else {
-            return program.cycleWorkoutIds[0]
+            return program.cycleEntries[0]
         }
         let anchorStart = calendar.startOfDay(for: anchorDate)
         let dateStart = calendar.startOfDay(for: date)
@@ -103,7 +107,7 @@ struct TrainingScheduleEngine {
                 walk = next
             }
             let idx = (ord - 1) % n
-            return program.cycleWorkoutIds[idx]
+            return program.cycleEntries[idx]
         }
 
         var k = 0
@@ -116,6 +120,6 @@ struct TrainingScheduleEngine {
             back = prev
         }
         let idx = ((-k % n) + n) % n
-        return program.cycleWorkoutIds[idx]
+        return program.cycleEntries[idx]
     }
 }

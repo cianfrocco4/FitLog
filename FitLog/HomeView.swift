@@ -18,6 +18,8 @@ struct HomeView: View {
     @State private var showSplitBuilder = false
     @State private var workoutToRename: Workout?
     @State private var renameText = ""
+    /// After creating a slot template from the Add menu, push the editor for that template.
+    @State private var newSlotTemplateToEdit: UUID?
 
     private var scheduleEngine: TrainingScheduleEngine { TrainingScheduleEngine(calendar: .current) }
 
@@ -31,19 +33,33 @@ struct HomeView: View {
         return dataVM.weekAtAGlance(referenceDate: Date(), calendar: .current)
     }
 
-    /// True when there is a finished session for this template whose end time falls on the current calendar day.
-    private func isPlannedWorkoutCompletedToday(templateId: UUID) -> Bool {
+    /// True when there is a finished session for today’s planned item (matches origin when known, else legacy concrete `workout.id`).
+    private func isPlannedWorkoutCompletedToday(plan: WorkoutPlanRef) -> Bool {
         _ = calendarDayRefresh
         let cal = Calendar.current
         let today = Date()
         return dataVM.completedSessions.contains { session in
-            guard session.workout.id == templateId, let end = session.endTime else { return false }
-            return cal.isDate(end, inSameDayAs: today)
+            guard let end = session.endTime else { return false }
+            guard cal.isDate(end, inSameDayAs: today) else { return false }
+            switch plan {
+            case .concreteWorkout(let id):
+                if session.sessionPlanOrigin == .concreteWorkout(id) { return true }
+                if session.sessionPlanOrigin == nil, session.workout.id == id { return true }
+                return false
+            case .slotTemplate(let id):
+                return session.sessionPlanOrigin == .slotTemplate(id)
+            }
         }
     }
 
     private var homeDashboardRowInsets: EdgeInsets {
         EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16)
+    }
+
+    private func startWorkout(fromSlotTemplate template: WorkoutTemplate) {
+        guard !template.slots.isEmpty, !currentVM.isInProgress else { return }
+        let sessionWorkout = dataVM.instantiateWorkout(from: template)
+        currentVM.startWorkout(sessionWorkout, sessionPlanOrigin: .slotTemplate(template.id))
     }
 
     var body: some View {
@@ -73,8 +89,13 @@ struct HomeView: View {
                                     .foregroundStyle(.red)
                             }
                         } label: {
-                            Text(workout.name)
-                                .font(.headline)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(workout.name)
+                                    .font(.headline)
+                                Text("Concrete workout")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         .swipeActions(edge: .trailing) {
                             Button("Delete", role: .destructive) {
@@ -97,6 +118,58 @@ struct HomeView: View {
                         .padding(.top, 4)
                         .textCase(nil)
                 }
+
+                Section {
+                    ForEach(dataVM.userWorkoutTemplates) { template in
+                        NavigationLink {
+                            SlotTemplatePlanView(templateId: template.id)
+                                .environmentObject(dataVM)
+                                .environmentObject(currentVM)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(template.name)
+                                    .font(.headline)
+                                Text("Slot template · \(template.slots.count) slot(s)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .contextMenu {
+                            Button {
+                                startWorkout(fromSlotTemplate: template)
+                            } label: {
+                                Label("Start workout", systemImage: "play.fill")
+                            }
+                            .disabled(currentVM.isInProgress || template.slots.isEmpty)
+                        }
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            if !currentVM.isInProgress, !template.slots.isEmpty {
+                                Button {
+                                    startWorkout(fromSlotTemplate: template)
+                                } label: {
+                                    Label("Start", systemImage: "play.fill")
+                                }
+                                .tint(.green)
+                            }
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button("Delete", role: .destructive) {
+                                dataVM.deleteSlotTemplate(template)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Slot templates")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 4)
+                        .textCase(nil)
+                } footer: {
+                    Text("Long-press for Start workout, or swipe right on a template. You can also open a template and tap Start in the toolbar.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -108,8 +181,15 @@ struct HomeView: View {
                     EditButton()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("New Workout") {
-                        showNewWorkout = true
+                    Menu {
+                        Button("New concrete workout") {
+                            showNewWorkout = true
+                        }
+                        Button("New slot template") {
+                            newSlotTemplateToEdit = dataVM.createSlotTemplate(name: "Template")
+                        }
+                    } label: {
+                        Label("Add", systemImage: "plus.circle")
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -142,6 +222,11 @@ struct HomeView: View {
                         dataVM.renameWorkout(workout, newName: renameText)
                     }
                 }
+            }
+            .navigationDestination(item: $newSlotTemplateToEdit) { templateId in
+                SlotTemplatePlanView(templateId: templateId)
+                    .environmentObject(dataVM)
+                    .environmentObject(currentVM)
             }
         }
     }
@@ -197,67 +282,124 @@ struct HomeView: View {
                 Text("Set your split and weekly schedule in the Plan tab, or start any workout below.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            case .workout(let id):
-                if let workout = dataVM.userWorkouts.first(where: { $0.id == id }) {
-                    Text(workout.name)
-                        .font(.title3.weight(.semibold))
-                    Text("Suggested from your training plan.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    if currentVM.isInProgress {
-                        Text("Finish your current workout before starting another.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else if isPlannedWorkoutCompletedToday(templateId: id) {
-                        Label("Completed today", systemImage: "checkmark.circle.fill")
-                            .font(.headline)
-                            .foregroundStyle(.green)
-                        Text("You logged this planned workout. Rest up or choose another session below if you like.")
+            case .workout(let ref):
+                switch ref {
+                case .concreteWorkout(let id):
+                    if let workout = dataVM.userWorkouts.first(where: { $0.id == id }) {
+                        Text(workout.name)
+                            .font(.title3.weight(.semibold))
+                        Text("Concrete workout · from your training plan")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        NavigationLink {
-                            if let binding = $dataVM.userWorkouts[workout.id] {
-                                WorkoutPlanView(workout: binding)
-                            } else {
-                                Text("Workout not found").foregroundStyle(.red)
-                            }
-                        } label: {
-                            Label("View template", systemImage: "list.bullet")
-                                .font(.subheadline.weight(.medium))
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                    } else {
-                        Button {
-                            currentVM.startWorkout(workout)
-                        } label: {
-                            Label("Start workout", systemImage: "play.fill")
+                        if currentVM.isInProgress {
+                            Text("Finish your current workout before starting another.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else if isPlannedWorkoutCompletedToday(plan: ref) {
+                            Label("Completed today", systemImage: "checkmark.circle.fill")
                                 .font(.headline)
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
+                                .foregroundStyle(.green)
+                            Text("You logged this planned workout. Rest up or choose another session below if you like.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
 
-                        NavigationLink {
-                            if let binding = $dataVM.userWorkouts[workout.id] {
-                                WorkoutPlanView(workout: binding)
-                            } else {
-                                Text("Workout not found").foregroundStyle(.red)
+                            NavigationLink {
+                                if let binding = $dataVM.userWorkouts[workout.id] {
+                                    WorkoutPlanView(workout: binding)
+                                } else {
+                                    Text("Workout not found").foregroundStyle(.red)
+                                }
+                            } label: {
+                                Label("View workout", systemImage: "list.bullet")
+                                    .font(.subheadline.weight(.medium))
+                                    .frame(maxWidth: .infinity)
                             }
-                        } label: {
-                            Label("View template", systemImage: "list.bullet")
-                                .font(.subheadline.weight(.medium))
-                                .frame(maxWidth: .infinity)
+                            .buttonStyle(.bordered)
+                        } else {
+                            Button {
+                                currentVM.startWorkout(workout, sessionPlanOrigin: .concreteWorkout(workout.id))
+                            } label: {
+                                Label("Start workout", systemImage: "play.fill")
+                                    .font(.headline)
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            NavigationLink {
+                                if let binding = $dataVM.userWorkouts[workout.id] {
+                                    WorkoutPlanView(workout: binding)
+                                } else {
+                                    Text("Workout not found").foregroundStyle(.red)
+                                }
+                            } label: {
+                                Label("View workout", systemImage: "list.bullet")
+                                    .font(.subheadline.weight(.medium))
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
                         }
-                        .buttonStyle(.bordered)
+                    } else {
+                        Text("Missing workout")
+                            .font(.title3.weight(.semibold))
+                        Text("Your plan references a workout that isn’t in My Workouts. Update the split in the Plan tab.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                } else {
-                    Text("Missing workout")
-                        .font(.title3.weight(.semibold))
-                    Text("Your plan references a template that isn’t in My Workouts. Update the split in the Plan tab.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                case .slotTemplate(let templateId):
+                    if let template = dataVM.slotTemplate(id: templateId) {
+                        Text(template.name)
+                            .font(.title3.weight(.semibold))
+                        Text("Slot template · pick exercises when you train (or beforehand)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        if currentVM.isInProgress {
+                            Text("Finish your current workout before starting another.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else if isPlannedWorkoutCompletedToday(plan: ref) {
+                            Label("Completed today", systemImage: "checkmark.circle.fill")
+                                .font(.headline)
+                                .foregroundStyle(.green)
+                            NavigationLink {
+                                SlotTemplatePlanView(templateId: templateId)
+                                    .environmentObject(dataVM)
+                                    .environmentObject(currentVM)
+                            } label: {
+                                Label("Edit template", systemImage: "list.bullet")
+                                    .font(.subheadline.weight(.medium))
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                        } else {
+                            Button {
+                                startWorkout(fromSlotTemplate: template)
+                            } label: {
+                                Label("Start workout", systemImage: "play.fill")
+                                    .font(.headline)
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            NavigationLink {
+                                SlotTemplatePlanView(templateId: templateId)
+                                    .environmentObject(dataVM)
+                                    .environmentObject(currentVM)
+                            } label: {
+                                Label("Edit template", systemImage: "list.bullet")
+                                    .font(.subheadline.weight(.medium))
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    } else {
+                        Text("Missing template")
+                            .font(.title3.weight(.semibold))
+                        Text("Your plan references a slot template that was removed. Update the split in the Plan tab.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             thisWeekSubsection(weekAtAGlance)

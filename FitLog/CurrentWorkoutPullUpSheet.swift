@@ -14,6 +14,49 @@ private struct LogSetSheetSelection: Identifiable {
     let exerciseIndex: Int
 }
 
+private struct ResolveSlotWE: Identifiable {
+    let workoutExerciseId: UUID
+    var id: UUID { workoutExerciseId }
+}
+
+private struct ResolveSlotExerciseSheet: View {
+    let workoutExerciseId: UUID
+    @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+
+    private var filteredExercises: [Exercise] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return dataVM.globalExercises }
+        return dataVM.globalExercises.filter { ex in
+            dataVM.resolvedDisplayName(for: ex).localizedCaseInsensitiveContains(q)
+                || ex.name.localizedCaseInsensitiveContains(q)
+        }
+    }
+
+    var body: some View {
+        List {
+            ForEach(filteredExercises) { ex in
+                Button {
+                    currentVM.resolveSlotPlaceholder(workoutExerciseId: workoutExerciseId, exercise: ex)
+                    dismiss()
+                } label: {
+                    Text(dataVM.resolvedDisplayName(for: ex))
+                }
+            }
+        }
+        .searchable(text: $searchText, prompt: "Search exercises")
+        .navigationTitle("Choose exercise")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { dismiss() }
+            }
+        }
+    }
+}
+
 struct CurrentWorkoutPullUpSheet: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var dataVM: DataManager
@@ -21,6 +64,7 @@ struct CurrentWorkoutPullUpSheet: View {
     
     @State private var expandedExerciseIndex: Int? = nil
     @State private var logSetSheetSelection: LogSetSheetSelection?
+    @State private var resolveSlotSelection: ResolveSlotWE?
     
     var body: some View {
         NavigationStack {
@@ -105,13 +149,21 @@ struct CurrentWorkoutPullUpSheet: View {
                             Section {
                                 // Exercise name as first row so it uses normal list text color (not section header gray)
                                 Button {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        expandedExerciseIndex = isExpanded ? nil : index
+                                    if log.workoutExercise.isSlotPlaceholder {
+                                        resolveSlotSelection = ResolveSlotWE(workoutExerciseId: log.workoutExercise.id)
+                                    } else {
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            expandedExerciseIndex = isExpanded ? nil : index
+                                        }
                                     }
                                 } label: {
                                     HStack {
                                         VStack(alignment: .leading, spacing: 2) {
-                                            Text(dataVM.resolvedDisplayName(for: log.workoutExercise.exercise))
+                                            Text(
+                                                log.workoutExercise.isSlotPlaceholder
+                                                    ? (log.workoutExercise.slotLabel.isEmpty ? "Choose exercise" : log.workoutExercise.slotLabel)
+                                                    : dataVM.resolvedDisplayName(for: log.workoutExercise.exercise)
+                                            )
                                                 .font(.headline)
                                             HStack(spacing: 6) {
                                                 statusDot(for: log)
@@ -136,49 +188,61 @@ struct CurrentWorkoutPullUpSheet: View {
                                 .buttonStyle(.plain)
                                 .foregroundStyle(.primary)
                                 if isExpanded {
-                                    if !log.workoutExercise.configurationFields.isEmpty {
-                                        recommendedConfigurationRow(for: log.workoutExercise)
-                                    }
-                                    if let previousLog = lastCompletedLog(for: log) {
-                                        previousSessionSummaryRow(previousLog: previousLog)
-                                    }
-                                    HStack(spacing: 12) {
-                                        Button("Add New Set") {
-                                            logSetSheetSelection = LogSetSheetSelection(exerciseIndex: index)
+                                    if log.workoutExercise.isSlotPlaceholder {
+                                        Text("This slot needs an exercise before you can log sets.")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                                        Button("Choose exercise") {
+                                            resolveSlotSelection = ResolveSlotWE(workoutExerciseId: log.workoutExercise.id)
                                         }
                                         .buttonStyle(.borderedProminent)
-                                        .tint(.blue)
-
-                                        Menu {
-                                            Button("Set as current") {
-                                                currentVM.setPrimaryExercise(exerciseId: log.workoutExercise.exercise.id)
-                                            }
-                                            Button(statusSupersetToggleTitle(for: log)) {
-                                                currentVM.toggleSupersetExercise(exerciseId: log.workoutExercise.exercise.id)
-                                            }
-                                            Button("Mark completed") {
-                                                currentVM.markExerciseCompleted(exerciseId: log.workoutExercise.exercise.id)
-                                            }
-                                        } label: {
-                                            Label("More", systemImage: "ellipsis.circle")
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                                    if log.loggedSets.isEmpty {
-                                        Text("No sets logged yet")
-                                            .foregroundStyle(.secondary)
-                                            .italic()
-                                            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                                     } else {
-                                        ForEach(log.loggedSets.indices, id: \.self) { setIndex in
-                                            setRow(set: log.loggedSets[setIndex], workoutExercise: log.workoutExercise)
-                                                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                                    Button("Delete", role: .destructive) {
-                                                        currentVM.deleteSet(exerciseIndex: index, setIndex: setIndex)
-                                                    }
+                                        if !log.workoutExercise.configurationFields.isEmpty {
+                                            recommendedConfigurationRow(for: log.workoutExercise)
+                                        }
+                                        if let previousLog = lastCompletedLog(for: log) {
+                                            previousSessionSummaryRow(previousLog: previousLog)
+                                        }
+                                        HStack(spacing: 12) {
+                                            Button("Add New Set") {
+                                                logSetSheetSelection = LogSetSheetSelection(exerciseIndex: index)
+                                            }
+                                            .buttonStyle(.borderedProminent)
+                                            .tint(.blue)
+
+                                            Menu {
+                                                Button("Set as current") {
+                                                    currentVM.setPrimaryExercise(exerciseId: log.workoutExercise.exercise.id)
                                                 }
+                                                Button(statusSupersetToggleTitle(for: log)) {
+                                                    currentVM.toggleSupersetExercise(exerciseId: log.workoutExercise.exercise.id)
+                                                }
+                                                Button("Mark completed") {
+                                                    currentVM.markExerciseCompleted(exerciseId: log.workoutExercise.exercise.id)
+                                                }
+                                            } label: {
+                                                Label("More", systemImage: "ellipsis.circle")
+                                            }
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                                        if log.loggedSets.isEmpty {
+                                            Text("No sets logged yet")
+                                                .foregroundStyle(.secondary)
+                                                .italic()
+                                                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                                        } else {
+                                            ForEach(log.loggedSets.indices, id: \.self) { setIndex in
+                                                setRow(set: log.loggedSets[setIndex], workoutExercise: log.workoutExercise)
+                                                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                                        Button("Delete", role: .destructive) {
+                                                            currentVM.deleteSet(exerciseIndex: index, setIndex: setIndex)
+                                                        }
+                                                    }
+                                            }
                                         }
                                     }
                                 }
@@ -209,6 +273,13 @@ struct CurrentWorkoutPullUpSheet: View {
             .sheet(item: $logSetSheetSelection) { selection in
                 LogSetView(sessionVM: currentVM, exerciseIndex: selection.exerciseIndex)
                     .environmentObject(dataVM)
+            }
+            .sheet(item: $resolveSlotSelection) { sel in
+                NavigationStack {
+                    ResolveSlotExerciseSheet(workoutExerciseId: sel.workoutExerciseId)
+                        .environmentObject(dataVM)
+                        .environmentObject(currentVM)
+                }
             }
             .alert(
                 "Rest over",

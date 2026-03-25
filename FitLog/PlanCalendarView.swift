@@ -138,8 +138,8 @@ struct PlanCalendarView: View {
                 return "Rest"
             case .unscheduled:
                 return "—"
-            case .workout(let id):
-                return dataVM.workoutDisplayName(forWorkoutId: id)
+            case .workout(let ref):
+                return dataVM.planLabel(for: ref)
             }
         }()
 
@@ -189,10 +189,22 @@ struct PlanCalendarView: View {
             Button("Edit this week") {
                 weekEditAnchor = date
             }
-            if case .workout(let id) = resolved, dataVM.userWorkouts.contains(where: { $0.id == id }) {
-                Button("Start workout") {
+            if case .workout(let ref) = resolved {
+                switch ref {
+                case .concreteWorkout(let id):
                     if let w = dataVM.userWorkouts.first(where: { $0.id == id }) {
-                        currentVM.startWorkout(w)
+                        Button("Start workout") {
+                            currentVM.startWorkout(w, sessionPlanOrigin: .concreteWorkout(id))
+                        }
+                    }
+                case .slotTemplate(let tid):
+                    if let t = dataVM.slotTemplate(id: tid) {
+                        Button("Start workout") {
+                            currentVM.startWorkout(
+                                dataVM.instantiateWorkout(from: t),
+                                sessionPlanOrigin: .slotTemplate(tid)
+                            )
+                        }
                     }
                 }
             }
@@ -280,17 +292,31 @@ struct DayPlanSheet: View {
                         Label("Rest day", systemImage: "moon.zzz")
                     case .unscheduled:
                         Label("Off / unscheduled", systemImage: "circle.dashed")
-                    case .workout(let id):
-                        Label(dataVM.workoutDisplayName(forWorkoutId: id), systemImage: "dumbbell")
+                    case .workout(let ref):
+                        Label(dataVM.planLabel(for: ref), systemImage: "dumbbell")
                     }
                 }
 
                 Section("Actions") {
-                    if case .workout(let id) = engine.resolve(date: date, program: dataVM.trainingProgram),
-                       let w = dataVM.userWorkouts.first(where: { $0.id == id }) {
-                        Button("Start workout") {
-                            currentVM.startWorkout(w)
-                            dismiss()
+                    if case .workout(let ref) = engine.resolve(date: date, program: dataVM.trainingProgram) {
+                        switch ref {
+                        case .concreteWorkout(let id):
+                            if let w = dataVM.userWorkouts.first(where: { $0.id == id }) {
+                                Button("Start workout") {
+                                    currentVM.startWorkout(w, sessionPlanOrigin: .concreteWorkout(id))
+                                    dismiss()
+                                }
+                            }
+                        case .slotTemplate(let tid):
+                            if let t = dataVM.slotTemplate(id: tid) {
+                                Button("Start workout") {
+                                    currentVM.startWorkout(
+                                        dataVM.instantiateWorkout(from: t),
+                                        sessionPlanOrigin: .slotTemplate(tid)
+                                    )
+                                    dismiss()
+                                }
+                            }
                         }
                     }
 
@@ -316,14 +342,21 @@ struct DayPlanSheet: View {
                 }
 
                 Section {
-                    if let wid = workoutIdForTemplateLink {
-                        NavigationLink("Open workout template") {
+                    if let wid = concreteWorkoutIdForLink {
+                        NavigationLink("Open concrete workout") {
                             if let binding = $dataVM.userWorkouts[wid] {
                                 WorkoutPlanView(workout: binding)
                             } else {
                                 Text("This workout was deleted from My Workouts.")
                                     .foregroundStyle(.secondary)
                             }
+                        }
+                    }
+                    if let tid = slotTemplateIdForLink {
+                        NavigationLink("Edit slot template") {
+                            SlotTemplatePlanView(templateId: tid)
+                                .environmentObject(dataVM)
+                                .environmentObject(currentVM)
                         }
                     }
                 }
@@ -339,9 +372,18 @@ struct DayPlanSheet: View {
         .presentationDetents([.medium, .large])
     }
 
-    private var workoutIdForTemplateLink: UUID? {
+    private var concreteWorkoutIdForLink: UUID? {
         switch engine.resolve(date: date, program: dataVM.trainingProgram) {
-        case .workout(let id):
+        case .workout(.concreteWorkout(let id)):
+            return id
+        default:
+            return nil
+        }
+    }
+
+    private var slotTemplateIdForLink: UUID? {
+        switch engine.resolve(date: date, program: dataVM.trainingProgram) {
+        case .workout(.slotTemplate(let id)):
             return id
         default:
             return nil
@@ -473,8 +515,8 @@ private struct WeekdayRow: View {
         switch defaultResolved {
         case .rest: return "Rest"
         case .unscheduled: return "Off"
-        case .workout(let id):
-            return dataVM.workoutDisplayName(forWorkoutId: id)
+        case .workout(let ref):
+            return dataVM.planLabel(for: ref)
         }
     }
 
@@ -526,36 +568,62 @@ struct SplitEditorSheet: View {
                 }
 
                 Section("Cycle") {
-                    ForEach(dataVM.trainingProgram.cycleWorkoutIds, id: \.self) { id in
+                    ForEach(Array(dataVM.trainingProgram.cycleEntries.enumerated()), id: \.offset) { _, entry in
                         HStack {
-                            Text(dataVM.workoutDisplayName(forWorkoutId: id))
+                            Text(dataVM.cycleEntryDisplayLabel(entry))
                             Spacer()
-                            if dataVM.userWorkouts.first(where: { $0.id == id }) == nil {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.orange)
+                            switch entry.kind {
+                            case .concreteWorkout:
+                                if dataVM.userWorkouts.first(where: { $0.id == entry.id }) == nil {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.orange)
+                                }
+                            case .slotTemplate:
+                                if dataVM.slotTemplate(id: entry.id) == nil {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.orange)
+                                }
                             }
                         }
                     }
                     .onDelete { indexSet in
-                        var ids = dataVM.trainingProgram.cycleWorkoutIds
-                        ids.remove(atOffsets: indexSet)
-                        dataVM.setTrainingCycleWorkoutIds(ids)
+                        var entries = dataVM.trainingProgram.cycleEntries
+                        entries.remove(atOffsets: indexSet)
+                        dataVM.setTrainingCycleEntries(entries)
                     }
                     .onMove { source, dest in
-                        var ids = dataVM.trainingProgram.cycleWorkoutIds
-                        ids.move(fromOffsets: source, toOffset: dest)
-                        dataVM.setTrainingCycleWorkoutIds(ids)
+                        var entries = dataVM.trainingProgram.cycleEntries
+                        entries.move(fromOffsets: source, toOffset: dest)
+                        dataVM.setTrainingCycleEntries(entries)
                     }
                 }
 
-                Section("Add workout") {
-                    ForEach(dataVM.userWorkouts.filter { !dataVM.trainingProgram.cycleWorkoutIds.contains($0.id) }) { w in
+                Section("Add concrete workout") {
+                    let inCycle: (UUID) -> Bool = { wid in
+                        dataVM.trainingProgram.cycleEntries.contains { $0.kind == .concreteWorkout && $0.id == wid }
+                    }
+                    ForEach(dataVM.userWorkouts.filter { !inCycle($0.id) }) { w in
                         Button {
-                            var ids = dataVM.trainingProgram.cycleWorkoutIds
-                            ids.append(w.id)
-                            dataVM.setTrainingCycleWorkoutIds(ids)
+                            var entries = dataVM.trainingProgram.cycleEntries
+                            entries.append(ProgramCycleEntry(kind: .concreteWorkout, id: w.id))
+                            dataVM.setTrainingCycleEntries(entries)
                         } label: {
                             Label(w.name, systemImage: "plus.circle")
+                        }
+                    }
+                }
+
+                Section("Add slot template") {
+                    let inCycle: (UUID) -> Bool = { tid in
+                        dataVM.trainingProgram.cycleEntries.contains { $0.kind == .slotTemplate && $0.id == tid }
+                    }
+                    ForEach(dataVM.userWorkoutTemplates.filter { !inCycle($0.id) }) { t in
+                        Button {
+                            var entries = dataVM.trainingProgram.cycleEntries
+                            entries.append(ProgramCycleEntry(kind: .slotTemplate, id: t.id))
+                            dataVM.setTrainingCycleEntries(entries)
+                        } label: {
+                            Label(t.name, systemImage: "rectangle.stack.badge.plus")
                         }
                     }
                 }
@@ -582,7 +650,7 @@ struct ProgramSetupSheet: View {
     @State private var sessionsPerWeek: Int = 3
     @State private var selectedWeekdays: Set<Int> = []
     @State private var anchorDate: Date = Date()
-    @State private var cycleIds: [UUID] = []
+    @State private var cycleEntriesDraft: [ProgramCycleEntry] = []
 
     var body: some View {
         NavigationStack {
@@ -600,22 +668,35 @@ struct ProgramSetupSheet: View {
                 }
 
                 Section("Cycle for suggestions") {
-                    if cycleIds.isEmpty {
-                        Text("Add workouts below — order is the split order.")
+                    if cycleEntriesDraft.isEmpty {
+                        Text("Add concrete workouts or slot templates below — order is the split order.")
                             .foregroundStyle(.secondary)
                     } else {
-                        ForEach(cycleIds, id: \.self) { id in
-                            Text(dataVM.workoutDisplayName(forWorkoutId: id))
+                        ForEach(Array(cycleEntriesDraft.enumerated()), id: \.offset) { _, entry in
+                            Text(dataVM.cycleEntryDisplayLabel(entry))
                         }
                         .onMove { s, d in
-                            cycleIds.move(fromOffsets: s, toOffset: d)
+                            cycleEntriesDraft.move(fromOffsets: s, toOffset: d)
                         }
                     }
-                    ForEach(dataVM.userWorkouts.filter { !cycleIds.contains($0.id) }) { w in
+                    let concreteInDraft: (UUID) -> Bool = { wid in
+                        cycleEntriesDraft.contains { $0.kind == .concreteWorkout && $0.id == wid }
+                    }
+                    ForEach(dataVM.userWorkouts.filter { !concreteInDraft($0.id) }) { w in
                         Button {
-                            cycleIds.append(w.id)
+                            cycleEntriesDraft.append(ProgramCycleEntry(kind: .concreteWorkout, id: w.id))
                         } label: {
                             Label("Add \(w.name)", systemImage: "plus.circle")
+                        }
+                    }
+                    let templateInDraft: (UUID) -> Bool = { tid in
+                        cycleEntriesDraft.contains { $0.kind == .slotTemplate && $0.id == tid }
+                    }
+                    ForEach(dataVM.userWorkoutTemplates.filter { !templateInDraft($0.id) }) { t in
+                        Button {
+                            cycleEntriesDraft.append(ProgramCycleEntry(kind: .slotTemplate, id: t.id))
+                        } label: {
+                            Label("Add \(t.name) (slot)", systemImage: "rectangle.stack.badge.plus")
                         }
                     }
                 }
@@ -624,14 +705,14 @@ struct ProgramSetupSheet: View {
                     Button("Apply schedule") {
                         let prefs = Array(selectedWeekdays).sorted()
                         dataVM.applyTrainingProgramSuggestion(
-                            cycleWorkoutIds: cycleIds,
+                            cycleEntries: cycleEntriesDraft,
                             sessionsPerWeek: sessionsPerWeek,
                             preferredWeekdays: prefs,
                             anchorDate: anchorDate
                         )
                         dismiss()
                     }
-                    .disabled(cycleIds.isEmpty)
+                    .disabled(cycleEntriesDraft.isEmpty)
                 }
             }
             .navigationTitle("Schedule setup")
@@ -648,7 +729,7 @@ struct ProgramSetupSheet: View {
                 if let d = TrainingProgramState.date(fromDayKey: dataVM.trainingProgram.anchorDayKey) {
                     anchorDate = d
                 }
-                cycleIds = dataVM.trainingProgram.cycleWorkoutIds
+                cycleEntriesDraft = dataVM.trainingProgram.cycleEntries
             }
         }
     }

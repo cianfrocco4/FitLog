@@ -95,7 +95,7 @@ struct WorkoutPlanView: View {
                     if currentVM.currentSession?.workout.id == workout.id {
                         currentVM.stopWorkout()
                     } else {
-                        currentVM.startWorkout(workout)
+                        currentVM.startWorkout(workout, sessionPlanOrigin: .concreteWorkout(workout.id))
                     }
                 }
                 .buttonStyle(.borderedProminent)

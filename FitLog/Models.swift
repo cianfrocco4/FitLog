@@ -60,6 +60,40 @@ enum MuscleGroup: String, CaseIterable, Codable, Identifiable {
     }
 }
 
+// MARK: - Exercise metadata (slot matching, AI suggestions)
+
+/// Broad movement role for filtering and slot criteria.
+enum ExerciseRole: String, CaseIterable, Codable, Identifiable {
+    case compound = "Compound"
+    case accessory = "Accessory"
+    case isolation = "Isolation"
+
+    var id: String { rawValue }
+}
+
+/// Movement pattern for slot matching (optional on exercises and slots).
+enum MovementPattern: String, CaseIterable, Codable, Identifiable {
+    case horizontalPush = "Horizontal push"
+    case verticalPush = "Vertical push"
+    case horizontalPull = "Horizontal pull"
+    case verticalPull = "Vertical pull"
+    case squat = "Squat"
+    case hinge = "Hinge"
+    case lunge = "Lunge"
+    case carry = "Carry"
+    case rotation = "Rotation"
+    case isolation = "Isolation / single-joint"
+    case other = "Other"
+
+    var id: String { rawValue }
+}
+
+/// What the training plan scheduled for this day (concrete workout definition vs slot blueprint).
+enum WorkoutPlanRef: Equatable, Codable, Hashable {
+    case concreteWorkout(UUID)
+    case slotTemplate(UUID)
+}
+
 /// Optional per-exercise setting (e.g. grip variant, machine setting) tracked with each logged set.
 struct ExerciseConfigurationOption: Identifiable, Codable, Equatable, Hashable {
     let id: UUID
@@ -83,14 +117,43 @@ struct Exercise: Identifiable, Codable, Equatable, Hashable {
     var isCustom: Bool
     /// Optional settings (e.g. grip, seat) that can be recorded per set.
     var configurationOptions: [ExerciseConfigurationOption]
+    /// Defaults to `.accessory` for legacy decoded exercises until backfill or user edit.
+    var exerciseRole: ExerciseRole
+    /// Optional movement pattern for slot matching; nil = unspecified.
+    var movementPattern: MovementPattern?
 
-    init(id: UUID, name: String, description: String, targetedMuscles: [MuscleGroup], isCustom: Bool = false, configurationOptions: [ExerciseConfigurationOption] = []) {
+    init(
+        id: UUID,
+        name: String,
+        description: String,
+        targetedMuscles: [MuscleGroup],
+        isCustom: Bool = false,
+        configurationOptions: [ExerciseConfigurationOption] = [],
+        exerciseRole: ExerciseRole = .accessory,
+        movementPattern: MovementPattern? = nil
+    ) {
         self.id = id
         self.name = name
         self.description = description
         self.targetedMuscles = targetedMuscles
         self.isCustom = isCustom
         self.configurationOptions = configurationOptions
+        self.exerciseRole = exerciseRole
+        self.movementPattern = movementPattern
+    }
+
+    /// Placeholder row before the user picks a real exercise for a template slot (unique `id` per row).
+    static func unfilledSlotPlaceholder(label: String) -> Exercise {
+        Exercise(
+            id: UUID(),
+            name: label.isEmpty ? "Choose exercise" : label,
+            description: "",
+            targetedMuscles: [],
+            isCustom: false,
+            configurationOptions: [],
+            exerciseRole: .accessory,
+            movementPattern: nil
+        )
     }
 
     init(from decoder: Decoder) throws {
@@ -102,6 +165,17 @@ struct Exercise: Identifiable, Codable, Equatable, Hashable {
         targetedMuscles = strings.map { MuscleGroup(rawValue: $0) ?? .other }
         isCustom = (try? c.decode(Bool.self, forKey: .isCustom)) ?? false
         configurationOptions = (try? c.decode([ExerciseConfigurationOption].self, forKey: .configurationOptions)) ?? []
+        if let raw = try? c.decode(String.self, forKey: .exerciseRole),
+           let role = ExerciseRole(rawValue: raw) {
+            exerciseRole = role
+        } else {
+            exerciseRole = .accessory
+        }
+        if let raw = try? c.decode(String.self, forKey: .movementPattern) {
+            movementPattern = MovementPattern(rawValue: raw)
+        } else {
+            movementPattern = nil
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -112,10 +186,14 @@ struct Exercise: Identifiable, Codable, Equatable, Hashable {
         try c.encode(targetedMuscles.map(\.rawValue), forKey: .targetedMuscles)
         try c.encode(isCustom, forKey: .isCustom)
         try c.encode(configurationOptions, forKey: .configurationOptions)
+        try c.encode(exerciseRole.rawValue, forKey: .exerciseRole)
+        if let movementPattern {
+            try c.encode(movementPattern.rawValue, forKey: .movementPattern)
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, description, targetedMuscles, isCustom, configurationOptions
+        case id, name, description, targetedMuscles, isCustom, configurationOptions, exerciseRole, movementPattern
     }
 }
 
@@ -130,6 +208,151 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
     /// Recommended configuration values per set index, aligned with `recommendedSets`.
     /// Each entry is fieldName -> value (e.g. ["Grip": "Narrow"]).
     var recommendedConfigBySet: [[String: String]] = []
+    /// True until the user picks a real library exercise for this template slot row.
+    var isSlotPlaceholder: Bool = false
+    /// `TemplateSlot.id` when this row was created from a slot blueprint.
+    var templateSlotId: UUID? = nil
+    /// Shown when `isSlotPlaceholder` (and in pickers); copy of template slot label.
+    var slotLabel: String = ""
+
+    init(
+        id: UUID,
+        exercise: Exercise,
+        defaultRestTime: Int = 90,
+        recommendedSets: Int = 3,
+        recommendedReps: String = "8-12",
+        configurationFields: [String] = [],
+        recommendedConfigBySet: [[String: String]] = [],
+        isSlotPlaceholder: Bool = false,
+        templateSlotId: UUID? = nil,
+        slotLabel: String = ""
+    ) {
+        self.id = id
+        self.exercise = exercise
+        self.defaultRestTime = defaultRestTime
+        self.recommendedSets = recommendedSets
+        self.recommendedReps = recommendedReps
+        self.configurationFields = configurationFields
+        self.recommendedConfigBySet = recommendedConfigBySet
+        self.isSlotPlaceholder = isSlotPlaceholder
+        self.templateSlotId = templateSlotId
+        self.slotLabel = slotLabel
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        exercise = try c.decode(Exercise.self, forKey: .exercise)
+        defaultRestTime = (try? c.decode(Int.self, forKey: .defaultRestTime)) ?? 90
+        recommendedSets = (try? c.decode(Int.self, forKey: .recommendedSets)) ?? 3
+        recommendedReps = (try? c.decode(String.self, forKey: .recommendedReps)) ?? "8-12"
+        configurationFields = (try? c.decode([String].self, forKey: .configurationFields)) ?? []
+        recommendedConfigBySet = (try? c.decode([[String: String]].self, forKey: .recommendedConfigBySet)) ?? []
+        isSlotPlaceholder = (try? c.decode(Bool.self, forKey: .isSlotPlaceholder)) ?? false
+        templateSlotId = try? c.decode(UUID.self, forKey: .templateSlotId)
+        slotLabel = (try? c.decode(String.self, forKey: .slotLabel)) ?? ""
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(exercise, forKey: .exercise)
+        try c.encode(defaultRestTime, forKey: .defaultRestTime)
+        try c.encode(recommendedSets, forKey: .recommendedSets)
+        try c.encode(recommendedReps, forKey: .recommendedReps)
+        try c.encode(configurationFields, forKey: .configurationFields)
+        try c.encode(recommendedConfigBySet, forKey: .recommendedConfigBySet)
+        if isSlotPlaceholder { try c.encode(isSlotPlaceholder, forKey: .isSlotPlaceholder) }
+        if let templateSlotId { try c.encode(templateSlotId, forKey: .templateSlotId) }
+        if !slotLabel.isEmpty { try c.encode(slotLabel, forKey: .slotLabel) }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, exercise, defaultRestTime, recommendedSets, recommendedReps, configurationFields, recommendedConfigBySet
+        case isSlotPlaceholder, templateSlotId, slotLabel
+    }
+}
+
+/// Slot blueprint stored separately from concrete [`Workout`](Workout) definitions (Option A).
+struct TemplateSlot: Identifiable, Codable, Equatable, Hashable {
+    let id: UUID
+    var label: String
+    var targetedMuscles: [MuscleGroup]
+    var exerciseRole: ExerciseRole?
+    var movementPattern: MovementPattern?
+    /// Suggested library exercise; user may pick another when resolving.
+    var defaultExerciseId: UUID?
+    var defaultRestTime: Int
+    var recommendedSets: Int
+    var recommendedReps: String
+
+    init(
+        id: UUID = UUID(),
+        label: String,
+        targetedMuscles: [MuscleGroup],
+        exerciseRole: ExerciseRole? = nil,
+        movementPattern: MovementPattern? = nil,
+        defaultExerciseId: UUID? = nil,
+        defaultRestTime: Int = 90,
+        recommendedSets: Int = 3,
+        recommendedReps: String = "8-12"
+    ) {
+        self.id = id
+        self.label = label
+        self.targetedMuscles = targetedMuscles
+        self.exerciseRole = exerciseRole
+        self.movementPattern = movementPattern
+        self.defaultExerciseId = defaultExerciseId
+        self.defaultRestTime = defaultRestTime
+        self.recommendedSets = recommendedSets
+        self.recommendedReps = recommendedReps
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        label = (try? c.decode(String.self, forKey: .label)) ?? ""
+        let muscleStrings = (try? c.decode([String].self, forKey: .targetedMuscles)) ?? []
+        targetedMuscles = muscleStrings.map { MuscleGroup(rawValue: $0) ?? .other }
+        if let raw = try? c.decode(String.self, forKey: .exerciseRole) {
+            exerciseRole = ExerciseRole(rawValue: raw)
+        } else {
+            exerciseRole = nil
+        }
+        if let raw = try? c.decode(String.self, forKey: .movementPattern) {
+            movementPattern = MovementPattern(rawValue: raw)
+        } else {
+            movementPattern = nil
+        }
+        defaultExerciseId = try? c.decode(UUID.self, forKey: .defaultExerciseId)
+        defaultRestTime = (try? c.decode(Int.self, forKey: .defaultRestTime)) ?? 90
+        recommendedSets = (try? c.decode(Int.self, forKey: .recommendedSets)) ?? 3
+        recommendedReps = (try? c.decode(String.self, forKey: .recommendedReps)) ?? "8-12"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(label, forKey: .label)
+        try c.encode(targetedMuscles.map(\.rawValue), forKey: .targetedMuscles)
+        if let exerciseRole { try c.encode(exerciseRole.rawValue, forKey: .exerciseRole) }
+        if let movementPattern { try c.encode(movementPattern.rawValue, forKey: .movementPattern) }
+        if let defaultExerciseId { try c.encode(defaultExerciseId, forKey: .defaultExerciseId) }
+        try c.encode(defaultRestTime, forKey: .defaultRestTime)
+        try c.encode(recommendedSets, forKey: .recommendedSets)
+        try c.encode(recommendedReps, forKey: .recommendedReps)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, label, targetedMuscles, exerciseRole, movementPattern, defaultExerciseId
+        case defaultRestTime, recommendedSets, recommendedReps
+    }
+}
+
+struct WorkoutTemplate: Identifiable, Codable, Equatable, Hashable {
+    let id: UUID
+    var name: String
+    var slots: [TemplateSlot]
 }
 
 struct Workout: Identifiable, Codable {
@@ -212,7 +435,57 @@ struct WorkoutSession: Identifiable, Codable {
     var activeExerciseIds: [UUID] = []
     /// IDs of exercises in this workout that the user has explicitly marked as completed.
     var completedExerciseIds: [UUID] = []
+    /// What the user started from (for History / Coach). Nil = legacy session before this field existed.
+    var sessionPlanOrigin: WorkoutPlanRef?
     var isCompleted: Bool { endTime != nil }
+
+    init(
+        id: UUID,
+        workout: Workout,
+        startTime: Date,
+        endTime: Date? = nil,
+        exerciseLogs: [ExerciseLog],
+        activeExerciseIds: [UUID] = [],
+        completedExerciseIds: [UUID] = [],
+        sessionPlanOrigin: WorkoutPlanRef? = nil
+    ) {
+        self.id = id
+        self.workout = workout
+        self.startTime = startTime
+        self.endTime = endTime
+        self.exerciseLogs = exerciseLogs
+        self.activeExerciseIds = activeExerciseIds
+        self.completedExerciseIds = completedExerciseIds
+        self.sessionPlanOrigin = sessionPlanOrigin
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        workout = try c.decode(Workout.self, forKey: .workout)
+        startTime = try c.decode(Date.self, forKey: .startTime)
+        endTime = try? c.decode(Date.self, forKey: .endTime)
+        exerciseLogs = (try? c.decode([ExerciseLog].self, forKey: .exerciseLogs)) ?? []
+        activeExerciseIds = (try? c.decode([UUID].self, forKey: .activeExerciseIds)) ?? []
+        completedExerciseIds = (try? c.decode([UUID].self, forKey: .completedExerciseIds)) ?? []
+        sessionPlanOrigin = try? c.decode(WorkoutPlanRef.self, forKey: .sessionPlanOrigin)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(workout, forKey: .workout)
+        try c.encode(startTime, forKey: .startTime)
+        if let endTime { try c.encode(endTime, forKey: .endTime) }
+        try c.encode(exerciseLogs, forKey: .exerciseLogs)
+        if !activeExerciseIds.isEmpty { try c.encode(activeExerciseIds, forKey: .activeExerciseIds) }
+        if !completedExerciseIds.isEmpty { try c.encode(completedExerciseIds, forKey: .completedExerciseIds) }
+        if let sessionPlanOrigin { try c.encode(sessionPlanOrigin, forKey: .sessionPlanOrigin) }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, workout, startTime, endTime, exerciseLogs, activeExerciseIds, completedExerciseIds, sessionPlanOrigin
+    }
 }
 
 extension LoggedSet {

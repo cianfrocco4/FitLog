@@ -58,6 +58,7 @@ struct AISplitBuilderView: View {
     @State private var primaryGoal: PrimaryTrainingGoal = .general
     @State private var equipment: EquipmentAccess = .fullGym
     @State private var splitPreference: SplitStylePreference = .noPreference
+    @State private var definitionPreference: WorkoutSplitDefinitionPreference = .concreteLists
     @State private var experience: ExperiencePick = .intermediate
     @State private var limitationsNotes = ""
     @State private var additionalNotes = ""
@@ -116,6 +117,11 @@ struct AISplitBuilderView: View {
                         Text(s.rawValue).tag(s)
                     }
                 }
+                Picker("Day definition", selection: $definitionPreference) {
+                    ForEach(WorkoutSplitDefinitionPreference.allCases) { p in
+                        Text(p.rawValue).tag(p)
+                    }
+                }
                 Picker("Experience level", selection: $experience) {
                     ForEach(ExperiencePick.allCases) { level in
                         Text(level.rawValue).tag(level)
@@ -124,7 +130,7 @@ struct AISplitBuilderView: View {
             } header: {
                 Text("Your training")
             } footer: {
-                Text("These answers are sent to the coach to shape your split and exercise choices.")
+                Text("Day definition controls whether the AI outputs fixed exercise lists, open slots (muscle + optional exercise hint), or a mix. These answers are sent to the coach to shape your split.")
             }
 
             Section {
@@ -213,7 +219,7 @@ struct AISplitBuilderView: View {
 
             if !resolution.unresolvedExerciseNames.isEmpty {
                 Section {
-                    Text("These exercises were not found in your library and will be skipped when applying: \(resolution.unresolvedExerciseNames.sorted().joined(separator: ", "))")
+                    Text("These names were not found in your library and will be skipped when applying: \(resolution.unresolvedExerciseNames.sorted().joined(separator: ", "))")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 } header: {
@@ -228,23 +234,64 @@ struct AISplitBuilderView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(Array(day.exercises.enumerated()), id: \.offset) { _, ex in
-                        let matched = dataVM.globalExercises.contains { $0.name.caseInsensitiveCompare(ex.name) == .orderedSame }
-                        HStack(alignment: .top) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(ex.name)
-                                    .font(.body)
-                                Text("\(ex.sets)×\(ex.reps)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                    if day.isSlotTemplateDay {
+                        Label("Slot template", systemImage: "square.grid.3x3.square")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        ForEach(Array(day.slots.enumerated()), id: \.offset) { _, slot in
+                            let musclesOk = slot.targetMuscleNames.allSatisfy { MuscleGroup(rawValue: $0) != nil }
+                            let exOk: Bool = {
+                                guard let suggested = slot.suggestedExerciseName else { return true }
+                                return dataVM.globalExercises.contains { $0.name.caseInsensitiveCompare(suggested) == .orderedSame }
+                            }()
+                            HStack(alignment: .top) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(slot.label)
+                                        .font(.body)
+                                    Text(slot.targetMuscleNames.joined(separator: ", "))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Text("\(slot.sets)×\(slot.reps)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                    if let s = slot.suggestedExerciseName {
+                                        Text("Suggested: \(s)")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer()
+                                if musclesOk && exOk {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.green)
+                                } else {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.orange)
+                                }
                             }
-                            Spacer()
-                            if matched {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                            } else {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.orange)
+                        }
+                    } else {
+                        Label("Concrete workout", systemImage: "list.bullet")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        ForEach(Array(day.exercises.enumerated()), id: \.offset) { _, ex in
+                            let matched = dataVM.globalExercises.contains { $0.name.caseInsensitiveCompare(ex.name) == .orderedSame }
+                            HStack(alignment: .top) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(ex.name)
+                                        .font(.body)
+                                    Text("\(ex.sets)×\(ex.reps)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if matched {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.green)
+                                } else {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.orange)
+                                }
                             }
                         }
                     }
@@ -347,7 +394,7 @@ struct AISplitBuilderView: View {
         aiService.wakeProxyHostIfNeeded()
 
         let allowed = dataVM.globalExercises.map(\.name).sorted()
-        let existingTemplates = dataVM.userWorkouts.map(\.name)
+        let existingTemplates = dataVM.userWorkouts.map(\.name) + dataVM.userWorkoutTemplates.map(\.name)
         let prefs = Array(selectedWeekdays).sorted()
 
         do {
@@ -357,7 +404,8 @@ struct AISplitBuilderView: View {
                 preferredWeekdays: prefs,
                 experienceLevel: experience.rawValue,
                 allowedExerciseNames: allowed,
-                existingWorkoutTemplateNames: existingTemplates
+                existingWorkoutTemplateNames: existingTemplates,
+                definitionPreference: definitionPreference
             )
             proposal = result
         } catch {
@@ -377,6 +425,17 @@ struct AISplitBuilderView: View {
                     unresolved.insert(ex.name)
                 }
             }
+            if day.isSlotTemplateDay {
+                for slot in day.slots {
+                    for m in slot.targetMuscleNames where MuscleGroup(rawValue: m) == nil {
+                        unresolved.insert(m)
+                    }
+                    if let s = slot.suggestedExerciseName,
+                       !dataVM.globalExercises.contains(where: { $0.name.caseInsensitiveCompare(s) == .orderedSame }) {
+                        unresolved.insert(s)
+                    }
+                }
+            }
         }
         return ProposalResolution(unresolvedExerciseNames: unresolved)
     }
@@ -386,20 +445,8 @@ struct AISplitBuilderView: View {
         isApplying = true
         defer { isApplying = false }
 
-        let workoutsPayload: [(templateName: String, exercises: [(exercise: Exercise, sets: Int, reps: String)])] = p.workouts.map { day in
-            let exercises: [(exercise: Exercise, sets: Int, reps: String)] = day.exercises.compactMap { item in
-                guard let ex = dataVM.globalExercises.first(where: { $0.name.caseInsensitiveCompare(item.name) == .orderedSame }) else {
-                    return nil
-                }
-                return (exercise: ex, sets: item.sets, reps: item.reps)
-            }
-            return (templateName: day.name, exercises: exercises)
-        }
-
-        dataVM.applySplitBuilderTemplates(
-            workouts: workoutsPayload,
-            sessionsPerWeek: p.sessionsPerWeek,
-            preferredWeekdays: p.preferredWeekdays,
+        dataVM.applyWorkoutSplitProposal(
+            p,
             updateTrainingProgram: updateTrainingProgram,
             anchorDate: Date()
         )

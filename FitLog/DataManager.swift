@@ -10,6 +10,8 @@ import Foundation
 
 final class DataManager: ObservableObject {
     @Published var userWorkouts: [Workout] = []
+    /// Slot blueprints (Option A); separate from concrete `userWorkouts`.
+    @Published var userWorkoutTemplates: [WorkoutTemplate] = []
     @Published var globalExercises: [Exercise] = []
     /// Per-exercise display name overrides (by exercise id). Does not change canonical `Exercise.name`.
     @Published private(set) var exerciseLocalDisplayNames: [UUID: String] = [:]
@@ -19,6 +21,8 @@ final class DataManager: ObservableObject {
     private let workoutsKey = "userWorkouts"
     /// One-time backup of the raw workouts payload, used for recovery if a future schema change breaks decoding.
     private let workoutsBackupKey = "userWorkouts_backup_v1"
+    private let workoutTemplatesKey = "userWorkoutTemplates_v1"
+    private let workoutTemplatesBackupKey = "userWorkoutTemplates_backup_v1"
     private let exercisesKey = "globalExercises"
     private let exerciseLocalDisplayNamesKey = "exerciseLocalDisplayNames"
     private let sessionsKey = "completedSessions"
@@ -34,6 +38,7 @@ final class DataManager: ObservableObject {
 
     func loadAll() {
         loadWorkouts()
+        loadWorkoutTemplates()
         loadExercises()
         loadExerciseLocalDisplayNames()
         loadSessions()
@@ -59,10 +64,11 @@ final class DataManager: ObservableObject {
     func uniqueWorkoutTemplateName(_ base: String) -> String {
         let trimmed = base.trimmingCharacters(in: .whitespacesAndNewlines)
         let root = trimmed.isEmpty ? "Workout" : trimmed
-        let existing = Set(userWorkouts.map(\.name))
-        if !existing.contains(root) { return root }
+        let existingW = Set(userWorkouts.map(\.name))
+        let existingT = Set(userWorkoutTemplates.map(\.name))
+        if !existingW.contains(root), !existingT.contains(root) { return root }
         var n = 2
-        while existing.contains("\(root) (\(n))") {
+        while existingW.contains("\(root) (\(n))") || existingT.contains("\(root) (\(n))") {
             n += 1
         }
         return "\(root) (\(n))"
@@ -98,7 +104,7 @@ final class DataManager: ObservableObject {
         }
         if updateTrainingProgram, !newIds.isEmpty {
             applyTrainingProgramSuggestion(
-                cycleWorkoutIds: newIds,
+                cycleEntries: newIds.map { ProgramCycleEntry(kind: .concreteWorkout, id: $0) },
                 sessionsPerWeek: sessionsPerWeek,
                 preferredWeekdays: preferredWeekdays,
                 anchorDate: anchorDate
@@ -175,7 +181,224 @@ final class DataManager: ObservableObject {
             #endif
         }
     }
-    
+
+    // MARK: - Slot workout templates (blueprints)
+
+    private func loadWorkoutTemplates() {
+        guard let data = UserDefaults.standard.data(forKey: workoutTemplatesKey) else { return }
+        do {
+            let decoded = try JSONDecoder().decode([WorkoutTemplate].self, from: data)
+            userWorkoutTemplates = decoded
+        } catch {
+            #if DEBUG
+            print("❌ Decoding workout templates failed: \(error.localizedDescription)")
+            #endif
+            if let backupData = UserDefaults.standard.data(forKey: workoutTemplatesBackupKey) {
+                do {
+                    let recovered = try JSONDecoder().decode([WorkoutTemplate].self, from: backupData)
+                    userWorkoutTemplates = recovered
+                    saveWorkoutTemplates()
+                } catch {
+                    #if DEBUG
+                    print("❌ Failed to recover workout templates from backup")
+                    #endif
+                }
+            }
+        }
+    }
+
+    func saveWorkoutTemplates() {
+        do {
+            let data = try JSONEncoder().encode(userWorkoutTemplates)
+            UserDefaults.standard.set(data, forKey: workoutTemplatesKey)
+            if UserDefaults.standard.data(forKey: workoutTemplatesBackupKey) == nil {
+                UserDefaults.standard.set(data, forKey: workoutTemplatesBackupKey)
+            }
+        } catch {
+            #if DEBUG
+            print("❌ Encoding workout templates failed: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
+    /// Empty slot template; edit slots in a dedicated UI later.
+    @discardableResult
+    func createSlotTemplate(name: String) -> UUID {
+        createSlotTemplate(name: name, slots: [])
+    }
+
+    /// Slot template with initial slots (e.g. from AI split builder).
+    @discardableResult
+    func createSlotTemplate(name: String, slots: [TemplateSlot]) -> UUID {
+        let trimmed = uniqueSlotTemplateName(name.trimmingCharacters(in: .whitespacesAndNewlines))
+        let t = WorkoutTemplate(id: UUID(), name: trimmed, slots: slots)
+        userWorkoutTemplates.append(t)
+        saveWorkoutTemplates()
+        objectWillChange.send()
+        return t.id
+    }
+
+    /// Builds concrete workouts and/or slot templates from an AI proposal and optionally updates the training program cycle.
+    func applyWorkoutSplitProposal(
+        _ proposal: WorkoutSplitProposal,
+        updateTrainingProgram: Bool,
+        anchorDate: Date = Date()
+    ) {
+        var entries: [ProgramCycleEntry] = []
+        for day in proposal.workouts {
+            if day.isSlotTemplateDay {
+                let templateSlots: [TemplateSlot] = day.slots.map { s in
+                    let muscles = s.targetMuscleNames.compactMap { MuscleGroup(rawValue: $0) }
+                    let muscleFinal = muscles.isEmpty ? [MuscleGroup.other] : muscles
+                    let defId: UUID? = s.suggestedExerciseName.flatMap { name in
+                        globalExercises.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.id
+                    }
+                    let repsRaw = s.reps.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let repsFinal = repsRaw.isEmpty ? "8-12" : repsRaw
+                    return TemplateSlot(
+                        label: s.label,
+                        targetedMuscles: muscleFinal,
+                        defaultExerciseId: defId,
+                        recommendedSets: min(max(1, s.sets), 10),
+                        recommendedReps: repsFinal
+                    )
+                }
+                guard !templateSlots.isEmpty else { continue }
+                let id = createSlotTemplate(name: day.name, slots: templateSlots)
+                entries.append(ProgramCycleEntry(kind: .slotTemplate, id: id))
+            } else {
+                guard !day.exercises.isEmpty else { continue }
+                let name = uniqueWorkoutTemplateName(day.name)
+                let id = createWorkout(name: name)
+                entries.append(ProgramCycleEntry(kind: .concreteWorkout, id: id))
+                for exItem in day.exercises {
+                    guard let fresh = userWorkouts.first(where: { $0.id == id }) else { break }
+                    let sets = min(max(1, exItem.sets), 10)
+                    let reps = exItem.reps.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let repsFinal = reps.isEmpty ? "8-12" : reps
+                    guard let ex = globalExercises.first(where: { $0.name.caseInsensitiveCompare(exItem.name) == .orderedSame }) else { continue }
+                    _ = addExercise(
+                        to: fresh,
+                        exercise: ex,
+                        recommendedSets: sets,
+                        recommendedReps: repsFinal,
+                        configurationFields: [],
+                        recommendedConfigBySet: Array(repeating: [:], count: sets)
+                    )
+                }
+            }
+        }
+        if updateTrainingProgram, !entries.isEmpty {
+            applyTrainingProgramSuggestion(
+                cycleEntries: entries,
+                sessionsPerWeek: proposal.sessionsPerWeek,
+                preferredWeekdays: proposal.preferredWeekdays,
+                anchorDate: anchorDate
+            )
+        }
+    }
+
+    func uniqueSlotTemplateName(_ base: String) -> String {
+        let root = base.isEmpty ? "Template" : base
+        let existingW = Set(userWorkouts.map(\.name))
+        let existingT = Set(userWorkoutTemplates.map(\.name))
+        if !existingW.contains(root), !existingT.contains(root) { return root }
+        var n = 2
+        while existingW.contains("\(root) (\(n))") || existingT.contains("\(root) (\(n))") {
+            n += 1
+        }
+        return "\(root) (\(n))"
+    }
+
+    func deleteSlotTemplate(_ template: WorkoutTemplate) {
+        userWorkoutTemplates.removeAll { $0.id == template.id }
+        var p = trainingProgram
+        p.cycleEntries.removeAll { $0.kind == .slotTemplate && $0.id == template.id }
+        trainingProgram = p
+        saveWorkoutTemplates()
+        saveTrainingProgram()
+    }
+
+    func renameSlotTemplate(_ template: WorkoutTemplate, newName: String) {
+        guard let idx = userWorkoutTemplates.firstIndex(where: { $0.id == template.id }) else { return }
+        var t = userWorkoutTemplates[idx]
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            t.name = trimmed
+        }
+        userWorkoutTemplates[idx] = t
+        saveWorkoutTemplates()
+    }
+
+    func updateSlotTemplate(_ template: WorkoutTemplate) {
+        guard let idx = userWorkoutTemplates.firstIndex(where: { $0.id == template.id }) else { return }
+        userWorkoutTemplates[idx] = template
+        saveWorkoutTemplates()
+    }
+
+    func slotTemplate(id: UUID) -> WorkoutTemplate? {
+        userWorkoutTemplates.first { $0.id == id }
+    }
+
+    /// Build a concrete session `Workout` from a blueprint (placeholders until the user resolves slots).
+    func instantiateWorkout(from template: WorkoutTemplate) -> Workout {
+        var exercises: [WorkoutExercise] = []
+        for slot in template.slots {
+            let weId = UUID()
+            let resolvedFromDefault: Exercise? = {
+                guard let defId = slot.defaultExerciseId else { return nil }
+                return globalExercises.first { $0.id == defId }
+            }()
+            if let ex = resolvedFromDefault {
+                exercises.append(
+                    WorkoutExercise(
+                        id: weId,
+                        exercise: ex,
+                        defaultRestTime: slot.defaultRestTime,
+                        recommendedSets: slot.recommendedSets,
+                        recommendedReps: slot.recommendedReps,
+                        isSlotPlaceholder: false,
+                        templateSlotId: slot.id,
+                        slotLabel: slot.label
+                    )
+                )
+            } else {
+                let placeholder = Exercise.unfilledSlotPlaceholder(label: slot.label)
+                exercises.append(
+                    WorkoutExercise(
+                        id: weId,
+                        exercise: placeholder,
+                        defaultRestTime: slot.defaultRestTime,
+                        recommendedSets: slot.recommendedSets,
+                        recommendedReps: slot.recommendedReps,
+                        isSlotPlaceholder: true,
+                        templateSlotId: slot.id,
+                        slotLabel: slot.label
+                    )
+                )
+            }
+        }
+        return Workout(id: UUID(), name: template.name, exercises: exercises)
+    }
+
+    func cycleEntryDisplayLabel(_ entry: ProgramCycleEntry) -> String {
+        switch entry.kind {
+        case .concreteWorkout:
+            return workoutDisplayName(forWorkoutId: entry.id)
+        case .slotTemplate:
+            return userWorkoutTemplates.first(where: { $0.id == entry.id })?.name ?? "Missing template"
+        }
+    }
+
+    func planLabel(for ref: WorkoutPlanRef) -> String {
+        switch ref {
+        case .concreteWorkout(let id):
+            return workoutDisplayName(forWorkoutId: id)
+        case .slotTemplate(let id):
+            return userWorkoutTemplates.first(where: { $0.id == id })?.name ?? "Missing template"
+        }
+    }
+
     // MARK: - Global Exercises (now 60+ default)
     @discardableResult
     func addNewExercise(name: String, description: String, muscles: [MuscleGroup]) -> Exercise {
@@ -478,7 +701,7 @@ final class DataManager: ObservableObject {
             return (date: start, weekday: wd, hasWorkout: hasCompletedSessionEnding(on: start, calendar: calendar))
         }
         let completed = completedSessionCount(inWeekContaining: referenceDate, calendar: calendar)
-        let goal: Int? = trainingProgram.cycleWorkoutIds.isEmpty
+        let goal: Int? = trainingProgram.cycleEntries.isEmpty
             ? nil
             : min(max(1, trainingProgram.sessionsPerWeek), 7)
         return WeekAtAGlance(isoWeekKey: weekKey, days: days, completedCount: completed, weeklyGoal: goal)
@@ -579,8 +802,22 @@ final class DataManager: ObservableObject {
         preferredWeekdays: [Int],
         anchorDate: Date = Date()
     ) {
+        applyTrainingProgramSuggestion(
+            cycleEntries: cycleWorkoutIds.map { ProgramCycleEntry(kind: .concreteWorkout, id: $0) },
+            sessionsPerWeek: sessionsPerWeek,
+            preferredWeekdays: preferredWeekdays,
+            anchorDate: anchorDate
+        )
+    }
+
+    func applyTrainingProgramSuggestion(
+        cycleEntries: [ProgramCycleEntry],
+        sessionsPerWeek: Int,
+        preferredWeekdays: [Int],
+        anchorDate: Date = Date()
+    ) {
         var p = trainingProgram
-        p.cycleWorkoutIds = cycleWorkoutIds
+        p.cycleEntries = cycleEntries
         p.sessionsPerWeek = min(max(1, sessionsPerWeek), 7)
         p.preferredWeekdays = preferredWeekdays
         p.anchorDayKey = TrainingProgramState.dayKey(for: anchorDate)
@@ -589,8 +826,12 @@ final class DataManager: ObservableObject {
     }
 
     func setTrainingCycleWorkoutIds(_ ids: [UUID]) {
+        setTrainingCycleEntries(ids.map { ProgramCycleEntry(kind: .concreteWorkout, id: $0) })
+    }
+
+    func setTrainingCycleEntries(_ entries: [ProgramCycleEntry]) {
         var p = trainingProgram
-        p.cycleWorkoutIds = ids
+        p.cycleEntries = entries
         trainingProgram = p
         saveTrainingProgram()
     }

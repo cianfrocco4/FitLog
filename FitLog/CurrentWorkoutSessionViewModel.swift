@@ -55,11 +55,18 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         restoreActiveSessionIfNeeded()
     }
     
-    func startWorkout(_ workout: Workout) {
+    func startWorkout(_ workout: Workout, sessionPlanOrigin: WorkoutPlanRef? = nil) {
         let logs = workout.exercises.map { ex in
             ExerciseLog(id: UUID(), workoutExercise: ex, loggedSets: [])
         }
-        var session = WorkoutSession(id: UUID(), workout: workout, startTime: Date(), endTime: nil, exerciseLogs: logs)
+        var session = WorkoutSession(
+            id: UUID(),
+            workout: workout,
+            startTime: Date(),
+            endTime: nil,
+            exerciseLogs: logs,
+            sessionPlanOrigin: sessionPlanOrigin
+        )
         if let firstId = workout.exercises.first?.exercise.id {
             session.activeExerciseIds = [firstId]
         }
@@ -221,9 +228,25 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
 
         currentSession = session
     }
+
+    /// Replace a template slot placeholder with a real exercise while preserving `WorkoutExercise.id` (stable for logs).
+    func resolveSlotPlaceholder(workoutExerciseId: UUID, exercise: Exercise) {
+        guard var session = currentSession else { return }
+        if let wi = session.workout.exercises.firstIndex(where: { $0.id == workoutExerciseId }) {
+            session.workout.exercises[wi].exercise = exercise
+            session.workout.exercises[wi].isSlotPlaceholder = false
+        }
+        if let li = session.exerciseLogs.firstIndex(where: { $0.workoutExercise.id == workoutExerciseId }) {
+            session.exerciseLogs[li].workoutExercise.exercise = exercise
+            session.exerciseLogs[li].workoutExercise.isSlotPlaceholder = false
+        }
+        currentSession = session
+        saveActiveSession()
+    }
     
     func logSet(exerciseIndex: Int, weight: Double, reps: Int, restTime: Int, isWarmup: Bool = false, configuration: [String: String] = [:], dropSegments: [DropSetSegment] = []) {
         guard var session = currentSession, exerciseIndex < session.exerciseLogs.count else { return }
+        guard !session.exerciseLogs[exerciseIndex].workoutExercise.isSlotPlaceholder else { return }
 
         let set = LoggedSet(id: UUID(), weight: weight, reps: reps, restTime: restTime, timestamp: Date(), isWarmup: isWarmup, configuration: configuration, dropSegments: dropSegments)
         session.exerciseLogs[exerciseIndex].loggedSets.append(set)

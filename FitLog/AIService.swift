@@ -26,16 +26,39 @@ struct NewExerciseAIReview: Equatable {
 
 // MARK: - Workout split builder (JSON proposal)
 
+/// How the AI should define each day in the split (concrete exercise lists vs slot templates vs both).
+enum WorkoutSplitDefinitionPreference: String, CaseIterable, Identifiable {
+    case concreteLists = "Concrete exercise lists"
+    case slotTemplates = "Slot templates (fill exercises later)"
+    case mixOfBoth = "Mix — some days concrete, some slot-based"
+    case noPreference = "No preference — you decide per day"
+
+    var id: String { rawValue }
+}
+
 struct WorkoutSplitProposalExerciseItem: Equatable {
     let name: String
     let sets: Int
     let reps: String
 }
 
+struct WorkoutSplitProposalSlotItem: Equatable {
+    let label: String
+    let targetMuscleNames: [String]
+    let sets: Int
+    let reps: String
+    /// Must match an allowed library name when present.
+    let suggestedExerciseName: String?
+}
+
 struct WorkoutSplitProposalDay: Equatable {
     let name: String
     let focus: String?
     let exercises: [WorkoutSplitProposalExerciseItem]
+    let slots: [WorkoutSplitProposalSlotItem]
+
+    /// Slot-based day when `slots` is non-empty (exercises, if any, are ignored for apply).
+    var isSlotTemplateDay: Bool { !slots.isEmpty }
 }
 
 struct WorkoutSplitProposal: Equatable {
@@ -178,7 +201,8 @@ final class AIService: ObservableObject {
         preferredWeekdays: [Int],
         experienceLevel: String?,
         allowedExerciseNames: [String],
-        existingWorkoutTemplateNames: [String]
+        existingWorkoutTemplateNames: [String],
+        definitionPreference: WorkoutSplitDefinitionPreference = .concreteLists
     ) async throws -> WorkoutSplitProposal {
         if !isConfigured {
             throw AIServiceError.notConfigured
@@ -199,25 +223,55 @@ final class AIService: ObservableObject {
         let namesJSON = String(data: namesData, encoding: .utf8) ?? "[]"
         let templatesData = try JSONEncoder().encode(existingWorkoutTemplateNames)
         let templatesJSON = String(data: templatesData, encoding: .utf8) ?? "[]"
+        let muscleNames = MuscleGroup.allCases.map(\.rawValue).sorted()
+        let musclesData = try JSONEncoder().encode(muscleNames)
+        let musclesJSON = String(data: musclesData, encoding: .utf8) ?? "[]"
         let expLine = (experienceLevel?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? "not specified"
 
-        let system = """
-        You design strength-training workout splits for the FitLog iOS app. Reply with ONLY a compact JSON object, no markdown or prose.
+        let definitionLine = "Workout definition mode: \(definitionPreference.rawValue)."
 
-        Required keys (camelCase): rationale (string), sessionsPerWeek (integer), preferredWeekdays (array of integers), workouts (array).
+        let system: String = {
+            let baseIntro = """
+            You design strength-training workout splits for the FitLog iOS app. Reply with ONLY a compact JSON object, no markdown or prose.
 
-        Rules:
-        - rationale: 1–3 short sentences on why this split fits the user.
-        - sessionsPerWeek: integer from 1 to \(maxSessions) inclusive (must not exceed \(maxSessions)).
-        - preferredWeekdays: subset of the user's allowed weekday numbers (see user message). Use [] only if the user selected no specific days — then the app will use its default pool.
-        - workouts: ordered cycle for the split. At least 1 and at most 6 objects. Each object: name (string), focus (string or empty), exercises (array).
-        - Each exercises entry: name (string), sets (integer 1–10), reps (string, e.g. "5", "8-12", "AMRAP").
-        - Every exercises[].name MUST be exactly one string from the allowed exercise names JSON array (identical spelling and casing as in that array). No extra exercises, no synonyms, no invented names.
-        - Each workout: at least 3 exercises, at most 12 exercises when possible for a real session.
-        - Use distinct workout template names; avoid duplicating names in the existing workout templates list unless intentionally reusing a concept (prefer new clear names like "Upper A", "Pull").
+            Required keys (camelCase): rationale (string), sessionsPerWeek (integer), preferredWeekdays (array of integers), workouts (array).
 
-        Training safety: this is not medical advice. Favor balanced programming and avoid reckless volume.
-        """
+            Shared rules:
+            - rationale: 1–3 short sentences on why this split fits the user.
+            - sessionsPerWeek: integer from 1 to \(maxSessions) inclusive (must not exceed \(maxSessions)).
+            - preferredWeekdays: subset of the user's allowed weekday numbers (see user message). Use [] only if the user selected no specific days — then the app will use its default pool.
+            - workouts: ordered cycle for the split. At least 1 and at most 6 objects. Each object: name (string), focus (string or empty).
+            - Use distinct workout day names; avoid duplicating names in the existing workout templates list unless intentional (prefer clear names like "Upper A", "Pull").
+
+            Training safety: this is not medical advice. Favor balanced programming and avoid reckless volume.
+            """
+            switch definitionPreference {
+            case .concreteLists:
+                return baseIntro + """
+
+                Concrete list mode — each workout must include an exercises array (not slots).
+                - Each exercises entry: name (string), sets (integer 1–10), reps (string, e.g. "5", "8-12", "AMRAP").
+                - Every exercises[].name MUST be exactly one string from the allowed exercise names JSON array (identical spelling and casing). No synonyms or invented names.
+                - Each workout: at least 3 exercises, at most 12 when reasonable.
+                """
+            case .slotTemplates:
+                return baseIntro + """
+
+                Slot template mode — each workout must include a slots array (omit exercises or use empty array).
+                - Each slots entry: label (short string, e.g. "Horizontal push"), targetMuscleNames (array of strings), sets (integer 1–10), reps (string), optional suggestedExerciseName (string).
+                - Every targetMuscleNames[] value MUST be exactly one string from the allowed muscle names JSON array (identical spelling as in that array). Use 1–3 muscles per slot when helpful.
+                - If suggestedExerciseName is present, it MUST be exactly one string from the allowed exercise names JSON array; omit the key if unsure.
+                - Each workout: at least 3 slots, at most 12 slots when reasonable.
+                """
+            case .mixOfBoth, .noPreference:
+                return baseIntro + """
+
+                Mixed mode — each workout has EITHER a non-empty exercises array OR a non-empty slots array (not both; one must be empty or omitted).
+                - For exercises days: same rules as concrete list mode (names from allowed exercise names JSON only; 3–12 exercises).
+                - For slots days: same rules as slot template mode (targetMuscleNames from allowed muscle names JSON; optional suggestedExerciseName from exercise names JSON; 3–12 slots).
+                """
+            }
+        }()
 
         let userPrompt = """
         User goals, equipment, and constraints (may be brief):
@@ -226,9 +280,13 @@ final class AIService: ObservableObject {
         Experience: \(expLine)
         Target sessions per week (maximum \(maxSessions)): \(maxSessions)
         \(daysNote)
+        \(definitionLine)
 
-        Allowed exercise names (JSON array — use ONLY these strings for exercises[].name):
+        Allowed exercise names (JSON array — concrete exercises[].name and optional slots[].suggestedExerciseName must use ONLY these strings when used):
         \(namesJSON)
+
+        Allowed muscle display names for slots[].targetMuscleNames (JSON array — use ONLY these exact strings):
+        \(musclesJSON)
 
         Existing workout template names for reference (JSON array):
         \(templatesJSON)
@@ -238,7 +296,8 @@ final class AIService: ObservableObject {
         return try parseWorkoutSplitProposal(
             jsonString: content,
             maxSessions: maxSessions,
-            userPreferredWeekdays: daysSorted
+            userPreferredWeekdays: daysSorted,
+            definitionPreference: definitionPreference
         )
     }
 
@@ -252,7 +311,8 @@ final class AIService: ObservableObject {
     private func parseWorkoutSplitProposal(
         jsonString: String,
         maxSessions: Int,
-        userPreferredWeekdays: [Int]
+        userPreferredWeekdays: [Int],
+        definitionPreference: WorkoutSplitDefinitionPreference
     ) throws -> WorkoutSplitProposal {
         let trimmed = jsonString.trimmingCharacters(in: .whitespacesAndNewlines)
         let slice: String = {
@@ -290,6 +350,27 @@ final class AIService: ObservableObject {
             let name = w.name.trimmingCharacters(in: .whitespacesAndNewlines)
             if name.isEmpty { continue }
             let focus = (w.focus?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
+
+            var slotItems: [WorkoutSplitProposalSlotItem] = []
+            for sl in (w.slots ?? []).prefix(12) {
+                let label = (sl.label ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if label.isEmpty { continue }
+                let muscles = (sl.targetMuscleNames ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                let sets = min(max(1, sl.sets ?? 3), 10)
+                let repsRaw = (sl.reps ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let reps = repsRaw.isEmpty ? "8-12" : repsRaw
+                let suggested = (sl.suggestedExerciseName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                slotItems.append(
+                    WorkoutSplitProposalSlotItem(
+                        label: label,
+                        targetMuscleNames: muscles,
+                        sets: sets,
+                        reps: reps,
+                        suggestedExerciseName: suggested.isEmpty ? nil : suggested
+                    )
+                )
+            }
+
             var items: [WorkoutSplitProposalExerciseItem] = []
             for ex in (w.exercises ?? []).prefix(12) {
                 let exName = ex.name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -299,7 +380,22 @@ final class AIService: ObservableObject {
                 let reps = repsRaw.isEmpty ? "8-12" : repsRaw
                 items.append(WorkoutSplitProposalExerciseItem(name: exName, sets: sets, reps: reps))
             }
-            days.append(WorkoutSplitProposalDay(name: name, focus: focus, exercises: items))
+
+            let useSlots: Bool = {
+                if !slotItems.isEmpty, items.isEmpty { return true }
+                if !items.isEmpty, slotItems.isEmpty { return false }
+                if definitionPreference == .slotTemplates { return !slotItems.isEmpty }
+                if definitionPreference == .concreteLists { return false }
+                // mix / noPreference: if both present, prefer slots when slot count >= exercise count
+                if !slotItems.isEmpty, !items.isEmpty { return slotItems.count >= items.count }
+                return !slotItems.isEmpty
+            }()
+
+            if useSlots {
+                days.append(WorkoutSplitProposalDay(name: name, focus: focus, exercises: [], slots: slotItems))
+            } else {
+                days.append(WorkoutSplitProposalDay(name: name, focus: focus, exercises: items, slots: []))
+            }
         }
 
         if days.isEmpty {
@@ -512,6 +608,15 @@ private struct SplitProposalWorkoutJSON: Decodable {
     let name: String
     let focus: String?
     let exercises: [SplitProposalExerciseJSON]?
+    let slots: [SplitProposalSlotJSON]?
+}
+
+private struct SplitProposalSlotJSON: Decodable {
+    let label: String?
+    let targetMuscleNames: [String]?
+    let sets: Int?
+    let reps: String?
+    let suggestedExerciseName: String?
 }
 
 private struct SplitProposalExerciseJSON: Decodable {
