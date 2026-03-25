@@ -89,15 +89,9 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         if let dm = dataManager {
             dm.appendCompletedSession(session)
         } else {
-            var allSessions: [WorkoutSession] = []
-            if let existing = UserDefaults.standard.data(forKey: "completedSessions"),
-               let decoded = try? JSONDecoder().decode([WorkoutSession].self, from: existing) {
-                allSessions = decoded
-            }
-            allSessions.append(session)
-            if let encoded = try? JSONEncoder().encode(allSessions) {
-                UserDefaults.standard.set(encoded, forKey: "completedSessions")
-            }
+            #if DEBUG
+            print("[CurrentWorkoutSessionVM] Warning: dataManager is nil, session not persisted")
+            #endif
         }
 
         workoutTimer?.invalidate()

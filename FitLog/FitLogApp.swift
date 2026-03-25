@@ -6,15 +6,42 @@
 //
 
 import SwiftUI
+import SwiftData
 import UserNotifications
 
 @main
 struct FitLogApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var authVM = AuthViewModel()
-    @StateObject private var dataVM = DataManager()
     @StateObject private var currentVM = CurrentWorkoutSessionViewModel()
     @StateObject private var aiService = AIService(apiKey: OpenAIConfig.apiKey, baseURL: OpenAIConfig.aiBaseURL, model: OpenAIConfig.aiModel)
+
+    let modelContainer: ModelContainer
+    @StateObject private var dataVM: DataManager
+
+    init() {
+        let container: ModelContainer
+        do {
+            let appSupport = URL.applicationSupportDirectory
+            try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+            let storeURL = appSupport.appending(path: "FitLogData.store")
+            let config = ModelConfiguration(url: storeURL)
+            container = try ModelContainer(
+                for: SDExercise.self, SDWorkout.self, SDWorkoutTemplate.self,
+                     SDWorkoutSession.self, SDTrainingProgram.self, SDExerciseDisplayName.self,
+                configurations: config
+            )
+        } catch {
+            fatalError("Failed to create ModelContainer: \(error)")
+        }
+        self.modelContainer = container
+
+        let context = ModelContext(container)
+        MigrationService.migrateIfNeeded(context: context)
+
+        let dm = DataManager(modelContainer: container)
+        _dataVM = StateObject(wrappedValue: dm)
+    }
 
     var body: some Scene {
         WindowGroup {

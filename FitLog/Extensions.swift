@@ -36,20 +36,6 @@ extension View {
     }
 }
 
-//extension Array where Element == Workout {
-//    subscript(id: UUID) -> Binding<Workout>? {
-//        if let index = firstIndex(where: { $0.id == id }) {
-//            return Binding(
-//                get: { self[index] },
-//                set: { newValue in
-//                    self[index] = newValue
-//                }
-//            )
-//        }
-//        return nil
-//    }
-//}
-
 extension Array {
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil

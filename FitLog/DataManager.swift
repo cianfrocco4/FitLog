@@ -5,52 +5,41 @@
 //  Created by Anthony Cianfrocco on 2/24/26.
 //
 
-
 import Foundation
+import SwiftData
 
 final class DataManager: ObservableObject {
     @Published var userWorkouts: [Workout] = []
-    /// Slot blueprints (Option A); separate from concrete `userWorkouts`.
     @Published var userWorkoutTemplates: [WorkoutTemplate] = []
     @Published var globalExercises: [Exercise] = []
-    /// Per-exercise display name overrides (by exercise id). Does not change canonical `Exercise.name`.
     @Published private(set) var exerciseLocalDisplayNames: [UUID: String] = [:]
     @Published var completedSessions: [WorkoutSession] = []
     @Published var trainingProgram: TrainingProgramState = TrainingProgramState.empty(anchorDayKey: TrainingProgramState.dayKey(for: Date()))
 
-    private let workoutsKey = "userWorkouts"
-    /// One-time backup of the raw workouts payload, used for recovery if a future schema change breaks decoding.
-    private let workoutsBackupKey = "userWorkouts_backup_v1"
-    private let workoutTemplatesKey = "userWorkoutTemplates_v1"
-    private let workoutTemplatesBackupKey = "userWorkoutTemplates_backup_v1"
-    private let exercisesKey = "globalExercises"
-    private let exerciseLocalDisplayNamesKey = "exerciseLocalDisplayNames"
-    private let sessionsKey = "completedSessions"
-    private let sessionsBackupKey = "completedSessions_backup_v1"
-    private let exercisesPreloadedKey = "exercisesPreloaded"
-    private let trainingProgramKey = "trainingProgram_v1"
-    /// One-time raw snapshot of workouts + sessions before the first training-program save (extra safety on top of `_backup_v1`).
-    private let schedulePrecheckFlagKey = "fitlog_schedule_precheck_backup_v1"
-    private let workoutsPrecheckSnapshotKey = "userWorkouts_precheck_schedule_v1"
-    private let sessionsPrecheckSnapshotKey = "completedSessions_precheck_schedule_v1"
+    private let modelContext: ModelContext
 
-    init() { loadAll() }
+    // MARK: - Lifecycle
+
+    init(modelContainer: ModelContainer) {
+        self.modelContext = ModelContext(modelContainer)
+        loadAll()
+    }
 
     func loadAll() {
-        loadWorkouts()
-        loadWorkoutTemplates()
         loadExercises()
         loadExerciseLocalDisplayNames()
+        loadWorkouts()
+        loadWorkoutTemplates()
         loadSessions()
         loadTrainingProgram()
-        
-        if !UserDefaults.standard.bool(forKey: exercisesPreloadedKey) {
+
+        if globalExercises.isEmpty {
             preloadFullExerciseLibrary()
-            UserDefaults.standard.set(true, forKey: exercisesPreloadedKey)
         }
     }
-    
+
     // MARK: - Workouts
+
     @discardableResult
     func createWorkout(name: String) -> UUID {
         let newWorkout = Workout(id: UUID(), name: name, exercises: [])
@@ -60,7 +49,6 @@ final class DataManager: ObservableObject {
         return newWorkout.id
     }
 
-    /// Picks a template name that does not collide with existing workout names.
     func uniqueWorkoutTemplateName(_ base: String) -> String {
         let trimmed = base.trimmingCharacters(in: .whitespacesAndNewlines)
         let root = trimmed.isEmpty ? "Workout" : trimmed
@@ -74,7 +62,6 @@ final class DataManager: ObservableObject {
         return "\(root) (\(n))"
     }
 
-    /// Creates new workout templates with exercises, optionally sets the training program cycle and schedule.
     func applySplitBuilderTemplates(
         workouts: [(templateName: String, exercises: [(exercise: Exercise, sets: Int, reps: String)])],
         sessionsPerWeek: Int,
@@ -111,123 +98,53 @@ final class DataManager: ObservableObject {
             )
         }
     }
-    
+
     func deleteWorkout(_ workout: Workout) {
         userWorkouts.removeAll { $0.id == workout.id }
         saveWorkouts()
     }
-    
+
     func renameWorkout(_ workout: Workout, newName: String) {
         guard let index = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
         userWorkouts[index].name = newName
         saveWorkouts()
     }
-    
+
     func moveWorkout(from source: IndexSet, to destination: Int) {
         userWorkouts.move(fromOffsets: source, toOffset: destination)
         saveWorkouts()
     }
-    
+
     private func loadWorkouts() {
-        if let data = UserDefaults.standard.data(forKey: workoutsKey) {
-            do {
-                let decoded = try JSONDecoder().decode([Workout].self, from: data)
-                userWorkouts = decoded
-                #if DEBUG
-                print("✅ Loaded \(decoded.count) workouts from UserDefaults")
-                #endif
-            } catch {
-                // IMPORTANT: Do not wipe existing data on decode failure.
-                // Try to recover from a previous backup snapshot, if available.
-                #if DEBUG
-                print("❌ Decoding workouts failed: \(error.localizedDescription)")
-                #endif
-                if let backupData = UserDefaults.standard.data(forKey: workoutsBackupKey) {
-                    do {
-                        let recovered = try JSONDecoder().decode([Workout].self, from: backupData)
-                        userWorkouts = recovered
-                        #if DEBUG
-                        print("✅ Recovered \(recovered.count) workouts from legacy backup snapshot")
-                        #endif
-                        // Re-save to the primary key so the app continues normally.
-                        saveWorkouts()
-                    } catch {
-                        #if DEBUG
-                        print("❌ Failed to recover workouts from backup: \(error.localizedDescription)")
-                        #endif
-                    }
-                }
-            }
-        }
+        let descriptor = FetchDescriptor<SDWorkout>(sortBy: [SortDescriptor(\.sortOrder)])
+        guard let sdWorkouts = try? modelContext.fetch(descriptor) else { return }
+        userWorkouts = sdWorkouts.map { $0.toStruct() }
+        #if DEBUG
+        print("[SwiftData] Loaded \(userWorkouts.count) workouts")
+        #endif
     }
-    
+
     func saveWorkouts() {
         do {
-            let data = try JSONEncoder().encode(userWorkouts)
-            UserDefaults.standard.set(data, forKey: workoutsKey)
-            #if DEBUG
-            print("✅ Saved \(userWorkouts.count) workouts to UserDefaults")
-            #endif
-            // Create a one-time backup snapshot for recovery from future schema changes.
-            if UserDefaults.standard.data(forKey: workoutsBackupKey) == nil {
-                UserDefaults.standard.set(data, forKey: workoutsBackupKey)
-                #if DEBUG
-                print("💾 Created workouts backup snapshot")
-                #endif
+            try modelContext.delete(model: SDWorkout.self)
+            for (i, w) in userWorkouts.enumerated() {
+                modelContext.insert(SDWorkout.from(w, sortOrder: i))
             }
+            try modelContext.save()
         } catch {
             #if DEBUG
-            print("❌ Encoding failed: \(error.localizedDescription)")
+            print("[SwiftData] Save workouts failed: \(error.localizedDescription)")
             #endif
         }
     }
 
     // MARK: - Slot workout templates (blueprints)
 
-    private func loadWorkoutTemplates() {
-        guard let data = UserDefaults.standard.data(forKey: workoutTemplatesKey) else { return }
-        do {
-            let decoded = try JSONDecoder().decode([WorkoutTemplate].self, from: data)
-            userWorkoutTemplates = decoded
-        } catch {
-            #if DEBUG
-            print("❌ Decoding workout templates failed: \(error.localizedDescription)")
-            #endif
-            if let backupData = UserDefaults.standard.data(forKey: workoutTemplatesBackupKey) {
-                do {
-                    let recovered = try JSONDecoder().decode([WorkoutTemplate].self, from: backupData)
-                    userWorkoutTemplates = recovered
-                    saveWorkoutTemplates()
-                } catch {
-                    #if DEBUG
-                    print("❌ Failed to recover workout templates from backup")
-                    #endif
-                }
-            }
-        }
-    }
-
-    func saveWorkoutTemplates() {
-        do {
-            let data = try JSONEncoder().encode(userWorkoutTemplates)
-            UserDefaults.standard.set(data, forKey: workoutTemplatesKey)
-            if UserDefaults.standard.data(forKey: workoutTemplatesBackupKey) == nil {
-                UserDefaults.standard.set(data, forKey: workoutTemplatesBackupKey)
-            }
-        } catch {
-            #if DEBUG
-            print("❌ Encoding workout templates failed: \(error.localizedDescription)")
-            #endif
-        }
-    }
-
-    /// Empty slot template; edit slots in a dedicated UI later.
     @discardableResult
     func createSlotTemplate(name: String) -> UUID {
         createSlotTemplate(name: name, slots: [])
     }
 
-    /// Slot template with initial slots (e.g. from AI split builder).
     @discardableResult
     func createSlotTemplate(name: String, slots: [TemplateSlot]) -> UUID {
         let trimmed = uniqueSlotTemplateName(name.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -238,7 +155,6 @@ final class DataManager: ObservableObject {
         return t.id
     }
 
-    /// Builds concrete workouts and/or slot templates from an AI proposal and optionally updates the training program cycle.
     func applyWorkoutSplitProposal(
         _ proposal: WorkoutSplitProposal,
         updateTrainingProgram: Bool,
@@ -340,7 +256,6 @@ final class DataManager: ObservableObject {
         userWorkoutTemplates.first { $0.id == id }
     }
 
-    /// Build a concrete session `Workout` from a blueprint (placeholders until the user resolves slots).
     func instantiateWorkout(from template: WorkoutTemplate) -> Workout {
         var exercises: [WorkoutExercise] = []
         for slot in template.slots {
@@ -352,8 +267,7 @@ final class DataManager: ObservableObject {
             if let ex = resolvedFromDefault {
                 exercises.append(
                     WorkoutExercise(
-                        id: weId,
-                        exercise: ex,
+                        id: weId, exercise: ex,
                         defaultRestTime: slot.defaultRestTime,
                         recommendedSets: slot.recommendedSets,
                         recommendedReps: slot.recommendedReps,
@@ -366,8 +280,7 @@ final class DataManager: ObservableObject {
                 let placeholder = Exercise.unfilledSlotPlaceholder(label: slot.label)
                 exercises.append(
                     WorkoutExercise(
-                        id: weId,
-                        exercise: placeholder,
+                        id: weId, exercise: placeholder,
                         defaultRestTime: slot.defaultRestTime,
                         recommendedSets: slot.recommendedSets,
                         recommendedReps: slot.recommendedReps,
@@ -379,6 +292,26 @@ final class DataManager: ObservableObject {
             }
         }
         return Workout(id: UUID(), name: template.name, exercises: exercises)
+    }
+
+    private func loadWorkoutTemplates() {
+        let descriptor = FetchDescriptor<SDWorkoutTemplate>(sortBy: [SortDescriptor(\.sortOrder)])
+        guard let sdTemplates = try? modelContext.fetch(descriptor) else { return }
+        userWorkoutTemplates = sdTemplates.map { $0.toStruct() }
+    }
+
+    func saveWorkoutTemplates() {
+        do {
+            try modelContext.delete(model: SDWorkoutTemplate.self)
+            for (i, t) in userWorkoutTemplates.enumerated() {
+                modelContext.insert(SDWorkoutTemplate.from(t, sortOrder: i))
+            }
+            try modelContext.save()
+        } catch {
+            #if DEBUG
+            print("[SwiftData] Save templates failed: \(error.localizedDescription)")
+            #endif
+        }
     }
 
     func cycleEntryDisplayLabel(_ entry: ProgramCycleEntry) -> String {
@@ -399,7 +332,8 @@ final class DataManager: ObservableObject {
         }
     }
 
-    // MARK: - Global Exercises (now 60+ default)
+    // MARK: - Global Exercises
+
     @discardableResult
     func addNewExercise(name: String, description: String, muscles: [MuscleGroup]) -> Exercise {
         let new = Exercise(id: UUID(), name: name, description: description, targetedMuscles: muscles, isCustom: true, configurationOptions: [])
@@ -407,7 +341,7 @@ final class DataManager: ObservableObject {
         saveExercises()
         return new
     }
-    
+
     func updateExercise(_ exercise: Exercise) {
         guard let idx = globalExercises.firstIndex(where: { $0.id == exercise.id }) else { return }
         globalExercises[idx] = exercise
@@ -421,7 +355,7 @@ final class DataManager: ObservableObject {
         saveExercises()
         saveWorkouts()
     }
-    
+
     func deleteGlobalExercise(_ exercise: Exercise) {
         clearLocalExerciseDisplayName(for: exercise.id)
         globalExercises.removeAll { $0.id == exercise.id }
@@ -434,7 +368,6 @@ final class DataManager: ObservableObject {
 
     // MARK: - Local exercise display names
 
-    /// Name shown in the UI: custom local label if set, otherwise the canonical library name (from `globalExercises` when present).
     func resolvedDisplayName(for exercise: Exercise) -> String {
         let canonical = globalExercises.first(where: { $0.id == exercise.id })?.name ?? exercise.name
         if let custom = exerciseLocalDisplayNames[exercise.id] {
@@ -470,28 +403,33 @@ final class DataManager: ObservableObject {
     }
 
     private func loadExerciseLocalDisplayNames() {
-        guard let data = UserDefaults.standard.data(forKey: exerciseLocalDisplayNamesKey),
-              let raw = try? JSONDecoder().decode([String: String].self, from: data) else {
+        let descriptor = FetchDescriptor<SDExerciseDisplayName>()
+        guard let records = try? modelContext.fetch(descriptor) else {
             exerciseLocalDisplayNames = [:]
             return
         }
         var out: [UUID: String] = [:]
-        for (key, value) in raw {
-            guard let id = UUID(uuidString: key) else { continue }
-            let t = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !t.isEmpty { out[id] = t }
+        for r in records {
+            let t = r.customName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !t.isEmpty { out[r.exerciseId] = t }
         }
         exerciseLocalDisplayNames = out
     }
 
     private func saveExerciseLocalDisplayNames() {
-        let raw = Dictionary(uniqueKeysWithValues: exerciseLocalDisplayNames.map { ($0.key.uuidString, $0.value) })
-        if let data = try? JSONEncoder().encode(raw) {
-            UserDefaults.standard.set(data, forKey: exerciseLocalDisplayNamesKey)
+        do {
+            try modelContext.delete(model: SDExerciseDisplayName.self)
+            for (id, name) in exerciseLocalDisplayNames {
+                modelContext.insert(SDExerciseDisplayName(exerciseId: id, customName: name))
+            }
+            try modelContext.save()
+        } catch {
+            #if DEBUG
+            print("[SwiftData] Save display names failed: \(error.localizedDescription)")
+            #endif
         }
     }
-    
-    /// Names of exercises in the built-in library. Used to treat legacy user-added exercises as custom (editable/deletable) after app update.
+
     private static let defaultExerciseNames: Set<String> = [
         "Barbell Bench Press", "Incline Barbell Bench Press", "Decline Barbell Bench Press", "Dumbbell Bench Press",
         "Incline Dumbbell Press", "Dumbbell Flies", "Cable Crossover", "Overhead Barbell Press", "Seated Dumbbell Press",
@@ -507,21 +445,15 @@ final class DataManager: ObservableObject {
     ]
 
     private func loadExercises() {
-        if let data = UserDefaults.standard.data(forKey: exercisesKey) {
-            do {
-                let decoded = try JSONDecoder().decode([Exercise].self, from: data)
-                globalExercises = decoded
-                migrateLegacyCustomExercises()
-            } catch {
-                // Do not clear existing data if decoding fails; keep raw bytes for potential future migration.
-                #if DEBUG
-                print("❌ Decoding exercises failed: \(error.localizedDescription)")
-                #endif
-            }
-        }
+        let descriptor = FetchDescriptor<SDExercise>()
+        guard let sdExercises = try? modelContext.fetch(descriptor) else { return }
+        globalExercises = sdExercises.map { $0.toStruct() }
+        migrateLegacyCustomExercises()
+        #if DEBUG
+        print("[SwiftData] Loaded \(globalExercises.count) exercises")
+        #endif
     }
 
-    /// Mark any loaded exercise that isn’t in the default library as custom (so it can be edited/deleted). Runs once per load; persists when we save.
     private func migrateLegacyCustomExercises() {
         var changed = false
         for i in globalExercises.indices {
@@ -532,17 +464,24 @@ final class DataManager: ObservableObject {
         }
         if changed { saveExercises() }
     }
-    
+
     private func saveExercises() {
-        if let data = try? JSONEncoder().encode(globalExercises) {
-            UserDefaults.standard.set(data, forKey: exercisesKey)
+        do {
+            try modelContext.delete(model: SDExercise.self)
+            for ex in globalExercises {
+                modelContext.insert(SDExercise.from(ex))
+            }
+            try modelContext.save()
+        } catch {
+            #if DEBUG
+            print("[SwiftData] Save exercises failed: \(error.localizedDescription)")
+            #endif
         }
     }
-    
+
     private func preloadFullExerciseLibrary() {
         typealias MG = MuscleGroup
         globalExercises = [
-            // Push (Chest, Shoulders, Triceps)
             Exercise(id: UUID(), name: "Barbell Bench Press", description: "Flat barbell bench press", targetedMuscles: [MG.chest, .triceps, .frontDelts]),
             Exercise(id: UUID(), name: "Incline Barbell Bench Press", description: "Incline barbell bench", targetedMuscles: [MG.upperChest, .triceps, .frontDelts]),
             Exercise(id: UUID(), name: "Decline Barbell Bench Press", description: "Decline barbell bench", targetedMuscles: [MG.lowerChest, .triceps]),
@@ -561,8 +500,6 @@ final class DataManager: ObservableObject {
             Exercise(id: UUID(), name: "Skull Crushers", description: "EZ-bar lying tricep extension", targetedMuscles: [MG.triceps]),
             Exercise(id: UUID(), name: "Close-Grip Bench Press", description: "Triceps-focused bench", targetedMuscles: [MG.triceps, .chest, .frontDelts]),
             Exercise(id: UUID(), name: "Dips (Chest/Triceps)", description: "Parallel bar dips", targetedMuscles: [MG.triceps, .chest, .frontDelts]),
-
-            // Pull (Back, Rear Delts, Biceps)
             Exercise(id: UUID(), name: "Pull-Up", description: "Strict wide-grip pull-up", targetedMuscles: [MG.lats, .biceps, .rearDelts]),
             Exercise(id: UUID(), name: "Chin-Up", description: "Supinated grip chin-up", targetedMuscles: [MG.biceps, .lats]),
             Exercise(id: UUID(), name: "Lat Pulldown (Wide Grip)", description: "Wide-grip cable pulldown", targetedMuscles: [MG.lats]),
@@ -576,8 +513,6 @@ final class DataManager: ObservableObject {
             Exercise(id: UUID(), name: "Deadlift (Conventional)", description: "Classic barbell deadlift", targetedMuscles: [MG.posteriorChain, .glutes, .lowerBack]),
             Exercise(id: UUID(), name: "Romanian Deadlift", description: "Hamstring-focused RDL", targetedMuscles: [MG.hamstrings, .glutes, .lowerBack]),
             Exercise(id: UUID(), name: "Barbell Shrug", description: "Trap shrug", targetedMuscles: [MG.traps]),
-
-            // Legs
             Exercise(id: UUID(), name: "Back Squat (High Bar)", description: "High-bar barbell squat", targetedMuscles: [MG.quads, .glutes]),
             Exercise(id: UUID(), name: "Low-Bar Back Squat", description: "Powerlifting-style squat", targetedMuscles: [MG.glutes, .quads, .hamstrings]),
             Exercise(id: UUID(), name: "Front Squat", description: "Barbell front squat", targetedMuscles: [MG.quads, .core]),
@@ -590,8 +525,6 @@ final class DataManager: ObservableObject {
             Exercise(id: UUID(), name: "Seated Leg Curl", description: "Seated hamstring curl", targetedMuscles: [MG.hamstrings]),
             Exercise(id: UUID(), name: "Standing Calf Raise", description: "Machine or smith standing calf", targetedMuscles: [MG.calves]),
             Exercise(id: UUID(), name: "Seated Calf Raise", description: "Seated calf machine", targetedMuscles: [MG.soleus]),
-
-            // Arms & Core
             Exercise(id: UUID(), name: "Barbell Bicep Curl", description: "Standing barbell curl", targetedMuscles: [MG.biceps]),
             Exercise(id: UUID(), name: "EZ-Bar Curl", description: "EZ-bar bicep curl", targetedMuscles: [MG.biceps]),
             Exercise(id: UUID(), name: "Dumbbell Hammer Curl", description: "Neutral grip curl", targetedMuscles: [MG.brachialis, .biceps]),
@@ -605,82 +538,59 @@ final class DataManager: ObservableObject {
         ]
         saveExercises()
     }
-    
+
     // MARK: - Sessions & week summary
+
     private func loadSessions() {
-        if let data = UserDefaults.standard.data(forKey: sessionsKey) {
-            do {
-                let decoded = try JSONDecoder().decode([WorkoutSession].self, from: data)
-                completedSessions = decoded
-                #if DEBUG
-                print("✅ Loaded \(decoded.count) sessions from UserDefaults")
-                #endif
-            } catch {
-                #if DEBUG
-                print("❌ Decoding sessions failed: \(error.localizedDescription)")
-                #endif
-                // Attempt to recover from backup snapshot if it exists.
-                if let backupData = UserDefaults.standard.data(forKey: sessionsBackupKey) {
-                    do {
-                        let recovered = try JSONDecoder().decode([WorkoutSession].self, from: backupData)
-                        completedSessions = recovered
-                        #if DEBUG
-                        print("✅ Recovered \(recovered.count) sessions from legacy backup snapshot")
-                        #endif
-                        saveSessions()
-                    } catch {
-                        #if DEBUG
-                        print("❌ Failed to recover sessions from backup: \(error.localizedDescription)")
-                        #endif
-                    }
-                }
-            }
-        }
+        let descriptor = FetchDescriptor<SDWorkoutSession>(sortBy: [SortDescriptor(\.startTime)])
+        guard let sdSessions = try? modelContext.fetch(descriptor) else { return }
+        completedSessions = sdSessions.compactMap { $0.toStruct() }
+        #if DEBUG
+        print("[SwiftData] Loaded \(completedSessions.count) sessions")
+        #endif
     }
-    
-    /// Reload completed sessions from UserDefaults (e.g. when opening History so new completions are visible).
+
     func refreshCompletedSessions() {
         loadSessions()
     }
-    
-    /// Appends a completed session and persists. Use this instead of writing `completedSessions` to UserDefaults directly.
+
     func appendCompletedSession(_ session: WorkoutSession) {
-        refreshCompletedSessions()
-        var next = completedSessions
-        next.append(session)
-        completedSessions = next
-        saveSessions()
-    }
-    
-    func saveSessions() {
+        completedSessions.append(session)
+        modelContext.insert(SDWorkoutSession.from(session))
         do {
-            let data = try JSONEncoder().encode(completedSessions)
-            UserDefaults.standard.set(data, forKey: sessionsKey)
-            if UserDefaults.standard.data(forKey: sessionsBackupKey) == nil {
-                UserDefaults.standard.set(data, forKey: sessionsBackupKey)
-                #if DEBUG
-                print("💾 Created sessions backup snapshot")
-                #endif
-            }
+            try modelContext.save()
         } catch {
             #if DEBUG
-            print("❌ Encoding sessions failed: \(error.localizedDescription)")
+            print("[SwiftData] Append session failed: \(error.localizedDescription)")
             #endif
         }
     }
-    
+
+    func saveSessions() {
+        do {
+            try modelContext.delete(model: SDWorkoutSession.self)
+            for s in completedSessions {
+                modelContext.insert(SDWorkoutSession.from(s))
+            }
+            try modelContext.save()
+        } catch {
+            #if DEBUG
+            print("[SwiftData] Save sessions failed: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
     // MARK: - Past week summary
+
     var workoutsThisWeek: Int {
         let sevenDaysAgo = Date().addingTimeInterval(-7*24*60*60)
         return completedSessions.filter { ($0.endTime ?? Date()) > sevenDaysAgo }.count
     }
 
-    /// Snapshot for Home “This week” (calendar `weekOfYear`, aligned with Plan tab).
     struct WeekAtAGlance: Equatable {
         let isoWeekKey: String
         let days: [(date: Date, weekday: Int, hasWorkout: Bool)]
         let completedCount: Int
-        /// When set, show “x of y” toward weekly target (requires a non-empty program cycle).
         let weeklyGoal: Int?
 
         static func == (lhs: WeekAtAGlance, rhs: WeekAtAGlance) -> Bool {
@@ -709,33 +619,39 @@ final class DataManager: ObservableObject {
 
     private func completedSessionCount(inWeekContaining referenceDate: Date, calendar: Calendar) -> Int {
         guard let interval = calendar.dateInterval(of: .weekOfYear, for: referenceDate) else { return 0 }
-        return completedSessions.filter { session in
-            guard let end = session.endTime else { return false }
-            return end >= interval.start && end < interval.end
-        }.count
+        let start = interval.start
+        let end = interval.end
+        var descriptor = FetchDescriptor<SDWorkoutSession>(
+            predicate: #Predicate<SDWorkoutSession> { $0.endTime != nil && $0.endTime! >= start && $0.endTime! < end }
+        )
+        descriptor.fetchLimit = 100
+        return (try? modelContext.fetchCount(descriptor)) ?? 0
     }
 
     private func hasCompletedSessionEnding(on dayStart: Date, calendar: Calendar) -> Bool {
         let start = calendar.startOfDay(for: dayStart)
         guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: start) else { return false }
-        return completedSessions.contains { session in
-            guard let end = session.endTime else { return false }
-            return end >= start && end < dayEnd
-        }
+        var descriptor = FetchDescriptor<SDWorkoutSession>(
+            predicate: #Predicate<SDWorkoutSession> { $0.endTime != nil && $0.endTime! >= start && $0.endTime! < dayEnd }
+        )
+        descriptor.fetchLimit = 1
+        return (try? modelContext.fetchCount(descriptor)) ?? 0 > 0
     }
-    // Delete exercise from workout (already existed)
+
+    // MARK: - Exercise CRUD on workouts
+
     func deleteExercise(from workout: Workout, exerciseId: UUID) {
         guard let wIndex = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
         userWorkouts[wIndex].exercises.removeAll { $0.id == exerciseId }
         saveWorkouts()
     }
-    
+
     func moveExercise(in workout: Workout, from source: IndexSet, to destination: Int) {
         guard let wIndex = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
         userWorkouts[wIndex].exercises.move(fromOffsets: source, toOffset: destination)
         saveWorkouts()
     }
-    
+
     @discardableResult
     func addExercise(
         to workout: Workout,
@@ -759,39 +675,22 @@ final class DataManager: ObservableObject {
     // MARK: - Training program (split + calendar)
 
     private func loadTrainingProgram() {
-        guard let data = UserDefaults.standard.data(forKey: trainingProgramKey) else { return }
-        do {
-            trainingProgram = try JSONDecoder().decode(TrainingProgramState.self, from: data)
-        } catch {
-            #if DEBUG
-            print("❌ Decoding training program failed: \(error.localizedDescription)")
-            #endif
-            trainingProgram = TrainingProgramState.empty(anchorDayKey: TrainingProgramState.dayKey(for: Date()))
+        let descriptor = FetchDescriptor<SDTrainingProgram>()
+        if let sdPrograms = try? modelContext.fetch(descriptor),
+           let first = sdPrograms.first,
+           let program = first.toStruct() {
+            trainingProgram = program
         }
-    }
-
-    private func ensureSchedulePrecheckBackupBeforeFirstScheduleWrite() {
-        guard !UserDefaults.standard.bool(forKey: schedulePrecheckFlagKey) else { return }
-        if let d = UserDefaults.standard.data(forKey: workoutsKey) {
-            UserDefaults.standard.set(d, forKey: workoutsPrecheckSnapshotKey)
-        }
-        if let d = UserDefaults.standard.data(forKey: sessionsKey) {
-            UserDefaults.standard.set(d, forKey: sessionsPrecheckSnapshotKey)
-        }
-        UserDefaults.standard.set(true, forKey: schedulePrecheckFlagKey)
-        #if DEBUG
-        print("💾 Precheck snapshots stored before first training program write")
-        #endif
     }
 
     func saveTrainingProgram() {
-        ensureSchedulePrecheckBackupBeforeFirstScheduleWrite()
         do {
-            let data = try JSONEncoder().encode(trainingProgram)
-            UserDefaults.standard.set(data, forKey: trainingProgramKey)
+            try modelContext.delete(model: SDTrainingProgram.self)
+            modelContext.insert(SDTrainingProgram.from(trainingProgram))
+            try modelContext.save()
         } catch {
             #if DEBUG
-            print("❌ Encoding training program failed: \(error.localizedDescription)")
+            print("[SwiftData] Save training program failed: \(error.localizedDescription)")
             #endif
         }
     }
@@ -857,7 +756,6 @@ final class DataManager: ObservableObject {
         saveTrainingProgram()
     }
 
-    /// Persisted override removed ⇒ day/week fall through to defaults.
     func clearTrainingDayOverride(dayKey: String) {
         var p = trainingProgram
         p.dayOverrides.removeValue(forKey: dayKey)
