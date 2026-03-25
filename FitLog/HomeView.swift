@@ -26,6 +26,17 @@ struct HomeView: View {
         return scheduleEngine.resolve(date: Date(), program: dataVM.trainingProgram)
     }
 
+    /// True when there is a finished session for this template whose end time falls on the current calendar day.
+    private func isPlannedWorkoutCompletedToday(templateId: UUID) -> Bool {
+        _ = calendarDayRefresh
+        let cal = Calendar.current
+        let today = Date()
+        return dataVM.completedSessions.contains { session in
+            guard session.workout.id == templateId, let end = session.endTime else { return false }
+            return cal.isDate(end, inSameDayAs: today)
+        }
+    }
+
     private var homeDashboardRowInsets: EdgeInsets {
         EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16)
     }
@@ -200,6 +211,26 @@ struct HomeView: View {
                         Text("Finish your current workout before starting another.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    } else if isPlannedWorkoutCompletedToday(templateId: id) {
+                        Label("Completed today", systemImage: "checkmark.circle.fill")
+                            .font(.headline)
+                            .foregroundStyle(.green)
+                        Text("You logged this planned workout. Rest up or choose another session below if you like.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        NavigationLink {
+                            if let binding = $dataVM.userWorkouts[workout.id] {
+                                WorkoutPlanView(workout: binding)
+                            } else {
+                                Text("Workout not found").foregroundStyle(.red)
+                            }
+                        } label: {
+                            Label("View template", systemImage: "list.bullet")
+                                .font(.subheadline.weight(.medium))
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
                     } else {
                         Button {
                             currentVM.startWorkout(workout)
