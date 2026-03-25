@@ -28,9 +28,9 @@ struct NewExerciseAIReview: Equatable {
 
 /// How the AI should define each day in the split (concrete exercise lists vs slot templates vs both).
 enum WorkoutSplitDefinitionPreference: String, CaseIterable, Identifiable {
-    case concreteLists = "Concrete exercise lists"
-    case slotTemplates = "Slot templates (fill exercises later)"
-    case mixOfBoth = "Mix — some days concrete, some slot-based"
+    case concreteLists = "Full exercise lists"
+    case slotTemplates = "Flexible templates (fill exercises later)"
+    case mixOfBoth = "Mix — some days full workouts, some templates"
     case noPreference = "No preference — you decide per day"
 
     var id: String { rawValue }

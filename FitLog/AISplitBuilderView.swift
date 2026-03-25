@@ -235,7 +235,7 @@ struct AISplitBuilderView: View {
                             .foregroundStyle(.secondary)
                     }
                     if day.isSlotTemplateDay {
-                        Label("Slot template", systemImage: "square.grid.3x3.square")
+                        Label("Flexible template", systemImage: "square.grid.3x3.square")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         ForEach(Array(day.slots.enumerated()), id: \.offset) { _, slot in
@@ -271,7 +271,7 @@ struct AISplitBuilderView: View {
                             }
                         }
                     } else {
-                        Label("Concrete workout", systemImage: "list.bullet")
+                        Label("Saved workout", systemImage: "list.bullet")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         ForEach(Array(day.exercises.enumerated()), id: \.offset) { _, ex in

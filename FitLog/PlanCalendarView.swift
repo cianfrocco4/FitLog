@@ -598,7 +598,7 @@ struct SplitEditorSheet: View {
                     }
                 }
 
-                Section("Add concrete workout") {
+                Section("Add workout") {
                     let inCycle: (UUID) -> Bool = { wid in
                         dataVM.trainingProgram.cycleEntries.contains { $0.kind == .concreteWorkout && $0.id == wid }
                     }
@@ -613,7 +613,7 @@ struct SplitEditorSheet: View {
                     }
                 }
 
-                Section("Add slot template") {
+                Section("Add template") {
                     let inCycle: (UUID) -> Bool = { tid in
                         dataVM.trainingProgram.cycleEntries.contains { $0.kind == .slotTemplate && $0.id == tid }
                     }
@@ -669,7 +669,7 @@ struct ProgramSetupSheet: View {
 
                 Section("Cycle for suggestions") {
                     if cycleEntriesDraft.isEmpty {
-                        Text("Add concrete workouts or slot templates below — order is the split order.")
+                        Text("Add workouts or flexible templates below — order is the split order.")
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(Array(cycleEntriesDraft.enumerated()), id: \.offset) { _, entry in

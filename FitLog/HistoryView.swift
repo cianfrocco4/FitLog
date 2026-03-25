@@ -18,8 +18,8 @@ private enum HistorySessionOriginFilter: String, CaseIterable, Identifiable {
     var shortLabel: String {
         switch self {
         case .all: return "All"
-        case .concreteAndOlder: return "Concrete"
-        case .slotTemplate: return "Slot"
+        case .concreteAndOlder: return "Routines"
+        case .slotTemplate: return "Templates"
         }
     }
 
@@ -28,9 +28,9 @@ private enum HistorySessionOriginFilter: String, CaseIterable, Identifiable {
         case .all:
             return "Analytics use every completed session in the time range."
         case .concreteAndOlder:
-            return "Saved workout plans and older sessions logged before source tracking."
+            return "Saved workout routines and older sessions logged before source tracking."
         case .slotTemplate:
-            return "Only sessions started from a slot template on Plan."
+            return "Only sessions started from a flexible template on Plan."
         }
     }
 
@@ -217,9 +217,9 @@ struct HistoryView: View {
         case nil:
             return "Older"
         case .concreteWorkout:
-            return "Concrete"
+            return "Routine"
         case .slotTemplate:
-            return "Slot template"
+            return "Template"
         }
     }
 
@@ -234,7 +234,7 @@ struct HistoryView: View {
             m[seg, default: 0] += 1
             tallies[weekStart] = m
         }
-        let segmentOrder = ["Concrete", "Slot template", "Older"]
+        let segmentOrder = ["Routine", "Template", "Older"]
         return tallies.flatMap { weekStart, counts in
             segmentOrder.compactMap { seg in
                 let c = counts[seg] ?? 0
@@ -434,9 +434,9 @@ struct HistoryView: View {
         case nil:
             return "Older session"
         case .concreteWorkout:
-            return "Concrete workout"
+            return "Saved workout"
         case .slotTemplate:
-            return "Slot template"
+            return "Flexible template"
         }
     }
     
@@ -514,7 +514,7 @@ private struct SessionDetailView: View {
             return "Saved workout"
         case .slotTemplate(let id):
             let name = dataVM.slotTemplate(id: id)?.name
-            return name.map { "Template: \($0)" } ?? "Slot template"
+            return name.map { "Template: \($0)" } ?? "Flexible template"
         }
     }
 

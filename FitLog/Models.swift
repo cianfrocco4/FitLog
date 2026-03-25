@@ -92,6 +92,13 @@ enum MovementPattern: String, CaseIterable, Codable, Identifiable {
 enum WorkoutPlanRef: Equatable, Codable, Hashable {
     case concreteWorkout(UUID)
     case slotTemplate(UUID)
+
+    var userFacingTypeLabel: String {
+        switch self {
+        case .concreteWorkout: return "Workout"
+        case .slotTemplate: return "Flexible template"
+        }
+    }
 }
 
 /// Optional per-exercise setting (e.g. grip variant, machine setting) tracked with each logged set.

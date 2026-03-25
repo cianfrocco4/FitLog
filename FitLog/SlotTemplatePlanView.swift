@@ -107,7 +107,7 @@ struct SlotTemplatePlanView: View {
         } header: {
             Text("Slots")
         } footer: {
-            Text("Slot template · tap a slot to edit. Use Start / Stop in the toolbar like a concrete workout. Unfilled slots become placeholders until you pick exercises.")
+            Text("Flexible template · tap a slot to edit. Use Start / Stop in the toolbar to begin. Unfilled slots become placeholders until you pick exercises.")
                 .font(.caption)
         }
     }

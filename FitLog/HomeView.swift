@@ -92,7 +92,7 @@ struct HomeView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(workout.name)
                                     .font(.headline)
-                                Text("Concrete workout")
+                                Text("Saved workout")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
@@ -129,7 +129,7 @@ struct HomeView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(template.name)
                                     .font(.headline)
-                                Text("Slot template · \(template.slots.count) slot(s)")
+                                Text("Template · \(template.slots.count) exercise\(template.slots.count == 1 ? "" : "s")")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
@@ -159,7 +159,7 @@ struct HomeView: View {
                         }
                     }
                 } header: {
-                    Text("Slot templates")
+                    Text("Flexible Templates")
                         .font(.title2)
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -182,10 +182,10 @@ struct HomeView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button("New concrete workout") {
+                        Button("New workout") {
                             showNewWorkout = true
                         }
-                        Button("New slot template") {
+                        Button("New flexible template") {
                             newSlotTemplateToEdit = dataVM.createSlotTemplate(name: "Template")
                         }
                     } label: {
@@ -288,7 +288,7 @@ struct HomeView: View {
                     if let workout = dataVM.userWorkouts.first(where: { $0.id == id }) {
                         Text(workout.name)
                             .font(.title3.weight(.semibold))
-                        Text("Concrete workout · from your training plan")
+                        Text("Saved workout · from your training plan")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -350,7 +350,7 @@ struct HomeView: View {
                     if let template = dataVM.slotTemplate(id: templateId) {
                         Text(template.name)
                             .font(.title3.weight(.semibold))
-                        Text("Slot template · pick exercises when you train (or beforehand)")
+                        Text("Flexible template · pick exercises when you train (or beforehand)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
