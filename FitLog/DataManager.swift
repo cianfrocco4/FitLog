@@ -264,32 +264,20 @@ final class DataManager: ObservableObject {
                 guard let defId = slot.defaultExerciseId else { return nil }
                 return globalExercises.first { $0.id == defId }
             }()
+            let resolution: SlotResolution
             if let ex = resolvedFromDefault {
-                exercises.append(
-                    WorkoutExercise(
-                        id: weId, exercise: ex,
-                        defaultRestTime: slot.defaultRestTime,
-                        recommendedSets: slot.recommendedSets,
-                        recommendedReps: slot.recommendedReps,
-                        isSlotPlaceholder: false,
-                        templateSlotId: slot.id,
-                        slotLabel: slot.label
-                    )
-                )
+                resolution = .concrete(ex)
             } else {
-                let placeholder = Exercise.unfilledSlotPlaceholder(label: slot.label)
-                exercises.append(
-                    WorkoutExercise(
-                        id: weId, exercise: placeholder,
-                        defaultRestTime: slot.defaultRestTime,
-                        recommendedSets: slot.recommendedSets,
-                        recommendedReps: slot.recommendedReps,
-                        isSlotPlaceholder: true,
-                        templateSlotId: slot.id,
-                        slotLabel: slot.label
-                    )
-                )
+                resolution = .unresolved(slotLabel: slot.label, templateSlotId: slot.id)
             }
+            exercises.append(
+                WorkoutExercise(
+                    id: weId, resolution: resolution,
+                    defaultRestTime: slot.defaultRestTime,
+                    recommendedSets: slot.recommendedSets,
+                    recommendedReps: slot.recommendedReps
+                )
+            )
         }
         return Workout(id: UUID(), name: template.name, exercises: exercises)
     }
@@ -347,8 +335,8 @@ final class DataManager: ObservableObject {
         globalExercises[idx] = exercise
         for i in userWorkouts.indices {
             for j in userWorkouts[i].exercises.indices {
-                if userWorkouts[i].exercises[j].exercise.id == exercise.id {
-                    userWorkouts[i].exercises[j].exercise = exercise
+                if userWorkouts[i].exercises[j].resolvedExercise?.id == exercise.id {
+                    userWorkouts[i].exercises[j].resolution = .concrete(exercise)
                 }
             }
         }
@@ -360,7 +348,7 @@ final class DataManager: ObservableObject {
         clearLocalExerciseDisplayName(for: exercise.id)
         globalExercises.removeAll { $0.id == exercise.id }
         for i in userWorkouts.indices {
-            userWorkouts[i].exercises.removeAll { $0.exercise.id == exercise.id }
+            userWorkouts[i].exercises.removeAll { $0.resolvedExercise?.id == exercise.id }
         }
         saveExercises()
         saveWorkouts()

@@ -204,24 +204,69 @@ struct Exercise: Identifiable, Codable, Equatable, Hashable {
     }
 }
 
+/// Whether a workout exercise row has a concrete exercise or is waiting for the user to pick one.
+enum SlotResolution: Codable, Equatable {
+    case concrete(Exercise)
+    case unresolved(slotLabel: String, templateSlotId: UUID)
+}
+
 struct WorkoutExercise: Identifiable, Codable, Equatable {
     let id: UUID
-    var exercise: Exercise
+    var resolution: SlotResolution
     var defaultRestTime: Int = 90
     var recommendedSets: Int = 3
     var recommendedReps: String = "8-12"
-    /// Names of configuration fields for this exercise in this workout (e.g. ["Grip", "Seat"]).
     var configurationFields: [String] = []
-    /// Recommended configuration values per set index, aligned with `recommendedSets`.
-    /// Each entry is fieldName -> value (e.g. ["Grip": "Narrow"]).
     var recommendedConfigBySet: [[String: String]] = []
-    /// True until the user picks a real library exercise for this template slot row.
-    var isSlotPlaceholder: Bool = false
-    /// `TemplateSlot.id` when this row was created from a slot blueprint.
-    var templateSlotId: UUID? = nil
-    /// Shown when `isSlotPlaceholder` (and in pickers); copy of template slot label.
-    var slotLabel: String = ""
 
+    var resolvedExercise: Exercise? {
+        if case .concrete(let ex) = resolution { return ex }
+        return nil
+    }
+
+    var isSlotPlaceholder: Bool {
+        if case .unresolved = resolution { return true }
+        return false
+    }
+
+    /// The exercise for concrete rows. For unresolved slots, synthesizes a placeholder Exercise
+    /// so legacy code paths that read `.exercise` keep working (history display, analytics, etc.).
+    var exercise: Exercise {
+        get {
+            switch resolution {
+            case .concrete(let ex): return ex
+            case .unresolved(let label, _):
+                return Exercise.unfilledSlotPlaceholder(label: label)
+            }
+        }
+        set {
+            resolution = .concrete(newValue)
+        }
+    }
+
+    var slotLabel: String {
+        if case .unresolved(let label, _) = resolution { return label }
+        return ""
+    }
+
+    var templateSlotId: UUID? {
+        if case .unresolved(_, let id) = resolution { return id }
+        return nil
+    }
+
+    // MARK: - Initializers
+
+    init(id: UUID, resolution: SlotResolution, defaultRestTime: Int = 90, recommendedSets: Int = 3, recommendedReps: String = "8-12", configurationFields: [String] = [], recommendedConfigBySet: [[String: String]] = []) {
+        self.id = id
+        self.resolution = resolution
+        self.defaultRestTime = defaultRestTime
+        self.recommendedSets = recommendedSets
+        self.recommendedReps = recommendedReps
+        self.configurationFields = configurationFields
+        self.recommendedConfigBySet = recommendedConfigBySet
+    }
+
+    /// Convenience init that mirrors the old API so existing call sites keep compiling.
     init(
         id: UUID,
         exercise: Exercise,
@@ -235,47 +280,67 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
         slotLabel: String = ""
     ) {
         self.id = id
-        self.exercise = exercise
+        if isSlotPlaceholder, let tid = templateSlotId {
+            self.resolution = .unresolved(slotLabel: slotLabel, templateSlotId: tid)
+        } else {
+            self.resolution = .concrete(exercise)
+        }
         self.defaultRestTime = defaultRestTime
         self.recommendedSets = recommendedSets
         self.recommendedReps = recommendedReps
         self.configurationFields = configurationFields
         self.recommendedConfigBySet = recommendedConfigBySet
-        self.isSlotPlaceholder = isSlotPlaceholder
-        self.templateSlotId = templateSlotId
-        self.slotLabel = slotLabel
     }
+
+    // MARK: - Codable (backward-compatible with old exercise + isSlotPlaceholder format)
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
-        exercise = try c.decode(Exercise.self, forKey: .exercise)
+
+        // Try new format first
+        if let res = try? c.decode(SlotResolution.self, forKey: .resolution) {
+            resolution = res
+        } else {
+            // Legacy format: exercise + isSlotPlaceholder + templateSlotId + slotLabel
+            let exercise = try c.decode(Exercise.self, forKey: .exercise)
+            let placeholder = (try? c.decode(Bool.self, forKey: .isSlotPlaceholder)) ?? false
+            let tid = try? c.decode(UUID.self, forKey: .templateSlotId)
+            let label = (try? c.decode(String.self, forKey: .slotLabel)) ?? ""
+            if placeholder, let tid {
+                resolution = .unresolved(slotLabel: label, templateSlotId: tid)
+            } else {
+                resolution = .concrete(exercise)
+            }
+        }
+
         defaultRestTime = (try? c.decode(Int.self, forKey: .defaultRestTime)) ?? 90
         recommendedSets = (try? c.decode(Int.self, forKey: .recommendedSets)) ?? 3
         recommendedReps = (try? c.decode(String.self, forKey: .recommendedReps)) ?? "8-12"
         configurationFields = (try? c.decode([String].self, forKey: .configurationFields)) ?? []
         recommendedConfigBySet = (try? c.decode([[String: String]].self, forKey: .recommendedConfigBySet)) ?? []
-        isSlotPlaceholder = (try? c.decode(Bool.self, forKey: .isSlotPlaceholder)) ?? false
-        templateSlotId = try? c.decode(UUID.self, forKey: .templateSlotId)
-        slotLabel = (try? c.decode(String.self, forKey: .slotLabel)) ?? ""
     }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)
+        try c.encode(resolution, forKey: .resolution)
+        // Also write legacy fields so an older app version can still read the data
         try c.encode(exercise, forKey: .exercise)
         try c.encode(defaultRestTime, forKey: .defaultRestTime)
         try c.encode(recommendedSets, forKey: .recommendedSets)
         try c.encode(recommendedReps, forKey: .recommendedReps)
         try c.encode(configurationFields, forKey: .configurationFields)
         try c.encode(recommendedConfigBySet, forKey: .recommendedConfigBySet)
-        if isSlotPlaceholder { try c.encode(isSlotPlaceholder, forKey: .isSlotPlaceholder) }
-        if let templateSlotId { try c.encode(templateSlotId, forKey: .templateSlotId) }
-        if !slotLabel.isEmpty { try c.encode(slotLabel, forKey: .slotLabel) }
+        if isSlotPlaceholder { try c.encode(true, forKey: .isSlotPlaceholder) }
+        if let tid = templateSlotId { try c.encode(tid, forKey: .templateSlotId) }
+        let label = slotLabel
+        if !label.isEmpty { try c.encode(label, forKey: .slotLabel) }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, exercise, defaultRestTime, recommendedSets, recommendedReps, configurationFields, recommendedConfigBySet
+        case id, resolution, exercise, defaultRestTime, recommendedSets, recommendedReps
+        case configurationFields, recommendedConfigBySet
         case isSlotPlaceholder, templateSlotId, slotLabel
     }
 }

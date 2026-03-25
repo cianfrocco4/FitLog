@@ -149,7 +149,7 @@ struct CurrentWorkoutPullUpSheet: View {
                             Section {
                                 // Exercise name as first row so it uses normal list text color (not section header gray)
                                 Button {
-                                    if log.workoutExercise.isSlotPlaceholder {
+                                    if case .unresolved = log.workoutExercise.resolution {
                                         resolveSlotSelection = ResolveSlotWE(workoutExerciseId: log.workoutExercise.id)
                                     } else {
                                         withAnimation(.easeInOut(duration: 0.2)) {
@@ -159,11 +159,14 @@ struct CurrentWorkoutPullUpSheet: View {
                                 } label: {
                                     HStack {
                                         VStack(alignment: .leading, spacing: 2) {
-                                            Text(
-                                                log.workoutExercise.isSlotPlaceholder
-                                                    ? (log.workoutExercise.slotLabel.isEmpty ? "Choose exercise" : log.workoutExercise.slotLabel)
-                                                    : dataVM.resolvedDisplayName(for: log.workoutExercise.exercise)
-                                            )
+                                            Text({
+                                                switch log.workoutExercise.resolution {
+                                                case .concrete(let ex):
+                                                    return dataVM.resolvedDisplayName(for: ex)
+                                                case .unresolved(let label, _):
+                                                    return label.isEmpty ? "Choose exercise" : label
+                                                }
+                                            }())
                                                 .font(.headline)
                                             HStack(spacing: 6) {
                                                 statusDot(for: log)
@@ -188,7 +191,7 @@ struct CurrentWorkoutPullUpSheet: View {
                                 .buttonStyle(.plain)
                                 .foregroundStyle(.primary)
                                 if isExpanded {
-                                    if log.workoutExercise.isSlotPlaceholder {
+                                    if case .unresolved = log.workoutExercise.resolution {
                                         Text("This slot needs an exercise before you can log sets.")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
@@ -213,14 +216,16 @@ struct CurrentWorkoutPullUpSheet: View {
                                             .tint(.blue)
 
                                             Menu {
-                                                Button("Set as current") {
-                                                    currentVM.setPrimaryExercise(exerciseId: log.workoutExercise.exercise.id)
-                                                }
-                                                Button(statusSupersetToggleTitle(for: log)) {
-                                                    currentVM.toggleSupersetExercise(exerciseId: log.workoutExercise.exercise.id)
-                                                }
-                                                Button("Mark completed") {
-                                                    currentVM.markExerciseCompleted(exerciseId: log.workoutExercise.exercise.id)
+                                                if let exId = log.workoutExercise.resolvedExercise?.id {
+                                                    Button("Set as current") {
+                                                        currentVM.setPrimaryExercise(exerciseId: exId)
+                                                    }
+                                                    Button(statusSupersetToggleTitle(for: log)) {
+                                                        currentVM.toggleSupersetExercise(exerciseId: exId)
+                                                    }
+                                                    Button("Mark completed") {
+                                                        currentVM.markExerciseCompleted(exerciseId: exId)
+                                                    }
                                                 }
                                             } label: {
                                                 Label("More", systemImage: "ellipsis.circle")
@@ -308,14 +313,13 @@ struct CurrentWorkoutPullUpSheet: View {
         }
         let allSessions = dataVM.completedSessions
 
-        let exerciseId = currentLog.workoutExercise.exercise.id
+        guard let exerciseId = currentLog.workoutExercise.resolvedExercise?.id else { return nil }
 
-        // Helper to find the latest log for a given set of sessions.
         func latestLog(in sessions: [WorkoutSession], for exerciseId: UUID) -> ExerciseLog? {
             var latest: (ExerciseLog, Date)?
 
             for session in sessions {
-                for log in session.exerciseLogs where log.workoutExercise.exercise.id == exerciseId {
+                for log in session.exerciseLogs where log.workoutExercise.resolvedExercise?.id == exerciseId {
                     // Only consider logs that actually have sets logged.
                     guard let lastSetTime = log.loggedSets.max(by: { $0.timestamp < $1.timestamp })?.timestamp else {
                         continue
@@ -465,20 +469,20 @@ struct CurrentWorkoutPullUpSheet: View {
     // MARK: - Status helpers
 
     private func isExerciseActive(_ log: ExerciseLog) -> Bool {
-        guard let session = currentVM.currentSession else { return false }
-        let id = log.workoutExercise.exercise.id
+        guard let session = currentVM.currentSession,
+              let id = log.workoutExercise.resolvedExercise?.id else { return false }
         return session.activeExerciseIds.contains(id)
     }
 
     private func isExerciseCompleted(_ log: ExerciseLog) -> Bool {
-        guard let session = currentVM.currentSession else { return false }
-        let id = log.workoutExercise.exercise.id
+        guard let session = currentVM.currentSession,
+              let id = log.workoutExercise.resolvedExercise?.id else { return false }
         return session.completedExerciseIds.contains(id)
     }
 
     private func isPrimaryExercise(_ log: ExerciseLog) -> Bool {
-        guard let session = currentVM.currentSession else { return false }
-        let id = log.workoutExercise.exercise.id
+        guard let session = currentVM.currentSession,
+              let id = log.workoutExercise.resolvedExercise?.id else { return false }
         return session.activeExerciseIds.first == id
     }
 

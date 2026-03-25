@@ -13,7 +13,7 @@ struct CurrentWorkoutCollapsedBar: View {
     @Binding var showPullUp: Bool
 
     private var primaryExerciseLine: String {
-        guard let ex = currentVM.currentSession?.exerciseLogs.first?.workoutExercise.exercise else { return "" }
+        guard let ex = currentVM.currentSession?.exerciseLogs.first?.workoutExercise.resolvedExercise else { return "" }
         return dataVM.resolvedDisplayName(for: ex)
     }
     
