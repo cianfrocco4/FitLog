@@ -91,7 +91,7 @@ final class DataManager: ObservableObject {
         }
         if updateTrainingProgram, !newIds.isEmpty {
             applyTrainingProgramSuggestion(
-                cycleEntries: newIds.map { ProgramCycleEntry(kind: .concreteWorkout, id: $0) },
+                cycleEntries: newIds.map { .concreteWorkout($0) },
                 sessionsPerWeek: sessionsPerWeek,
                 preferredWeekdays: preferredWeekdays,
                 anchorDate: anchorDate
@@ -160,7 +160,7 @@ final class DataManager: ObservableObject {
         updateTrainingProgram: Bool,
         anchorDate: Date = Date()
     ) {
-        var entries: [ProgramCycleEntry] = []
+        var entries: [WorkoutPlanRef] = []
         for day in proposal.workouts {
             if day.isSlotTemplateDay {
                 let templateSlots: [TemplateSlot] = day.slots.map { s in
@@ -181,12 +181,12 @@ final class DataManager: ObservableObject {
                 }
                 guard !templateSlots.isEmpty else { continue }
                 let id = createSlotTemplate(name: day.name, slots: templateSlots)
-                entries.append(ProgramCycleEntry(kind: .slotTemplate, id: id))
+                entries.append(.slotTemplate(id))
             } else {
                 guard !day.exercises.isEmpty else { continue }
                 let name = uniqueWorkoutTemplateName(day.name)
                 let id = createWorkout(name: name)
-                entries.append(ProgramCycleEntry(kind: .concreteWorkout, id: id))
+                entries.append(.concreteWorkout(id))
                 for exItem in day.exercises {
                     guard let fresh = userWorkouts.first(where: { $0.id == id }) else { break }
                     let sets = min(max(1, exItem.sets), 10)
@@ -229,7 +229,7 @@ final class DataManager: ObservableObject {
     func deleteSlotTemplate(_ template: WorkoutTemplate) {
         userWorkoutTemplates.removeAll { $0.id == template.id }
         var p = trainingProgram
-        p.cycleEntries.removeAll { $0.kind == .slotTemplate && $0.id == template.id }
+        p.cycleEntries.removeAll { $0 == .slotTemplate(template.id) }
         trainingProgram = p
         saveWorkoutTemplates()
         saveTrainingProgram()
@@ -299,15 +299,6 @@ final class DataManager: ObservableObject {
             #if DEBUG
             print("[SwiftData] Save templates failed: \(error.localizedDescription)")
             #endif
-        }
-    }
-
-    func cycleEntryDisplayLabel(_ entry: ProgramCycleEntry) -> String {
-        switch entry.kind {
-        case .concreteWorkout:
-            return workoutDisplayName(forWorkoutId: entry.id)
-        case .slotTemplate:
-            return userWorkoutTemplates.first(where: { $0.id == entry.id })?.name ?? "Missing template"
         }
     }
 
@@ -719,7 +710,7 @@ final class DataManager: ObservableObject {
         anchorDate: Date = Date()
     ) {
         applyTrainingProgramSuggestion(
-            cycleEntries: cycleWorkoutIds.map { ProgramCycleEntry(kind: .concreteWorkout, id: $0) },
+            cycleEntries: cycleWorkoutIds.map { .concreteWorkout($0) },
             sessionsPerWeek: sessionsPerWeek,
             preferredWeekdays: preferredWeekdays,
             anchorDate: anchorDate
@@ -727,7 +718,7 @@ final class DataManager: ObservableObject {
     }
 
     func applyTrainingProgramSuggestion(
-        cycleEntries: [ProgramCycleEntry],
+        cycleEntries: [WorkoutPlanRef],
         sessionsPerWeek: Int,
         preferredWeekdays: [Int],
         anchorDate: Date = Date()
@@ -742,10 +733,10 @@ final class DataManager: ObservableObject {
     }
 
     func setTrainingCycleWorkoutIds(_ ids: [UUID]) {
-        setTrainingCycleEntries(ids.map { ProgramCycleEntry(kind: .concreteWorkout, id: $0) })
+        setTrainingCycleEntries(ids.map { .concreteWorkout($0) })
     }
 
-    func setTrainingCycleEntries(_ entries: [ProgramCycleEntry]) {
+    func setTrainingCycleEntries(_ entries: [WorkoutPlanRef]) {
         var p = trainingProgram
         p.cycleEntries = entries
         trainingProgram = p

@@ -53,24 +53,13 @@ struct ScheduleWeekOverride: Codable, Equatable {
 
 // MARK: - Program state
 
-/// Whether a cycle entry points at a concrete [`Workout`](FitLog/Models.swift) or a [`WorkoutTemplate`](FitLog/Models.swift).
-enum ProgramCycleTargetKind: String, Codable, Equatable {
-    case concreteWorkout
-    case slotTemplate
-}
-
-struct ProgramCycleEntry: Codable, Equatable, Hashable {
-    var kind: ProgramCycleTargetKind
-    var id: UUID
-}
-
 struct TrainingProgramState: Codable, Equatable {
-    /// Ordered cycle: concrete workouts and/or slot templates (see `ProgramCycleTargetKind`).
-    var cycleEntries: [ProgramCycleEntry]
+    /// Ordered cycle of workouts / slot templates scheduled in rotation.
+    var cycleEntries: [WorkoutPlanRef]
     var sessionsPerWeek: Int
     /// Empty = default training-day pool (Mon–Fri). Values are `Calendar.Component.weekday` (1 = Sunday … 7 = Saturday).
     var preferredWeekdays: [Int]
-    /// `yyyy-MM-dd` in the user’s current calendar, start-of-day semantics for anchoring the rotation.
+    /// `yyyy-MM-dd` in the user's current calendar, start-of-day semantics for anchoring the rotation.
     var anchorDayKey: String
     var dayOverrides: [String: ScheduleDayOverride]
     var weekOverrides: [String: ScheduleWeekOverride]
@@ -105,7 +94,7 @@ struct TrainingProgramState: Codable, Equatable {
         return calendar.date(from: comp).map { calendar.startOfDay(for: $0) }
     }
 
-    /// e.g. `2025-W12` using the calendar’s `yearForWeekOfYear` / `weekOfYear`.
+    /// e.g. `2025-W12` using the calendar's `yearForWeekOfYear` / `weekOfYear`.
     static func isoWeekKey(for date: Date, calendar: Calendar = .current) -> String {
         let y = calendar.component(.yearForWeekOfYear, from: date)
         let w = calendar.component(.weekOfYear, from: date)
@@ -126,7 +115,7 @@ struct TrainingProgramState: Codable, Equatable {
     }
 
     init(
-        cycleEntries: [ProgramCycleEntry],
+        cycleEntries: [WorkoutPlanRef],
         sessionsPerWeek: Int,
         preferredWeekdays: [Int],
         anchorDayKey: String,
@@ -141,14 +130,31 @@ struct TrainingProgramState: Codable, Equatable {
         self.weekOverrides = weekOverrides
     }
 
+    // MARK: - Legacy type for decoding old ProgramCycleEntry format
+
+    private struct LegacyProgramCycleEntry: Codable {
+        enum Kind: String, Codable { case concreteWorkout, slotTemplate }
+        var kind: Kind
+        var id: UUID
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        if let entries = try? c.decode([ProgramCycleEntry].self, forKey: .cycleEntries) {
-            cycleEntries = entries
+
+        if let refs = try? c.decode([WorkoutPlanRef].self, forKey: .cycleEntries) {
+            cycleEntries = refs
+        } else if let legacy = try? c.decode([LegacyProgramCycleEntry].self, forKey: .cycleEntries) {
+            cycleEntries = legacy.map { entry in
+                switch entry.kind {
+                case .concreteWorkout: return .concreteWorkout(entry.id)
+                case .slotTemplate: return .slotTemplate(entry.id)
+                }
+            }
         } else {
             let legacyIds = (try? c.decode([UUID].self, forKey: .cycleWorkoutIds)) ?? []
-            cycleEntries = legacyIds.map { ProgramCycleEntry(kind: .concreteWorkout, id: $0) }
+            cycleEntries = legacyIds.map { .concreteWorkout($0) }
         }
+
         sessionsPerWeek = (try? c.decode(Int.self, forKey: .sessionsPerWeek)) ?? 3
         preferredWeekdays = (try? c.decode([Int].self, forKey: .preferredWeekdays)) ?? []
         anchorDayKey = (try? c.decode(String.self, forKey: .anchorDayKey)) ?? Self.dayKey(for: Date())

@@ -570,16 +570,16 @@ struct SplitEditorSheet: View {
                 Section("Cycle") {
                     ForEach(Array(dataVM.trainingProgram.cycleEntries.enumerated()), id: \.offset) { _, entry in
                         HStack {
-                            Text(dataVM.cycleEntryDisplayLabel(entry))
+                            Text(dataVM.planLabel(for: entry))
                             Spacer()
-                            switch entry.kind {
-                            case .concreteWorkout:
-                                if dataVM.userWorkouts.first(where: { $0.id == entry.id }) == nil {
+                            switch entry {
+                            case .concreteWorkout(let id):
+                                if dataVM.userWorkouts.first(where: { $0.id == id }) == nil {
                                     Image(systemName: "exclamationmark.triangle.fill")
                                         .foregroundStyle(.orange)
                                 }
-                            case .slotTemplate:
-                                if dataVM.slotTemplate(id: entry.id) == nil {
+                            case .slotTemplate(let id):
+                                if dataVM.slotTemplate(id: id) == nil {
                                     Image(systemName: "exclamationmark.triangle.fill")
                                         .foregroundStyle(.orange)
                                 }
@@ -600,12 +600,12 @@ struct SplitEditorSheet: View {
 
                 Section("Add workout") {
                     let inCycle: (UUID) -> Bool = { wid in
-                        dataVM.trainingProgram.cycleEntries.contains { $0.kind == .concreteWorkout && $0.id == wid }
+                        dataVM.trainingProgram.cycleEntries.contains { $0 == .concreteWorkout(wid) }
                     }
                     ForEach(dataVM.userWorkouts.filter { !inCycle($0.id) }) { w in
                         Button {
                             var entries = dataVM.trainingProgram.cycleEntries
-                            entries.append(ProgramCycleEntry(kind: .concreteWorkout, id: w.id))
+                            entries.append(.concreteWorkout(w.id))
                             dataVM.setTrainingCycleEntries(entries)
                         } label: {
                             Label(w.name, systemImage: "plus.circle")
@@ -615,12 +615,12 @@ struct SplitEditorSheet: View {
 
                 Section("Add template") {
                     let inCycle: (UUID) -> Bool = { tid in
-                        dataVM.trainingProgram.cycleEntries.contains { $0.kind == .slotTemplate && $0.id == tid }
+                        dataVM.trainingProgram.cycleEntries.contains { $0 == .slotTemplate(tid) }
                     }
                     ForEach(dataVM.userWorkoutTemplates.filter { !inCycle($0.id) }) { t in
                         Button {
                             var entries = dataVM.trainingProgram.cycleEntries
-                            entries.append(ProgramCycleEntry(kind: .slotTemplate, id: t.id))
+                            entries.append(.slotTemplate(t.id))
                             dataVM.setTrainingCycleEntries(entries)
                         } label: {
                             Label(t.name, systemImage: "rectangle.stack.badge.plus")
@@ -650,7 +650,7 @@ struct ProgramSetupSheet: View {
     @State private var sessionsPerWeek: Int = 3
     @State private var selectedWeekdays: Set<Int> = []
     @State private var anchorDate: Date = Date()
-    @State private var cycleEntriesDraft: [ProgramCycleEntry] = []
+    @State private var cycleEntriesDraft: [WorkoutPlanRef] = []
 
     var body: some View {
         NavigationStack {
@@ -673,28 +673,28 @@ struct ProgramSetupSheet: View {
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(Array(cycleEntriesDraft.enumerated()), id: \.offset) { _, entry in
-                            Text(dataVM.cycleEntryDisplayLabel(entry))
+                            Text(dataVM.planLabel(for: entry))
                         }
                         .onMove { s, d in
                             cycleEntriesDraft.move(fromOffsets: s, toOffset: d)
                         }
                     }
                     let concreteInDraft: (UUID) -> Bool = { wid in
-                        cycleEntriesDraft.contains { $0.kind == .concreteWorkout && $0.id == wid }
+                        cycleEntriesDraft.contains { $0 == .concreteWorkout(wid) }
                     }
                     ForEach(dataVM.userWorkouts.filter { !concreteInDraft($0.id) }) { w in
                         Button {
-                            cycleEntriesDraft.append(ProgramCycleEntry(kind: .concreteWorkout, id: w.id))
+                            cycleEntriesDraft.append(.concreteWorkout(w.id))
                         } label: {
                             Label("Add \(w.name)", systemImage: "plus.circle")
                         }
                     }
                     let templateInDraft: (UUID) -> Bool = { tid in
-                        cycleEntriesDraft.contains { $0.kind == .slotTemplate && $0.id == tid }
+                        cycleEntriesDraft.contains { $0 == .slotTemplate(tid) }
                     }
                     ForEach(dataVM.userWorkoutTemplates.filter { !templateInDraft($0.id) }) { t in
                         Button {
-                            cycleEntriesDraft.append(ProgramCycleEntry(kind: .slotTemplate, id: t.id))
+                            cycleEntriesDraft.append(.slotTemplate(t.id))
                         } label: {
                             Label("Add \(t.name) (slot)", systemImage: "rectangle.stack.badge.plus")
                         }

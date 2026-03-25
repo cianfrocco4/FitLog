@@ -46,13 +46,8 @@ struct TrainingScheduleEngine {
 
     func defaultPlan(for date: Date, program: TrainingProgramState) -> ResolvedScheduleDay {
         guard !program.cycleEntries.isEmpty else { return .unscheduled }
-        guard let entry = defaultCycleEntry(for: date, program: program) else { return .unscheduled }
-        switch entry.kind {
-        case .concreteWorkout:
-            return .workout(.concreteWorkout(entry.id))
-        case .slotTemplate:
-            return .workout(.slotTemplate(entry.id))
-        }
+        guard let ref = defaultCycleEntry(for: date, program: program) else { return .unscheduled }
+        return .workout(ref)
     }
 
     /// Whether `date` would be a training day under the base program (ignoring overrides).
@@ -86,7 +81,7 @@ struct TrainingScheduleEngine {
         return Set(picked.map { TrainingProgramState.dayKey(for: $0, calendar: calendar) })
     }
 
-    func defaultCycleEntry(for date: Date, program: TrainingProgramState) -> ProgramCycleEntry? {
+    func defaultCycleEntry(for date: Date, program: TrainingProgramState) -> WorkoutPlanRef? {
         guard !program.cycleEntries.isEmpty else { return nil }
         let n = program.cycleEntries.count
         guard isDefaultTrainingDay(date, program: program) else { return nil }

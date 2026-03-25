@@ -21,9 +21,9 @@ struct FitLogTests {
         let dayKey = TrainingProgramState.dayKey(for: anchor, calendar: cal)
         var program = TrainingProgramState(
             cycleEntries: [
-                ProgramCycleEntry(kind: .concreteWorkout, id: idPush),
-                ProgramCycleEntry(kind: .concreteWorkout, id: idPull),
-                ProgramCycleEntry(kind: .concreteWorkout, id: idLegs)
+                .concreteWorkout(idPush),
+                .concreteWorkout(idPull),
+                .concreteWorkout(idLegs)
             ],
             sessionsPerWeek: 3,
             preferredWeekdays: [2, 4, 6],
@@ -47,7 +47,7 @@ struct FitLogTests {
         let mon = anchor
         let dayKey = TrainingProgramState.dayKey(for: mon, calendar: cal)
         var program = TrainingProgramState(
-            cycleEntries: [ProgramCycleEntry(kind: .concreteWorkout, id: idA)],
+            cycleEntries: [.concreteWorkout(idA)],
             sessionsPerWeek: 3,
             preferredWeekdays: [2, 3, 4],
             anchorDayKey: TrainingProgramState.dayKey(for: anchor, calendar: cal),

@@ -37,7 +37,7 @@ extension DataManager {
         if trainingProgram.cycleEntries.isEmpty {
             lines.append("- Split cycle: (not configured)")
         } else {
-            let names = trainingProgram.cycleEntries.map { cycleEntryDisplayLabel($0) }
+            let names = trainingProgram.cycleEntries.map { planLabel(for: $0) }
             lines.append("- Split cycle (order): \(names.joined(separator: " → "))")
         }
         lines.append("- Sessions per week: \(trainingProgram.sessionsPerWeek)")
