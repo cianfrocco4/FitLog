@@ -36,6 +36,60 @@ final class DataManager: ObservableObject {
         if globalExercises.isEmpty {
             preloadFullExerciseLibrary()
         }
+
+        rotateBackup()
+    }
+
+    // MARK: - Rotating backups
+
+    private static let maxBackups = 2
+
+    /// Snapshot all data to a timestamped JSON file, keeping only the last `maxBackups` files.
+    func rotateBackup() {
+        let dir = URL.applicationSupportDirectory.appending(path: "Backups", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let snapshot = BackupSnapshot(
+            schemaVersion: currentSchemaVersion,
+            exercises: globalExercises,
+            workouts: userWorkouts,
+            templates: userWorkoutTemplates,
+            sessions: completedSessions,
+            program: trainingProgram,
+            displayNames: exerciseLocalDisplayNames
+        )
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd_HHmmss"
+        let fileName = "backup_\(formatter.string(from: Date())).json"
+        let fileURL = dir.appending(path: fileName)
+
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        try? data.write(to: fileURL, options: .atomic)
+
+        pruneOldBackups(in: dir)
+
+        #if DEBUG
+        print("[Backup] Wrote \(fileName) (\(data.count) bytes)")
+        #endif
+    }
+
+    private func pruneOldBackups(in dir: URL) {
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.creationDateKey], options: .skipsHiddenFiles
+        ) else { return }
+
+        let backups = files
+            .filter { $0.pathExtension == "json" && $0.lastPathComponent.hasPrefix("backup_") }
+            .sorted { a, b in
+                let da = (try? a.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+                let db = (try? b.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+                return da > db
+            }
+
+        for old in backups.dropFirst(Self.maxBackups) {
+            try? FileManager.default.removeItem(at: old)
+        }
     }
 
     // MARK: - Workouts

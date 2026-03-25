@@ -11,6 +11,60 @@
 import Foundation
 import SwiftData
 
+// MARK: - Schema versioning
+
+/// Wraps any Codable payload with an integer version tag so future schema
+/// changes can be detected and migrated instead of silently falling back.
+struct VersionedPayload<T: Codable>: Codable {
+    let schemaVersion: Int
+    let data: T
+}
+
+/// Bump this when the JSON shape of any persisted blob changes.
+/// The version history:
+///   1 – initial SwiftData migration (ExerciseSnapshot, SlotResolution, WorkoutPlanRef cycle entries)
+let currentSchemaVersion = 1
+
+/// Encode a value wrapped in a VersionedPayload.
+func versionedEncode<T: Codable>(_ value: T) -> Data {
+    let payload = VersionedPayload(schemaVersion: currentSchemaVersion, data: value)
+    return (try? JSONEncoder().encode(payload)) ?? Data()
+}
+
+/// Decode a value, handling both versioned and pre-versioned (raw) formats.
+/// Returns nil only if both attempts fail.
+func versionedDecode<T: Codable>(_ type: T.Type, from data: Data) -> T? {
+    if let versioned = try? JSONDecoder().decode(VersionedPayload<T>.self, from: data) {
+        // Future: switch on versioned.schemaVersion to apply migrations
+        return versioned.data
+    }
+    // Pre-versioning legacy data — decode directly
+    return try? JSONDecoder().decode(T.self, from: data)
+}
+
+// MARK: - Full-app backup snapshot
+
+struct BackupSnapshot: Codable {
+    let schemaVersion: Int
+    let exercises: [Exercise]
+    let workouts: [Workout]
+    let templates: [WorkoutTemplate]
+    let sessions: [WorkoutSession]
+    let program: TrainingProgramState
+    /// Display names keyed by exercise UUID string.
+    let displayNames: [String: String]
+
+    init(schemaVersion: Int, exercises: [Exercise], workouts: [Workout], templates: [WorkoutTemplate], sessions: [WorkoutSession], program: TrainingProgramState, displayNames: [UUID: String]) {
+        self.schemaVersion = schemaVersion
+        self.exercises = exercises
+        self.workouts = workouts
+        self.templates = templates
+        self.sessions = sessions
+        self.program = program
+        self.displayNames = Dictionary(uniqueKeysWithValues: displayNames.map { ($0.key.uuidString, $0.value) })
+    }
+}
+
 // MARK: - Exercise
 
 @Model
@@ -38,9 +92,9 @@ final class SDExercise {
     }
 
     func toStruct() -> Exercise {
-        let muscleStrings = (try? JSONDecoder().decode([String].self, from: targetedMusclesData)) ?? []
+        let muscleStrings = versionedDecode([String].self, from: targetedMusclesData) ?? []
         let muscles = muscleStrings.map { MuscleGroup(rawValue: $0) ?? .other }
-        let config = (try? JSONDecoder().decode([ExerciseConfigurationOption].self, from: configurationOptionsData)) ?? []
+        let config = versionedDecode([ExerciseConfigurationOption].self, from: configurationOptionsData) ?? []
         let role = ExerciseRole(rawValue: exerciseRoleRaw) ?? .accessory
         let pattern = movementPatternRaw.flatMap { MovementPattern(rawValue: $0) }
         return Exercise(
@@ -51,8 +105,8 @@ final class SDExercise {
     }
 
     static func from(_ e: Exercise) -> SDExercise {
-        let musclesData = (try? JSONEncoder().encode(e.targetedMuscles.map(\.rawValue))) ?? Data()
-        let configData = (try? JSONEncoder().encode(e.configurationOptions)) ?? Data()
+        let musclesData = versionedEncode(e.targetedMuscles.map(\.rawValue))
+        let configData = versionedEncode(e.configurationOptions)
         return SDExercise(
             exerciseId: e.id, name: e.name, exerciseDescription: e.description,
             targetedMusclesData: musclesData,
@@ -82,12 +136,12 @@ final class SDWorkout {
     }
 
     func toStruct() -> Workout {
-        let exercises = (try? JSONDecoder().decode([WorkoutExercise].self, from: exercisesData)) ?? []
+        let exercises = versionedDecode([WorkoutExercise].self, from: exercisesData) ?? []
         return Workout(id: workoutId, name: name, exercises: exercises)
     }
 
     static func from(_ w: Workout, sortOrder: Int) -> SDWorkout {
-        let data = (try? JSONEncoder().encode(w.exercises)) ?? Data()
+        let data = versionedEncode(w.exercises)
         return SDWorkout(workoutId: w.id, name: w.name, exercisesData: data, sortOrder: sortOrder)
     }
 }
@@ -111,12 +165,12 @@ final class SDWorkoutTemplate {
     }
 
     func toStruct() -> WorkoutTemplate {
-        let slots = (try? JSONDecoder().decode([TemplateSlot].self, from: slotsData)) ?? []
+        let slots = versionedDecode([TemplateSlot].self, from: slotsData) ?? []
         return WorkoutTemplate(id: templateId, name: name, slots: slots)
     }
 
     static func from(_ t: WorkoutTemplate, sortOrder: Int) -> SDWorkoutTemplate {
-        let data = (try? JSONEncoder().encode(t.slots)) ?? Data()
+        let data = versionedEncode(t.slots)
         return SDWorkoutTemplate(templateId: t.id, name: t.name, slotsData: data, sortOrder: sortOrder)
     }
 }
@@ -148,13 +202,13 @@ final class SDWorkoutSession {
     }
 
     func toStruct() -> WorkoutSession? {
-        guard let workout = try? JSONDecoder().decode(Workout.self, from: workoutData),
-              let logs = try? JSONDecoder().decode([ExerciseLog].self, from: exerciseLogsData) else {
+        guard let workout = versionedDecode(Workout.self, from: workoutData),
+              let logs = versionedDecode([ExerciseLog].self, from: exerciseLogsData) else {
             return nil
         }
-        let activeIds = (try? JSONDecoder().decode([UUID].self, from: activeExerciseIdsData)) ?? []
-        let completedIds = (try? JSONDecoder().decode([UUID].self, from: completedExerciseIdsData)) ?? []
-        let origin = sessionPlanOriginData.flatMap { try? JSONDecoder().decode(WorkoutPlanRef.self, from: $0) }
+        let activeIds = versionedDecode([UUID].self, from: activeExerciseIdsData) ?? []
+        let completedIds = versionedDecode([UUID].self, from: completedExerciseIdsData) ?? []
+        let origin = sessionPlanOriginData.flatMap { versionedDecode(WorkoutPlanRef.self, from: $0) }
         return WorkoutSession(
             id: sessionId, workout: workout, startTime: startTime, endTime: endTime,
             exerciseLogs: logs, activeExerciseIds: activeIds,
@@ -163,11 +217,11 @@ final class SDWorkoutSession {
     }
 
     static func from(_ s: WorkoutSession) -> SDWorkoutSession {
-        let wData = (try? JSONEncoder().encode(s.workout)) ?? Data()
-        let logsData = (try? JSONEncoder().encode(s.exerciseLogs)) ?? Data()
-        let activeData = (try? JSONEncoder().encode(s.activeExerciseIds)) ?? Data()
-        let completedData = (try? JSONEncoder().encode(s.completedExerciseIds)) ?? Data()
-        let originData = s.sessionPlanOrigin.flatMap { try? JSONEncoder().encode($0) }
+        let wData = versionedEncode(s.workout)
+        let logsData = versionedEncode(s.exerciseLogs)
+        let activeData = versionedEncode(s.activeExerciseIds)
+        let completedData = versionedEncode(s.completedExerciseIds)
+        let originData = s.sessionPlanOrigin.map { versionedEncode($0) }
         return SDWorkoutSession(
             sessionId: s.id, workoutData: wData, startTime: s.startTime, endTime: s.endTime,
             exerciseLogsData: logsData, activeExerciseIdsData: activeData,
@@ -189,11 +243,11 @@ final class SDTrainingProgram {
     }
 
     func toStruct() -> TrainingProgramState? {
-        try? JSONDecoder().decode(TrainingProgramState.self, from: programData)
+        versionedDecode(TrainingProgramState.self, from: programData)
     }
 
     static func from(_ p: TrainingProgramState) -> SDTrainingProgram {
-        let data = (try? JSONEncoder().encode(p)) ?? Data()
+        let data = versionedEncode(p)
         return SDTrainingProgram(programData: data)
     }
 }
