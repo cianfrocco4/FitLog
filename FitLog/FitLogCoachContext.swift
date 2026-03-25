@@ -59,9 +59,14 @@ extension DataManager {
                 continue
             }
             for we in w.exercises {
-                let exName = resolvedDisplayName(for: we.exercise)
-                let muscles = we.exercise.targetedMuscles.prefix(4).map(\.rawValue).joined(separator: ", ")
-                lines.append("- \(exName): \(we.recommendedSets)×\(we.recommendedReps), rest \(we.defaultRestTime)s — muscles: \(muscles)")
+                let exName = displayName(for: we)
+                let muscles: String
+                if let snap = we.snapshot, let ex = resolveExercise(for: snap) {
+                    muscles = ex.targetedMuscles.prefix(4).map(\.rawValue).joined(separator: ", ")
+                } else {
+                    muscles = ""
+                }
+                lines.append("- \(exName): \(we.recommendedSets)×\(we.recommendedReps), rest \(we.defaultRestTime)s\(muscles.isEmpty ? "" : " — muscles: \(muscles)")")
             }
         }
         lines.append("")

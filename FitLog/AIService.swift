@@ -158,7 +158,7 @@ final class AIService: ObservableObject {
     
     // MARK: - Workout suggestions
     /// Builds a short summary of the workout and asks for 2–4 improvement suggestions.
-    func fetchWorkoutSuggestions(for workout: Workout) async throws -> [String] {
+    func fetchWorkoutSuggestions(for workout: Workout, globalExercises: [Exercise] = []) async throws -> [String] {
         if !isConfigured {
             throw AIServiceError.notConfigured
         }
@@ -166,7 +166,7 @@ final class AIService: ObservableObject {
         let cached = cacheQueue.sync { suggestionsCache[key] }
         if let cached = cached { return cached }
         
-        let summary = workoutSummary(workout)
+        let summary = workoutSummary(workout, globalExercises: globalExercises)
         let prompt = """
         Based on this workout plan, give 2–4 short, actionable suggestions to improve balance, volume, or structure. One per line, no numbering or bullets. Be concise.
         \(summary)
@@ -179,15 +179,23 @@ final class AIService: ObservableObject {
     }
     
     private func workoutSummaryKey(_ workout: Workout) -> String {
-        let parts = workout.exercises.map { "\($0.exercise.name):\($0.recommendedSets)" }
+        let parts = workout.exercises.map { "\($0.snapshot?.nameAtTimeOfLog ?? "?"):\($0.recommendedSets)" }
         return parts.joined(separator: "|")
     }
     
-    private func workoutSummary(_ workout: Workout) -> String {
+    private func workoutSummary(_ workout: Workout, globalExercises: [Exercise] = []) -> String {
         var lines: [String] = ["Workout: \(workout.name)"]
         for we in workout.exercises {
-            let muscles = we.exercise.targetedMuscles.prefix(2).map(\.rawValue).joined(separator: ", ")
-            lines.append("- \(we.exercise.name) (\(we.recommendedSets) sets x \(we.recommendedReps)) — \(muscles)")
+            let name: String
+            let muscles: String
+            if let snap = we.snapshot, let ex = globalExercises.first(where: { $0.id == snap.exerciseId }) {
+                name = ex.name
+                muscles = ex.targetedMuscles.prefix(2).map(\.rawValue).joined(separator: ", ")
+            } else {
+                name = we.snapshot?.nameAtTimeOfLog ?? "Unknown"
+                muscles = ""
+            }
+            lines.append("- \(name) (\(we.recommendedSets) sets x \(we.recommendedReps))\(muscles.isEmpty ? "" : " — \(muscles)")")
         }
         return lines.joined(separator: "\n")
     }

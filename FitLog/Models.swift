@@ -204,9 +204,25 @@ struct Exercise: Identifiable, Codable, Equatable, Hashable {
     }
 }
 
+/// Lightweight reference to an exercise, stored inside sessions/history instead of the full Exercise.
+struct ExerciseSnapshot: Codable, Equatable, Hashable {
+    let exerciseId: UUID
+    let nameAtTimeOfLog: String
+
+    init(exerciseId: UUID, nameAtTimeOfLog: String) {
+        self.exerciseId = exerciseId
+        self.nameAtTimeOfLog = nameAtTimeOfLog
+    }
+
+    init(from exercise: Exercise) {
+        self.exerciseId = exercise.id
+        self.nameAtTimeOfLog = exercise.name
+    }
+}
+
 /// Whether a workout exercise row has a concrete exercise or is waiting for the user to pick one.
 enum SlotResolution: Codable, Equatable {
-    case concrete(Exercise)
+    case concrete(ExerciseSnapshot)
     case unresolved(slotLabel: String, templateSlotId: UUID)
 }
 
@@ -219,29 +235,18 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
     var configurationFields: [String] = []
     var recommendedConfigBySet: [[String: String]] = []
 
-    var resolvedExercise: Exercise? {
-        if case .concrete(let ex) = resolution { return ex }
+    /// The snapshot for concrete rows; nil for unresolved slots.
+    var snapshot: ExerciseSnapshot? {
+        if case .concrete(let s) = resolution { return s }
         return nil
     }
+
+    /// The exercise ID for concrete rows; nil for unresolved slots.
+    var exerciseId: UUID? { snapshot?.exerciseId }
 
     var isSlotPlaceholder: Bool {
         if case .unresolved = resolution { return true }
         return false
-    }
-
-    /// The exercise for concrete rows. For unresolved slots, synthesizes a placeholder Exercise
-    /// so legacy code paths that read `.exercise` keep working (history display, analytics, etc.).
-    var exercise: Exercise {
-        get {
-            switch resolution {
-            case .concrete(let ex): return ex
-            case .unresolved(let label, _):
-                return Exercise.unfilledSlotPlaceholder(label: label)
-            }
-        }
-        set {
-            resolution = .concrete(newValue)
-        }
     }
 
     var slotLabel: String {
@@ -266,7 +271,7 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
         self.recommendedConfigBySet = recommendedConfigBySet
     }
 
-    /// Convenience init that mirrors the old API so existing call sites keep compiling.
+    /// Convenience init from a full Exercise (snapshots it automatically).
     init(
         id: UUID,
         exercise: Exercise,
@@ -283,7 +288,7 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
         if isSlotPlaceholder, let tid = templateSlotId {
             self.resolution = .unresolved(slotLabel: slotLabel, templateSlotId: tid)
         } else {
-            self.resolution = .concrete(exercise)
+            self.resolution = .concrete(ExerciseSnapshot(from: exercise))
         }
         self.defaultRestTime = defaultRestTime
         self.recommendedSets = recommendedSets
@@ -292,26 +297,28 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
         self.recommendedConfigBySet = recommendedConfigBySet
     }
 
-    // MARK: - Codable (backward-compatible with old exercise + isSlotPlaceholder format)
+    // MARK: - Codable (backward-compatible with old full-Exercise and SlotResolution<Exercise> formats)
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
 
-        // Try new format first
         if let res = try? c.decode(SlotResolution.self, forKey: .resolution) {
+            // Current format: resolution stores ExerciseSnapshot
             resolution = res
-        } else {
-            // Legacy format: exercise + isSlotPlaceholder + templateSlotId + slotLabel
-            let exercise = try c.decode(Exercise.self, forKey: .exercise)
+        } else if c.contains(.exercise) {
+            // Legacy format: full Exercise object + isSlotPlaceholder flags
+            let fullExercise = try c.decode(Exercise.self, forKey: .exercise)
             let placeholder = (try? c.decode(Bool.self, forKey: .isSlotPlaceholder)) ?? false
             let tid = try? c.decode(UUID.self, forKey: .templateSlotId)
             let label = (try? c.decode(String.self, forKey: .slotLabel)) ?? ""
             if placeholder, let tid {
                 resolution = .unresolved(slotLabel: label, templateSlotId: tid)
             } else {
-                resolution = .concrete(exercise)
+                resolution = .concrete(ExerciseSnapshot(from: fullExercise))
             }
+        } else {
+            resolution = .unresolved(slotLabel: "", templateSlotId: UUID())
         }
 
         defaultRestTime = (try? c.decode(Int.self, forKey: .defaultRestTime)) ?? 90
@@ -325,8 +332,6 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)
         try c.encode(resolution, forKey: .resolution)
-        // Also write legacy fields so an older app version can still read the data
-        try c.encode(exercise, forKey: .exercise)
         try c.encode(defaultRestTime, forKey: .defaultRestTime)
         try c.encode(recommendedSets, forKey: .recommendedSets)
         try c.encode(recommendedReps, forKey: .recommendedReps)

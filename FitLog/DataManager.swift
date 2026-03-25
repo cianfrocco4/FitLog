@@ -266,7 +266,7 @@ final class DataManager: ObservableObject {
             }()
             let resolution: SlotResolution
             if let ex = resolvedFromDefault {
-                resolution = .concrete(ex)
+                resolution = .concrete(ExerciseSnapshot(from: ex))
             } else {
                 resolution = .unresolved(slotLabel: slot.label, templateSlotId: slot.id)
             }
@@ -333,10 +333,11 @@ final class DataManager: ObservableObject {
     func updateExercise(_ exercise: Exercise) {
         guard let idx = globalExercises.firstIndex(where: { $0.id == exercise.id }) else { return }
         globalExercises[idx] = exercise
+        let snap = ExerciseSnapshot(from: exercise)
         for i in userWorkouts.indices {
             for j in userWorkouts[i].exercises.indices {
-                if userWorkouts[i].exercises[j].resolvedExercise?.id == exercise.id {
-                    userWorkouts[i].exercises[j].resolution = .concrete(exercise)
+                if userWorkouts[i].exercises[j].exerciseId == exercise.id {
+                    userWorkouts[i].exercises[j].resolution = .concrete(snap)
                 }
             }
         }
@@ -348,7 +349,7 @@ final class DataManager: ObservableObject {
         clearLocalExerciseDisplayName(for: exercise.id)
         globalExercises.removeAll { $0.id == exercise.id }
         for i in userWorkouts.indices {
-            userWorkouts[i].exercises.removeAll { $0.resolvedExercise?.id == exercise.id }
+            userWorkouts[i].exercises.removeAll { $0.exerciseId == exercise.id }
         }
         saveExercises()
         saveWorkouts()
@@ -363,6 +364,34 @@ final class DataManager: ObservableObject {
             if !t.isEmpty { return t }
         }
         return canonical
+    }
+
+    /// Display name resolved from a lightweight snapshot — prefers the live library name,
+    /// then local rename, then falls back to the name captured at time of logging.
+    func displayName(for snapshot: ExerciseSnapshot) -> String {
+        if let ex = globalExercises.first(where: { $0.id == snapshot.exerciseId }) {
+            return resolvedDisplayName(for: ex)
+        }
+        if let custom = exerciseLocalDisplayNames[snapshot.exerciseId] {
+            let t = custom.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !t.isEmpty { return t }
+        }
+        return snapshot.nameAtTimeOfLog
+    }
+
+    /// Resolve a snapshot to the current global Exercise if it still exists.
+    func resolveExercise(for snapshot: ExerciseSnapshot) -> Exercise? {
+        globalExercises.first { $0.id == snapshot.exerciseId }
+    }
+
+    /// Display name for a WorkoutExercise, handling both concrete and unresolved states.
+    func displayName(for we: WorkoutExercise) -> String {
+        switch we.resolution {
+        case .concrete(let snap):
+            return displayName(for: snap)
+        case .unresolved(let label, _):
+            return label.isEmpty ? "Choose exercise" : label
+        }
     }
 
     func hasLocalDisplayName(for exerciseId: UUID) -> Bool {

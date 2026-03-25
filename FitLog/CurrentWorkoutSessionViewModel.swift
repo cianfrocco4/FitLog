@@ -67,7 +67,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             exerciseLogs: logs,
             sessionPlanOrigin: sessionPlanOrigin
         )
-        if let firstId = workout.exercises.first?.resolvedExercise?.id {
+        if let firstId = workout.exercises.first?.exerciseId {
             session.activeExerciseIds = [firstId]
         }
         session.completedExerciseIds = []
@@ -226,11 +226,12 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     /// Replace a template slot placeholder with a real exercise while preserving `WorkoutExercise.id` (stable for logs).
     func resolveSlotPlaceholder(workoutExerciseId: UUID, exercise: Exercise) {
         guard var session = currentSession else { return }
+        let snap = ExerciseSnapshot(from: exercise)
         if let wi = session.workout.exercises.firstIndex(where: { $0.id == workoutExerciseId }) {
-            session.workout.exercises[wi].resolution = .concrete(exercise)
+            session.workout.exercises[wi].resolution = .concrete(snap)
         }
         if let li = session.exerciseLogs.firstIndex(where: { $0.workoutExercise.id == workoutExerciseId }) {
-            session.exerciseLogs[li].workoutExercise.resolution = .concrete(exercise)
+            session.exerciseLogs[li].workoutExercise.resolution = .concrete(snap)
         }
         currentSession = session
         saveActiveSession()
@@ -238,7 +239,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     
     func logSet(exerciseIndex: Int, weight: Double, reps: Int, restTime: Int, isWarmup: Bool = false, configuration: [String: String] = [:], dropSegments: [DropSetSegment] = []) {
         guard var session = currentSession, exerciseIndex < session.exerciseLogs.count else { return }
-        guard let exId = session.exerciseLogs[exerciseIndex].workoutExercise.resolvedExercise?.id else { return }
+        guard let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exerciseId else { return }
 
         let set = LoggedSet(id: UUID(), weight: weight, reps: reps, restTime: restTime, timestamp: Date(), isWarmup: isWarmup, configuration: configuration, dropSegments: dropSegments)
         session.exerciseLogs[exerciseIndex].loggedSets.append(set)
@@ -338,7 +339,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         guard var session = currentSession, exerciseIndex < session.exerciseLogs.count, setIndex < session.exerciseLogs[exerciseIndex].loggedSets.count else { return }
         
         session.exerciseLogs[exerciseIndex].loggedSets.remove(at: setIndex)
-        guard let exId = session.exerciseLogs[exerciseIndex].workoutExercise.resolvedExercise?.id else { return }
+        guard let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exerciseId else { return }
         // If no sets remain, this exercise is no longer active or completed.
         if session.exerciseLogs[exerciseIndex].loggedSets.isEmpty {
             session.activeExerciseIds.removeAll { $0 == exId }

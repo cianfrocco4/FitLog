@@ -159,14 +159,7 @@ struct CurrentWorkoutPullUpSheet: View {
                                 } label: {
                                     HStack {
                                         VStack(alignment: .leading, spacing: 2) {
-                                            Text({
-                                                switch log.workoutExercise.resolution {
-                                                case .concrete(let ex):
-                                                    return dataVM.resolvedDisplayName(for: ex)
-                                                case .unresolved(let label, _):
-                                                    return label.isEmpty ? "Choose exercise" : label
-                                                }
-                                            }())
+                                            Text(dataVM.displayName(for: log.workoutExercise))
                                                 .font(.headline)
                                             HStack(spacing: 6) {
                                                 statusDot(for: log)
@@ -216,7 +209,7 @@ struct CurrentWorkoutPullUpSheet: View {
                                             .tint(.blue)
 
                                             Menu {
-                                                if let exId = log.workoutExercise.resolvedExercise?.id {
+                                                if let exId = log.workoutExercise.exerciseId {
                                                     Button("Set as current") {
                                                         currentVM.setPrimaryExercise(exerciseId: exId)
                                                     }
@@ -313,13 +306,13 @@ struct CurrentWorkoutPullUpSheet: View {
         }
         let allSessions = dataVM.completedSessions
 
-        guard let exerciseId = currentLog.workoutExercise.resolvedExercise?.id else { return nil }
+        guard let exerciseId = currentLog.workoutExercise.exerciseId else { return nil }
 
         func latestLog(in sessions: [WorkoutSession], for exerciseId: UUID) -> ExerciseLog? {
             var latest: (ExerciseLog, Date)?
 
             for session in sessions {
-                for log in session.exerciseLogs where log.workoutExercise.resolvedExercise?.id == exerciseId {
+                for log in session.exerciseLogs where log.workoutExercise.exerciseId == exerciseId {
                     // Only consider logs that actually have sets logged.
                     guard let lastSetTime = log.loggedSets.max(by: { $0.timestamp < $1.timestamp })?.timestamp else {
                         continue
@@ -470,19 +463,19 @@ struct CurrentWorkoutPullUpSheet: View {
 
     private func isExerciseActive(_ log: ExerciseLog) -> Bool {
         guard let session = currentVM.currentSession,
-              let id = log.workoutExercise.resolvedExercise?.id else { return false }
+              let id = log.workoutExercise.exerciseId else { return false }
         return session.activeExerciseIds.contains(id)
     }
 
     private func isExerciseCompleted(_ log: ExerciseLog) -> Bool {
         guard let session = currentVM.currentSession,
-              let id = log.workoutExercise.resolvedExercise?.id else { return false }
+              let id = log.workoutExercise.exerciseId else { return false }
         return session.completedExerciseIds.contains(id)
     }
 
     private func isPrimaryExercise(_ log: ExerciseLog) -> Bool {
         guard let session = currentVM.currentSession,
-              let id = log.workoutExercise.resolvedExercise?.id else { return false }
+              let id = log.workoutExercise.exerciseId else { return false }
         return session.activeExerciseIds.first == id
     }
 

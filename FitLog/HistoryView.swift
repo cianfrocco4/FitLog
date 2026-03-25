@@ -452,7 +452,8 @@ struct HistoryView: View {
         var byId: [UUID: (sample: Exercise, sessions: Set<UUID>, sets: Int, volume: Double)] = [:]
         for session in sessions {
             for log in session.exerciseLogs {
-                guard let ex = log.workoutExercise.resolvedExercise else { continue }
+                guard let snap = log.workoutExercise.snapshot,
+                      let ex = dataVM.resolveExercise(for: snap) else { continue }
                 var entry = byId[ex.id] ?? (sample: ex, sessions: [], sets: 0, volume: 0)
                 entry.sessions.insert(session.id)
                 entry.sets += log.loggedSets.count
@@ -475,7 +476,8 @@ struct HistoryView: View {
         var byGroup: [String: (sessions: Set<UUID>, exercises: Set<UUID>)] = [:]
         for session in sessions {
             for log in session.exerciseLogs {
-                guard let ex = log.workoutExercise.resolvedExercise else { continue }
+                guard let snap = log.workoutExercise.snapshot,
+                      let ex = dataVM.resolveExercise(for: snap) else { continue }
                 let muscles = ex.targetedMuscles
                 if muscles.isEmpty {
                     let g = MuscleGroup.other.rawValue
@@ -543,7 +545,7 @@ private struct SessionDetailView: View {
                 }
             }
             ForEach(session.exerciseLogs) { log in
-                Section(dataVM.resolvedDisplayName(for: log.workoutExercise.exercise)) {
+                Section(dataVM.displayName(for: log.workoutExercise)) {
                     ForEach(log.loggedSets) { set in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
@@ -615,7 +617,7 @@ private struct ExerciseHistoryDetailView: View {
 
     private var sessionLogs: [(session: WorkoutSession, log: ExerciseLog)] {
         sessions.compactMap { session in
-            guard let log = session.exerciseLogs.first(where: { $0.workoutExercise.resolvedExercise?.id == exerciseId }) else { return nil }
+            guard let log = session.exerciseLogs.first(where: { $0.workoutExercise.exerciseId == exerciseId }) else { return nil }
             return (session, log)
         }.sorted { ($0.session.endTime ?? $0.session.startTime) > ($1.session.endTime ?? $1.session.startTime) }
     }
@@ -625,7 +627,7 @@ private struct ExerciseHistoryDetailView: View {
             return dataVM.resolvedDisplayName(for: ex)
         }
         if let log = sessionLogs.first?.log {
-            return dataVM.resolvedDisplayName(for: log.workoutExercise.exercise)
+            return dataVM.displayName(for: log.workoutExercise)
         }
         return "Exercise"
     }
@@ -687,7 +689,8 @@ private struct MuscleGroupHistoryDetailView: View {
     private var sessionLogs: [(session: WorkoutSession, logs: [ExerciseLog])] {
         sessions.compactMap { session in
             let logs = session.exerciseLogs.filter { log in
-                guard let ex = log.workoutExercise.resolvedExercise else { return false }
+                guard let snap = log.workoutExercise.snapshot,
+                      let ex = dataVM.resolveExercise(for: snap) else { return false }
                 return ex.targetedMuscles.contains(where: { $0.rawValue == muscleGroupName })
                     || (ex.targetedMuscles.isEmpty && muscleGroupName == MuscleGroup.other.rawValue)
             }
@@ -713,7 +716,7 @@ private struct MuscleGroupHistoryDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(item.logs) { log in
-                        DisclosureGroup(dataVM.resolvedDisplayName(for: log.workoutExercise.exercise)) {
+                        DisclosureGroup(dataVM.displayName(for: log.workoutExercise)) {
                             ForEach(log.loggedSets) { set in
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack {

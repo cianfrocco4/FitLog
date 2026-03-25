@@ -50,8 +50,8 @@ struct WorkoutPlanView: View {
             return enumerated
         case .alphabetical:
             return enumerated.sorted {
-                dataVM.resolvedDisplayName(for: $0.workoutExercise.exercise)
-                    .localizedCaseInsensitiveCompare(dataVM.resolvedDisplayName(for: $1.workoutExercise.exercise)) == .orderedAscending
+                dataVM.displayName(for: $0.workoutExercise)
+                    .localizedCaseInsensitiveCompare(dataVM.displayName(for: $1.workoutExercise)) == .orderedAscending
             }
         case .byMuscleGroup:
             return enumerated
@@ -62,12 +62,16 @@ struct WorkoutPlanView: View {
     private var displayedSections: [(String, [ExerciseDisplayItem])] {
         let enumerated = workout.exercises.enumerated().map { ExerciseDisplayItem(workoutExercise: $0.element, sourceIndex: $0.offset) }
         let grouped = Dictionary(grouping: enumerated) { item -> String in
-            item.workoutExercise.exercise.targetedMuscles.first?.rawValue ?? MuscleGroup.other.rawValue
+            if let snap = item.workoutExercise.snapshot,
+               let ex = dataVM.resolveExercise(for: snap) {
+                return ex.targetedMuscles.first?.rawValue ?? MuscleGroup.other.rawValue
+            }
+            return MuscleGroup.other.rawValue
         }
         return grouped.keys.sorted().map { key in
             (key, (grouped[key] ?? []).sorted {
-                dataVM.resolvedDisplayName(for: $0.workoutExercise.exercise)
-                    .localizedCaseInsensitiveCompare(dataVM.resolvedDisplayName(for: $1.workoutExercise.exercise)) == .orderedAscending
+                dataVM.displayName(for: $0.workoutExercise)
+                    .localizedCaseInsensitiveCompare(dataVM.displayName(for: $1.workoutExercise)) == .orderedAscending
             })
         }
     }
@@ -76,7 +80,7 @@ struct WorkoutPlanView: View {
     private var displayedSuggestions: [String] {
         switch suggestionsResult {
         case .success(let list): return list
-        case .failure, .none: return heuristicImprovementSuggestions(for: workout)
+        case .failure, .none: return heuristicImprovementSuggestions(for: workout, dataVM: dataVM)
         }
     }
 
@@ -227,7 +231,7 @@ struct WorkoutPlanView: View {
             }
         } label: {
             HStack {
-                Text(dataVM.resolvedDisplayName(for: we.exercise)).font(.headline)
+                Text(dataVM.displayName(for: we)).font(.headline)
                 Spacer()
                 Text("Rec: \(we.recommendedSets) sets x \(we.recommendedReps)")
                     .font(.caption)
@@ -238,14 +242,14 @@ struct WorkoutPlanView: View {
 
     private func loadSuggestions() async {
         guard aiService.isConfigured else {
-            suggestionsResult = .success(heuristicImprovementSuggestions(for: workout))
+            suggestionsResult = .success(heuristicImprovementSuggestions(for: workout, dataVM: dataVM))
             return
         }
         suggestionsLoading = true
         suggestionsResult = nil
         defer { suggestionsLoading = false }
         do {
-            let list = try await aiService.fetchWorkoutSuggestions(for: workout)
+            let list = try await aiService.fetchWorkoutSuggestions(for: workout, globalExercises: dataVM.globalExercises)
             suggestionsResult = .success(list)
         } catch {
             suggestionsResult = .failure(error)
@@ -254,14 +258,19 @@ struct WorkoutPlanView: View {
 }
 
 // MARK: - Heuristic fallback suggestions
-private func heuristicImprovementSuggestions(for workout: Workout) -> [String] {
+private func heuristicImprovementSuggestions(for workout: Workout, dataVM: DataManager) -> [String] {
     guard !workout.exercises.isEmpty else {
         return ["Add 4–6 compound and accessory movements that cover all major muscle groups you want to train."]
     }
     var suggestions: [String] = []
     var setsByMuscle: [MuscleGroup: Int] = [:]
     for we in workout.exercises {
-        let primary = we.exercise.targetedMuscles.first ?? .other
+        let primary: MuscleGroup
+        if let snap = we.snapshot, let ex = dataVM.resolveExercise(for: snap) {
+            primary = ex.targetedMuscles.first ?? .other
+        } else {
+            primary = .other
+        }
         setsByMuscle[primary, default: 0] += we.recommendedSets
     }
     let quadSets = (setsByMuscle[.quads] ?? 0)

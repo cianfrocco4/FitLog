@@ -46,7 +46,7 @@ struct LogSetView: View {
 
     private var isSupersetContext: Bool {
         guard let session = sessionVM.currentSession,
-              let id = workoutExercise?.resolvedExercise?.id else { return false }
+              let id = workoutExercise?.exerciseId else { return false }
         return session.activeExerciseIds.count > 1 && session.activeExerciseIds.contains(id)
     }
 
@@ -266,18 +266,18 @@ struct LogSetView: View {
                 dropSetEnabled = false
                 dropRows = []
             }
-            restAfterThisSet = isSupersetContextForSession(session, exerciseId: currentLog.workoutExercise.resolvedExercise?.id)
+            restAfterThisSet = isSupersetContextForSession(session, exerciseId: currentLog.workoutExercise.exerciseId)
                 ? (restTime > 0)
                 : true
             return
         }
 
-        let targetExerciseId = currentLog.workoutExercise.resolvedExercise?.id
+        let targetExerciseId = currentLog.workoutExercise.exerciseId
         guard let targetExerciseId else { return }
         var latestSet: LoggedSet?
 
         for pastSession in dataVM.completedSessions {
-            for log in pastSession.exerciseLogs where log.workoutExercise.resolvedExercise?.id == targetExerciseId {
+            for log in pastSession.exerciseLogs where log.workoutExercise.exerciseId == targetExerciseId {
                 for set in log.loggedSets {
                     if let existing = latestSet {
                         if set.timestamp > existing.timestamp {
@@ -317,11 +317,11 @@ struct LogSetView: View {
             dropRows = []
         }
 
-        if isSupersetContextForSession(session, exerciseId: currentLog.workoutExercise.resolvedExercise?.id),
+        if isSupersetContextForSession(session, exerciseId: currentLog.workoutExercise.exerciseId),
            currentLog.loggedSets.isEmpty {
             restTime = 0
         }
-        restAfterThisSet = isSupersetContextForSession(session, exerciseId: currentLog.workoutExercise.resolvedExercise?.id)
+        restAfterThisSet = isSupersetContextForSession(session, exerciseId: currentLog.workoutExercise.exerciseId)
             ? (restTime > 0)
             : true
     }
@@ -343,11 +343,11 @@ struct LogSetView: View {
             return last.restTime
         }
 
-        guard let targetExerciseId2 = currentLog.workoutExercise.resolvedExercise?.id else { return 90 }
+        guard let targetExerciseId2 = currentLog.workoutExercise.exerciseId else { return 90 }
         var latestSet: LoggedSet?
 
         for pastSession in dataVM.completedSessions {
-            for log in pastSession.exerciseLogs where log.workoutExercise.resolvedExercise?.id == targetExerciseId2 {
+            for log in pastSession.exerciseLogs where log.workoutExercise.exerciseId == targetExerciseId2 {
                 for set in log.loggedSets {
                     if let existing = latestSet {
                         if set.timestamp > existing.timestamp {
