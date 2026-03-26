@@ -72,7 +72,15 @@ struct AISplitBuilderView: View {
     @State private var isApplying = false
     @State private var errorBanner: String?
 
+    @State private var currentStep: WizardStep = .goals
+
     private var calendar: Calendar { .current }
+
+    private enum WizardStep: Int, CaseIterable {
+        case goals
+        case schedule
+        case details
+    }
 
     var body: some View {
         NavigationStack {
@@ -80,7 +88,7 @@ struct AISplitBuilderView: View {
                 if let p = proposal {
                     previewContent(p)
                 } else {
-                    formContent
+                    wizardContent
                 }
             }
             .navigationTitle(proposal == nil ? "AI split builder" : "Preview split")
@@ -93,12 +101,105 @@ struct AISplitBuilderView: View {
         }
     }
 
-    private var formContent: some View {
+    // MARK: - Wizard
+
+    private var wizardContent: some View {
+        VStack(spacing: 0) {
+            stepIndicator
+                .padding(.horizontal)
+                .padding(.top, 8)
+
+            TabView(selection: $currentStep) {
+                goalsPage.tag(WizardStep.goals)
+                schedulePage.tag(WizardStep.schedule)
+                detailsPage.tag(WizardStep.details)
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .animation(.easeInOut(duration: 0.25), value: currentStep)
+
+            wizardNavigationButtons
+                .padding(.horizontal)
+                .padding(.bottom, 8)
+        }
+    }
+
+    private var stepIndicator: some View {
+        let labels = ["Goals", "Schedule", "Details"]
+        return HStack(spacing: 0) {
+            ForEach(WizardStep.allCases, id: \.rawValue) { step in
+                VStack(spacing: 4) {
+                    Circle()
+                        .fill(step.rawValue <= currentStep.rawValue ? Color.accentColor : Color.secondary.opacity(0.3))
+                        .frame(width: 10, height: 10)
+                    Text(labels[step.rawValue])
+                        .font(.caption2.weight(step == currentStep ? .semibold : .regular))
+                        .foregroundStyle(step.rawValue <= currentStep.rawValue ? .primary : .secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if step.rawValue <= currentStep.rawValue {
+                        currentStep = step
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
+    @ViewBuilder
+    private var wizardNavigationButtons: some View {
+        HStack {
+            if currentStep != .goals {
+                Button {
+                    if let prev = WizardStep(rawValue: currentStep.rawValue - 1) {
+                        currentStep = prev
+                    }
+                } label: {
+                    Label("Back", systemImage: "chevron.left")
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Spacer()
+
+            if currentStep == .details {
+                Button {
+                    Task { await generate() }
+                } label: {
+                    if isGenerating {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Generating\u{2026}")
+                        }
+                    } else {
+                        Label("Generate split", systemImage: "sparkles")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!aiService.isConfigured || isGenerating)
+            } else {
+                Button {
+                    if let next = WizardStep(rawValue: currentStep.rawValue + 1) {
+                        currentStep = next
+                    }
+                } label: {
+                    Label("Next", systemImage: "chevron.right")
+                        .labelStyle(TrailingIconLabelStyle())
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
+    // MARK: - Step 1: Goals
+
+    private var goalsPage: some View {
         Form {
             if !aiService.isConfigured {
-                Section {
-                    notConfiguredBanner
-                }
+                Section { notConfiguredBanner }
             }
 
             Section {
@@ -130,31 +231,50 @@ struct AISplitBuilderView: View {
             } header: {
                 Text("Your training")
             } footer: {
-                Text("Day definition controls whether the AI outputs fixed exercise lists, open slots (muscle + optional exercise hint), or a mix. These answers are sent to the coach to shape your split.")
+                Text("Day definition controls whether the AI outputs fixed exercise lists, open slots (muscle + optional exercise hint), or a mix.")
             }
+        }
+    }
 
+    // MARK: - Step 2: Schedule
+
+    private var schedulePage: some View {
+        Form {
             Section {
                 Stepper("Sessions per week: \(sessionsPerWeek)", value: $sessionsPerWeek, in: 1...7)
-                Text("Preferred training days (optional). Leave none selected to use the app default Mon–Fri pool.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 weekdayMultiSelect
             } header: {
                 Text("Availability")
+            } footer: {
+                Text("Pick your preferred training days, or leave none selected for the default Mon\u{2013}Fri pool.")
             }
 
+            if !selectedWeekdays.isEmpty && sessionsPerWeek > selectedWeekdays.count {
+                Section {
+                    Label(
+                        "You selected \(sessionsPerWeek) sessions but only \(selectedWeekdays.count) training day\(selectedWeekdays.count == 1 ? "" : "s")",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                }
+            }
+        }
+    }
+
+    // MARK: - Step 3: Details + Generate
+
+    private var detailsPage: some View {
+        Form {
             Section {
-                TextField("Injuries or movements to avoid (optional)", text: $limitationsNotes, axis: .vertical)
+                TextField("Injuries or movements to avoid", text: $limitationsNotes, axis: .vertical)
                     .lineLimit(2...4)
-                TextField("Anything else we should know? (optional)", text: $additionalNotes, axis: .vertical)
+                TextField("Anything else we should know?", text: $additionalNotes, axis: .vertical)
                     .lineLimit(2...4)
-                Text("Up to \(SplitBuilderLimits.maxOptionalFieldChars) characters in each optional field.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
             } header: {
                 Text("Optional details")
             } footer: {
-                Text("Examples: bad shoulder, no overhead pressing, prefer short workouts.")
+                Text("Examples: bad shoulder, no overhead pressing, prefer short workouts. Up to \(SplitBuilderLimits.maxOptionalFieldChars) characters each.")
             }
 
             Section {
@@ -162,22 +282,6 @@ struct AISplitBuilderView: View {
                 Text("When on, your Plan cycle and weekly schedule update to this split. When off, only new workout templates are created.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-
-            Section {
-                Button {
-                    Task { await generate() }
-                } label: {
-                    if isGenerating {
-                        HStack {
-                            ProgressView()
-                            Text("Generating…")
-                        }
-                    } else {
-                        Label("Generate split", systemImage: "sparkles")
-                    }
-                }
-                .disabled(!aiService.isConfigured || isGenerating)
             }
 
             if let err = errorBanner {
@@ -452,5 +556,14 @@ struct AISplitBuilderView: View {
         )
 
         dismiss()
+    }
+}
+
+private struct TrailingIconLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 4) {
+            configuration.title
+            configuration.icon
+        }
     }
 }
