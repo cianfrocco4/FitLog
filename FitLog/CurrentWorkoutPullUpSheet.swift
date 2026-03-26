@@ -186,7 +186,7 @@ struct CurrentWorkoutPullUpSheet: View {
                 }
 
                 if let session = currentVM.currentSession, session.activeExerciseIds.count > 1 {
-                    Text("Superset active: in Log Set, leave “Rest after this set” off until the last move of the round.")
+                    Text("Superset active — rest is handled automatically based on round position.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
