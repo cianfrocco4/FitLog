@@ -400,16 +400,29 @@ struct HomeView: View {
 
     private func weekStripDayColumn(weekday: Int, date: Date, hasWorkout: Bool, calendar: Calendar) -> some View {
         let isToday = calendar.isDateInToday(date)
-        return VStack(spacing: 6) {
+        return VStack(spacing: 4) {
             Text(shortWeekdayLabel(weekday, calendar: calendar))
-                .font(.caption2.weight(isToday ? .semibold : .regular))
+                .font(.caption2.weight(isToday ? .bold : .regular))
                 .foregroundStyle(isToday ? .primary : .secondary)
-            Capsule()
-                .fill(hasWorkout ? Color.accentColor : Color.secondary.opacity(0.2))
-                .frame(width: isToday ? 10 : 8, height: isToday ? 5 : 4)
-                .accessibilityHidden(true)
+
+            ZStack {
+                Circle()
+                    .fill(isToday ? Color.accentColor.opacity(0.15) : Color.clear)
+                    .frame(width: 28, height: 28)
+                if hasWorkout {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(.green)
+                } else {
+                    Circle()
+                        .stroke(Color.secondary.opacity(0.4), lineWidth: 1.5)
+                        .frame(width: 18, height: 18)
+                }
+            }
         }
         .accessibilityLabel(weekDayAccessibilityLabel(weekday: weekday, date: date, hasWorkout: hasWorkout, calendar: calendar))
+        .accessibilityAddTraits(hasWorkout ? .isSelected : [])
+        .accessibilityValue(hasWorkout ? "completed" : "not completed")
     }
 
     private func weekDayAccessibilityLabel(weekday: Int, date: Date, hasWorkout: Bool, calendar: Calendar) -> String {
