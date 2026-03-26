@@ -256,9 +256,12 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             session.activeExerciseIds.removeAll { $0 == current }
         }
 
-        // Ensure this exercise is active and primary.
-        session.activeExerciseIds.removeAll { $0 == exId }
-        session.activeExerciseIds.insert(exId, at: 0)
+        if isAlreadyActive {
+            // Already in superset — keep existing order stable.
+        } else {
+            // New exercise — make it active and primary (insert at front).
+            session.activeExerciseIds.insert(exId, at: 0)
+        }
 
         // Once we log a set again, it is no longer considered explicitly completed.
         session.completedExerciseIds.removeAll { $0 == exId }

@@ -19,6 +19,12 @@ private struct EditableDropRow: Identifiable {
     }
 }
 
+private struct SupersetPosition {
+    let exerciseIndex: Int
+    let totalInRound: Int
+    let isLastInRound: Bool
+}
+
 struct LogSetView: View {
     /// Passed in instead of `@EnvironmentObject` so rest/workout timers on the session VM do not
     /// re-render this sheet every second (which could re-run `onAppear` and wipe weight while typing).
@@ -36,8 +42,8 @@ struct LogSetView: View {
     @State private var configValues: [String: String] = [:]
     @State private var dropSetEnabled = false
     @State private var dropRows: [EditableDropRow] = []
-    /// When false, rest is treated as intra-superset (saved as 0). Only shown in superset context.
-    @State private var restAfterThisSet = true
+    /// Manual override for superset rest. `nil` = use auto-determined value.
+    @State private var restOverride: Bool?
 
     private var workoutExercise: WorkoutExercise? {
         guard let session = sessionVM.currentSession, exerciseIndex < session.exerciseLogs.count else { return nil }
@@ -45,9 +51,29 @@ struct LogSetView: View {
     }
 
     private var isSupersetContext: Bool {
+        supersetPosition != nil
+    }
+
+    private var supersetPosition: SupersetPosition? {
         guard let session = sessionVM.currentSession,
-              let id = workoutExercise?.exerciseId else { return false }
-        return session.activeExerciseIds.count > 1 && session.activeExerciseIds.contains(id)
+              let id = workoutExercise?.exerciseId,
+              session.activeExerciseIds.count > 1,
+              let idx = session.activeExerciseIds.firstIndex(of: id)
+        else { return nil }
+        return SupersetPosition(
+            exerciseIndex: idx,
+            totalInRound: session.activeExerciseIds.count,
+            isLastInRound: idx == session.activeExerciseIds.count - 1
+        )
+    }
+
+    private var autoRestAfterSet: Bool {
+        guard let pos = supersetPosition else { return true }
+        return pos.isLastInRound
+    }
+
+    private var effectiveRestAfterSet: Bool {
+        restOverride ?? autoRestAfterSet
     }
 
     private static let weightRange: ClosedRange<Double> = 0...1100
@@ -140,14 +166,47 @@ struct LogSetView: View {
                         step: 1
                     )
 
-                    if isSupersetContext {
-                        Toggle("Rest after this set", isOn: $restAfterThisSet)
-                        Text("Turn on when this set finishes the superset round so rest and the timer run.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    if let pos = supersetPosition {
+                        HStack {
+                            Text("Superset \(pos.exerciseIndex + 1) of \(pos.totalInRound)")
+                                .font(.caption.weight(.medium))
+                            Spacer()
+                            if effectiveRestAfterSet {
+                                Label("Rest starts after this set", systemImage: "timer")
+                                    .font(.caption)
+                                    .foregroundStyle(.blue)
+                            } else {
+                                Label("No rest \u{2014} next exercise in round", systemImage: "arrow.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onLongPressGesture {
+                            let current = effectiveRestAfterSet
+                            restOverride = !current
+                            if restOverride == true {
+                                restTime = suggestedRestForNextSet()
+                            } else {
+                                restTime = 0
+                            }
+                        }
+                        if restOverride != nil {
+                            HStack {
+                                Text("Manual override active")
+                                    .font(.caption2)
+                                    .foregroundStyle(.orange)
+                                Spacer()
+                                Button("Reset to auto") {
+                                    restOverride = nil
+                                    restTime = autoRestAfterSet ? suggestedRestForNextSet() : 0
+                                }
+                                .font(.caption2)
+                            }
+                        }
                     }
 
-                    if !isSupersetContext || restAfterThisSet {
+                    if effectiveRestAfterSet {
                         Stepper(
                             "Rest after set: \(restTime)s",
                             value: $restTime,
@@ -196,14 +255,7 @@ struct LogSetView: View {
             .onAppear {
                 prefillFromRecentSet()
             }
-            .onChange(of: restAfterThisSet) { _, on in
-                guard isSupersetContext else { return }
-                if on {
-                    restTime = suggestedRestForNextSet()
-                } else {
-                    restTime = 0
-                }
-            }
+            
             .onChange(of: dropSetEnabled) { _, on in
                 if on, dropRows.isEmpty {
                     dropRows = [EditableDropRow()]
@@ -219,7 +271,7 @@ struct LogSetView: View {
                 
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        let effectiveRest = (isSupersetContext && !restAfterThisSet) ? 0 : restTime
+                        let effectiveRest = (isSupersetContext && !effectiveRestAfterSet) ? 0 : restTime
                         sessionVM.logSet(
                             exerciseIndex: exerciseIndex,
                             weight: weight,
@@ -266,9 +318,10 @@ struct LogSetView: View {
                 dropSetEnabled = false
                 dropRows = []
             }
-            restAfterThisSet = isSupersetContextForSession(session, exerciseId: currentLog.workoutExercise.exerciseId)
-                ? (restTime > 0)
-                : true
+            restOverride = nil
+            if isSupersetContext && !autoRestAfterSet {
+                restTime = 0
+            }
             return
         }
 
@@ -317,21 +370,13 @@ struct LogSetView: View {
             dropRows = []
         }
 
-        if isSupersetContextForSession(session, exerciseId: currentLog.workoutExercise.exerciseId),
-           currentLog.loggedSets.isEmpty {
+        restOverride = nil
+        if isSupersetContext && !autoRestAfterSet {
             restTime = 0
         }
-        restAfterThisSet = isSupersetContextForSession(session, exerciseId: currentLog.workoutExercise.exerciseId)
-            ? (restTime > 0)
-            : true
     }
 
-    private func isSupersetContextForSession(_ session: WorkoutSession, exerciseId: UUID?) -> Bool {
-        guard let exerciseId else { return false }
-        return session.activeExerciseIds.count > 1 && session.activeExerciseIds.contains(exerciseId)
-    }
-
-    /// Rest duration to use when turning “Rest after this set” on (matches prefill priority).
+    /// Rest duration for this exercise (matches prefill priority: current session > history > default).
     private func suggestedRestForNextSet() -> Int {
         guard let session = sessionVM.currentSession,
               exerciseIndex < session.exerciseLogs.count
