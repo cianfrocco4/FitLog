@@ -50,6 +50,47 @@ private enum ExperiencePick: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+// MARK: - Editable proposal models
+
+private struct EditableExercise: Identifiable {
+    let id = UUID()
+    var name: String
+    var sets: Int
+    var reps: String
+}
+
+private struct EditableSlot: Identifiable {
+    let id = UUID()
+    var label: String
+    var targetMuscleNames: [String]
+    var sets: Int
+    var reps: String
+    var suggestedExerciseName: String?
+}
+
+private struct EditableDay: Identifiable {
+    let id = UUID()
+    var name: String
+    var focus: String
+    var isSlotDay: Bool
+    var exercises: [EditableExercise]
+    var slots: [EditableSlot]
+}
+
+extension EditableDay {
+    init(from day: WorkoutSplitProposalDay) {
+        self.name = day.name
+        self.focus = day.focus ?? ""
+        self.isSlotDay = day.isSlotTemplateDay
+        self.exercises = day.exercises.map { EditableExercise(name: $0.name, sets: $0.sets, reps: $0.reps) }
+        self.slots = day.slots.map {
+            EditableSlot(label: $0.label, targetMuscleNames: $0.targetMuscleNames, sets: $0.sets, reps: $0.reps, suggestedExerciseName: $0.suggestedExerciseName)
+        }
+    }
+}
+
+// MARK: - View
+
 struct AISplitBuilderView: View {
     @EnvironmentObject private var dataVM: DataManager
     @EnvironmentObject private var aiService: AIService
@@ -68,6 +109,8 @@ struct AISplitBuilderView: View {
     @State private var updateTrainingProgram = true
 
     @State private var proposal: WorkoutSplitProposal?
+    @State private var editableDays: [EditableDay] = []
+    @State private var originalProposal: WorkoutSplitProposal?
     @State private var isGenerating = false
     @State private var isApplying = false
     @State private var errorBanner: String?
@@ -306,14 +349,13 @@ struct AISplitBuilderView: View {
     }
 
     private func previewContent(_ p: WorkoutSplitProposal) -> some View {
-        let resolution = resolveProposal(p)
-        return List {
+        List {
             Section {
                 Text(p.rationale)
                     .font(.subheadline)
                 LabeledContent("Sessions / week", value: "\(p.sessionsPerWeek)")
                 if p.preferredWeekdays.isEmpty {
-                    LabeledContent("Preferred days", value: "Default (Mon–Fri pool)")
+                    LabeledContent("Preferred days", value: "Default (Mon\u{2013}Fri pool)")
                 } else {
                     LabeledContent("Preferred days", value: p.preferredWeekdays.map { weekdayLabel($0) }.joined(separator: ", "))
                 }
@@ -321,108 +363,178 @@ struct AISplitBuilderView: View {
                 Text("Summary")
             }
 
-            if !resolution.unresolvedExerciseNames.isEmpty {
-                Section {
-                    Text("These names were not found in your library and will be skipped when applying: \(resolution.unresolvedExerciseNames.sorted().joined(separator: ", "))")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                } header: {
-                    Text("Unmatched names")
-                }
-            }
+            unresolvedNamesSection
 
-            ForEach(Array(p.workouts.enumerated()), id: \.offset) { _, day in
+            ForEach($editableDays) { $day in
                 Section {
-                    if let focus = day.focus, !focus.isEmpty {
-                        Text(focus)
+                    TextField("Day name", text: $day.name)
+                        .font(.headline)
+                    if !day.focus.isEmpty {
+                        TextField("Focus", text: $day.focus)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    if day.isSlotTemplateDay {
+
+                    if day.isSlotDay {
                         Label("Flexible template", systemImage: "square.grid.3x3.square")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        ForEach(Array(day.slots.enumerated()), id: \.offset) { _, slot in
-                            let musclesOk = slot.targetMuscleNames.allSatisfy { MuscleGroup(rawValue: $0) != nil }
-                            let exOk: Bool = {
-                                guard let suggested = slot.suggestedExerciseName else { return true }
-                                return dataVM.globalExercises.contains { $0.name.caseInsensitiveCompare(suggested) == .orderedSame }
-                            }()
-                            HStack(alignment: .top) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(slot.label)
-                                        .font(.body)
-                                    Text(slot.targetMuscleNames.joined(separator: ", "))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    Text("\(slot.sets)×\(slot.reps)")
-                                        .font(.caption2)
-                                        .foregroundStyle(.tertiary)
-                                    if let s = slot.suggestedExerciseName {
-                                        Text("Suggested: \(s)")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                Spacer()
-                                if musclesOk && exOk {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(.green)
-                                } else {
-                                    Image(systemName: "exclamationmark.triangle.fill")
-                                        .foregroundStyle(.orange)
-                                }
-                            }
+
+                        ForEach($day.slots) { $slot in
+                            editableSlotRow(slot: $slot)
+                        }
+                        .onDelete { offsets in day.slots.remove(atOffsets: offsets) }
+                        .onMove { from, to in day.slots.move(fromOffsets: from, toOffset: to) }
+
+                        Button {
+                            day.slots.append(EditableSlot(label: "New slot", targetMuscleNames: ["other"], sets: 3, reps: "8-12", suggestedExerciseName: nil))
+                        } label: {
+                            Label("Add slot", systemImage: "plus.circle")
+                                .font(.subheadline)
                         }
                     } else {
                         Label("Saved workout", systemImage: "list.bullet")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        ForEach(Array(day.exercises.enumerated()), id: \.offset) { _, ex in
-                            let matched = dataVM.globalExercises.contains { $0.name.caseInsensitiveCompare(ex.name) == .orderedSame }
-                            HStack(alignment: .top) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(ex.name)
-                                        .font(.body)
-                                    Text("\(ex.sets)×\(ex.reps)")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if matched {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(.green)
-                                } else {
-                                    Image(systemName: "exclamationmark.triangle.fill")
-                                        .foregroundStyle(.orange)
-                                }
-                            }
+
+                        ForEach($day.exercises) { $ex in
+                            editableExerciseRow(exercise: $ex)
+                        }
+                        .onDelete { offsets in day.exercises.remove(atOffsets: offsets) }
+                        .onMove { from, to in day.exercises.move(fromOffsets: from, toOffset: to) }
+
+                        Button {
+                            day.exercises.append(EditableExercise(name: "", sets: 3, reps: "8-12"))
+                        } label: {
+                            Label("Add exercise", systemImage: "plus.circle")
+                                .font(.subheadline)
                         }
                     }
                 } header: {
                     Text(day.name)
                 }
             }
+            .onMove { from, to in editableDays.move(fromOffsets: from, toOffset: to) }
 
             Section {
                 Toggle("Set as my training program", isOn: $updateTrainingProgram)
+
                 Button {
-                    Task { await apply(p) }
+                    let final = buildProposalFromEdits()
+                    Task { await apply(final) }
                 } label: {
                     if isApplying {
                         HStack {
                             ProgressView()
-                            Text("Applying…")
+                            Text("Applying\u{2026}")
                         }
                     } else {
-                        Text("Apply")
+                        Label("Apply split", systemImage: "checkmark.circle.fill")
                     }
                 }
                 .disabled(isApplying)
+
                 Button("Regenerate") {
                     proposal = nil
+                    originalProposal = nil
+                    editableDays = []
                     errorBanner = nil
                 }
+
+                if let orig = originalProposal {
+                    Button("Undo all edits", role: .destructive) {
+                        editableDays = orig.workouts.map { EditableDay(from: $0) }
+                    }
+                }
+            }
+        }
+        .environment(\.editMode, .constant(.active))
+    }
+
+    // MARK: - Preview row helpers
+
+    private func editableExerciseRow(exercise: Binding<EditableExercise>) -> some View {
+        let matched = dataVM.globalExercises.contains { $0.name.caseInsensitiveCompare(exercise.wrappedValue.name) == .orderedSame }
+        return HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                TextField("Exercise name", text: exercise.name)
+                    .font(.body)
+                HStack(spacing: 12) {
+                    Stepper("Sets: \(exercise.wrappedValue.sets)", value: exercise.sets, in: 1...10)
+                        .font(.caption)
+                    TextField("Reps", text: exercise.reps)
+                        .font(.caption)
+                        .frame(width: 60)
+                        .textFieldStyle(.roundedBorder)
+                }
+            }
+            Spacer()
+            Image(systemName: matched ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(matched ? .green : .orange)
+        }
+    }
+
+    private func editableSlotRow(slot: Binding<EditableSlot>) -> some View {
+        let musclesOk = slot.wrappedValue.targetMuscleNames.allSatisfy { MuscleGroup(rawValue: $0) != nil }
+        let exOk: Bool = {
+            guard let suggested = slot.wrappedValue.suggestedExerciseName, !suggested.isEmpty else { return true }
+            return dataVM.globalExercises.contains { $0.name.caseInsensitiveCompare(suggested) == .orderedSame }
+        }()
+        return HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                TextField("Slot label", text: slot.label)
+                    .font(.body)
+                TextField("Target muscles (comma-separated)", text: Binding(
+                    get: { slot.wrappedValue.targetMuscleNames.joined(separator: ", ") },
+                    set: { slot.wrappedValue.targetMuscleNames = $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } }
+                ))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    Stepper("Sets: \(slot.wrappedValue.sets)", value: slot.sets, in: 1...10)
+                        .font(.caption)
+                    TextField("Reps", text: slot.reps)
+                        .font(.caption)
+                        .frame(width: 60)
+                        .textFieldStyle(.roundedBorder)
+                }
+                TextField("Suggested exercise (optional)", text: Binding(
+                    get: { slot.wrappedValue.suggestedExerciseName ?? "" },
+                    set: { slot.wrappedValue.suggestedExerciseName = $0.isEmpty ? nil : $0 }
+                ))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Image(systemName: (musclesOk && exOk) ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle((musclesOk && exOk) ? .green : .orange)
+        }
+    }
+
+    @ViewBuilder
+    private var unresolvedNamesSection: some View {
+        let unresolved = editableDays.flatMap { day -> [String] in
+            var names: [String] = []
+            for ex in day.exercises where !dataVM.globalExercises.contains(where: { $0.name.caseInsensitiveCompare(ex.name) == .orderedSame }) {
+                if !ex.name.isEmpty { names.append(ex.name) }
+            }
+            for slot in day.slots {
+                for m in slot.targetMuscleNames where MuscleGroup(rawValue: m) == nil { names.append(m) }
+                if let s = slot.suggestedExerciseName, !s.isEmpty,
+                   !dataVM.globalExercises.contains(where: { $0.name.caseInsensitiveCompare(s) == .orderedSame }) {
+                    names.append(s)
+                }
+            }
+            return names
+        }
+        let unique = Set(unresolved).sorted()
+        if !unique.isEmpty {
+            Section {
+                Text("Not found in your library (will be skipped when applying): \(unique.joined(separator: ", "))")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } header: {
+                Text("Unmatched names")
             }
         }
     }
@@ -512,36 +624,34 @@ struct AISplitBuilderView: View {
                 definitionPreference: definitionPreference
             )
             proposal = result
+            originalProposal = result
+            editableDays = result.workouts.map { EditableDay(from: $0) }
         } catch {
             errorBanner = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
 
-    private struct ProposalResolution {
-        var unresolvedExerciseNames: Set<String> = []
-    }
-
-    private func resolveProposal(_ p: WorkoutSplitProposal) -> ProposalResolution {
-        var unresolved: Set<String> = []
-        for day in p.workouts {
-            for ex in day.exercises {
-                if !dataVM.globalExercises.contains(where: { $0.name.caseInsensitiveCompare(ex.name) == .orderedSame }) {
-                    unresolved.insert(ex.name)
-                }
+    private func buildProposalFromEdits() -> WorkoutSplitProposal {
+        let days = editableDays.map { day -> WorkoutSplitProposalDay in
+            let exercises = day.exercises.map {
+                WorkoutSplitProposalExerciseItem(name: $0.name, sets: $0.sets, reps: $0.reps)
             }
-            if day.isSlotTemplateDay {
-                for slot in day.slots {
-                    for m in slot.targetMuscleNames where MuscleGroup(rawValue: m) == nil {
-                        unresolved.insert(m)
-                    }
-                    if let s = slot.suggestedExerciseName,
-                       !dataVM.globalExercises.contains(where: { $0.name.caseInsensitiveCompare(s) == .orderedSame }) {
-                        unresolved.insert(s)
-                    }
-                }
+            let slots = day.slots.map {
+                WorkoutSplitProposalSlotItem(label: $0.label, targetMuscleNames: $0.targetMuscleNames, sets: $0.sets, reps: $0.reps, suggestedExerciseName: $0.suggestedExerciseName)
             }
+            return WorkoutSplitProposalDay(
+                name: day.name,
+                focus: day.focus.isEmpty ? nil : day.focus,
+                exercises: day.isSlotDay ? [] : exercises,
+                slots: day.isSlotDay ? slots : []
+            )
         }
-        return ProposalResolution(unresolvedExerciseNames: unresolved)
+        return WorkoutSplitProposal(
+            rationale: proposal?.rationale ?? "",
+            sessionsPerWeek: proposal?.sessionsPerWeek ?? sessionsPerWeek,
+            preferredWeekdays: proposal?.preferredWeekdays ?? Array(selectedWeekdays).sorted(),
+            workouts: days
+        )
     }
 
     @MainActor
