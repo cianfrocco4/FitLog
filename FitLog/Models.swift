@@ -99,6 +99,13 @@ enum WorkoutPlanRef: Equatable, Codable, Hashable {
         case .slotTemplate: return "Flexible template"
         }
     }
+
+    var cacheKey: String {
+        switch self {
+        case .concreteWorkout(let id): return "cw-\(id.uuidString)"
+        case .slotTemplate(let id): return "st-\(id.uuidString)"
+        }
+    }
 }
 
 /// Optional per-exercise setting (e.g. grip variant, machine setting) tracked with each logged set.

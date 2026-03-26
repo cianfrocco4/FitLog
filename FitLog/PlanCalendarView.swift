@@ -17,9 +17,30 @@ struct PlanCalendarView: View {
     @State private var weekEditAnchor: Date?
     @State private var showSplitEditor = false
     @State private var showSetup = false
+    @State private var resolvedDayCache: [String: ResolvedScheduleDay] = [:]
 
     private var calendar: Calendar { .current }
     private var engine: TrainingScheduleEngine { TrainingScheduleEngine(calendar: calendar) }
+
+    private var calendarRefreshKey: String {
+        "\(calendarDayRefresh)-\(dataVM.trainingProgram.cycleEntries.count)-\(dataVM.trainingProgram.anchorDayKey)-\(dataVM.trainingProgram.dayOverrides.count)-\(dataVM.trainingProgram.weekOverrides.count)-\(dataVM.completedSessions.count)"
+    }
+
+    private func rebuildResolvedDayCache() {
+        let days = daysInMonthGrid(for: visibleMonth)
+        var cache: [String: ResolvedScheduleDay] = [:]
+        for day in days {
+            guard let d = day else { continue }
+            let key = TrainingProgramState.dayKey(for: d, calendar: calendar)
+            cache[key] = engine.resolve(date: d, program: dataVM.trainingProgram)
+        }
+        resolvedDayCache = cache
+    }
+
+    private func cachedResolve(date: Date) -> ResolvedScheduleDay {
+        let key = TrainingProgramState.dayKey(for: date, calendar: calendar)
+        return resolvedDayCache[key] ?? engine.resolve(date: date, program: dataVM.trainingProgram)
+    }
 
     private var orderedShortWeekdays: [String] {
         let symbols = calendar.shortWeekdaySymbols
@@ -35,7 +56,12 @@ struct PlanCalendarView: View {
                 calendarGrid
                 legend
             }
-            .id(calendarDayRefresh)
+            .task(id: calendarRefreshKey) {
+                rebuildResolvedDayCache()
+            }
+            .onChange(of: visibleMonth) { _, _ in
+                rebuildResolvedDayCache()
+            }
             .fitlogWorkoutBarContentInset()
             .navigationTitle("Plan")
             .toolbar {
@@ -130,7 +156,7 @@ struct PlanCalendarView: View {
     }
 
     private func dayCell(date: Date) -> some View {
-        let resolved = engine.resolve(date: date, program: dataVM.trainingProgram)
+        let resolved = cachedResolve(date: date)
         let isToday = calendar.isDateInToday(date)
         let subtitle: String = {
             switch resolved {

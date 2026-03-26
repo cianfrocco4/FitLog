@@ -21,35 +21,36 @@ struct HomeView: View {
     /// After creating a slot template from the Add menu, push the editor for that template.
     @State private var newSlotTemplateToEdit: UUID?
 
+    @State private var cachedTodayPlan: ResolvedScheduleDay = .unscheduled
+    @State private var cachedWeekGlance: DataManager.WeekAtAGlance?
+    @State private var cachedTodayCompletedRefs: Set<String> = []
+
     private var scheduleEngine: TrainingScheduleEngine { TrainingScheduleEngine(calendar: .current) }
 
-    private var todayPlan: ResolvedScheduleDay {
-        _ = calendarDayRefresh
-        return scheduleEngine.resolve(date: Date(), program: dataVM.trainingProgram)
+    private var homeRefreshKey: String {
+        "\(calendarDayRefresh)-\(dataVM.completedSessions.count)-\(dataVM.trainingProgram.cycleEntries.count)-\(dataVM.trainingProgram.anchorDayKey)-\(dataVM.trainingProgram.dayOverrides.count)-\(dataVM.trainingProgram.weekOverrides.count)"
     }
 
-    private var weekAtAGlance: DataManager.WeekAtAGlance {
-        _ = calendarDayRefresh
-        return dataVM.weekAtAGlance(referenceDate: Date(), calendar: .current)
-    }
+    private func refreshCachedHomeData() {
+        cachedTodayPlan = scheduleEngine.resolve(date: Date(), program: dataVM.trainingProgram)
+        cachedWeekGlance = dataVM.weekAtAGlance(referenceDate: Date(), calendar: .current)
 
-    /// True when there is a finished session for today’s planned item (matches origin when known, else legacy concrete `workout.id`).
-    private func isPlannedWorkoutCompletedToday(plan: WorkoutPlanRef) -> Bool {
-        _ = calendarDayRefresh
         let cal = Calendar.current
         let today = Date()
-        return dataVM.completedSessions.contains { session in
-            guard let end = session.endTime else { return false }
-            guard cal.isDate(end, inSameDayAs: today) else { return false }
-            switch plan {
-            case .concreteWorkout(let id):
-                if session.sessionPlanOrigin == .concreteWorkout(id) { return true }
-                if session.sessionPlanOrigin == nil, session.workout.id == id { return true }
-                return false
-            case .slotTemplate(let id):
-                return session.sessionPlanOrigin == .slotTemplate(id)
+        var completedRefs = Set<String>()
+        for session in dataVM.completedSessions {
+            guard let end = session.endTime, cal.isDate(end, inSameDayAs: today) else { continue }
+            if let origin = session.sessionPlanOrigin {
+                completedRefs.insert(origin.cacheKey)
+            } else {
+                completedRefs.insert(WorkoutPlanRef.concreteWorkout(session.workout.id).cacheKey)
             }
         }
+        cachedTodayCompletedRefs = completedRefs
+    }
+
+    private func isPlannedWorkoutCompletedToday(plan: WorkoutPlanRef) -> Bool {
+        cachedTodayCompletedRefs.contains(plan.cacheKey)
     }
 
     private var homeDashboardRowInsets: EdgeInsets {
@@ -228,6 +229,9 @@ struct HomeView: View {
                     .environmentObject(dataVM)
                     .environmentObject(currentVM)
             }
+            .task(id: homeRefreshKey) {
+                refreshCachedHomeData()
+            }
         }
     }
 
@@ -263,7 +267,7 @@ struct HomeView: View {
 
     @ViewBuilder
     private var todayPlanSuggestionCard: some View {
-        let plan = todayPlan
+        let plan = cachedTodayPlan
         VStack(alignment: .leading, spacing: 10) {
             Label("Today’s plan", systemImage: "calendar.badge.checkmark")
                 .font(.subheadline.weight(.semibold))
@@ -323,7 +327,9 @@ struct HomeView: View {
                     }
                 }
             }
-            thisWeekSubsection(weekAtAGlance)
+            if let glance = cachedWeekGlance {
+                thisWeekSubsection(glance)
+            }
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
