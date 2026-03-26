@@ -4,6 +4,10 @@
 //
 //  Created by Anthony Cianfrocco on 2/24/26.
 //
+//  Thin façade that composes focused stores (WorkoutStore, SessionStore,
+//  ExerciseStore, TrainingProgramStore) while remaining the single
+//  @EnvironmentObject injection point for all SwiftUI views.
+//
 
 import Foundation
 import SwiftData
@@ -16,27 +20,38 @@ final class DataManager: ObservableObject {
     @Published var completedSessions: [WorkoutSession] = []
     @Published var trainingProgram: TrainingProgramState = TrainingProgramState.empty(anchorDayKey: TrainingProgramState.dayKey(for: Date()))
 
-    private let modelContext: ModelContext
+    let workoutStore: WorkoutStore
+    let sessionStore: SessionStore
+    let exerciseStore: ExerciseStore
+    let programStore: TrainingProgramStore
 
     // MARK: - Lifecycle
 
     init(modelContainer: ModelContainer) {
-        self.modelContext = ModelContext(modelContainer)
+        let ctx = ModelContext(modelContainer)
+        self.workoutStore = WorkoutStore(modelContext: ctx)
+        self.sessionStore = SessionStore(modelContext: ctx)
+        self.exerciseStore = ExerciseStore(modelContext: ctx)
+        self.programStore = TrainingProgramStore(modelContext: ctx)
         loadAll()
     }
 
     func loadAll() {
-        loadExercises()
-        loadExerciseLocalDisplayNames()
-        loadWorkouts()
-        loadWorkoutTemplates()
-        loadSessions()
-        loadTrainingProgram()
+        globalExercises = exerciseStore.loadExercises()
+        exerciseLocalDisplayNames = exerciseStore.loadDisplayNames()
+        userWorkouts = workoutStore.loadWorkouts()
+        userWorkoutTemplates = workoutStore.loadWorkoutTemplates()
+        completedSessions = sessionStore.loadSessions()
+
+        if let program = programStore.loadProgram() {
+            trainingProgram = program
+        }
 
         if globalExercises.isEmpty {
             preloadFullExerciseLibrary()
         }
 
+        migrateLegacyCustomExercises()
         rotateBackup()
     }
 
@@ -44,7 +59,6 @@ final class DataManager: ObservableObject {
 
     private static let maxBackups = 2
 
-    /// Snapshot all data to a timestamped JSON file, keeping only the last `maxBackups` files.
     func rotateBackup() {
         let dir = URL.applicationSupportDirectory.appending(path: "Backups", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -59,33 +73,31 @@ final class DataManager: ObservableObject {
             displayNames: exerciseLocalDisplayNames
         )
 
+        guard let data = try? JSONEncoder().encode(snapshot) else {
+            #if DEBUG
+            print("[Backup] Failed to encode snapshot")
+            #endif
+            return
+        }
+
         let formatter = DateFormatter()
-        formatter.dateFormat = "yyyyMMdd_HHmmss"
+        formatter.dateFormat = "yyyy-MM-dd_HHmmss"
         let fileName = "backup_\(formatter.string(from: Date())).json"
         let fileURL = dir.appending(path: fileName)
 
-        guard let data = try? JSONEncoder().encode(snapshot) else { return }
-        try? data.write(to: fileURL, options: .atomic)
+        do {
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            #if DEBUG
+            print("[Backup] Write failed: \(error.localizedDescription)")
+            #endif
+        }
 
-        pruneOldBackups(in: dir)
-
-        #if DEBUG
-        print("[Backup] Wrote \(fileName) (\(data.count) bytes)")
-        #endif
-    }
-
-    private func pruneOldBackups(in dir: URL) {
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: dir, includingPropertiesForKeys: [.creationDateKey], options: .skipsHiddenFiles
-        ) else { return }
-
-        let backups = files
-            .filter { $0.pathExtension == "json" && $0.lastPathComponent.hasPrefix("backup_") }
-            .sorted { a, b in
-                let da = (try? a.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
-                let db = (try? b.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+        let backups = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.creationDateKey]))?.sorted {
+                let da = (try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+                let db = (try? $1.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
                 return da > db
-            }
+            } ?? []
 
         for old in backups.dropFirst(Self.maxBackups) {
             try? FileManager.default.removeItem(at: old)
@@ -104,16 +116,11 @@ final class DataManager: ObservableObject {
     }
 
     func uniqueWorkoutTemplateName(_ base: String) -> String {
-        let trimmed = base.trimmingCharacters(in: .whitespacesAndNewlines)
-        let root = trimmed.isEmpty ? "Workout" : trimmed
-        let existingW = Set(userWorkouts.map(\.name))
-        let existingT = Set(userWorkoutTemplates.map(\.name))
-        if !existingW.contains(root), !existingT.contains(root) { return root }
-        var n = 2
-        while existingW.contains("\(root) (\(n))") || existingT.contains("\(root) (\(n))") {
-            n += 1
-        }
-        return "\(root) (\(n))"
+        workoutStore.uniqueName(
+            base,
+            existingWorkoutNames: Set(userWorkouts.map(\.name)),
+            existingTemplateNames: Set(userWorkoutTemplates.map(\.name))
+        )
     }
 
     func applySplitBuilderTemplates(
@@ -169,44 +176,26 @@ final class DataManager: ObservableObject {
         saveWorkouts()
     }
 
-    private func loadWorkouts() {
-        let descriptor = FetchDescriptor<SDWorkout>(sortBy: [SortDescriptor(\.sortOrder)])
-        guard let sdWorkouts = try? modelContext.fetch(descriptor) else { return }
-        userWorkouts = sdWorkouts.map { $0.toStruct() }
-        #if DEBUG
-        print("[SwiftData] Loaded \(userWorkouts.count) workouts")
-        #endif
-    }
-
     func saveWorkouts() {
-        do {
-            try modelContext.delete(model: SDWorkout.self)
-            for (i, w) in userWorkouts.enumerated() {
-                modelContext.insert(SDWorkout.from(w, sortOrder: i))
-            }
-            try modelContext.save()
-        } catch {
-            #if DEBUG
-            print("[SwiftData] Save workouts failed: \(error.localizedDescription)")
-            #endif
-        }
+        workoutStore.saveWorkouts(userWorkouts)
     }
 
     // MARK: - Slot workout templates (blueprints)
 
     @discardableResult
     func createSlotTemplate(name: String) -> UUID {
-        createSlotTemplate(name: name, slots: [])
+        let template = WorkoutTemplate(id: UUID(), name: name, slots: [])
+        userWorkoutTemplates.append(template)
+        saveWorkoutTemplates()
+        return template.id
     }
 
     @discardableResult
     func createSlotTemplate(name: String, slots: [TemplateSlot]) -> UUID {
-        let trimmed = uniqueSlotTemplateName(name.trimmingCharacters(in: .whitespacesAndNewlines))
-        let t = WorkoutTemplate(id: UUID(), name: trimmed, slots: slots)
-        userWorkoutTemplates.append(t)
+        let template = WorkoutTemplate(id: UUID(), name: name, slots: slots)
+        userWorkoutTemplates.append(template)
         saveWorkoutTemplates()
-        objectWillChange.send()
-        return t.id
+        return template.id
     }
 
     func applyWorkoutSplitProposal(
@@ -311,61 +300,23 @@ final class DataManager: ObservableObject {
     }
 
     func instantiateWorkout(from template: WorkoutTemplate) -> Workout {
-        var exercises: [WorkoutExercise] = []
-        for slot in template.slots {
-            let weId = UUID()
-            let resolvedFromDefault: Exercise? = {
-                guard let defId = slot.defaultExerciseId else { return nil }
-                return globalExercises.first { $0.id == defId }
-            }()
-            let resolution: SlotResolution
-            if let ex = resolvedFromDefault {
-                resolution = .concrete(ExerciseSnapshot(from: ex))
-            } else {
-                resolution = .unresolved(slotLabel: slot.label, templateSlotId: slot.id)
-            }
-            exercises.append(
-                WorkoutExercise(
-                    id: weId, resolution: resolution,
-                    defaultRestTime: slot.defaultRestTime,
-                    recommendedSets: slot.recommendedSets,
-                    recommendedReps: slot.recommendedReps
-                )
-            )
-        }
-        return Workout(id: UUID(), name: template.name, exercises: exercises)
-    }
-
-    private func loadWorkoutTemplates() {
-        let descriptor = FetchDescriptor<SDWorkoutTemplate>(sortBy: [SortDescriptor(\.sortOrder)])
-        guard let sdTemplates = try? modelContext.fetch(descriptor) else { return }
-        userWorkoutTemplates = sdTemplates.map { $0.toStruct() }
+        workoutStore.instantiateWorkout(from: template, globalExercises: globalExercises)
     }
 
     func saveWorkoutTemplates() {
-        do {
-            try modelContext.delete(model: SDWorkoutTemplate.self)
-            for (i, t) in userWorkoutTemplates.enumerated() {
-                modelContext.insert(SDWorkoutTemplate.from(t, sortOrder: i))
-            }
-            try modelContext.save()
-        } catch {
-            #if DEBUG
-            print("[SwiftData] Save templates failed: \(error.localizedDescription)")
-            #endif
-        }
+        workoutStore.saveWorkoutTemplates(userWorkoutTemplates)
     }
 
     func planLabel(for ref: WorkoutPlanRef) -> String {
         switch ref {
         case .concreteWorkout(let id):
-            return workoutDisplayName(forWorkoutId: id)
+            return userWorkouts.first(where: { $0.id == id })?.name ?? "Missing workout"
         case .slotTemplate(let id):
             return userWorkoutTemplates.first(where: { $0.id == id })?.name ?? "Missing template"
         }
     }
 
-    // MARK: - Global Exercises
+    // MARK: - Global exercises
 
     @discardableResult
     func addNewExercise(name: String, description: String, muscles: [MuscleGroup]) -> Exercise {
@@ -400,43 +351,26 @@ final class DataManager: ObservableObject {
         saveWorkouts()
     }
 
+    func saveExercises() {
+        exerciseStore.saveExercises(globalExercises)
+    }
+
     // MARK: - Local exercise display names
 
     func resolvedDisplayName(for exercise: Exercise) -> String {
-        let canonical = globalExercises.first(where: { $0.id == exercise.id })?.name ?? exercise.name
-        if let custom = exerciseLocalDisplayNames[exercise.id] {
-            let t = custom.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !t.isEmpty { return t }
-        }
-        return canonical
+        exerciseStore.resolvedDisplayName(for: exercise, globalExercises: globalExercises, localNames: exerciseLocalDisplayNames)
     }
 
-    /// Display name resolved from a lightweight snapshot — prefers the live library name,
-    /// then local rename, then falls back to the name captured at time of logging.
     func displayName(for snapshot: ExerciseSnapshot) -> String {
-        if let ex = globalExercises.first(where: { $0.id == snapshot.exerciseId }) {
-            return resolvedDisplayName(for: ex)
-        }
-        if let custom = exerciseLocalDisplayNames[snapshot.exerciseId] {
-            let t = custom.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !t.isEmpty { return t }
-        }
-        return snapshot.nameAtTimeOfLog
+        exerciseStore.displayName(for: snapshot, globalExercises: globalExercises, localNames: exerciseLocalDisplayNames)
     }
 
-    /// Resolve a snapshot to the current global Exercise if it still exists.
     func resolveExercise(for snapshot: ExerciseSnapshot) -> Exercise? {
         globalExercises.first { $0.id == snapshot.exerciseId }
     }
 
-    /// Display name for a WorkoutExercise, handling both concrete and unresolved states.
     func displayName(for we: WorkoutExercise) -> String {
-        switch we.resolution {
-        case .concrete(let snap):
-            return displayName(for: snap)
-        case .unresolved(let label, _):
-            return label.isEmpty ? "Choose exercise" : label
-        }
+        exerciseStore.displayName(for: we, globalExercises: globalExercises, localNames: exerciseLocalDisplayNames)
     }
 
     func hasLocalDisplayName(for exerciseId: UUID) -> Bool {
@@ -464,57 +398,27 @@ final class DataManager: ObservableObject {
         saveExerciseLocalDisplayNames()
     }
 
-    private func loadExerciseLocalDisplayNames() {
-        let descriptor = FetchDescriptor<SDExerciseDisplayName>()
-        guard let records = try? modelContext.fetch(descriptor) else {
-            exerciseLocalDisplayNames = [:]
-            return
-        }
-        var out: [UUID: String] = [:]
-        for r in records {
-            let t = r.customName.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !t.isEmpty { out[r.exerciseId] = t }
-        }
-        exerciseLocalDisplayNames = out
+    private func saveExerciseLocalDisplayNames() {
+        exerciseStore.saveDisplayNames(exerciseLocalDisplayNames)
     }
 
-    private func saveExerciseLocalDisplayNames() {
-        do {
-            try modelContext.delete(model: SDExerciseDisplayName.self)
-            for (id, name) in exerciseLocalDisplayNames {
-                modelContext.insert(SDExerciseDisplayName(exerciseId: id, customName: name))
-            }
-            try modelContext.save()
-        } catch {
-            #if DEBUG
-            print("[SwiftData] Save display names failed: \(error.localizedDescription)")
-            #endif
-        }
-    }
+    // MARK: - Exercise library seeding
 
     private static let defaultExerciseNames: Set<String> = [
-        "Barbell Bench Press", "Incline Barbell Bench Press", "Decline Barbell Bench Press", "Dumbbell Bench Press",
-        "Incline Dumbbell Press", "Dumbbell Flies", "Cable Crossover", "Overhead Barbell Press", "Seated Dumbbell Press",
-        "Arnold Press", "Lateral Raise", "Front Raise", "Rear Delt Fly", "Tricep Pushdown", "Overhead Tricep Extension",
-        "Skull Crushers", "Close-Grip Bench Press", "Dips (Chest/Triceps)",
-        "Pull-Up", "Chin-Up", "Lat Pulldown (Wide Grip)", "Lat Pulldown (Neutral Grip)", "Bent-Over Barbell Row",
+        "Barbell Bench Press", "Incline Barbell Bench Press", "Decline Barbell Bench Press",
+        "Dumbbell Bench Press", "Incline Dumbbell Press", "Dumbbell Flies", "Cable Crossover",
+        "Overhead Barbell Press", "Seated Dumbbell Press", "Arnold Press", "Lateral Raise",
+        "Front Raise", "Rear Delt Fly", "Tricep Pushdown", "Overhead Tricep Extension",
+        "Skull Crushers", "Close-Grip Bench Press", "Dips (Chest/Triceps)", "Pull-Up", "Chin-Up",
+        "Lat Pulldown (Wide Grip)", "Lat Pulldown (Neutral Grip)", "Bent-Over Barbell Row",
         "Pendlay Row", "Seated Cable Row", "Single-Arm Dumbbell Row", "T-Bar Row", "Face Pull",
         "Deadlift (Conventional)", "Romanian Deadlift", "Barbell Shrug",
-        "Back Squat (High Bar)", "Low-Bar Back Squat", "Front Squat", "Leg Press", "Hack Squat", "Bulgarian Split Squat",
-        "Walking Lunges", "Leg Extension", "Lying Leg Curl", "Seated Leg Curl", "Standing Calf Raise", "Seated Calf Raise",
-        "Barbell Bicep Curl", "EZ-Bar Curl", "Dumbbell Hammer Curl", "Concentration Curl", "Cable Bicep Curl",
+        "Back Squat (High Bar)", "Low-Bar Back Squat", "Front Squat", "Leg Press", "Hack Squat",
+        "Bulgarian Split Squat", "Walking Lunges", "Leg Extension", "Lying Leg Curl",
+        "Seated Leg Curl", "Standing Calf Raise", "Seated Calf Raise", "Barbell Bicep Curl",
+        "EZ-Bar Curl", "Dumbbell Hammer Curl", "Concentration Curl", "Cable Bicep Curl",
         "Plank", "Hanging Leg Raise", "Ab Wheel Rollout", "Russian Twist", "Cable Crunch"
     ]
-
-    private func loadExercises() {
-        let descriptor = FetchDescriptor<SDExercise>()
-        guard let sdExercises = try? modelContext.fetch(descriptor) else { return }
-        globalExercises = sdExercises.map { $0.toStruct() }
-        migrateLegacyCustomExercises()
-        #if DEBUG
-        print("[SwiftData] Loaded \(globalExercises.count) exercises")
-        #endif
-    }
 
     private func migrateLegacyCustomExercises() {
         var changed = false
@@ -525,20 +429,6 @@ final class DataManager: ObservableObject {
             }
         }
         if changed { saveExercises() }
-    }
-
-    private func saveExercises() {
-        do {
-            try modelContext.delete(model: SDExercise.self)
-            for ex in globalExercises {
-                modelContext.insert(SDExercise.from(ex))
-            }
-            try modelContext.save()
-        } catch {
-            #if DEBUG
-            print("[SwiftData] Save exercises failed: \(error.localizedDescription)")
-            #endif
-        }
     }
 
     private func preloadFullExerciseLibrary() {
@@ -578,7 +468,7 @@ final class DataManager: ObservableObject {
             Exercise(id: UUID(), name: "Back Squat (High Bar)", description: "High-bar barbell squat", targetedMuscles: [MG.quads, .glutes]),
             Exercise(id: UUID(), name: "Low-Bar Back Squat", description: "Powerlifting-style squat", targetedMuscles: [MG.glutes, .quads, .hamstrings]),
             Exercise(id: UUID(), name: "Front Squat", description: "Barbell front squat", targetedMuscles: [MG.quads, .core]),
-            Exercise(id: UUID(), name: "Leg Press", description: "45° or horizontal leg press", targetedMuscles: [MG.quads, .glutes]),
+            Exercise(id: UUID(), name: "Leg Press", description: "45\u{00b0} or horizontal leg press", targetedMuscles: [MG.quads, .glutes]),
             Exercise(id: UUID(), name: "Hack Squat", description: "Machine hack squat", targetedMuscles: [MG.quads]),
             Exercise(id: UUID(), name: "Bulgarian Split Squat", description: "Rear-foot-elevated split squat", targetedMuscles: [MG.quads, .glutes]),
             Exercise(id: UUID(), name: "Walking Lunges", description: "Dumbbell walking lunges", targetedMuscles: [MG.quads, .glutes]),
@@ -601,48 +491,22 @@ final class DataManager: ObservableObject {
         saveExercises()
     }
 
-    // MARK: - Sessions & week summary
-
-    private func loadSessions() {
-        let descriptor = FetchDescriptor<SDWorkoutSession>(sortBy: [SortDescriptor(\.startTime)])
-        guard let sdSessions = try? modelContext.fetch(descriptor) else { return }
-        completedSessions = sdSessions.compactMap { $0.toStruct() }
-        #if DEBUG
-        print("[SwiftData] Loaded \(completedSessions.count) sessions")
-        #endif
-    }
+    // MARK: - Sessions
 
     func refreshCompletedSessions() {
-        loadSessions()
+        completedSessions = sessionStore.loadSessions()
     }
 
     func appendCompletedSession(_ session: WorkoutSession) {
         completedSessions.append(session)
-        modelContext.insert(SDWorkoutSession.from(session))
-        do {
-            try modelContext.save()
-        } catch {
-            #if DEBUG
-            print("[SwiftData] Append session failed: \(error.localizedDescription)")
-            #endif
-        }
+        sessionStore.appendSession(session)
     }
 
     func saveSessions() {
-        do {
-            try modelContext.delete(model: SDWorkoutSession.self)
-            for s in completedSessions {
-                modelContext.insert(SDWorkoutSession.from(s))
-            }
-            try modelContext.save()
-        } catch {
-            #if DEBUG
-            print("[SwiftData] Save sessions failed: \(error.localizedDescription)")
-            #endif
-        }
+        sessionStore.saveSessions(completedSessions)
     }
 
-    // MARK: - Past week summary
+    // MARK: - Week summary / analytics
 
     var workoutsThisWeek: Int {
         let sevenDaysAgo = Date().addingTimeInterval(-7*24*60*60)
@@ -670,34 +534,13 @@ final class DataManager: ObservableObject {
         let dayStarts = TrainingProgramState.orderedCalendarDaysInWeek(containing: referenceDate, calendar: calendar)
         let days: [(date: Date, weekday: Int, hasWorkout: Bool)] = dayStarts.map { start in
             let wd = calendar.component(.weekday, from: start)
-            return (date: start, weekday: wd, hasWorkout: hasCompletedSessionEnding(on: start, calendar: calendar))
+            return (date: start, weekday: wd, hasWorkout: sessionStore.hasCompletedSessionEnding(on: start, calendar: calendar))
         }
-        let completed = completedSessionCount(inWeekContaining: referenceDate, calendar: calendar)
+        let completed = sessionStore.completedSessionCount(inWeekContaining: referenceDate, calendar: calendar)
         let goal: Int? = trainingProgram.cycleEntries.isEmpty
             ? nil
             : min(max(1, trainingProgram.sessionsPerWeek), 7)
         return WeekAtAGlance(isoWeekKey: weekKey, days: days, completedCount: completed, weeklyGoal: goal)
-    }
-
-    private func completedSessionCount(inWeekContaining referenceDate: Date, calendar: Calendar) -> Int {
-        guard let interval = calendar.dateInterval(of: .weekOfYear, for: referenceDate) else { return 0 }
-        let start = interval.start
-        let end = interval.end
-        var descriptor = FetchDescriptor<SDWorkoutSession>(
-            predicate: #Predicate<SDWorkoutSession> { $0.endTime != nil && $0.endTime! >= start && $0.endTime! < end }
-        )
-        descriptor.fetchLimit = 100
-        return (try? modelContext.fetchCount(descriptor)) ?? 0
-    }
-
-    private func hasCompletedSessionEnding(on dayStart: Date, calendar: Calendar) -> Bool {
-        let start = calendar.startOfDay(for: dayStart)
-        guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: start) else { return false }
-        var descriptor = FetchDescriptor<SDWorkoutSession>(
-            predicate: #Predicate<SDWorkoutSession> { $0.endTime != nil && $0.endTime! >= start && $0.endTime! < dayEnd }
-        )
-        descriptor.fetchLimit = 1
-        return (try? modelContext.fetchCount(descriptor)) ?? 0 > 0
     }
 
     // MARK: - Exercise CRUD on workouts
@@ -734,27 +577,10 @@ final class DataManager: ObservableObject {
         return we
     }
 
-    // MARK: - Training program (split + calendar)
-
-    private func loadTrainingProgram() {
-        let descriptor = FetchDescriptor<SDTrainingProgram>()
-        if let sdPrograms = try? modelContext.fetch(descriptor),
-           let first = sdPrograms.first,
-           let program = first.toStruct() {
-            trainingProgram = program
-        }
-    }
+    // MARK: - Training program
 
     func saveTrainingProgram() {
-        do {
-            try modelContext.delete(model: SDTrainingProgram.self)
-            modelContext.insert(SDTrainingProgram.from(trainingProgram))
-            try modelContext.save()
-        } catch {
-            #if DEBUG
-            print("[SwiftData] Save training program failed: \(error.localizedDescription)")
-            #endif
-        }
+        programStore.saveProgram(trainingProgram)
     }
 
     func applyTrainingProgramSuggestion(
