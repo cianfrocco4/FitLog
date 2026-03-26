@@ -8,7 +8,7 @@ import SwiftUI
 // MARK: - Calendar grid
 
 struct PlanCalendarView: View {
-    @Environment(\.calendarDayRefresh) private var calendarDayRefresh
+    @EnvironmentObject var dayMonitor: CalendarDayMonitor
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
 
@@ -23,7 +23,7 @@ struct PlanCalendarView: View {
     private var engine: TrainingScheduleEngine { TrainingScheduleEngine(calendar: calendar) }
 
     private var calendarRefreshKey: String {
-        "\(calendarDayRefresh)-\(dataVM.trainingProgram.cycleEntries.count)-\(dataVM.trainingProgram.anchorDayKey)-\(dataVM.trainingProgram.dayOverrides.count)-\(dataVM.trainingProgram.weekOverrides.count)-\(dataVM.completedSessions.count)"
+        "\(dayMonitor.currentDayKey)-\(dataVM.trainingProgram.cycleEntries.count)-\(dataVM.trainingProgram.anchorDayKey)-\(dataVM.trainingProgram.dayOverrides.count)-\(dataVM.trainingProgram.weekOverrides.count)-\(dataVM.completedSessions.count)"
     }
 
     private func rebuildResolvedDayCache() {
