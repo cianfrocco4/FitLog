@@ -241,6 +241,107 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         saveActiveSession()
     }
 
+    /// Appends a concrete exercise to the in-memory session workout (e.g. flexible template sessions, whose workout id is not in `userWorkouts`).
+    func appendExerciseToSession(
+        exercise: Exercise,
+        recommendedSets: Int,
+        recommendedReps: String,
+        configurationFields: [String],
+        recommendedConfigBySet: [[String: String]]
+    ) {
+        guard var session = currentSession else { return }
+        var we = WorkoutExercise(
+            id: UUID(),
+            exercise: exercise,
+            recommendedSets: recommendedSets,
+            recommendedReps: recommendedReps,
+            configurationFields: configurationFields,
+            recommendedConfigBySet: recommendedConfigBySet
+        )
+        session.workout.exercises.append(we)
+        session.exerciseLogs.append(ExerciseLog(id: UUID(), workoutExercise: we, loggedSets: []))
+        currentSession = session
+        recordWorkoutActivity()
+        saveActiveSession()
+    }
+
+    /// Appends a new template slot to the backing `WorkoutTemplate` and a matching placeholder row to the active session.
+    func appendSlotToSlotTemplateSession() {
+        guard var session = currentSession,
+              case .slotTemplate(let templateId) = session.sessionPlanOrigin,
+              let dm = dataManager,
+              var template = dm.slotTemplate(id: templateId)
+        else { return }
+
+        let n = template.slots.count + 1
+        let newSlot = TemplateSlot(
+            label: "Slot \(n)",
+            targetedMuscles: [.chest],
+            exerciseRole: .compound,
+            movementPattern: .horizontalPush,
+            defaultExerciseId: nil,
+            defaultRestTime: 90,
+            recommendedSets: 3,
+            recommendedReps: "8-12"
+        )
+        template.slots.append(newSlot)
+        dm.updateSlotTemplate(template)
+
+        let weId = UUID()
+        let we = WorkoutExercise(
+            id: weId,
+            resolution: .unresolved(slotLabel: newSlot.label, templateSlotId: newSlot.id),
+            defaultRestTime: newSlot.defaultRestTime,
+            recommendedSets: newSlot.recommendedSets,
+            recommendedReps: newSlot.recommendedReps
+        )
+        session.workout.exercises.append(we)
+        session.workout.templateSlotIdByWorkoutExerciseId[weId] = newSlot.id
+        session.exerciseLogs.append(ExerciseLog(id: UUID(), workoutExercise: we, loggedSets: []))
+        currentSession = session
+        recordWorkoutActivity()
+        saveActiveSession()
+    }
+
+    /// Removes the exercise row at the given log index from the session (and from the saved workout when this session uses a `userWorkouts` definition).
+    func removeExerciseFromSession(exerciseLogIndex: Int) {
+        guard var session = currentSession,
+              exerciseLogIndex >= 0,
+              exerciseLogIndex < session.exerciseLogs.count else { return }
+        let rowId = session.exerciseLogs[exerciseLogIndex].workoutExercise.id
+        let workout = session.workout
+
+        if let dm = dataManager, dm.userWorkouts.contains(where: { $0.id == workout.id }) {
+            dm.deleteExercise(from: workout, exerciseId: rowId)
+            if let updated = dm.userWorkouts.first(where: { $0.id == workout.id }) {
+                syncExercises(withUpdatedWorkout: updated)
+            }
+            recordWorkoutActivity()
+            return
+        }
+
+        let we = session.exerciseLogs[exerciseLogIndex].workoutExercise
+        if case .slotTemplate(let templateId) = session.sessionPlanOrigin,
+           let slotId = session.workout.templateSlotIdByWorkoutExerciseId[rowId],
+           let dm = dataManager,
+           var template = dm.slotTemplate(id: templateId) {
+            template.slots.removeAll { $0.id == slotId }
+            dm.updateSlotTemplate(template)
+        }
+
+        if let exId = we.exerciseId {
+            session.activeExerciseIds.removeAll { $0 == exId }
+            session.completedExerciseIds.removeAll { $0 == exId }
+        }
+        session.workout.exercises.removeAll { $0.id == rowId }
+        session.workout.templateSlotIdByWorkoutExerciseId.removeValue(forKey: rowId)
+        session.exerciseLogs.removeAll { $0.workoutExercise.id == rowId }
+
+        currentSession = session
+        recordWorkoutActivity()
+        saveActiveSession()
+    }
+
     /// Replace a template slot placeholder with a real exercise while preserving `WorkoutExercise.id` (stable for logs).
     /// Swapping an already-resolved exercise clears its logged sets.
     func resolveSlotPlaceholder(workoutExerciseId: UUID, exercise: Exercise) {

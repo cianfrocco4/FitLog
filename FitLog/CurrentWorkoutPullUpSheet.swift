@@ -124,6 +124,16 @@ struct CurrentWorkoutPullUpSheet: View {
     @State private var logSetSheetSelection: LogSetSheetSelection?
     @State private var resolveSlotSelection: ResolveSlotWE?
     @State private var showFinishConfirmation = false
+    @State private var showAddExercise = false
+
+    private var activeSessionWorkout: Workout? {
+        currentVM.currentSession?.workout
+    }
+
+    private var isSlotTemplateSession: Bool {
+        if case .slotTemplate = currentVM.currentSession?.sessionPlanOrigin { return true }
+        return false
+    }
     
     var body: some View {
         NavigationStack {
@@ -231,6 +241,11 @@ struct CurrentWorkoutPullUpSheet: View {
                                         }
                                         .buttonStyle(.plain)
                                         .listRowBackground(Color.orange.opacity(0.08))
+                                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                            Button("Remove", role: .destructive) {
+                                                removeExerciseAtListIndex(index, rowId: log.workoutExercise.id)
+                                            }
+                                        }
                                     } else {
                                         Button {
                                             withAnimation(.easeInOut(duration: 0.2)) {
@@ -263,6 +278,11 @@ struct CurrentWorkoutPullUpSheet: View {
                                         }
                                         .buttonStyle(.plain)
                                         .foregroundStyle(.primary)
+                                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                            Button("Remove", role: .destructive) {
+                                                removeExerciseAtListIndex(index, rowId: log.workoutExercise.id)
+                                            }
+                                        }
                                     }
                                     if isExpanded && !log.workoutExercise.isSlotPlaceholder {
                                         if !log.workoutExercise.configurationFields.isEmpty {
@@ -306,6 +326,9 @@ struct CurrentWorkoutPullUpSheet: View {
                                                     Button("Mark completed") {
                                                         currentVM.markExerciseCompleted(exerciseId: exId)
                                                     }
+                                                }
+                                                Button("Remove from workout", role: .destructive) {
+                                                    removeExerciseAtListIndex(index, rowId: log.workoutExercise.id)
                                                 }
                                             } label: {
                                                 Label("More", systemImage: "ellipsis.circle")
@@ -359,6 +382,24 @@ struct CurrentWorkoutPullUpSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            showAddExercise = true
+                        } label: {
+                            Label("Add exercise", systemImage: "plus")
+                        }
+                        if isSlotTemplateSession {
+                            Button {
+                                currentVM.appendSlotToSlotTemplateSession()
+                            } label: {
+                                Label("Add slot", systemImage: "square.dashed")
+                            }
+                        }
+                    } label: {
+                        Label("Add", systemImage: "plus.circle")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("Finish") {
                         if resolvedExercisesWithNoSets.isEmpty {
                             finishWorkout()
@@ -383,6 +424,12 @@ struct CurrentWorkoutPullUpSheet: View {
                     )
                     .environmentObject(dataVM)
                     .environmentObject(currentVM)
+                }
+            }
+            .sheet(isPresented: $showAddExercise) {
+                if let w = activeSessionWorkout {
+                    AddExerciseSheet(workout: w, currentVM: currentVM)
+                        .environmentObject(dataVM)
                 }
             }
             .alert(
@@ -431,6 +478,27 @@ struct CurrentWorkoutPullUpSheet: View {
     private func finishWorkout() {
         currentVM.stopWorkout()
         dismiss()
+    }
+
+    private func removeExerciseAtListIndex(_ index: Int, rowId: UUID) {
+        if resolveSlotSelection?.workoutExerciseId == rowId {
+            resolveSlotSelection = nil
+        }
+
+        let oldLogSel = logSetSheetSelection
+        if oldLogSel?.exerciseIndex == index {
+            logSetSheetSelection = nil
+        } else if let sel = oldLogSel, sel.exerciseIndex > index {
+            logSetSheetSelection = LogSetSheetSelection(exerciseIndex: sel.exerciseIndex - 1)
+        }
+
+        currentVM.removeExerciseFromSession(exerciseLogIndex: index)
+
+        if expandedExerciseIndex == index {
+            expandedExerciseIndex = nil
+        } else if let e = expandedExerciseIndex, e > index {
+            expandedExerciseIndex = e - 1
+        }
     }
 
     private func applyAutoExpandForPrimaryExercise() {

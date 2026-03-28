@@ -39,6 +39,7 @@ struct MainTabView: View {
             CurrentWorkoutPullUpSheet()
                 .environmentObject(currentVM)
                 .environmentObject(dataVM)
+                .environmentObject(aiService)
         }
         .onChange(of: currentVM.isInProgress) { _, inProgress in
             if !inProgress {

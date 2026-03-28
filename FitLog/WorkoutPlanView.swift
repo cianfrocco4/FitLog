@@ -631,18 +631,26 @@ struct AddExerciseSheet: View {
                                 return cleaned
                             }
 
-                            if let _ = dataVM.addExercise(to: workout,
-                                                          exercise: ex,
-                                                          recommendedSets: recommendedSets,
-                                                          recommendedReps: recommendedReps,
-                                                          configurationFields: fieldNames,
-                                                          recommendedConfigBySet: recommendedConfigBySet) {
-                                ExercisePickerPersistence.recordRecent(exerciseId: ex.id)
-                                // If this workout is currently in progress, ensure the active session
-                                // gains a corresponding ExerciseLog so it shows up immediately.
-                                if let updatedWorkout = dataVM.userWorkouts.first(where: { $0.id == workout.id }) {
+                            ExercisePickerPersistence.recordRecent(exerciseId: ex.id)
+                            if dataVM.userWorkouts.contains(where: { $0.id == workout.id }) {
+                                if let _ = dataVM.addExercise(to: workout,
+                                                              exercise: ex,
+                                                              recommendedSets: recommendedSets,
+                                                              recommendedReps: recommendedReps,
+                                                              configurationFields: fieldNames,
+                                                              recommendedConfigBySet: recommendedConfigBySet),
+                                   let updatedWorkout = dataVM.userWorkouts.first(where: { $0.id == workout.id }) {
                                     currentVM.syncExercises(withUpdatedWorkout: updatedWorkout)
                                 }
+                            } else if currentVM.isInProgress,
+                                      currentVM.currentSession?.workout.id == workout.id {
+                                currentVM.appendExerciseToSession(
+                                    exercise: ex,
+                                    recommendedSets: recommendedSets,
+                                    recommendedReps: recommendedReps,
+                                    configurationFields: fieldNames,
+                                    recommendedConfigBySet: recommendedConfigBySet
+                                )
                             }
                             dismiss()
                         }
