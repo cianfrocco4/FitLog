@@ -210,23 +210,33 @@ final class DataManager: ObservableObject {
         for day in proposal.workouts {
             if day.isSlotTemplateDay {
                 let templateSlots: [TemplateSlot] = day.slots.map { s in
-                    let muscles = s.targetMuscleNames.compactMap { MuscleGroup(rawValue: $0) }
-                    let muscleFinal = muscles.isEmpty ? [MuscleGroup.other] : muscles
-                    let defId: UUID? = s.suggestedExerciseName.flatMap { name in
-                        globalExercises.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.id
+                    let matchedExercise: Exercise? = s.suggestedExerciseName.flatMap { name in
+                        globalExercises.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+                    }
+                    let parsedMuscles = s.targetMuscleNames.compactMap { MuscleGroup(rawValue: $0) }
+                    let targetedMuscles: [MuscleGroup]
+                    if !parsedMuscles.isEmpty {
+                        targetedMuscles = parsedMuscles
+                    } else if let ex = matchedExercise, !ex.targetedMuscles.isEmpty {
+                        targetedMuscles = ex.targetedMuscles
+                    } else {
+                        targetedMuscles = [MuscleGroup.other]
                     }
                     let repsRaw = s.reps.trimmingCharacters(in: .whitespacesAndNewlines)
                     let repsFinal = repsRaw.isEmpty ? "8-12" : repsRaw
                     return TemplateSlot(
                         label: s.label,
-                        targetedMuscles: muscleFinal,
-                        defaultExerciseId: defId,
+                        targetedMuscles: targetedMuscles,
+                        exerciseRole: matchedExercise?.exerciseRole,
+                        movementPattern: matchedExercise?.movementPattern,
+                        defaultExerciseId: matchedExercise?.id,
                         recommendedSets: min(max(1, s.sets), 10),
                         recommendedReps: repsFinal
                     )
                 }
                 guard !templateSlots.isEmpty else { continue }
-                let id = createSlotTemplate(name: day.name, slots: templateSlots)
+                let name = uniqueSlotTemplateName(day.name)
+                let id = createSlotTemplate(name: name, slots: templateSlots)
                 entries.append(.slotTemplate(id))
             } else {
                 guard !day.exercises.isEmpty else { continue }
