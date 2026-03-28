@@ -156,6 +156,9 @@ struct WorkoutPlanView: View {
                 }
                 .onMove { from, to in
                     dataVM.moveExercise(in: workout, from: from, to: to)
+                    if let updatedWorkout = dataVM.userWorkouts.first(where: { $0.id == workout.id }) {
+                        currentVM.syncExercises(withUpdatedWorkout: updatedWorkout)
+                    }
                 }
             } else {
                 ForEach(displayedItems) { item in

@@ -12,35 +12,61 @@ struct CurrentWorkoutCollapsedBar: View {
     @EnvironmentObject var dataVM: DataManager
     @Binding var showPullUp: Bool
 
-    private var primaryExerciseLine: String {
-        guard let we = currentVM.currentSession?.exerciseLogs.first?.workoutExercise else { return "" }
-        return dataVM.displayName(for: we)
+    private var primaryExerciseLog: ExerciseLog? {
+        guard let session = currentVM.currentSession,
+              let primaryId = currentVM.primaryActiveExerciseId else { return nil }
+        return session.exerciseLogs.first { $0.workoutExercise.exerciseId == primaryId }
     }
-    
+
+    private var primaryExerciseLine: String {
+        guard let log = primaryExerciseLog else { return "" }
+        return dataVM.displayName(for: log.workoutExercise)
+    }
+
+    private var primarySetProgressLine: String? {
+        guard let log = primaryExerciseLog else { return nil }
+        return "\(log.loggedSets.count)/\(log.workoutExercise.recommendedSets) sets"
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             Button { showPullUp = true } label: {
                 HStack {
-                    VStack(alignment: .leading) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text(currentVM.currentSession?.workout.name ?? "")
                         Text(primaryExerciseLine)
                             .foregroundStyle(.secondary)
+                        if let progress = primarySetProgressLine {
+                            Text(progress)
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
                     Spacer()
-                    Text("Now")
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(.green)
-                        .foregroundStyle(.white)
-                        .clipShape(Capsule())
+                    if currentVM.remainingRestTime > 0 {
+                        Text("\(currentVM.remainingRestTime)s")
+                            .font(.subheadline.weight(.semibold))
+                            .monospacedDigit()
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(.orange)
+                            .foregroundStyle(.white)
+                            .clipShape(Capsule())
+                    } else {
+                        Text("Now")
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(.green)
+                            .foregroundStyle(.white)
+                            .clipShape(Capsule())
+                    }
                 }
                 .padding()
                 .background(.ultraThinMaterial)
                 .clipShape(RoundedRectangle(cornerRadius: 20))
             }
             .buttonStyle(.plain)
-            
-            // Workout timer + pause/play
+
             HStack(spacing: 8) {
                 Text(currentVM.workoutElapsedFormatted)
                     .font(.system(.body, design: .monospaced))

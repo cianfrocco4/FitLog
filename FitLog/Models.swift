@@ -236,6 +236,8 @@ enum SlotResolution: Codable, Equatable {
 struct WorkoutExercise: Identifiable, Codable, Equatable {
     let id: UUID
     var resolution: SlotResolution
+    /// Decoded from legacy JSON only; cleared when the parent [`Workout`](Workout) normalizes slot bindings.
+    var originSlotId: UUID?
     var defaultRestTime: Int = 90
     var recommendedSets: Int = 3
     var recommendedReps: String = "8-12"
@@ -271,6 +273,7 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
     init(id: UUID, resolution: SlotResolution, defaultRestTime: Int = 90, recommendedSets: Int = 3, recommendedReps: String = "8-12", configurationFields: [String] = [], recommendedConfigBySet: [[String: String]] = []) {
         self.id = id
         self.resolution = resolution
+        self.originSlotId = nil
         self.defaultRestTime = defaultRestTime
         self.recommendedSets = recommendedSets
         self.recommendedReps = recommendedReps
@@ -297,6 +300,7 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
         } else {
             self.resolution = .concrete(ExerciseSnapshot(from: exercise))
         }
+        self.originSlotId = nil
         self.defaultRestTime = defaultRestTime
         self.recommendedSets = recommendedSets
         self.recommendedReps = recommendedReps
@@ -333,6 +337,10 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
         recommendedReps = (try? c.decode(String.self, forKey: .recommendedReps)) ?? "8-12"
         configurationFields = (try? c.decode([String].self, forKey: .configurationFields)) ?? []
         recommendedConfigBySet = (try? c.decode([[String: String]].self, forKey: .recommendedConfigBySet)) ?? []
+        originSlotId = try c.decodeIfPresent(UUID.self, forKey: .originSlotId)
+        if originSlotId == nil, let tid = try? c.decode(UUID.self, forKey: .templateSlotId), isSlotPlaceholder {
+            originSlotId = tid
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -353,7 +361,7 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case id, resolution, exercise, defaultRestTime, recommendedSets, recommendedReps
         case configurationFields, recommendedConfigBySet
-        case isSlotPlaceholder, templateSlotId, slotLabel
+        case isSlotPlaceholder, templateSlotId, slotLabel, originSlotId
     }
 }
 
@@ -439,10 +447,61 @@ struct WorkoutTemplate: Identifiable, Codable, Equatable, Hashable {
     var slots: [TemplateSlot]
 }
 
-struct Workout: Identifiable, Codable {
+struct Workout: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
     var exercises: [WorkoutExercise]
+    /// Workout exercise row id → template slot id (only for workouts built from a slot template).
+    var templateSlotIdByWorkoutExerciseId: [UUID: UUID]
+
+    init(id: UUID, name: String, exercises: [WorkoutExercise], templateSlotIdByWorkoutExerciseId: [UUID: UUID] = [:]) {
+        self.id = id
+        self.name = name
+        self.exercises = exercises
+        self.templateSlotIdByWorkoutExerciseId = templateSlotIdByWorkoutExerciseId
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        exercises = try c.decode([WorkoutExercise].self, forKey: .exercises)
+        templateSlotIdByWorkoutExerciseId = try c.decodeIfPresent([UUID: UUID].self, forKey: .templateSlotIdByWorkoutExerciseId) ?? [:]
+        normalizeTemplateSlotBindingsAfterDecoding()
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(exercises, forKey: .exercises)
+        if !templateSlotIdByWorkoutExerciseId.isEmpty {
+            try c.encode(templateSlotIdByWorkoutExerciseId, forKey: .templateSlotIdByWorkoutExerciseId)
+        }
+    }
+
+    /// Merges legacy per-row `originSlotId` / unresolved `templateSlotId` into the workout-level map, then clears row-level legacy fields.
+    mutating func normalizeTemplateSlotBindingsAfterDecoding() {
+        var map = templateSlotIdByWorkoutExerciseId
+        for we in exercises {
+            if map[we.id] != nil { continue }
+            if let o = we.originSlotId {
+                map[we.id] = o
+            } else if let t = we.templateSlotId {
+                map[we.id] = t
+            }
+        }
+        templateSlotIdByWorkoutExerciseId = map
+        exercises = exercises.map { var w = $0; w.originSlotId = nil; return w }
+    }
+
+    func templateSlotId(forWorkoutExerciseRow rowId: UUID) -> UUID? {
+        templateSlotIdByWorkoutExerciseId[rowId]
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, exercises, templateSlotIdByWorkoutExerciseId
+    }
 }
 
 /// One step in a drop set after the top weight (same set, one rest after the full sequence).

@@ -80,6 +80,7 @@ final class WorkoutStore {
 
     func instantiateWorkout(from template: WorkoutTemplate, globalExercises: [Exercise]) -> Workout {
         var exercises: [WorkoutExercise] = []
+        var slotByRow: [UUID: UUID] = [:]
         for slot in template.slots {
             let weId = UUID()
             let resolvedFromDefault: Exercise? = {
@@ -92,15 +93,17 @@ final class WorkoutStore {
             } else {
                 resolution = .unresolved(slotLabel: slot.label, templateSlotId: slot.id)
             }
+            slotByRow[weId] = slot.id
             exercises.append(
                 WorkoutExercise(
-                    id: weId, resolution: resolution,
+                    id: weId,
+                    resolution: resolution,
                     defaultRestTime: slot.defaultRestTime,
                     recommendedSets: slot.recommendedSets,
                     recommendedReps: slot.recommendedReps
                 )
             )
         }
-        return Workout(id: UUID(), name: template.name, exercises: exercises)
+        return Workout(id: UUID(), name: template.name, exercises: exercises, templateSlotIdByWorkoutExerciseId: slotByRow)
     }
 }

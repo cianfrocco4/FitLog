@@ -548,6 +548,7 @@ final class DataManager: ObservableObject {
     func deleteExercise(from workout: Workout, exerciseId: UUID) {
         guard let wIndex = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
         userWorkouts[wIndex].exercises.removeAll { $0.id == exerciseId }
+        userWorkouts[wIndex].templateSlotIdByWorkoutExerciseId.removeValue(forKey: exerciseId)
         saveWorkouts()
     }
 

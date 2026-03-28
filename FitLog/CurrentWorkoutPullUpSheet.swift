@@ -17,12 +17,14 @@ private struct LogSetSheetSelection: Identifiable {
 private struct ResolveSlotWE: Identifiable {
     let workoutExerciseId: UUID
     let templateSlotId: UUID?
+    var isSwapExercise: Bool = false
     var id: UUID { workoutExerciseId }
 }
 
 private struct ResolveSlotExerciseSheet: View {
     let workoutExerciseId: UUID
     let templateSlotId: UUID?
+    var isSwapExercise: Bool = false
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @Environment(\.dismiss) private var dismiss
@@ -87,7 +89,7 @@ private struct ResolveSlotExerciseSheet: View {
             }
         }
         .searchable(text: $searchText, prompt: "Search exercises")
-        .navigationTitle("Choose exercise")
+        .navigationTitle(isSwapExercise ? "Swap exercise" : "Choose exercise")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -121,6 +123,7 @@ struct CurrentWorkoutPullUpSheet: View {
     @State private var expandedExerciseIndex: Int? = nil
     @State private var logSetSheetSelection: LogSetSheetSelection?
     @State private var resolveSlotSelection: ResolveSlotWE?
+    @State private var showFinishConfirmation = false
     
     var body: some View {
         NavigationStack {
@@ -197,138 +200,171 @@ struct CurrentWorkoutPullUpSheet: View {
                 
                 unresolvedSlotsBanner
 
-                List {
-                    if let exerciseLogs = currentVM.currentSession?.exerciseLogs, !exerciseLogs.isEmpty {
-                        ForEach(exerciseLogs.indices, id: \.self) { index in
-                            let log = exerciseLogs[index]
-                            let isExpanded = expandedExerciseIndex == index
-                            
-                            Section {
-                                if log.workoutExercise.isSlotPlaceholder {
-                                    Button {
-                                        resolveSlotSelection = ResolveSlotWE(workoutExerciseId: log.workoutExercise.id, templateSlotId: log.workoutExercise.templateSlotId)
-                                    } label: {
-                                        HStack {
-                                            Image(systemName: "square.dashed")
-                                                .font(.title3)
-                                                .foregroundStyle(.orange)
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(log.workoutExercise.slotLabel.isEmpty ? "Choose exercise" : log.workoutExercise.slotLabel)
-                                                    .font(.headline)
-                                                Text("Tap to pick an exercise")
-                                                    .font(.caption)
+                ScrollViewReader { scrollProxy in
+                    List {
+                        if let exerciseLogs = currentVM.currentSession?.exerciseLogs, !exerciseLogs.isEmpty {
+                            ForEach(Array(exerciseLogs.enumerated()), id: \.element.id) { index, log in
+                                let isExpanded = expandedExerciseIndex == index
+
+                                Section {
+                                    if log.workoutExercise.isSlotPlaceholder {
+                                        Button {
+                                            resolveSlotSelection = ResolveSlotWE(workoutExerciseId: log.workoutExercise.id, templateSlotId: log.workoutExercise.templateSlotId)
+                                        } label: {
+                                            HStack {
+                                                Image(systemName: "square.dashed")
+                                                    .font(.title3)
+                                                    .foregroundStyle(.orange)
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    Text(log.workoutExercise.slotLabel.isEmpty ? "Choose exercise" : log.workoutExercise.slotLabel)
+                                                        .font(.headline)
+                                                    Text("Tap to pick an exercise")
+                                                        .font(.caption)
+                                                        .foregroundStyle(.orange)
+                                                }
+                                                Spacer()
+                                                Image(systemName: "chevron.right")
                                                     .foregroundStyle(.orange)
                                             }
-                                            Spacer()
-                                            Image(systemName: "chevron.right")
-                                                .foregroundStyle(.orange)
+                                            .padding(.vertical, 4)
+                                            .contentShape(Rectangle())
                                         }
-                                        .padding(.vertical, 4)
-                                        .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
-                                    .listRowBackground(Color.orange.opacity(0.08))
-                                } else {
-                                    Button {
-                                        withAnimation(.easeInOut(duration: 0.2)) {
-                                            expandedExerciseIndex = isExpanded ? nil : index
-                                        }
-                                    } label: {
-                                        HStack {
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(dataVM.displayName(for: log.workoutExercise))
-                                                    .font(.headline)
-                                                HStack(spacing: 6) {
-                                                    statusDot(for: log)
-                                                    Text(statusText(for: log))
+                                        .buttonStyle(.plain)
+                                        .listRowBackground(Color.orange.opacity(0.08))
+                                    } else {
+                                        Button {
+                                            withAnimation(.easeInOut(duration: 0.2)) {
+                                                expandedExerciseIndex = isExpanded ? nil : index
+                                            }
+                                        } label: {
+                                            HStack {
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    Text(dataVM.displayName(for: log.workoutExercise))
+                                                        .font(.headline)
+                                                    HStack(spacing: 6) {
+                                                        statusDot(for: log)
+                                                        Text(statusText(for: log))
+                                                            .font(.caption)
+                                                            .foregroundStyle(.secondary)
+                                                    }
+                                                    Text("Rec: \(log.workoutExercise.recommendedSets) \u{00d7} \(log.workoutExercise.recommendedReps)")
                                                         .font(.caption)
                                                         .foregroundStyle(.secondary)
                                                 }
-                                                Text("Rec: \(log.workoutExercise.recommendedSets) \u{00d7} \(log.workoutExercise.recommendedReps)")
-                                                    .font(.caption)
+                                                Spacer()
+                                                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                                                    .font(.caption.weight(.semibold))
+                                                    .foregroundStyle(.secondary)
+                                                Text("\(log.loggedSets.count)/\(log.workoutExercise.recommendedSets) sets")
+                                                    .font(.subheadline)
                                                     .foregroundStyle(.secondary)
                                             }
-                                            Spacer()
-                                            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                                                .font(.caption.weight(.semibold))
-                                                .foregroundStyle(.secondary)
-                                            Text("\(log.loggedSets.count) sets")
-                                                .font(.subheadline)
-                                                .foregroundStyle(.secondary)
+                                            .contentShape(Rectangle())
                                         }
-                                        .contentShape(Rectangle())
+                                        .buttonStyle(.plain)
+                                        .foregroundStyle(.primary)
                                     }
-                                    .buttonStyle(.plain)
-                                    .foregroundStyle(.primary)
-                                }
-                                if isExpanded && !log.workoutExercise.isSlotPlaceholder {
-                                    if !log.workoutExercise.configurationFields.isEmpty {
-                                        recommendedConfigurationRow(for: log.workoutExercise)
-                                    }
-                                    if let previousLog = lastCompletedLog(for: log) {
-                                        previousSessionSummaryRow(previousLog: previousLog)
-                                    }
-                                    HStack(spacing: 12) {
-                                        Button("Add New Set") {
-                                            logSetSheetSelection = LogSetSheetSelection(exerciseIndex: index)
+                                    if isExpanded && !log.workoutExercise.isSlotPlaceholder {
+                                        if !log.workoutExercise.configurationFields.isEmpty {
+                                            recommendedConfigurationRow(for: log.workoutExercise)
                                         }
-                                        .buttonStyle(.borderedProminent)
-                                        .tint(.blue)
-
-                                        Menu {
-                                            if let exId = log.workoutExercise.exerciseId {
-                                                Button("Set as current") {
-                                                    currentVM.setPrimaryExercise(exerciseId: exId)
-                                                }
-                                                Button(statusSupersetToggleTitle(for: log)) {
-                                                    currentVM.toggleSupersetExercise(exerciseId: exId)
-                                                }
-                                                Button("Mark completed") {
-                                                    currentVM.markExerciseCompleted(exerciseId: exId)
-                                                }
+                                        if let previousLog = lastCompletedLog(for: log) {
+                                            previousSessionSummaryRow(previousLog: previousLog)
+                                        }
+                                        HStack(spacing: 12) {
+                                            Button("Add New Set") {
+                                                logSetSheetSelection = LogSetSheetSelection(exerciseIndex: index)
                                             }
-                                        } label: {
-                                            Label("More", systemImage: "ellipsis.circle")
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                                    if log.loggedSets.isEmpty {
-                                        Text("No sets logged yet")
-                                            .foregroundStyle(.secondary)
-                                            .italic()
-                                            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                                    } else {
-                                        ForEach(log.loggedSets.indices, id: \.self) { setIndex in
-                                            setRow(set: log.loggedSets[setIndex], workoutExercise: log.workoutExercise)
-                                                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                                    Button("Delete", role: .destructive) {
-                                                        currentVM.deleteSet(exerciseIndex: index, setIndex: setIndex)
+                                            .buttonStyle(.borderedProminent)
+                                            .tint(.blue)
+
+                                            Button {
+                                                currentVM.repeatLastSet(exerciseIndex: index)
+                                            } label: {
+                                                Label("Repeat last", systemImage: "arrow.counterclockwise")
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .disabled(log.loggedSets.isEmpty)
+
+                                            Menu {
+                                                if let exId = log.workoutExercise.exerciseId {
+                                                    if let slotId = currentVM.currentSession?.workout.templateSlotId(forWorkoutExerciseRow: log.workoutExercise.id) {
+                                                        Button("Swap exercise") {
+                                                            resolveSlotSelection = ResolveSlotWE(
+                                                                workoutExerciseId: log.workoutExercise.id,
+                                                                templateSlotId: slotId,
+                                                                isSwapExercise: true
+                                                            )
+                                                        }
+                                                    }
+                                                    Button("Set as current") {
+                                                        currentVM.setPrimaryExercise(exerciseId: exId)
+                                                    }
+                                                    Button(statusSupersetToggleTitle(for: log)) {
+                                                        currentVM.toggleSupersetExercise(exerciseId: exId)
+                                                    }
+                                                    Button("Mark completed") {
+                                                        currentVM.markExerciseCompleted(exerciseId: exId)
                                                     }
                                                 }
+                                            } label: {
+                                                Label("More", systemImage: "ellipsis.circle")
+                                            }
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                                        if log.loggedSets.isEmpty {
+                                            Text("No sets logged yet")
+                                                .foregroundStyle(.secondary)
+                                                .italic()
+                                                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                                        } else {
+                                            ForEach(log.loggedSets.indices, id: \.self) { setIndex in
+                                                setRow(set: log.loggedSets[setIndex], workoutExercise: log.workoutExercise)
+                                                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                                        Button("Delete", role: .destructive) {
+                                                            currentVM.deleteSet(exerciseIndex: index, setIndex: setIndex)
+                                                        }
+                                                    }
+                                            }
                                         }
                                     }
                                 }
+                                .id(log.id)
+                            }
+                        } else {
+                            Section {
+                                Text("No exercises in current session")
+                                    .foregroundStyle(.secondary)
+                                    .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
                             }
                         }
-                    } else {
-                        Section {
-                            Text("No exercises in current session")
-                                .foregroundStyle(.secondary)
-                                .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
+                    }
+                    .listStyle(.plain)
+                    .onChange(of: expandedExerciseIndex) { _, newValue in
+                        guard let idx = newValue,
+                              let logs = currentVM.currentSession?.exerciseLogs,
+                              idx < logs.count else { return }
+                        let targetId = logs[idx].id
+                        DispatchQueue.main.async {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                scrollProxy.scrollTo(targetId, anchor: .center)
+                            }
                         }
                     }
                 }
-                .listStyle(.plain)
             }
             .navigationTitle("Current Workout")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Finish") {
-                        currentVM.stopWorkout()
-                        dismiss()
+                        if resolvedExercisesWithNoSets.isEmpty {
+                            finishWorkout()
+                        } else {
+                            showFinishConfirmation = true
+                        }
                     }
                     .foregroundStyle(.red)
                     .fontWeight(.semibold)
@@ -340,9 +376,13 @@ struct CurrentWorkoutPullUpSheet: View {
             }
             .sheet(item: $resolveSlotSelection) { sel in
                 NavigationStack {
-                    ResolveSlotExerciseSheet(workoutExerciseId: sel.workoutExerciseId, templateSlotId: sel.templateSlotId)
-                        .environmentObject(dataVM)
-                        .environmentObject(currentVM)
+                    ResolveSlotExerciseSheet(
+                        workoutExerciseId: sel.workoutExerciseId,
+                        templateSlotId: sel.templateSlotId,
+                        isSwapExercise: sel.isSwapExercise
+                    )
+                    .environmentObject(dataVM)
+                    .environmentObject(currentVM)
                 }
             }
             .alert(
@@ -356,16 +396,87 @@ struct CurrentWorkoutPullUpSheet: View {
             ) {
                 Button("OK", role: .cancel) {
                     currentVM.showRestCompleteAlert = false
+                    advanceToNextExerciseAfterRestIfNeeded()
                 }
             } message: {
                 Text("Time for your next set.")
             }
-            .onAppear {
-                guard resolveSlotSelection == nil,
-                      let first = currentVM.currentSession?.exerciseLogs.first(where: { $0.workoutExercise.isSlotPlaceholder })
-                else { return }
-                resolveSlotSelection = ResolveSlotWE(workoutExerciseId: first.workoutExercise.id, templateSlotId: first.workoutExercise.templateSlotId)
+            .alert("Finish workout?", isPresented: $showFinishConfirmation) {
+                Button("Cancel", role: .cancel) {}
+                Button("Finish anyway", role: .destructive) {
+                    finishWorkout()
+                }
+            } message: {
+                Text("These exercises have no sets logged: \(resolvedExercisesWithNoSets.joined(separator: ", ")).")
             }
+            .onAppear {
+                if resolveSlotSelection == nil,
+                   let first = currentVM.currentSession?.exerciseLogs.first(where: { $0.workoutExercise.isSlotPlaceholder }) {
+                    resolveSlotSelection = ResolveSlotWE(workoutExerciseId: first.workoutExercise.id, templateSlotId: first.workoutExercise.templateSlotId)
+                } else {
+                    applyAutoExpandForPrimaryExercise()
+                }
+            }
+        }
+    }
+
+    private var resolvedExercisesWithNoSets: [String] {
+        guard let logs = currentVM.currentSession?.exerciseLogs else { return [] }
+        return logs.compactMap { log in
+            guard !log.workoutExercise.isSlotPlaceholder, log.loggedSets.isEmpty else { return nil }
+            return dataVM.displayName(for: log.workoutExercise)
+        }
+    }
+
+    private func finishWorkout() {
+        currentVM.stopWorkout()
+        dismiss()
+    }
+
+    private func applyAutoExpandForPrimaryExercise() {
+        guard resolveSlotSelection == nil,
+              let logs = currentVM.currentSession?.exerciseLogs, !logs.isEmpty,
+              let primaryId = currentVM.primaryActiveExerciseId,
+              let idx = logs.firstIndex(where: { $0.workoutExercise.exerciseId == primaryId })
+        else { return }
+        expandedExerciseIndex = idx
+    }
+
+    private func advanceToNextExerciseAfterRestIfNeeded() {
+        guard let logs = currentVM.currentSession?.exerciseLogs, !logs.isEmpty else {
+            applyAutoExpandForPrimaryExercise()
+            return
+        }
+        guard let primaryId = currentVM.primaryActiveExerciseId,
+              let primaryIndex = logs.firstIndex(where: { $0.workoutExercise.exerciseId == primaryId })
+        else {
+            applyAutoExpandForPrimaryExercise()
+            return
+        }
+
+        let primaryLog = logs[primaryIndex]
+        let we = primaryLog.workoutExercise
+        guard !we.isSlotPlaceholder, we.recommendedSets > 0,
+              primaryLog.loggedSets.count >= we.recommendedSets
+        else {
+            applyAutoExpandForPrimaryExercise()
+            return
+        }
+
+        if let nextIndex = logs.indices.first(where: { i in
+            guard i > primaryIndex else { return false }
+            let log = logs[i]
+            guard !log.workoutExercise.isSlotPlaceholder, let eid = log.workoutExercise.exerciseId else { return false }
+            if currentVM.currentSession?.completedExerciseIds.contains(eid) == true { return false }
+            let rec = log.workoutExercise.recommendedSets
+            return rec == 0 || log.loggedSets.count < rec
+        }) {
+            expandedExerciseIndex = nextIndex
+            if let nextEid = logs[nextIndex].workoutExercise.exerciseId {
+                currentVM.setPrimaryExercise(exerciseId: nextEid)
+            }
+        } else {
+            applyAutoExpandForPrimaryExercise()
         }
     }
 

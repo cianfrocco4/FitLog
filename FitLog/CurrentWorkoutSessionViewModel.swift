@@ -220,21 +220,81 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             }
         }
 
+        let idOrder = workout.exercises.map(\.id)
+        session.exerciseLogs.sort { a, b in
+            let ai = idOrder.firstIndex(of: a.workoutExercise.id) ?? Int.max
+            let bi = idOrder.firstIndex(of: b.workoutExercise.id) ?? Int.max
+            return ai < bi
+        }
+
+        let validIds = Set(workout.exercises.map(\.id))
+        let removedLogs = session.exerciseLogs.filter { !validIds.contains($0.workoutExercise.id) }
+        for log in removedLogs {
+            if let exId = log.workoutExercise.exerciseId {
+                session.activeExerciseIds.removeAll { $0 == exId }
+                session.completedExerciseIds.removeAll { $0 == exId }
+            }
+        }
+        session.exerciseLogs.removeAll { !validIds.contains($0.workoutExercise.id) }
+
         currentSession = session
+        saveActiveSession()
     }
 
     /// Replace a template slot placeholder with a real exercise while preserving `WorkoutExercise.id` (stable for logs).
+    /// Swapping an already-resolved exercise clears its logged sets.
     func resolveSlotPlaceholder(workoutExerciseId: UUID, exercise: Exercise) {
         guard var session = currentSession else { return }
         let snap = ExerciseSnapshot(from: exercise)
+
+        if session.workout.templateSlotIdByWorkoutExerciseId[workoutExerciseId] == nil,
+           let weForBinding = session.workout.exercises.first(where: { $0.id == workoutExerciseId }),
+           let tid = weForBinding.templateSlotId {
+            session.workout.templateSlotIdByWorkoutExerciseId[workoutExerciseId] = tid
+        }
+
         if let wi = session.workout.exercises.firstIndex(where: { $0.id == workoutExerciseId }) {
-            session.workout.exercises[wi].resolution = .concrete(snap)
+            var we = session.workout.exercises[wi]
+            let oldId = we.exerciseId
+            let isSwap = oldId != nil && oldId != snap.exerciseId
+            if isSwap, let oid = oldId {
+                session.activeExerciseIds.removeAll { $0 == oid }
+                session.completedExerciseIds.removeAll { $0 == oid }
+            }
+            we.resolution = .concrete(snap)
+            session.workout.exercises[wi] = we
         }
         if let li = session.exerciseLogs.firstIndex(where: { $0.workoutExercise.id == workoutExerciseId }) {
-            session.exerciseLogs[li].workoutExercise.resolution = .concrete(snap)
+            var we = session.exerciseLogs[li].workoutExercise
+            let oldId = we.exerciseId
+            let isSwap = oldId != nil && oldId != snap.exerciseId
+            if isSwap {
+                session.exerciseLogs[li].loggedSets = []
+                if let oid = oldId {
+                    session.activeExerciseIds.removeAll { $0 == oid }
+                    session.completedExerciseIds.removeAll { $0 == oid }
+                }
+            }
+            we.resolution = .concrete(snap)
+            session.exerciseLogs[li].workoutExercise = we
         }
         currentSession = session
         saveActiveSession()
+    }
+
+    /// Log another set identical to the last one for this exercise (quick repeat).
+    func repeatLastSet(exerciseIndex: Int) {
+        guard let session = currentSession, exerciseIndex < session.exerciseLogs.count else { return }
+        guard let last = session.exerciseLogs[exerciseIndex].loggedSets.last else { return }
+        logSet(
+            exerciseIndex: exerciseIndex,
+            weight: last.weight,
+            reps: last.reps,
+            restTime: last.restTime,
+            isWarmup: last.isWarmup,
+            configuration: last.configuration,
+            dropSegments: last.dropSegments
+        )
     }
     
     func logSet(exerciseIndex: Int, weight: Double, reps: Int, restTime: Int, isWarmup: Bool = false, configuration: [String: String] = [:], dropSegments: [DropSetSegment] = []) {

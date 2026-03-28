@@ -545,7 +545,7 @@ private struct SessionDetailView: View {
                 }
             }
             ForEach(session.exerciseLogs) { log in
-                Section(dataVM.displayName(for: log.workoutExercise)) {
+                Section {
                     ForEach(log.loggedSets) { set in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
@@ -566,6 +566,15 @@ private struct SessionDetailView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
+                        }
+                    }
+                } header: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(dataVM.displayName(for: log.workoutExercise))
+                        if let slotLabel = HistoryView.templateSlotCaption(for: log, session: session, dataVM: dataVM) {
+                            Text("Slot: \(slotLabel)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -648,6 +657,15 @@ private struct ExerciseHistoryDetailView: View {
                         Text(HistoryView.formatDateStatic(item.session.endTime ?? item.session.startTime))
                             .foregroundStyle(.secondary)
                     }
+                    if let slotLabel = HistoryView.templateSlotCaption(for: item.log, session: item.session, dataVM: dataVM) {
+                        HStack {
+                            Text("Template slot")
+                            Spacer()
+                            Text(slotLabel)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
                     ForEach(item.log.loggedSets) { set in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
@@ -716,7 +734,7 @@ private struct MuscleGroupHistoryDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(item.logs) { log in
-                        DisclosureGroup(dataVM.displayName(for: log.workoutExercise)) {
+                        DisclosureGroup {
                             ForEach(log.loggedSets) { set in
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack {
@@ -739,6 +757,15 @@ private struct MuscleGroupHistoryDetailView: View {
                                     }
                                 }
                             }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(dataVM.displayName(for: log.workoutExercise))
+                                if let slotLabel = HistoryView.templateSlotCaption(for: log, session: item.session, dataVM: dataVM) {
+                                    Text("Slot: \(slotLabel)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                         }
                     }
                 } header: {
@@ -753,6 +780,17 @@ private struct MuscleGroupHistoryDetailView: View {
 
 // MARK: - Shared formatters (used by detail views)
 extension HistoryView {
+    /// Template slot label for this log when the session was started from a slot template and bindings exist.
+    static func templateSlotCaption(for log: ExerciseLog, session: WorkoutSession, dataVM: DataManager) -> String? {
+        guard case .slotTemplate(let templateId) = session.sessionPlanOrigin,
+              let slotUUID = session.workout.templateSlotId(forWorkoutExerciseRow: log.workoutExercise.id),
+              let template = dataVM.slotTemplate(id: templateId),
+              let slot = template.slots.first(where: { $0.id == slotUUID })
+        else { return nil }
+        let label = slot.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        return label.isEmpty ? nil : label
+    }
+
     static func formatDateStatic(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
