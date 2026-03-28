@@ -532,11 +532,24 @@ final class DataManager: ObservableObject {
     func weekAtAGlance(referenceDate: Date = Date(), calendar: Calendar = .current) -> WeekAtAGlance {
         let weekKey = TrainingProgramState.isoWeekKey(for: referenceDate, calendar: calendar)
         let dayStarts = TrainingProgramState.orderedCalendarDaysInWeek(containing: referenceDate, calendar: calendar)
-        let days: [(date: Date, weekday: Int, hasWorkout: Bool)] = dayStarts.map { start in
-            let wd = calendar.component(.weekday, from: start)
-            return (date: start, weekday: wd, hasWorkout: sessionStore.hasCompletedSessionEnding(on: start, calendar: calendar))
+        let weekInterval = calendar.dateInterval(of: .weekOfYear, for: referenceDate)
+        let days: [(date: Date, weekday: Int, hasWorkout: Bool)] = dayStarts.map { dayStart in
+            let wd = calendar.component(.weekday, from: dayStart)
+            let hasWorkout = completedSessions.contains { session in
+                guard let end = session.endTime else { return false }
+                return calendar.isDate(end, inSameDayAs: dayStart)
+            }
+            return (date: dayStart, weekday: wd, hasWorkout: hasWorkout)
         }
-        let completed = sessionStore.completedSessionCount(inWeekContaining: referenceDate, calendar: calendar)
+        let completed: Int
+        if let weekInterval {
+            completed = completedSessions.filter { session in
+                guard let end = session.endTime else { return false }
+                return end >= weekInterval.start && end < weekInterval.end
+            }.count
+        } else {
+            completed = 0
+        }
         let goal: Int? = trainingProgram.cycleEntries.isEmpty
             ? nil
             : min(max(1, trainingProgram.sessionsPerWeek), 7)

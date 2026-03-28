@@ -50,27 +50,4 @@ final class SessionStore {
             #endif
         }
     }
-
-    // MARK: - Analytics
-
-    func completedSessionCount(inWeekContaining referenceDate: Date, calendar: Calendar) -> Int {
-        guard let interval = calendar.dateInterval(of: .weekOfYear, for: referenceDate) else { return 0 }
-        let start = interval.start
-        let end = interval.end
-        var descriptor = FetchDescriptor<SDWorkoutSession>(
-            predicate: #Predicate<SDWorkoutSession> { $0.endTime != nil && $0.endTime! >= start && $0.endTime! < end }
-        )
-        descriptor.fetchLimit = 100
-        return (try? modelContext.fetchCount(descriptor)) ?? 0
-    }
-
-    func hasCompletedSessionEnding(on dayStart: Date, calendar: Calendar) -> Bool {
-        let start = calendar.startOfDay(for: dayStart)
-        guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: start) else { return false }
-        var descriptor = FetchDescriptor<SDWorkoutSession>(
-            predicate: #Predicate<SDWorkoutSession> { $0.endTime != nil && $0.endTime! >= start && $0.endTime! < dayEnd }
-        )
-        descriptor.fetchLimit = 1
-        return (try? modelContext.fetchCount(descriptor)) ?? 0 > 0
-    }
 }
