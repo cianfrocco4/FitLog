@@ -20,10 +20,9 @@ struct PlanCalendarView: View {
     @State private var resolvedDayCache: [String: ResolvedScheduleDay] = [:]
 
     private var calendar: Calendar { .current }
-    private var engine: TrainingScheduleEngine { TrainingScheduleEngine(calendar: calendar) }
 
     private var calendarRefreshKey: String {
-        "\(dayMonitor.currentDayKey)-\(dataVM.trainingProgram.cycleEntries.count)-\(dataVM.trainingProgram.anchorDayKey)-\(dataVM.trainingProgram.dayOverrides.count)-\(dataVM.trainingProgram.weekOverrides.count)-\(dataVM.completedSessions.count)"
+        "\(dayMonitor.currentDayKey)-\(dataVM.trainingProgram.cycleEntries.count)-\(dataVM.trainingProgram.anchorDayKey)-\(dataVM.trainingProgram.dayOverrides.count)-\(dataVM.trainingProgram.weekOverrides.count)-\(dataVM.trainingProgram.frozenCalendarDays.count)-\(dataVM.completedSessions.count)"
     }
 
     private func rebuildResolvedDayCache() {
@@ -32,14 +31,14 @@ struct PlanCalendarView: View {
         for day in days {
             guard let d = day else { continue }
             let key = TrainingProgramState.dayKey(for: d, calendar: calendar)
-            cache[key] = engine.resolve(date: d, program: dataVM.trainingProgram)
+            cache[key] = dataVM.resolvedScheduleDay(for: d, calendar: calendar)
         }
         resolvedDayCache = cache
     }
 
     private func cachedResolve(date: Date) -> ResolvedScheduleDay {
         let key = TrainingProgramState.dayKey(for: date, calendar: calendar)
-        return resolvedDayCache[key] ?? engine.resolve(date: date, program: dataVM.trainingProgram)
+        return resolvedDayCache[key] ?? dataVM.resolvedScheduleDay(for: date, calendar: calendar)
     }
 
     private var orderedShortWeekdays: [String] {
@@ -158,16 +157,8 @@ struct PlanCalendarView: View {
     private func dayCell(date: Date) -> some View {
         let resolved = cachedResolve(date: date)
         let isToday = calendar.isDateInToday(date)
-        let subtitle: String = {
-            switch resolved {
-            case .rest:
-                return "Rest"
-            case .unscheduled:
-                return "—"
-            case .workout(let ref):
-                return dataVM.planLabel(for: ref)
-            }
-        }()
+        let subtitle = dayPlanSubtitle(date: date, resolved: resolved)
+        let isPastDay = calendar.startOfDay(for: date) < calendar.startOfDay(for: Date())
 
         return VStack(alignment: .leading, spacing: 4) {
             ZStack {
@@ -215,7 +206,7 @@ struct PlanCalendarView: View {
             Button("Edit this week") {
                 weekEditAnchor = date
             }
-            if case .workout(let ref) = resolved {
+            if !isPastDay, case .workout(let ref) = resolved {
                 switch ref {
                 case .concreteWorkout(let id):
                     if let w = dataVM.userWorkouts.first(where: { $0.id == id }) {
@@ -234,6 +225,20 @@ struct PlanCalendarView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func dayPlanSubtitle(date: Date, resolved: ResolvedScheduleDay) -> String {
+        if let s = dataVM.primaryCompletedSession(on: date, calendar: calendar) {
+            return s.workout.name
+        }
+        switch resolved {
+        case .rest:
+            return "Rest"
+        case .unscheduled:
+            return "—"
+        case .workout(let ref):
+            return dataVM.planLabel(for: ref)
         }
     }
 
@@ -300,7 +305,6 @@ struct DayPlanSheet: View {
     @State private var swapWorkoutId: UUID?
 
     private var calendar: Calendar { .current }
-    private var engine: TrainingScheduleEngine { TrainingScheduleEngine(calendar: calendar) }
     private var dayKey: String { TrainingProgramState.dayKey(for: date, calendar: calendar) }
 
     var body: some View {
@@ -312,7 +316,7 @@ struct DayPlanSheet: View {
                 }
 
                 Section("Assignment") {
-                    let resolved = engine.resolve(date: date, program: dataVM.trainingProgram)
+                    let resolved = dataVM.resolvedScheduleDay(for: date, calendar: calendar)
                     switch resolved {
                     case .rest:
                         Label("Rest day", systemImage: "moon.zzz")
@@ -323,47 +327,55 @@ struct DayPlanSheet: View {
                     }
                 }
 
-                Section("Actions") {
-                    if case .workout(let ref) = engine.resolve(date: date, program: dataVM.trainingProgram) {
-                        switch ref {
-                        case .concreteWorkout(let id):
-                            if let w = dataVM.userWorkouts.first(where: { $0.id == id }) {
-                                Button("Start workout") {
-                                    currentVM.startWorkout(w, sessionPlanOrigin: .concreteWorkout(id))
-                                    dismiss()
+                if let done = dataVM.primaryCompletedSession(on: date, calendar: calendar) {
+                    Section("Completed") {
+                        Label(done.workout.name, systemImage: "checkmark.circle.fill")
+                    }
+                }
+
+                if calendar.startOfDay(for: date) >= calendar.startOfDay(for: Date()) {
+                    Section("Actions") {
+                        if case .workout(let ref) = dataVM.resolvedScheduleDay(for: date, calendar: calendar) {
+                            switch ref {
+                            case .concreteWorkout(let id):
+                                if let w = dataVM.userWorkouts.first(where: { $0.id == id }) {
+                                    Button("Start workout") {
+                                        currentVM.startWorkout(w, sessionPlanOrigin: .concreteWorkout(id))
+                                        dismiss()
+                                    }
                                 }
-                            }
-                        case .slotTemplate(let tid):
-                            if let t = dataVM.slotTemplate(id: tid) {
-                                Button("Start workout") {
-                                    currentVM.startWorkout(
-                                        dataVM.instantiateWorkout(from: t),
-                                        sessionPlanOrigin: .slotTemplate(tid)
-                                    )
-                                    dismiss()
+                            case .slotTemplate(let tid):
+                                if let t = dataVM.slotTemplate(id: tid) {
+                                    Button("Start workout") {
+                                        currentVM.startWorkout(
+                                            dataVM.instantiateWorkout(from: t),
+                                            sessionPlanOrigin: .slotTemplate(tid)
+                                        )
+                                        dismiss()
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    Picker("Swap to workout", selection: $swapWorkoutId) {
-                        Text("Choose…").tag(nil as UUID?)
-                        ForEach(dataVM.userWorkouts) { w in
-                            Text(w.name).tag(Optional(w.id))
+                        Picker("Swap to workout", selection: $swapWorkoutId) {
+                            Text("Choose…").tag(nil as UUID?)
+                            ForEach(dataVM.userWorkouts) { w in
+                                Text(w.name).tag(Optional(w.id))
+                            }
                         }
-                    }
-                    Button("Apply swap") {
-                        guard let newId = swapWorkoutId else { return }
-                        dataVM.setTrainingDayOverride(dayKey: dayKey, intent: .workout, workoutId: newId)
-                    }
-                    .disabled(swapWorkoutId == nil)
+                        Button("Apply swap") {
+                            guard let newId = swapWorkoutId else { return }
+                            dataVM.setTrainingDayOverride(dayKey: dayKey, intent: .workout, workoutId: newId)
+                        }
+                        .disabled(swapWorkoutId == nil)
 
-                    Button("Mark rest day") {
-                        dataVM.setTrainingDayOverride(dayKey: dayKey, intent: .rest)
-                    }
+                        Button("Mark rest day") {
+                            dataVM.setTrainingDayOverride(dayKey: dayKey, intent: .rest)
+                        }
 
-                    Button("Use default plan") {
-                        dataVM.clearTrainingDayOverride(dayKey: dayKey)
+                        Button("Use default plan") {
+                            dataVM.clearTrainingDayOverride(dayKey: dayKey)
+                        }
                     }
                 }
 
@@ -399,7 +411,7 @@ struct DayPlanSheet: View {
     }
 
     private var concreteWorkoutIdForLink: UUID? {
-        switch engine.resolve(date: date, program: dataVM.trainingProgram) {
+        switch dataVM.resolvedScheduleDay(for: date, calendar: calendar) {
         case .workout(.concreteWorkout(let id)):
             return id
         default:
@@ -408,7 +420,7 @@ struct DayPlanSheet: View {
     }
 
     private var slotTemplateIdForLink: UUID? {
-        switch engine.resolve(date: date, program: dataVM.trainingProgram) {
+        switch dataVM.resolvedScheduleDay(for: date, calendar: calendar) {
         case .workout(.slotTemplate(let id)):
             return id
         default:
@@ -426,7 +438,6 @@ struct WeekOverrideSheet: View {
     let weekContaining: Date
 
     private var calendar: Calendar { .current }
-    private var engine: TrainingScheduleEngine { TrainingScheduleEngine(calendar: calendar) }
     private var weekKey: String { TrainingProgramState.isoWeekKey(for: weekContaining, calendar: calendar) }
 
     /// Weekdays in order for this calendar (e.g. Sun…Sat).
@@ -457,7 +468,7 @@ struct WeekOverrideSheet: View {
                             title: "\(weekdayName(pair.weekday)) · \(shortDate(pair.date))",
                             weekKey: weekKey,
                             weekday: pair.weekday,
-                            defaultResolved: engine.resolve(date: pair.date, program: dataVM.trainingProgram)
+                            defaultResolved: dataVM.resolvedScheduleDay(for: pair.date, calendar: calendar)
                         )
                     }
                 }

@@ -47,12 +47,15 @@ final class DataManager: ObservableObject {
             trainingProgram = program
         }
 
+        pruneStaleFrozenCalendarDays()
+
         if globalExercises.isEmpty {
             preloadFullExerciseLibrary()
         }
 
         migrateLegacyCustomExercises()
         rotateBackup()
+        freezeYesterdayPlanAssignmentIfNeeded()
     }
 
     // MARK: - Rotating backups
@@ -272,6 +275,7 @@ final class DataManager: ObservableObject {
     func deleteSlotTemplate(_ template: WorkoutTemplate) {
         userWorkoutTemplates.removeAll { $0.id == template.id }
         var p = trainingProgram
+        mergeFrozenPastDays(from: p, into: &p.frozenCalendarDays, calendar: .current)
         p.cycleEntries.removeAll { $0 == .slotTemplate(template.id) }
         trainingProgram = p
         saveWorkoutTemplates()
@@ -314,6 +318,112 @@ final class DataManager: ObservableObject {
         case .slotTemplate(let id):
             return userWorkoutTemplates.first(where: { $0.id == id })?.name ?? "Missing template"
         }
+    }
+
+    /// Plan assignment shown on the calendar for `date`: frozen history before today (after rotation changes), else live engine resolution.
+    /// Past days without a snapshot are unscheduled so the engine does not invent a split backward before you have any training history.
+    func resolvedScheduleDay(for date: Date, calendar: Calendar = .current) -> ResolvedScheduleDay {
+        let cal = calendar
+        let todayStart = cal.startOfDay(for: Date())
+        let dateStart = cal.startOfDay(for: date)
+        if dateStart < todayStart {
+            let key = TrainingProgramState.dayKey(for: date, calendar: cal)
+            if let frozen = trainingProgram.frozenCalendarDays[key] {
+                return frozen.asResolved()
+            }
+            return .unscheduled
+        }
+        return TrainingScheduleEngine(calendar: cal).resolve(date: date, program: trainingProgram)
+    }
+
+    /// Most recent completed session whose end (or start) falls on this local calendar day.
+    func primaryCompletedSession(on date: Date, calendar: Calendar = .current) -> WorkoutSession? {
+        let cal = calendar
+        let key = TrainingProgramState.dayKey(for: date, calendar: cal)
+        return completedSessions
+            .filter(\.isCompleted)
+            .filter { sessionDayKey($0, calendar: cal) == key }
+            .max(by: { ($0.endTime ?? $0.startTime) < ($1.endTime ?? $1.startTime) })
+    }
+
+    private func sessionDayKey(_ session: WorkoutSession, calendar: Calendar) -> String {
+        let t = session.endTime ?? session.startTime
+        return TrainingProgramState.dayKey(for: t, calendar: calendar)
+    }
+
+    /// For each local day strictly before today, records the current full resolution (including overrides) if not already frozen — so later split changes do not rewrite that day.
+    /// Only days on or after the first completed workout are filled (or just yesterday when there are no logs) so we do not snapshot a fake cycle before you trained.
+    private func mergeFrozenPastDays(from oldProgram: TrainingProgramState, into frozen: inout [String: FrozenPlanDay], calendar: Calendar = .current) {
+        let engine = TrainingScheduleEngine(calendar: calendar)
+        let todayStart = calendar.startOfDay(for: Date())
+        guard let yesterday = calendar.date(byAdding: .day, value: -1, to: todayStart) else { return }
+
+        let walkFrom: Date
+        if let oldestLog = completedSessions.filter(\.isCompleted).map({ calendar.startOfDay(for: $0.endTime ?? $0.startTime) }).min() {
+            walkFrom = oldestLog
+        } else {
+            walkFrom = yesterday
+        }
+
+        var walk = walkFrom
+        if let cap = calendar.date(byAdding: .year, value: -3, to: todayStart) {
+            let capStart = calendar.startOfDay(for: cap)
+            if walk < capStart { walk = capStart }
+        }
+        if walk > yesterday { return }
+
+        while walk <= yesterday {
+            let key = TrainingProgramState.dayKey(for: walk, calendar: calendar)
+            if frozen[key] == nil {
+                let r = engine.resolve(date: walk, program: oldProgram)
+                frozen[key] = FrozenPlanDay(resolved: r)
+            }
+            guard let next = calendar.date(byAdding: .day, value: 1, to: walk) else { break }
+            walk = next
+        }
+    }
+
+    /// Drops frozen snapshots that predate any training evidence (or, with no logs, anything before yesterday) so older app versions cannot leave years of invented plan cells.
+    private func pruneStaleFrozenCalendarDays(calendar: Calendar = .current) {
+        let cal = calendar
+        let todayStart = cal.startOfDay(for: Date())
+        guard let yesterday = cal.date(byAdding: .day, value: -1, to: todayStart) else { return }
+
+        var p = trainingProgram
+        let floorKey: String
+        if let oldest = completedSessions.filter(\.isCompleted).map({ cal.startOfDay(for: $0.endTime ?? $0.startTime) }).min() {
+            floorKey = TrainingProgramState.dayKey(for: oldest, calendar: cal)
+        } else {
+            floorKey = TrainingProgramState.dayKey(for: yesterday, calendar: cal)
+        }
+
+        let filtered = p.frozenCalendarDays.filter { $0.key >= floorKey }
+        guard filtered.count != p.frozenCalendarDays.count else { return }
+        p.frozenCalendarDays = filtered
+        trainingProgram = p
+        saveTrainingProgram()
+    }
+
+    private func applyTrainingProgramAfterFreezingPast(_ newProgram: TrainingProgramState) {
+        var merged = newProgram
+        mergeFrozenPastDays(from: trainingProgram, into: &merged.frozenCalendarDays, calendar: .current)
+        trainingProgram = merged
+        saveTrainingProgram()
+    }
+
+    /// Snapshots the previous local calendar day's plan (if not already frozen) using the current program. Call after the calendar day advances or on launch so "today" from yesterday does not remap when the split changes overnight.
+    func freezeYesterdayPlanAssignmentIfNeeded(calendar: Calendar = .current) {
+        guard completedSessions.contains(where: \.isCompleted) else { return }
+        let cal = calendar
+        let todayStart = cal.startOfDay(for: Date())
+        guard let yesterday = cal.date(byAdding: .day, value: -1, to: todayStart) else { return }
+        let key = TrainingProgramState.dayKey(for: yesterday, calendar: cal)
+        var p = trainingProgram
+        guard p.frozenCalendarDays[key] == nil else { return }
+        let r = TrainingScheduleEngine(calendar: cal).resolve(date: yesterday, program: p)
+        p.frozenCalendarDays[key] = FrozenPlanDay(resolved: r)
+        trainingProgram = p
+        saveTrainingProgram()
     }
 
     // MARK: - Global exercises
@@ -622,8 +732,7 @@ final class DataManager: ObservableObject {
         p.sessionsPerWeek = min(max(1, sessionsPerWeek), 7)
         p.preferredWeekdays = preferredWeekdays
         p.anchorDayKey = TrainingProgramState.dayKey(for: anchorDate)
-        trainingProgram = p
-        saveTrainingProgram()
+        applyTrainingProgramAfterFreezingPast(p)
     }
 
     func setTrainingCycleWorkoutIds(_ ids: [UUID]) {
@@ -633,29 +742,25 @@ final class DataManager: ObservableObject {
     func setTrainingCycleEntries(_ entries: [WorkoutPlanRef]) {
         var p = trainingProgram
         p.cycleEntries = entries
-        trainingProgram = p
-        saveTrainingProgram()
+        applyTrainingProgramAfterFreezingPast(p)
     }
 
     func setTrainingSessionsPerWeek(_ n: Int) {
         var p = trainingProgram
         p.sessionsPerWeek = min(max(1, n), 7)
-        trainingProgram = p
-        saveTrainingProgram()
+        applyTrainingProgramAfterFreezingPast(p)
     }
 
     func setTrainingPreferredWeekdays(_ days: [Int]) {
         var p = trainingProgram
         p.preferredWeekdays = days
-        trainingProgram = p
-        saveTrainingProgram()
+        applyTrainingProgramAfterFreezingPast(p)
     }
 
     func setTrainingAnchorDate(_ date: Date) {
         var p = trainingProgram
         p.anchorDayKey = TrainingProgramState.dayKey(for: date)
-        trainingProgram = p
-        saveTrainingProgram()
+        applyTrainingProgramAfterFreezingPast(p)
     }
 
     func clearTrainingDayOverride(dayKey: String) {

@@ -63,6 +63,8 @@ struct TrainingProgramState: Codable, Equatable {
     var anchorDayKey: String
     var dayOverrides: [String: ScheduleDayOverride]
     var weekOverrides: [String: ScheduleWeekOverride]
+    /// Day keys (`yyyy-MM-dd`) before today only; see `FrozenPlanDay`.
+    var frozenCalendarDays: [String: FrozenPlanDay]
 
     static func empty(anchorDayKey: String) -> TrainingProgramState {
         TrainingProgramState(
@@ -71,7 +73,8 @@ struct TrainingProgramState: Codable, Equatable {
             preferredWeekdays: [],
             anchorDayKey: anchorDayKey,
             dayOverrides: [:],
-            weekOverrides: [:]
+            weekOverrides: [:],
+            frozenCalendarDays: [:]
         )
     }
 
@@ -120,7 +123,8 @@ struct TrainingProgramState: Codable, Equatable {
         preferredWeekdays: [Int],
         anchorDayKey: String,
         dayOverrides: [String: ScheduleDayOverride],
-        weekOverrides: [String: ScheduleWeekOverride]
+        weekOverrides: [String: ScheduleWeekOverride],
+        frozenCalendarDays: [String: FrozenPlanDay] = [:]
     ) {
         self.cycleEntries = cycleEntries
         self.sessionsPerWeek = sessionsPerWeek
@@ -128,6 +132,7 @@ struct TrainingProgramState: Codable, Equatable {
         self.anchorDayKey = anchorDayKey
         self.dayOverrides = dayOverrides
         self.weekOverrides = weekOverrides
+        self.frozenCalendarDays = frozenCalendarDays
     }
 
     // MARK: - Legacy type for decoding old ProgramCycleEntry format
@@ -160,6 +165,7 @@ struct TrainingProgramState: Codable, Equatable {
         anchorDayKey = (try? c.decode(String.self, forKey: .anchorDayKey)) ?? Self.dayKey(for: Date())
         dayOverrides = (try? c.decode([String: ScheduleDayOverride].self, forKey: .dayOverrides)) ?? [:]
         weekOverrides = (try? c.decode([String: ScheduleWeekOverride].self, forKey: .weekOverrides)) ?? [:]
+        frozenCalendarDays = (try? c.decode([String: FrozenPlanDay].self, forKey: .frozenCalendarDays)) ?? [:]
     }
 
     func encode(to encoder: Encoder) throws {
@@ -170,10 +176,13 @@ struct TrainingProgramState: Codable, Equatable {
         try c.encode(anchorDayKey, forKey: .anchorDayKey)
         try c.encode(dayOverrides, forKey: .dayOverrides)
         try c.encode(weekOverrides, forKey: .weekOverrides)
+        if !frozenCalendarDays.isEmpty {
+            try c.encode(frozenCalendarDays, forKey: .frozenCalendarDays)
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case cycleEntries, cycleWorkoutIds, sessionsPerWeek, preferredWeekdays, anchorDayKey, dayOverrides, weekOverrides
+        case cycleEntries, cycleWorkoutIds, sessionsPerWeek, preferredWeekdays, anchorDayKey, dayOverrides, weekOverrides, frozenCalendarDays
     }
 }
 
@@ -184,4 +193,52 @@ enum ResolvedScheduleDay: Equatable {
     case unscheduled
     /// Concrete workout definition or slot template scheduled for this day.
     case workout(WorkoutPlanRef)
+}
+
+// MARK: - Frozen past calendar (rotation-stable history)
+
+/// Persisted snapshot for calendar days strictly before "today" so changing the split / anchor / weekly pattern does not rewrite what the Plan tab showed historically.
+struct FrozenPlanDay: Codable, Equatable {
+    enum Kind: String, Codable {
+        case rest
+        case unscheduled
+        case workout
+    }
+
+    var kind: Kind
+    /// Set when `kind == .workout`.
+    var workoutRef: WorkoutPlanRef?
+
+    init(kind: Kind, workoutRef: WorkoutPlanRef? = nil) {
+        self.kind = kind
+        self.workoutRef = workoutRef
+    }
+
+    init(resolved: ResolvedScheduleDay) {
+        switch resolved {
+        case .rest:
+            self.kind = .rest
+            self.workoutRef = nil
+        case .unscheduled:
+            self.kind = .unscheduled
+            self.workoutRef = nil
+        case .workout(let ref):
+            self.kind = .workout
+            self.workoutRef = ref
+        }
+    }
+
+    func asResolved() -> ResolvedScheduleDay {
+        switch kind {
+        case .rest:
+            return .rest
+        case .unscheduled:
+            return .unscheduled
+        case .workout:
+            if let ref = workoutRef {
+                return .workout(ref)
+            }
+            return .unscheduled
+        }
+    }
 }

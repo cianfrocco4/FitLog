@@ -11,6 +11,7 @@ struct MainTabView: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var aiService: AIService
+    @EnvironmentObject var dayMonitor: CalendarDayMonitor
     @State private var showCurrentWorkoutPullUp = false
 
     var body: some View {
@@ -43,6 +44,9 @@ struct MainTabView: View {
             if !inProgress {
                 showCurrentWorkoutPullUp = false
             }
+        }
+        .onChange(of: dayMonitor.currentDayKey) { _, _ in
+            dataVM.freezeYesterdayPlanAssignmentIfNeeded()
         }
         .onAppear {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }

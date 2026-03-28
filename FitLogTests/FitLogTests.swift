@@ -63,5 +63,15 @@ struct FitLogTests {
         #expect(decoded.sessionsPerWeek == 4)
         #expect(decoded.cycleEntries.isEmpty)
         #expect(decoded.preferredWeekdays.isEmpty)
+        #expect(decoded.frozenCalendarDays.isEmpty)
+    }
+
+    @Test func frozenPlanDay_encodesRoundTrip() throws {
+        let id = UUID()
+        let original = FrozenPlanDay(resolved: .workout(.concreteWorkout(id)))
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(FrozenPlanDay.self, from: data)
+        #expect(decoded == original)
+        #expect(decoded.asResolved() == .workout(.concreteWorkout(id)))
     }
 }
