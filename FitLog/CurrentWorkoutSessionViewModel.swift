@@ -8,6 +8,12 @@
 import Foundation
 import UserNotifications
 
+/// When opening the pull-up sheet from elsewhere (e.g. workout plan), expand this row and optionally present the log-set sheet.
+struct PendingPullUpFocus: Equatable {
+    let exerciseLogIndex: Int
+    let presentLogSetSheet: Bool
+}
+
 private enum PersistenceKey {
     static let activeSession = "activeWorkoutSession"
     static let timerTotalPaused = "activeWorkoutTimerTotalPaused"
@@ -25,6 +31,8 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     @Published var workoutElapsedSeconds: Int = 0
     /// Set to true when a rest countdown naturally reaches zero (not when cancelled).
     @Published var showRestCompleteAlert: Bool = false
+    /// Cleared when consumed by `CurrentWorkoutPullUpSheet` on appear.
+    @Published var pendingPullUpFocus: PendingPullUpFocus?
     
     private var restTimer: Timer?
     private var workoutTimer: Timer?

@@ -30,7 +30,10 @@ struct CurrentWorkoutCollapsedBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Button { showPullUp = true } label: {
+            Button {
+                currentVM.pendingPullUpFocus = nil
+                showPullUp = true
+            } label: {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(currentVM.currentSession?.workout.name ?? "")

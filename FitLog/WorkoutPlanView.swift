@@ -32,8 +32,7 @@ struct WorkoutPlanView: View {
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var aiService: AIService
-    @State private var showLogSheet = false
-    @State private var selectedIndex: Int?
+    @Environment(\.openPullUpToExerciseLogIndex) private var openPullUpToExerciseLogIndex
     @State private var showAddExercise = false
     @State private var showRenameAlert = false
     @State private var newWorkoutName = ""
@@ -128,12 +127,6 @@ struct WorkoutPlanView: View {
             }
             ToolbarItem(placement: .topBarLeading) {
                 EditButton()
-            }
-        }
-        .sheet(isPresented: $showLogSheet) {
-            if let idx = selectedIndex {
-                LogSetView(sessionVM: currentVM, exerciseIndex: idx)
-                    .environmentObject(dataVM)
             }
         }
         .sheet(isPresented: $showAddExercise) {
@@ -232,10 +225,13 @@ struct WorkoutPlanView: View {
     private func exerciseRow(item: ExerciseDisplayItem) -> some View {
         let we = item.workoutExercise
         return Button {
-            if currentVM.currentSession?.workout.id == workout.id {
-                selectedIndex = item.sourceIndex
-                showLogSheet = true
-            }
+            guard currentVM.currentSession?.workout.id == workout.id,
+                  item.sourceIndex < workout.exercises.count
+            else { return }
+            let rowId = workout.exercises[item.sourceIndex].id
+            guard let logIndex = currentVM.currentSession?.exerciseLogs.firstIndex(where: { $0.workoutExercise.id == rowId })
+            else { return }
+            openPullUpToExerciseLogIndex?(logIndex)
         } label: {
             HStack {
                 Text(dataVM.displayName(for: we)).font(.headline)
@@ -297,34 +293,6 @@ private func heuristicImprovementSuggestions(for workout: Workout, dataVM: DataM
         suggestions.append("Your workout looks reasonably balanced. Focus on adding small amounts of volume or load over time to progress.")
     }
     return suggestions
-}
-
-// MARK: - Favorites & recent (exercise picker)
-private enum ExercisePickerPersistence {
-    static let favoritesKey = "exercisePickerFavorites"
-    static let recentKey = "exercisePickerRecent"
-    static let recentMaxCount = 15
-
-    static func loadFavorites() -> Set<UUID> {
-        guard let raw = UserDefaults.standard.stringArray(forKey: favoritesKey) else { return [] }
-        return Set(raw.compactMap { UUID(uuidString: $0) })
-    }
-
-    static func saveFavorites(_ ids: Set<UUID>) {
-        UserDefaults.standard.set(ids.map(\.uuidString), forKey: favoritesKey)
-    }
-
-    static func loadRecent() -> [UUID] {
-        (UserDefaults.standard.stringArray(forKey: recentKey) ?? []).compactMap { UUID(uuidString: $0) }
-    }
-
-    static func recordRecent(exerciseId: UUID) {
-        var ids = loadRecent()
-        ids.removeAll { $0 == exerciseId }
-        ids.insert(exerciseId, at: 0)
-        ids = Array(ids.prefix(recentMaxCount))
-        UserDefaults.standard.set(ids.map(\.uuidString), forKey: recentKey)
-    }
 }
 
 // MARK: - Muscle group → Push/Pull/Legs/Core/Other

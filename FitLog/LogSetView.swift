@@ -307,7 +307,8 @@ struct LogSetView: View {
             weight = Self.clampWeight(lastInSession.weight)
             reps = lastInSession.reps
             restTime = lastInSession.restTime
-            isWarmup = lastInSession.isWarmup
+            // Do not carry warm-up forward: the next set defaults to a normal (working) set.
+            isWarmup = false
             if !lastInSession.configuration.isEmpty {
                 configValues = lastInSession.configuration
             }
@@ -347,7 +348,7 @@ struct LogSetView: View {
             weight = Self.clampWeight(recent.weight)
             reps = recent.reps
             restTime = recent.restTime
-            isWarmup = recent.isWarmup
+            isWarmup = false
             if !recent.configuration.isEmpty { configValues = recent.configuration }
             if !recent.dropSegments.isEmpty {
                 dropSetEnabled = true

@@ -24,6 +24,11 @@ struct MainTabView: View {
                 .tabItem { Label("Coach", systemImage: "bubble.left.and.bubble.right") }
         }
         .environment(\.openCurrentWorkoutSheet, {
+            currentVM.pendingPullUpFocus = nil
+            showCurrentWorkoutPullUp = true
+        })
+        .environment(\.openPullUpToExerciseLogIndex, { logIndex in
+            currentVM.pendingPullUpFocus = PendingPullUpFocus(exerciseLogIndex: logIndex, presentLogSetSheet: true)
             showCurrentWorkoutPullUp = true
         })
         .environment(\.fitlogWorkoutBarContentInset, currentVM.isInProgress ? FitlogWorkoutBarLayout.contentBottomPadding : 0)

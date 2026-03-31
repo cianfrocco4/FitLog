@@ -23,6 +23,10 @@ private enum OpenCurrentWorkoutSheetKey: EnvironmentKey {
     static let defaultValue: (() -> Void)? = nil
 }
 
+private enum OpenPullUpToExerciseLogIndexKey: EnvironmentKey {
+    static let defaultValue: ((Int) -> Void)? = nil
+}
+
 extension EnvironmentValues {
     /// Extra bottom padding for tab roots while the workout strip is visible.
     var fitlogWorkoutBarContentInset: CGFloat {
@@ -34,6 +38,12 @@ extension EnvironmentValues {
     var openCurrentWorkoutSheet: (() -> Void)? {
         get { self[OpenCurrentWorkoutSheetKey.self] }
         set { self[OpenCurrentWorkoutSheetKey.self] = newValue }
+    }
+
+    /// Opens the pull-up sheet focused on the given `exerciseLogs` index and presents log set when appropriate.
+    var openPullUpToExerciseLogIndex: ((Int) -> Void)? {
+        get { self[OpenPullUpToExerciseLogIndexKey.self] }
+        set { self[OpenPullUpToExerciseLogIndexKey.self] = newValue }
     }
 }
 

@@ -404,13 +404,15 @@ private enum TemplateSwapExerciseSimilarity {
 struct CurrentWorkoutPullUpSheet: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var aiService: AIService
     @Environment(\.dismiss) var dismiss
     
     @State private var expandedExerciseIndex: Int? = nil
     @State private var logSetSheetSelection: LogSetSheetSelection?
     @State private var resolveSlotSelection: ResolveSlotWE?
     @State private var showFinishConfirmation = false
-    @State private var showAddExercise = false
+    @State private var showQuickAddExercise = false
+    @State private var showFullAddExercise = false
 
     private var activeSessionWorkout: Workout? {
         currentVM.currentSession?.workout
@@ -498,6 +500,32 @@ struct CurrentWorkoutPullUpSheet: View {
 
                 ScrollViewReader { scrollProxy in
                     List {
+                        Section {
+                            Button {
+                                showQuickAddExercise = true
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "plus.circle.fill")
+                                        .font(.title2)
+                                        .foregroundStyle(.blue)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Add exercise")
+                                            .font(.headline)
+                                        Text("Suggestions match muscles you're already doing; favorites and recent are one tap away.")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.tertiary)
+                                }
+                                .padding(.vertical, 4)
+                            }
+                            .buttonStyle(.plain)
+                        }
+
                         if let exerciseLogs = currentVM.currentSession?.exerciseLogs, !exerciseLogs.isEmpty {
                             ForEach(Array(exerciseLogs.enumerated()), id: \.element.id) { index, log in
                                 let isExpanded = expandedExerciseIndex == index
@@ -670,15 +698,20 @@ struct CurrentWorkoutPullUpSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button {
-                            showAddExercise = true
+                            showQuickAddExercise = true
                         } label: {
-                            Label("Add exercise", systemImage: "plus")
+                            Label("Quick add exercise", systemImage: "plus")
+                        }
+                        Button {
+                            showFullAddExercise = true
+                        } label: {
+                            Label("Custom sets & fields…", systemImage: "slider.horizontal.3")
                         }
                         if isSlotTemplateSession {
                             Button {
                                 currentVM.appendSlotToSlotTemplateSession()
                             } label: {
-                                Label("Add slot", systemImage: "square.dashed")
+                                Label("Add template slot", systemImage: "square.dashed")
                             }
                         }
                     } label: {
@@ -712,10 +745,17 @@ struct CurrentWorkoutPullUpSheet: View {
                     .environmentObject(currentVM)
                 }
             }
-            .sheet(isPresented: $showAddExercise) {
+            .sheet(isPresented: $showQuickAddExercise) {
+                if let w = activeSessionWorkout {
+                    SessionQuickAddExerciseSheet(workout: w, currentVM: currentVM, dataVM: dataVM)
+                        .environmentObject(aiService)
+                }
+            }
+            .sheet(isPresented: $showFullAddExercise) {
                 if let w = activeSessionWorkout {
                     AddExerciseSheet(workout: w, currentVM: currentVM)
                         .environmentObject(dataVM)
+                        .environmentObject(aiService)
                 }
             }
             .alert(
@@ -746,6 +786,8 @@ struct CurrentWorkoutPullUpSheet: View {
                 if resolveSlotSelection == nil,
                    let first = currentVM.currentSession?.exerciseLogs.first(where: { $0.workoutExercise.isSlotPlaceholder }) {
                     resolveSlotSelection = ResolveSlotWE(workoutExerciseId: first.workoutExercise.id, templateSlotId: first.workoutExercise.templateSlotId)
+                } else if consumePendingPullUpFocusIfNeeded() {
+                    // Focus (and optionally log set) from deep link, e.g. workout plan row tap.
                 } else {
                     applyAutoExpandForPrimaryExercise()
                 }
@@ -785,6 +827,28 @@ struct CurrentWorkoutPullUpSheet: View {
         } else if let e = expandedExerciseIndex, e > index {
             expandedExerciseIndex = e - 1
         }
+    }
+
+    /// Returns whether a pending focus was applied (so caller skips default auto-expand).
+    @discardableResult
+    private func consumePendingPullUpFocusIfNeeded() -> Bool {
+        guard let pending = currentVM.pendingPullUpFocus else { return false }
+        currentVM.pendingPullUpFocus = nil
+        guard let logs = currentVM.currentSession?.exerciseLogs,
+              logs.indices.contains(pending.exerciseLogIndex)
+        else { return false }
+
+        let idx = pending.exerciseLogIndex
+        expandedExerciseIndex = idx
+
+        if pending.presentLogSetSheet {
+            let we = logs[idx].workoutExercise
+            guard !we.isSlotPlaceholder else { return true }
+            DispatchQueue.main.async {
+                logSetSheetSelection = LogSetSheetSelection(exerciseIndex: idx)
+            }
+        }
+        return true
     }
 
     private func applyAutoExpandForPrimaryExercise() {
