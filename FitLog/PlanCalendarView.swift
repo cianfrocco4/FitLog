@@ -18,6 +18,7 @@ struct PlanCalendarView: View {
     @State private var showSplitEditor = false
     @State private var showSetup = false
     @State private var resolvedDayCache: [String: ResolvedScheduleDay] = [:]
+    @State private var pendingWorkoutReplace: PendingWorkoutReplace?
 
     private var calendar: Calendar { .current }
 
@@ -102,6 +103,7 @@ struct PlanCalendarView: View {
                 ProgramSetupSheet()
                     .environmentObject(dataVM)
             }
+            .workoutReplaceConflictConfirmation(currentVM: currentVM, pending: $pendingWorkoutReplace)
         }
     }
 
@@ -211,16 +213,18 @@ struct PlanCalendarView: View {
                 case .concreteWorkout(let id):
                     if let w = dataVM.userWorkouts.first(where: { $0.id == id }) {
                         Button("Start workout") {
-                            currentVM.startWorkout(w, sessionPlanOrigin: .concreteWorkout(id))
+                            currentVM.startWorkoutResolvingConflict(w, sessionPlanOrigin: .concreteWorkout(id)) {
+                                pendingWorkoutReplace = $0
+                            }
                         }
                     }
                 case .slotTemplate(let tid):
                     if let t = dataVM.slotTemplate(id: tid) {
                         Button("Start workout") {
-                            currentVM.startWorkout(
-                                dataVM.instantiateWorkout(from: t),
-                                sessionPlanOrigin: .slotTemplate(tid)
-                            )
+                            let sessionWorkout = dataVM.instantiateWorkout(from: t)
+                            currentVM.startWorkoutResolvingConflict(sessionWorkout, sessionPlanOrigin: .slotTemplate(tid)) {
+                                pendingWorkoutReplace = $0
+                            }
                         }
                     }
                 }
@@ -303,6 +307,7 @@ struct DayPlanSheet: View {
     let date: Date
 
     @State private var swapWorkoutId: UUID?
+    @State private var pendingWorkoutReplace: PendingWorkoutReplace?
 
     private var calendar: Calendar { .current }
     private var dayKey: String { TrainingProgramState.dayKey(for: date, calendar: calendar) }
@@ -340,18 +345,30 @@ struct DayPlanSheet: View {
                             case .concreteWorkout(let id):
                                 if let w = dataVM.userWorkouts.first(where: { $0.id == id }) {
                                     Button("Start workout") {
-                                        currentVM.startWorkout(w, sessionPlanOrigin: .concreteWorkout(id))
-                                        dismiss()
+                                        switch currentVM.resolveStartingWorkout(w, sessionPlanOrigin: .concreteWorkout(id)) {
+                                        case .performStart:
+                                            currentVM.startWorkout(w, sessionPlanOrigin: .concreteWorkout(id))
+                                            dismiss()
+                                        case .noOpAlreadyActive:
+                                            dismiss()
+                                        case .needsReplaceConfirmation(let p):
+                                            pendingWorkoutReplace = p
+                                        }
                                     }
                                 }
                             case .slotTemplate(let tid):
                                 if let t = dataVM.slotTemplate(id: tid) {
                                     Button("Start workout") {
-                                        currentVM.startWorkout(
-                                            dataVM.instantiateWorkout(from: t),
-                                            sessionPlanOrigin: .slotTemplate(tid)
-                                        )
-                                        dismiss()
+                                        let sessionWorkout = dataVM.instantiateWorkout(from: t)
+                                        switch currentVM.resolveStartingWorkout(sessionWorkout, sessionPlanOrigin: .slotTemplate(tid)) {
+                                        case .performStart:
+                                            currentVM.startWorkout(sessionWorkout, sessionPlanOrigin: .slotTemplate(tid))
+                                            dismiss()
+                                        case .noOpAlreadyActive:
+                                            dismiss()
+                                        case .needsReplaceConfirmation(let p):
+                                            pendingWorkoutReplace = p
+                                        }
                                     }
                                 }
                             }
@@ -406,6 +423,11 @@ struct DayPlanSheet: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .workoutReplaceConflictConfirmation(
+                currentVM: currentVM,
+                pending: $pendingWorkoutReplace,
+                onAfterReplace: { dismiss() }
+            )
         }
         .presentationDetents([.medium, .large])
     }

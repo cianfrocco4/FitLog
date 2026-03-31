@@ -15,6 +15,7 @@ struct SlotTemplatePlanView: View {
     @State private var slots: [TemplateSlot] = []
     @State private var showRenameAlert = false
     @State private var newTemplateName = ""
+    @State private var pendingWorkoutReplace: PendingWorkoutReplace?
 
     private var canonical: WorkoutTemplate? {
         dataVM.slotTemplate(id: templateId)
@@ -71,6 +72,7 @@ struct SlotTemplatePlanView: View {
                     }
                 }
             }
+            .workoutReplaceConflictConfirmation(currentVM: currentVM, pending: $pendingWorkoutReplace)
     }
 
     @ViewBuilder
@@ -126,7 +128,9 @@ struct SlotTemplatePlanView: View {
     private func startWorkoutFromTemplate() {
         guard let t = canonical, !t.slots.isEmpty else { return }
         let sessionWorkout = dataVM.instantiateWorkout(from: t)
-        currentVM.startWorkout(sessionWorkout, sessionPlanOrigin: .slotTemplate(t.id))
+        currentVM.startWorkoutResolvingConflict(sessionWorkout, sessionPlanOrigin: .slotTemplate(t.id)) {
+            pendingWorkoutReplace = $0
+        }
     }
 
     private func syncFromData() {

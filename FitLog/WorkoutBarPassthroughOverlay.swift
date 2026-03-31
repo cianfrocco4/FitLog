@@ -19,11 +19,21 @@ private enum FitlogWorkoutBarContentInsetKey: EnvironmentKey {
     static let defaultValue: CGFloat = 0
 }
 
+private enum OpenCurrentWorkoutSheetKey: EnvironmentKey {
+    static let defaultValue: (() -> Void)? = nil
+}
+
 extension EnvironmentValues {
     /// Extra bottom padding for tab roots while the workout strip is visible.
     var fitlogWorkoutBarContentInset: CGFloat {
         get { self[FitlogWorkoutBarContentInsetKey.self] }
         set { self[FitlogWorkoutBarContentInsetKey.self] = newValue }
+    }
+
+    /// Opens the full current-workout sheet (same as tapping the bottom bar).
+    var openCurrentWorkoutSheet: (() -> Void)? {
+        get { self[OpenCurrentWorkoutSheetKey.self] }
+        set { self[OpenCurrentWorkoutSheetKey.self] = newValue }
     }
 }
 

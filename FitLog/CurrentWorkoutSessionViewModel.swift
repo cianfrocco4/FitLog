@@ -626,4 +626,61 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         currentSession = session
         recordWorkoutActivity()
     }
+
+    // MARK: - Starting a workout while another may be active
+
+    /// Whether the in-progress session is the same logical plan as the workout being started.
+    func isActiveSessionMatching(workout: Workout, planRef: WorkoutPlanRef?) -> Bool {
+        guard let s = currentSession, s.endTime == nil else { return false }
+        if let pr = planRef, let origin = s.sessionPlanOrigin {
+            return origin == pr
+        }
+        return s.workout.id == workout.id
+    }
+
+    func resolveStartingWorkout(_ workout: Workout, sessionPlanOrigin: WorkoutPlanRef?) -> WorkoutStartResolution {
+        guard isInProgress else {
+            return .performStart
+        }
+        if isActiveSessionMatching(workout: workout, planRef: sessionPlanOrigin) {
+            return .noOpAlreadyActive
+        }
+        return .needsReplaceConfirmation(PendingWorkoutReplace(workout: workout, sessionPlanOrigin: sessionPlanOrigin))
+    }
+
+    /// Ends the current session (saved as completed) and starts the new one.
+    func stopThenStartWorkout(_ workout: Workout, sessionPlanOrigin: WorkoutPlanRef? = nil) {
+        stopWorkout()
+        startWorkout(workout, sessionPlanOrigin: sessionPlanOrigin)
+    }
+
+    /// Starts immediately, or invokes `onNeedReplaceConfirmation` when the user must confirm replacing the active session.
+    func startWorkoutResolvingConflict(
+        _ workout: Workout,
+        sessionPlanOrigin: WorkoutPlanRef?,
+        onNeedReplaceConfirmation: (PendingWorkoutReplace) -> Void
+    ) {
+        switch resolveStartingWorkout(workout, sessionPlanOrigin: sessionPlanOrigin) {
+        case .performStart:
+            startWorkout(workout, sessionPlanOrigin: sessionPlanOrigin)
+        case .noOpAlreadyActive:
+            break
+        case .needsReplaceConfirmation(let pending):
+            onNeedReplaceConfirmation(pending)
+        }
+    }
+}
+
+// MARK: - Replace-active confirmation payload
+
+enum WorkoutStartResolution {
+    case performStart
+    case noOpAlreadyActive
+    case needsReplaceConfirmation(PendingWorkoutReplace)
+}
+
+struct PendingWorkoutReplace: Identifiable {
+    let id = UUID()
+    let workout: Workout
+    let sessionPlanOrigin: WorkoutPlanRef?
 }

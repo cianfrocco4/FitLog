@@ -13,6 +13,7 @@ struct HomeView: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var authVM: AuthViewModel
     @EnvironmentObject var aiService: AIService
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
 
     @State private var showNewWorkout = false
     @State private var showSplitBuilder = false
@@ -20,6 +21,12 @@ struct HomeView: View {
     @State private var renameText = ""
     /// After creating a slot template from the Add menu, push the editor for that template.
     @State private var newSlotTemplateToEdit: UUID?
+
+    @State private var pendingWorkoutReplace: PendingWorkoutReplace?
+    /// After starting from Today's plan, push this detail route and open the workout sheet.
+    @State private var todayPlanDetailRoute: TodayPlanDetailRoute?
+    /// If Today's plan Start hit a replace conflict, navigate here after the user confirms.
+    @State private var pendingTodayPlanNavigateAfterReplace: TodayPlanDetailRoute?
 
     @State private var cachedTodayPlan: ResolvedScheduleDay = .unscheduled
     @State private var cachedWeekGlance: DataManager.WeekAtAGlance?
@@ -58,14 +65,63 @@ struct HomeView: View {
     }
 
     private func startWorkout(fromSlotTemplate template: WorkoutTemplate) {
-        guard !template.slots.isEmpty, !currentVM.isInProgress else { return }
+        guard !template.slots.isEmpty else { return }
         let sessionWorkout = dataVM.instantiateWorkout(from: template)
-        currentVM.startWorkout(sessionWorkout, sessionPlanOrigin: .slotTemplate(template.id))
+        currentVM.startWorkoutResolvingConflict(sessionWorkout, sessionPlanOrigin: .slotTemplate(template.id)) {
+            pendingWorkoutReplace = $0
+        }
+    }
+
+    private func startConcreteWorkoutFromTodayPlan(_ workout: Workout) {
+        let ref = WorkoutPlanRef.concreteWorkout(workout.id)
+        switch currentVM.resolveStartingWorkout(workout, sessionPlanOrigin: ref) {
+        case .performStart:
+            currentVM.startWorkout(workout, sessionPlanOrigin: ref)
+            navigateTodayPlanDetailAndOpenWorkoutSheet(.concreteWorkout(workout.id))
+        case .noOpAlreadyActive:
+            break
+        case .needsReplaceConfirmation(let pending):
+            pendingWorkoutReplace = pending
+            pendingTodayPlanNavigateAfterReplace = .concreteWorkout(workout.id)
+        }
+    }
+
+    private func startWorkoutFromTodayPlan(template: WorkoutTemplate) {
+        guard !template.slots.isEmpty else { return }
+        let sessionWorkout = dataVM.instantiateWorkout(from: template)
+        let ref = WorkoutPlanRef.slotTemplate(template.id)
+        switch currentVM.resolveStartingWorkout(sessionWorkout, sessionPlanOrigin: ref) {
+        case .performStart:
+            currentVM.startWorkout(sessionWorkout, sessionPlanOrigin: ref)
+            navigateTodayPlanDetailAndOpenWorkoutSheet(.slotTemplate(template.id))
+        case .noOpAlreadyActive:
+            break
+        case .needsReplaceConfirmation(let pending):
+            pendingWorkoutReplace = pending
+            pendingTodayPlanNavigateAfterReplace = .slotTemplate(template.id)
+        }
+    }
+
+    private func navigateTodayPlanDetailAndOpenWorkoutSheet(_ route: TodayPlanDetailRoute) {
+        todayPlanDetailRoute = route
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            openCurrentWorkoutSheet?()
+        }
     }
 
     var body: some View {
         NavigationStack {
             List {
+                if currentVM.isInProgress {
+                    Section {
+                        activeWorkoutIndicatorCard
+                            .listRowInsets(homeDashboardRowInsets)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
+                }
+
                 Section {
                     aiSplitBuilderCard
                         .listRowInsets(homeDashboardRowInsets)
@@ -141,10 +197,10 @@ struct HomeView: View {
                             } label: {
                                 Label("Start workout", systemImage: "play.fill")
                             }
-                            .disabled(currentVM.isInProgress || template.slots.isEmpty)
+                            .disabled(template.slots.isEmpty)
                         }
                         .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                            if !currentVM.isInProgress, !template.slots.isEmpty {
+                            if !template.slots.isEmpty {
                                 Button {
                                     startWorkout(fromSlotTemplate: template)
                                 } label: {
@@ -229,10 +285,90 @@ struct HomeView: View {
                     .environmentObject(dataVM)
                     .environmentObject(currentVM)
             }
+            .navigationDestination(item: $todayPlanDetailRoute) { route in
+                switch route {
+                case .concreteWorkout(let id):
+                    if let binding = $dataVM.userWorkouts[id] {
+                        WorkoutPlanView(workout: binding)
+                            .environmentObject(dataVM)
+                            .environmentObject(currentVM)
+                            .environmentObject(aiService)
+                    } else {
+                        Text("Workout not found")
+                            .foregroundStyle(.red)
+                    }
+                case .slotTemplate(let id):
+                    SlotTemplatePlanView(templateId: id)
+                        .environmentObject(dataVM)
+                        .environmentObject(currentVM)
+                }
+            }
             .task(id: homeRefreshKey) {
                 refreshCachedHomeData()
             }
+            .workoutReplaceConflictConfirmation(
+                currentVM: currentVM,
+                pending: $pendingWorkoutReplace,
+                onAfterReplace: {
+                    if let route = pendingTodayPlanNavigateAfterReplace {
+                        pendingTodayPlanNavigateAfterReplace = nil
+                        navigateTodayPlanDetailAndOpenWorkoutSheet(route)
+                    }
+                },
+                onCancelReplace: {
+                    pendingTodayPlanNavigateAfterReplace = nil
+                }
+            )
         }
+    }
+
+    private var activeWorkoutIndicatorCard: some View {
+        Button {
+            openCurrentWorkoutSheet?()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "figure.strengthtraining.traditional")
+                    .font(.title2)
+                    .foregroundStyle(.green)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 8, height: 8)
+                        Text("Workout in progress")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(currentVM.currentSession?.workout.name ?? "")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    HStack(spacing: 8) {
+                        Text(currentVM.workoutElapsedFormatted)
+                            .font(.subheadline.weight(.medium).monospacedDigit())
+                        if currentVM.isWorkoutPaused {
+                            Text("Paused")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.ultraThinMaterial)
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .strokeBorder(Color.green.opacity(0.4), lineWidth: 1.5)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Opens the current workout")
     }
 
     private var aiSplitBuilderCard: some View {
@@ -290,12 +426,16 @@ struct HomeView: View {
                 switch ref {
                 case .concreteWorkout(let id):
                     if let workout = dataVM.userWorkouts.first(where: { $0.id == id }) {
+                        let planRef = WorkoutPlanRef.concreteWorkout(workout.id)
+                        let thisPlanActive = currentVM.isActiveSessionMatching(workout: workout, planRef: planRef)
                         TodayWorkoutCard(
                             title: workout.name,
                             subtitle: "Saved workout · from your training plan",
                             isCompleted: isPlannedWorkoutCompletedToday(plan: ref),
-                            isInProgress: currentVM.isInProgress,
-                            onStart: { currentVM.startWorkout(workout, sessionPlanOrigin: .concreteWorkout(workout.id)) },
+                            isThisPlanActive: thisPlanActive,
+                            isAnotherWorkoutActive: currentVM.isInProgress && !thisPlanActive,
+                            onStart: { startConcreteWorkoutFromTodayPlan(workout) },
+                            openActiveWorkout: { openCurrentWorkoutSheet?() },
                             detailLabel: "View workout"
                         ) {
                             if let binding = $dataVM.userWorkouts[workout.id] {
@@ -310,12 +450,17 @@ struct HomeView: View {
 
                 case .slotTemplate(let templateId):
                     if let template = dataVM.slotTemplate(id: templateId) {
+                        let sessionWorkout = dataVM.instantiateWorkout(from: template)
+                        let planRef = WorkoutPlanRef.slotTemplate(templateId)
+                        let thisPlanActive = currentVM.isActiveSessionMatching(workout: sessionWorkout, planRef: planRef)
                         TodayWorkoutCard(
                             title: template.name,
                             subtitle: "Flexible template · pick exercises when you train",
                             isCompleted: isPlannedWorkoutCompletedToday(plan: ref),
-                            isInProgress: currentVM.isInProgress,
-                            onStart: { startWorkout(fromSlotTemplate: template) },
+                            isThisPlanActive: thisPlanActive,
+                            isAnotherWorkoutActive: currentVM.isInProgress && !thisPlanActive,
+                            onStart: { startWorkoutFromTodayPlan(template: template) },
+                            openActiveWorkout: { openCurrentWorkoutSheet?() },
                             detailLabel: "Edit template"
                         ) {
                             SlotTemplatePlanView(templateId: templateId)
@@ -450,6 +595,22 @@ struct HomeView: View {
     }
 }
 
+// MARK: - Today’s plan → detail navigation
+
+private enum TodayPlanDetailRoute: Hashable, Identifiable {
+    case concreteWorkout(UUID)
+    case slotTemplate(UUID)
+
+    var id: String {
+        switch self {
+        case .concreteWorkout(let uuid):
+            return "cw-\(uuid.uuidString)"
+        case .slotTemplate(let uuid):
+            return "st-\(uuid.uuidString)"
+        }
+    }
+}
+
 // MARK: - Reusable today-workout card
 
 /// Unified card component for the today-plan section, handling active/completed/startable states.
@@ -457,8 +618,10 @@ private struct TodayWorkoutCard<Destination: View>: View {
     let title: String
     let subtitle: String
     let isCompleted: Bool
-    let isInProgress: Bool
+    let isThisPlanActive: Bool
+    let isAnotherWorkoutActive: Bool
     let onStart: () -> Void
+    let openActiveWorkout: () -> Void
     let detailLabel: String
     @ViewBuilder let destination: () -> Destination
 
@@ -469,10 +632,46 @@ private struct TodayWorkoutCard<Destination: View>: View {
             .font(.caption)
             .foregroundStyle(.secondary)
 
-        if isInProgress {
-            Text("Finish your current workout before starting another.")
+        if isThisPlanActive {
+            Label("This plan is in progress", systemImage: "figure.run")
+                .font(.headline)
+                .foregroundStyle(.green)
+            Text("Continue logging sets from the bar below or open the full workout.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            Button {
+                openActiveWorkout()
+            } label: {
+                Label("Open workout", systemImage: "arrow.up.circle")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.green)
+
+            NavigationLink(destination: destination) {
+                Label(detailLabel, systemImage: "list.bullet")
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+        } else if isAnotherWorkoutActive {
+            Text("Another workout is still active. Starting this one will complete it and save it to your history.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button(action: onStart) {
+                Label("Start workout", systemImage: "play.fill")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+
+            NavigationLink(destination: destination) {
+                Label(detailLabel, systemImage: "list.bullet")
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
         } else if isCompleted {
             Label("Completed today", systemImage: "checkmark.circle.fill")
                 .font(.headline)

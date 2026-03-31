@@ -23,6 +23,9 @@ struct MainTabView: View {
             AIChatView()
                 .tabItem { Label("Coach", systemImage: "bubble.left.and.bubble.right") }
         }
+        .environment(\.openCurrentWorkoutSheet, {
+            showCurrentWorkoutPullUp = true
+        })
         .environment(\.fitlogWorkoutBarContentInset, currentVM.isInProgress ? FitlogWorkoutBarLayout.contentBottomPadding : 0)
         .overlay {
             if currentVM.isInProgress {

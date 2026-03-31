@@ -41,7 +41,8 @@ struct WorkoutPlanView: View {
     @State private var suggestionsResult: Result<[String], Error>?
     @State private var suggestionsLoading = false
     @State private var suggestionsExpanded = true
-    
+    @State private var pendingWorkoutReplace: PendingWorkoutReplace?
+
     /// Display list for default and alphabetical (flat). Order is view-only.
     private var displayedItems: [ExerciseDisplayItem] {
         let enumerated = workout.exercises.enumerated().map { ExerciseDisplayItem(workoutExercise: $0.element, sourceIndex: $0.offset) }
@@ -99,7 +100,9 @@ struct WorkoutPlanView: View {
                     if currentVM.currentSession?.workout.id == workout.id {
                         currentVM.stopWorkout()
                     } else {
-                        currentVM.startWorkout(workout, sessionPlanOrigin: .concreteWorkout(workout.id))
+                        currentVM.startWorkoutResolvingConflict(workout, sessionPlanOrigin: .concreteWorkout(workout.id)) {
+                            pendingWorkoutReplace = $0
+                        }
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -143,6 +146,7 @@ struct WorkoutPlanView: View {
                 dataVM.renameWorkout(workout, newName: newWorkoutName)
             }
         }
+        .workoutReplaceConflictConfirmation(currentVM: currentVM, pending: $pendingWorkoutReplace)
     }
     
     private var listFlat: some View {
