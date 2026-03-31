@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 private enum CoachChatLimits {
     static let maxMessageChars = 800
@@ -105,6 +106,7 @@ struct AIChatView: View {
     @EnvironmentObject private var aiService: AIService
 
     @StateObject private var chat = CoachChatController()
+    @FocusState private var isComposerFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -146,6 +148,7 @@ struct AIChatView: View {
                         }
                         .padding()
                     }
+                    .scrollDismissesKeyboard(.interactively)
                     .onChange(of: chat.messages.count) { _, _ in
                         scrollToBottom(proxy: proxy)
                     }
@@ -162,15 +165,29 @@ struct AIChatView: View {
             .navigationTitle("Coach")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { dismissCoachKeyboard() }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Clear") {
-                        chat.clearChat()
+                    HStack(spacing: 12) {
+                        if isComposerFocused {
+                            Button("Done") { dismissCoachKeyboard() }
+                        }
+                        Button("Clear") {
+                            dismissCoachKeyboard()
+                            chat.clearChat()
+                        }
+                        .disabled(chat.messages.isEmpty && chat.draft.isEmpty)
                     }
-                    .disabled(chat.messages.isEmpty && chat.draft.isEmpty)
                 }
             }
-            .keyboardDismissToolbar()
         }
+    }
+
+    private func dismissCoachKeyboard() {
+        isComposerFocused = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 
     private var notConfiguredBanner: some View {
@@ -249,6 +266,7 @@ struct AIChatView: View {
             TextField("Ask about your training…", text: $chat.draft, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...5)
+                .focused($isComposerFocused)
                 .onChange(of: chat.draft) { _, new in
                     if new.count > CoachChatLimits.maxMessageChars {
                         chat.draft = String(new.prefix(CoachChatLimits.maxMessageChars))
