@@ -780,9 +780,9 @@ final class DataManager: ObservableObject {
         saveTrainingProgram()
     }
 
-    func setTrainingDayOverride(dayKey: String, intent: ScheduleDayIntent, workoutId: UUID? = nil) {
+    func setTrainingDayOverride(dayKey: String, intent: ScheduleDayIntent, planRef: WorkoutPlanRef? = nil) {
         var p = trainingProgram
-        p.dayOverrides[dayKey] = ScheduleDayOverride(intent: intent, workoutId: workoutId)
+        p.dayOverrides[dayKey] = ScheduleDayOverride(intent: intent, planRef: planRef)
         trainingProgram = p
         saveTrainingProgram()
     }
@@ -794,13 +794,13 @@ final class DataManager: ObservableObject {
         saveTrainingProgram()
     }
 
-    func setWeekDayOverride(weekKey: String, weekday: Int, intent: ScheduleDayIntent, workoutId: UUID? = nil) {
+    func setWeekDayOverride(weekKey: String, weekday: Int, intent: ScheduleDayIntent, planRef: WorkoutPlanRef? = nil) {
         var p = trainingProgram
         var w = p.weekOverrides[weekKey] ?? ScheduleWeekOverride()
         if intent == .inherit {
             w.weekdayOverrides.removeValue(forKey: String(weekday))
         } else {
-            w.weekdayOverrides[String(weekday)] = ScheduleDayOverride(intent: intent, workoutId: workoutId)
+            w.weekdayOverrides[String(weekday)] = ScheduleDayOverride(intent: intent, planRef: planRef)
         }
         if w.weekdayOverrides.isEmpty {
             p.weekOverrides.removeValue(forKey: weekKey)

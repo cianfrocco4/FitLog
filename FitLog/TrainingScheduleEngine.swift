@@ -21,7 +21,7 @@ struct TrainingScheduleEngine {
             case .rest:
                 return .rest
             case .workout:
-                if let id = o.workoutId { return .workout(.concreteWorkout(id)) }
+                if let ref = o.planRef { return .workout(ref) }
                 break
             }
         }
@@ -36,7 +36,7 @@ struct TrainingScheduleEngine {
             case .rest:
                 return .rest
             case .workout:
-                if let id = slot.workoutId { return .workout(.concreteWorkout(id)) }
+                if let ref = slot.planRef { return .workout(ref) }
                 break
             }
         }

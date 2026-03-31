@@ -15,21 +15,48 @@ enum ScheduleDayIntent: String, Codable, Equatable {
 
 struct ScheduleDayOverride: Codable, Equatable {
     var intent: ScheduleDayIntent
-    var workoutId: UUID?
+    /// When `intent == .workout`, the scheduled concrete workout or slot template.
+    var planRef: WorkoutPlanRef?
 
-    init(intent: ScheduleDayIntent, workoutId: UUID? = nil) {
+    init(intent: ScheduleDayIntent, planRef: WorkoutPlanRef? = nil) {
         self.intent = intent
-        self.workoutId = workoutId
+        self.planRef = intent == .workout ? planRef : nil
+    }
+
+    /// Legacy initializer: concrete workout only.
+    init(intent: ScheduleDayIntent, workoutId: UUID?) {
+        self.intent = intent
+        self.planRef = (intent == .workout) ? workoutId.map { .concreteWorkout($0) } : nil
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         intent = (try? c.decode(ScheduleDayIntent.self, forKey: .intent)) ?? .inherit
-        workoutId = try? c.decode(UUID.self, forKey: .workoutId)
+        if intent == .workout {
+            if let ref = try? c.decode(WorkoutPlanRef.self, forKey: .planRef) {
+                planRef = ref
+            } else if let id = try? c.decode(UUID.self, forKey: .workoutId) {
+                planRef = .concreteWorkout(id)
+            } else {
+                planRef = nil
+            }
+        } else {
+            planRef = nil
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(intent, forKey: .intent)
+        guard intent == .workout, let ref = planRef else { return }
+        try c.encode(ref, forKey: .planRef)
+        if case .concreteWorkout(let id) = ref {
+            try c.encode(id, forKey: .workoutId)
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case intent, workoutId
+        case intent, workoutId, planRef
     }
 }
 

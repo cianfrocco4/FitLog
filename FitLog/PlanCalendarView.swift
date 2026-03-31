@@ -22,8 +22,12 @@ struct PlanCalendarView: View {
 
     private var calendar: Calendar { .current }
 
+    /// Drives `.task` refresh for day rollover and session count; full program edits use `onChange(of: trainingProgram)` because count-based keys miss reorder / swap-with-same-length / override body changes.
     private var calendarRefreshKey: String {
-        "\(dayMonitor.currentDayKey)-\(dataVM.trainingProgram.cycleEntries.count)-\(dataVM.trainingProgram.anchorDayKey)-\(dataVM.trainingProgram.dayOverrides.count)-\(dataVM.trainingProgram.weekOverrides.count)-\(dataVM.trainingProgram.frozenCalendarDays.count)-\(dataVM.completedSessions.count)"
+        let p = dataVM.trainingProgram
+        let cycleSig = p.cycleEntries.map(\.cacheKey).joined(separator: ",")
+        let weekdaysSig = p.preferredWeekdays.map(String.init).joined(separator: ",")
+        return "\(dayMonitor.currentDayKey)-\(cycleSig)-\(p.sessionsPerWeek)-\(weekdaysSig)-\(p.anchorDayKey)-\(p.dayOverrides.count)-\(p.weekOverrides.count)-\(p.frozenCalendarDays.count)-\(dataVM.completedSessions.count)"
     }
 
     private func rebuildResolvedDayCache() {
@@ -57,6 +61,9 @@ struct PlanCalendarView: View {
                 legend
             }
             .task(id: calendarRefreshKey) {
+                rebuildResolvedDayCache()
+            }
+            .onChange(of: dataVM.trainingProgram) { _, _ in
                 rebuildResolvedDayCache()
             }
             .onChange(of: visibleMonth) { _, _ in
@@ -306,7 +313,7 @@ struct DayPlanSheet: View {
 
     let date: Date
 
-    @State private var swapWorkoutId: UUID?
+    @State private var swapPlanRef: WorkoutPlanRef?
     @State private var pendingWorkoutReplace: PendingWorkoutReplace?
 
     private var calendar: Calendar { .current }
@@ -374,17 +381,24 @@ struct DayPlanSheet: View {
                             }
                         }
 
-                        Picker("Swap to workout", selection: $swapWorkoutId) {
-                            Text("Choose…").tag(nil as UUID?)
-                            ForEach(dataVM.userWorkouts) { w in
-                                Text(w.name).tag(Optional(w.id))
+                        Picker("Swap to workout", selection: $swapPlanRef) {
+                            Text("Choose…").tag(nil as WorkoutPlanRef?)
+                            Section("Workouts") {
+                                ForEach(dataVM.userWorkouts) { w in
+                                    Text(w.name).tag(Optional(WorkoutPlanRef.concreteWorkout(w.id)))
+                                }
+                            }
+                            Section("Templates") {
+                                ForEach(dataVM.userWorkoutTemplates) { t in
+                                    Text(t.name).tag(Optional(WorkoutPlanRef.slotTemplate(t.id)))
+                                }
                             }
                         }
                         Button("Apply swap") {
-                            guard let newId = swapWorkoutId else { return }
-                            dataVM.setTrainingDayOverride(dayKey: dayKey, intent: .workout, workoutId: newId)
+                            guard let ref = swapPlanRef else { return }
+                            dataVM.setTrainingDayOverride(dayKey: dayKey, intent: .workout, planRef: ref)
                         }
-                        .disabled(swapWorkoutId == nil)
+                        .disabled(swapPlanRef == nil)
 
                         Button("Mark rest day") {
                             dataVM.setTrainingDayOverride(dayKey: dayKey, intent: .rest)
@@ -428,6 +442,13 @@ struct DayPlanSheet: View {
                 pending: $pendingWorkoutReplace,
                 onAfterReplace: { dismiss() }
             )
+            .onAppear {
+                if let o = dataVM.trainingProgram.dayOverrides[dayKey], o.intent == .workout {
+                    swapPlanRef = o.planRef
+                } else {
+                    swapPlanRef = nil
+                }
+            }
         }
         .presentationDetents([.medium, .large])
     }
@@ -532,7 +553,7 @@ private struct WeekdayRow: View {
     let defaultResolved: ResolvedScheduleDay
 
     @State private var mode: Int = 0
-    @State private var pickedWorkout: UUID?
+    @State private var pickedPlanRef: WorkoutPlanRef?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -556,13 +577,20 @@ private struct WeekdayRow: View {
             }
 
             if mode == 2 {
-                Picker("Workout", selection: $pickedWorkout) {
-                    Text("Choose…").tag(nil as UUID?)
-                    ForEach(dataVM.userWorkouts) { w in
-                        Text(w.name).tag(Optional(w.id))
+                Picker("Workout", selection: $pickedPlanRef) {
+                    Text("Choose…").tag(nil as WorkoutPlanRef?)
+                    Section("Workouts") {
+                        ForEach(dataVM.userWorkouts) { w in
+                            Text(w.name).tag(Optional(WorkoutPlanRef.concreteWorkout(w.id)))
+                        }
+                    }
+                    Section("Templates") {
+                        ForEach(dataVM.userWorkoutTemplates) { t in
+                            Text(t.name).tag(Optional(WorkoutPlanRef.slotTemplate(t.id)))
+                        }
                     }
                 }
-                .onChange(of: pickedWorkout) { _, _ in
+                .onChange(of: pickedPlanRef) { _, _ in
                     persist()
                 }
             }
@@ -588,11 +616,11 @@ private struct WeekdayRow: View {
                 mode = 1
             case .workout:
                 mode = 2
-                pickedWorkout = o.workoutId
+                pickedPlanRef = o.planRef
             }
         } else {
             mode = 0
-            pickedWorkout = nil
+            pickedPlanRef = nil
         }
     }
 
@@ -603,8 +631,8 @@ private struct WeekdayRow: View {
         case 1:
             dataVM.setWeekDayOverride(weekKey: weekKey, weekday: weekday, intent: .rest)
         case 2:
-            guard let id = pickedWorkout else { return }
-            dataVM.setWeekDayOverride(weekKey: weekKey, weekday: weekday, intent: .workout, workoutId: id)
+            guard let ref = pickedPlanRef else { return }
+            dataVM.setWeekDayOverride(weekKey: weekKey, weekday: weekday, intent: .workout, planRef: ref)
         default:
             break
         }

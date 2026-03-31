@@ -57,6 +57,31 @@ struct FitLogTests {
         #expect(engine.resolve(date: mon, program: program) == .workout(.concreteWorkout(idB)))
     }
 
+    @Test func trainingScheduleEngine_dayOverrideSupportsSlotTemplate() {
+        let cal = Calendar(identifier: .gregorian)
+        let engine = TrainingScheduleEngine(calendar: cal)
+        let idTemplate = UUID()
+        let anchor = cal.date(from: DateComponents(year: 2026, month: 3, day: 16))!
+        let mon = anchor
+        let dayKey = TrainingProgramState.dayKey(for: mon, calendar: cal)
+        let program = TrainingProgramState(
+            cycleEntries: [.concreteWorkout(UUID())],
+            sessionsPerWeek: 3,
+            preferredWeekdays: [2, 3, 4],
+            anchorDayKey: TrainingProgramState.dayKey(for: anchor, calendar: cal),
+            dayOverrides: [dayKey: ScheduleDayOverride(intent: .workout, planRef: .slotTemplate(idTemplate))],
+            weekOverrides: [:]
+        )
+        #expect(engine.resolve(date: mon, program: program) == .workout(.slotTemplate(idTemplate)))
+    }
+
+    @Test func scheduleDayOverride_encodesRoundTripWithTemplate() throws {
+        let original = ScheduleDayOverride(intent: .workout, planRef: .slotTemplate(UUID()))
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(ScheduleDayOverride.self, from: data)
+        #expect(decoded == original)
+    }
+
     @Test func trainingProgramState_decodesPartialJSONWithoutThrowing() throws {
         let json = Data(#"{"cycleWorkoutIds":[],"sessionsPerWeek":4}"#.utf8)
         let decoded = try JSONDecoder().decode(TrainingProgramState.self, from: json)
