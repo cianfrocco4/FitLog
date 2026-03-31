@@ -30,13 +30,27 @@ private struct ResolveSlotExerciseSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
 
-    private var slotMuscles: Set<MuscleGroup> {
+    private var swappedWorkoutExercise: WorkoutExercise? {
+        currentVM.currentSession?.exerciseLogs.first { $0.workoutExercise.id == workoutExerciseId }?.workoutExercise
+    }
+
+    /// Full library exercise for the row being swapped, when still in the catalog.
+    private var exerciseBeingSwapped: Exercise? {
+        guard isSwapExercise, let snap = swappedWorkoutExercise?.snapshot else { return nil }
+        return dataVM.resolveExercise(for: snap)
+    }
+
+    private var templateSlot: TemplateSlot? {
         guard let slotId = templateSlotId,
               let origin = currentVM.currentSession?.sessionPlanOrigin,
               case .slotTemplate(let templateId) = origin,
-              let template = dataVM.slotTemplate(id: templateId),
-              let slot = template.slots.first(where: { $0.id == slotId })
-        else { return [] }
+              let template = dataVM.slotTemplate(id: templateId)
+        else { return nil }
+        return template.slots.first(where: { $0.id == slotId })
+    }
+
+    private var slotMuscles: Set<MuscleGroup> {
+        guard let slot = templateSlot else { return [] }
         return Set(slot.targetedMuscles)
     }
 
@@ -65,26 +79,96 @@ private struct ResolveSlotExerciseSheet: View {
         return dataVM.globalExercises.filter { !matchesSlot($0) && matchesSearch($0) }
     }
 
+    /// Sorted strongest → weakest for template-session swap; excludes current exercise id.
+    private var swapRankedExercises: [(exercise: Exercise, score: Int)] {
+        let baseline = exerciseBeingSwapped
+        let slot = templateSlot
+        let excludeId = baseline?.id
+        return dataVM.globalExercises
+            .filter { matchesSearch($0) && $0.id != excludeId }
+            .map { ex -> (Exercise, Int) in
+                let score: Int
+                if let b = baseline {
+                    score = TemplateSwapExerciseSimilarity.score(
+                        candidate: ex,
+                        baseline: b,
+                        slotMuscleMatch: matchesSlot(ex)
+                    )
+                } else if let s = slot {
+                    score = TemplateSwapExerciseSimilarity.scoreFromSlotOnly(
+                        candidate: ex,
+                        slot: s,
+                        slotMuscleMatch: matchesSlot(ex)
+                    )
+                } else {
+                    score = matchesSlot(ex) ? 40 : 0
+                }
+                return (ex, score)
+            }
+            .sorted { $0.score > $1.score }
+    }
+
+    /// Groups consecutive same-tier rows (list stays strongest → weakest within each tier).
+    private func swapGroupedSections() -> [(tier: String, items: [(Exercise, Int)])] {
+        var out: [(String, [(Exercise, Int)])] = []
+        for pair in swapRankedExercises {
+            let tier = TemplateSwapExerciseSimilarity.tierLabel(score: pair.score)
+            if !out.isEmpty, out[out.count - 1].0 == tier {
+                var last = out.removeLast()
+                last.1.append((pair.exercise, pair.score))
+                out.append(last)
+            } else {
+                out.append((tier, [(pair.exercise, pair.score)]))
+            }
+        }
+        return out.map { (tier: $0.0, items: $0.1) }
+    }
+
     var body: some View {
         List {
-            let suggested = suggestedExercises
-            if !suggested.isEmpty {
+            if isSwapExercise {
+                swapContextSection
+
+                if exerciseBeingSwapped != nil || templateSlot != nil {
+                    let groups = swapGroupedSections()
+                    ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+                        Section {
+                            ForEach(group.items, id: \.0.id) { item in
+                                swapSuggestionButton(item.0)
+                            }
+                        } header: {
+                            Text(group.tier)
+                        }
+                    }
+                } else {
+                    Section {
+                        ForEach(swapRankedExercises, id: \.exercise.id) { item in
+                            swapSuggestionButton(item.exercise)
+                        }
+                    } header: {
+                        Text("Exercises")
+                    }
+                }
+            } else {
+                let suggested = suggestedExercises
+                if !suggested.isEmpty {
+                    Section {
+                        ForEach(suggested) { ex in
+                            exerciseButton(ex)
+                        }
+                    } header: {
+                        Text("Suggested")
+                    }
+                }
+
                 Section {
-                    ForEach(suggested) { ex in
+                    ForEach(otherExercises) { ex in
                         exerciseButton(ex)
                     }
                 } header: {
-                    Text("Suggested")
-                }
-            }
-
-            Section {
-                ForEach(otherExercises) { ex in
-                    exerciseButton(ex)
-                }
-            } header: {
-                if !suggested.isEmpty {
-                    Text("All exercises")
+                    if !suggested.isEmpty {
+                        Text("All exercises")
+                    }
                 }
             }
         }
@@ -94,6 +178,81 @@ private struct ResolveSlotExerciseSheet: View {
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismiss() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var swapContextSection: some View {
+        if let ex = exerciseBeingSwapped {
+            Section {
+                LabeledContent("Name") {
+                    Text(dataVM.resolvedDisplayName(for: ex))
+                        .multilineTextAlignment(.trailing)
+                }
+                LabeledContent("Movement pattern") {
+                    Text(ex.movementPattern.map(\.rawValue) ?? "Not set")
+                }
+                LabeledContent("Role") {
+                    Text(ex.exerciseRole.rawValue)
+                }
+                LabeledContent("Target muscles") {
+                    Text(ex.targetedMuscles.isEmpty ? "—" : ex.targetedMuscles.map(\.rawValue).joined(separator: ", "))
+                        .multilineTextAlignment(.trailing)
+                }
+            } header: {
+                Text("Exercise you’re swapping out")
+            } footer: {
+                if templateSlot == nil {
+                    Text("Suggestions below are ordered by movement pattern, role, and shared target muscles (strongest match first).")
+                        .font(.caption)
+                }
+            }
+        } else if let we = swappedWorkoutExercise, we.snapshot != nil {
+            Section {
+                LabeledContent("Name") {
+                    Text(dataVM.displayName(for: we))
+                        .multilineTextAlignment(.trailing)
+                }
+                Text("This exercise isn’t in your library anymore. Rankings use your template slot criteria.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Exercise you’re swapping out")
+            }
+        }
+
+        if let slot = templateSlot {
+            Section {
+                LabeledContent("Slot label") {
+                    Text(slot.label.isEmpty ? "—" : slot.label)
+                }
+                if !slot.targetedMuscles.isEmpty {
+                    LabeledContent("Target muscles") {
+                        Text(slot.targetedMuscles.map(\.rawValue).joined(separator: ", "))
+                            .multilineTextAlignment(.trailing)
+                    }
+                }
+                if let sr = slot.exerciseRole {
+                    LabeledContent("Role") {
+                        Text(sr.rawValue)
+                    }
+                }
+                if let sp = slot.movementPattern {
+                    LabeledContent("Movement pattern") {
+                        Text(sp.rawValue)
+                    }
+                }
+            } header: {
+                Text("Template slot criteria")
+            } footer: {
+                if exerciseBeingSwapped != nil {
+                    Text("Each suggestion is scored like the exercise you’re replacing, then gets a boost when it also fits this slot’s muscles.")
+                        .font(.caption)
+                } else {
+                    Text("Suggestions are ordered to match this slot (pattern, role, muscles), strongest first.")
+                        .font(.caption)
+                }
             }
         }
     }
@@ -112,6 +271,133 @@ private struct ResolveSlotExerciseSheet: View {
                 }
             }
         }
+    }
+
+    private func swapSuggestionButton(_ ex: Exercise) -> some View {
+        Button {
+            currentVM.resolveSlotPlaceholder(workoutExerciseId: workoutExerciseId, exercise: ex)
+            dismiss()
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(dataVM.resolvedDisplayName(for: ex))
+                    .font(.body.weight(.medium))
+                Text(TemplateSwapExerciseSimilarity.matchSummary(
+                    candidate: ex,
+                    baseline: exerciseBeingSwapped,
+                    slot: templateSlot,
+                    slotMuscleMatch: matchesSlot(ex)
+                ))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                if !ex.targetedMuscles.isEmpty {
+                    Text(ex.targetedMuscles.map(\.rawValue).joined(separator: ", "))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Swap similarity (template session)
+
+private enum TemplateSwapExerciseSimilarity {
+    static func score(candidate: Exercise, baseline: Exercise, slotMuscleMatch: Bool) -> Int {
+        var s = 0
+        switch (baseline.movementPattern, candidate.movementPattern) {
+        case let (b?, c?) where b == c:
+            s += 100
+        case (nil, nil):
+            s += 8
+        default:
+            break
+        }
+        if candidate.exerciseRole == baseline.exerciseRole {
+            s += 50
+        }
+        let bM = Set(baseline.targetedMuscles)
+        let cM = Set(candidate.targetedMuscles)
+        let overlap = bM.intersection(cM)
+        s += min(overlap.count * 18, 72)
+        if let bf = baseline.targetedMuscles.first, let cf = candidate.targetedMuscles.first, bf == cf {
+            s += 38
+        }
+        if slotMuscleMatch {
+            s += 45
+        }
+        return s
+    }
+
+    static func scoreFromSlotOnly(candidate: Exercise, slot: TemplateSlot, slotMuscleMatch: Bool) -> Int {
+        var s = 0
+        if slotMuscleMatch { s += 55 }
+        if let sp = slot.movementPattern, let cp = candidate.movementPattern, sp == cp {
+            s += 100
+        }
+        if let sr = slot.exerciseRole, candidate.exerciseRole == sr {
+            s += 50
+        }
+        let sM = Set(slot.targetedMuscles)
+        let cM = Set(candidate.targetedMuscles)
+        s += min(sM.intersection(cM).count * 18, 72)
+        if let sf = slot.targetedMuscles.first, let cf = candidate.targetedMuscles.first, sf == cf {
+            s += 38
+        }
+        return s
+    }
+
+    static func tierLabel(score: Int) -> String {
+        switch score {
+        case 165...:
+            return "Strong matches"
+        case 98..<165:
+            return "Good matches"
+        case 42..<98:
+            return "Partial matches"
+        default:
+            return "Weaker matches"
+        }
+    }
+
+    static func matchSummary(
+        candidate: Exercise,
+        baseline: Exercise?,
+        slot: TemplateSlot?,
+        slotMuscleMatch: Bool
+    ) -> String {
+        var parts: [String] = []
+        if let b = baseline {
+            if let bp = b.movementPattern, let cp = candidate.movementPattern, bp == cp {
+                parts.append("Same pattern (\(bp.rawValue))")
+            }
+            if b.exerciseRole == candidate.exerciseRole {
+                parts.append("Same role (\(b.exerciseRole.rawValue))")
+            }
+            let shared = Set(b.targetedMuscles).intersection(Set(candidate.targetedMuscles))
+            if !shared.isEmpty {
+                let names = shared.map(\.rawValue).sorted().joined(separator: ", ")
+                parts.append("Shared muscles: \(names)")
+            }
+        } else if let slot {
+            if let sp = slot.movementPattern, let cp = candidate.movementPattern, sp == cp {
+                parts.append("Matches slot pattern (\(sp.rawValue))")
+            }
+            if let sr = slot.exerciseRole, candidate.exerciseRole == sr {
+                parts.append("Matches slot role (\(sr.rawValue))")
+            }
+            let shared = Set(slot.targetedMuscles).intersection(Set(candidate.targetedMuscles))
+            if !shared.isEmpty {
+                let names = shared.map(\.rawValue).sorted().joined(separator: ", ")
+                parts.append("Overlaps slot muscles: \(names)")
+            }
+        }
+        if slotMuscleMatch {
+            parts.append("Fits slot muscle filter")
+        }
+        if parts.isEmpty {
+            return "Different movement profile — listed as a broader option"
+        }
+        return parts.joined(separator: " · ")
     }
 }
 
