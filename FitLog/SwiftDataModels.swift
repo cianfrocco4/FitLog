@@ -127,21 +127,23 @@ final class SDWorkout {
     /// Encoded `[UUID: UUID]` (workout exercise row id → template slot id). Nil for legacy rows.
     var templateSlotBindingsData: Data?
     var sortOrder: Int = 0
+    var isPinned: Bool = false
 
     init() {}
 
-    init(workoutId: UUID, name: String, exercisesData: Data, sortOrder: Int, templateSlotBindingsData: Data? = nil) {
+    init(workoutId: UUID, name: String, exercisesData: Data, sortOrder: Int, templateSlotBindingsData: Data? = nil, isPinned: Bool = false) {
         self.workoutId = workoutId
         self.name = name
         self.exercisesData = exercisesData
         self.templateSlotBindingsData = templateSlotBindingsData
         self.sortOrder = sortOrder
+        self.isPinned = isPinned
     }
 
     func toStruct() -> Workout {
         let exercises = versionedDecode([WorkoutExercise].self, from: exercisesData) ?? []
         let mapFromStore = templateSlotBindingsData.flatMap { versionedDecode([UUID: UUID].self, from: $0) } ?? [:]
-        var w = Workout(id: workoutId, name: name, exercises: exercises, templateSlotIdByWorkoutExerciseId: mapFromStore)
+        var w = Workout(id: workoutId, name: name, exercises: exercises, templateSlotIdByWorkoutExerciseId: mapFromStore, isPinned: isPinned)
         w.normalizeTemplateSlotBindingsAfterDecoding()
         return w
     }
@@ -149,7 +151,7 @@ final class SDWorkout {
     static func from(_ w: Workout, sortOrder: Int) -> SDWorkout {
         let data = versionedEncode(w.exercises)
         let bindings = w.templateSlotIdByWorkoutExerciseId.isEmpty ? nil : versionedEncode(w.templateSlotIdByWorkoutExerciseId)
-        return SDWorkout(workoutId: w.id, name: w.name, exercisesData: data, sortOrder: sortOrder, templateSlotBindingsData: bindings)
+        return SDWorkout(workoutId: w.id, name: w.name, exercisesData: data, sortOrder: sortOrder, templateSlotBindingsData: bindings, isPinned: w.isPinned)
     }
 }
 
@@ -161,24 +163,26 @@ final class SDWorkoutTemplate {
     var name: String = ""
     var slotsData: Data = Data()
     var sortOrder: Int = 0
+    var isPinned: Bool = false
 
     init() {}
 
-    init(templateId: UUID, name: String, slotsData: Data, sortOrder: Int) {
+    init(templateId: UUID, name: String, slotsData: Data, sortOrder: Int, isPinned: Bool = false) {
         self.templateId = templateId
         self.name = name
         self.slotsData = slotsData
         self.sortOrder = sortOrder
+        self.isPinned = isPinned
     }
 
     func toStruct() -> WorkoutTemplate {
         let slots = versionedDecode([TemplateSlot].self, from: slotsData) ?? []
-        return WorkoutTemplate(id: templateId, name: name, slots: slots)
+        return WorkoutTemplate(id: templateId, name: name, slots: slots, isPinned: isPinned)
     }
 
     static func from(_ t: WorkoutTemplate, sortOrder: Int) -> SDWorkoutTemplate {
         let data = versionedEncode(t.slots)
-        return SDWorkoutTemplate(templateId: t.id, name: t.name, slotsData: data, sortOrder: sortOrder)
+        return SDWorkoutTemplate(templateId: t.id, name: t.name, slotsData: data, sortOrder: sortOrder, isPinned: t.isPinned)
     }
 }
 

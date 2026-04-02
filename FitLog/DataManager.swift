@@ -179,6 +179,32 @@ final class DataManager: ObservableObject {
         saveWorkouts()
     }
 
+    func setWorkoutPinned(_ workout: Workout, pinned: Bool) {
+        guard let i = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
+        userWorkouts[i].isPinned = pinned
+        normalizeWorkoutPinOrder()
+        saveWorkouts()
+    }
+
+    private func normalizeWorkoutPinOrder() {
+        let pinned = userWorkouts.filter(\.isPinned)
+        let unpinned = userWorkouts.filter { !$0.isPinned }
+        userWorkouts = pinned + unpinned
+    }
+
+    func setTemplatePinned(_ template: WorkoutTemplate, pinned: Bool) {
+        guard let i = userWorkoutTemplates.firstIndex(where: { $0.id == template.id }) else { return }
+        userWorkoutTemplates[i].isPinned = pinned
+        normalizeTemplatePinOrder()
+        saveWorkoutTemplates()
+    }
+
+    private func normalizeTemplatePinOrder() {
+        let pinned = userWorkoutTemplates.filter(\.isPinned)
+        let unpinned = userWorkoutTemplates.filter { !$0.isPinned }
+        userWorkoutTemplates = pinned + unpinned
+    }
+
     func saveWorkouts() {
         workoutStore.saveWorkouts(userWorkouts)
     }

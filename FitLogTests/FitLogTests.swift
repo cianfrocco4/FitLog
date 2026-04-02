@@ -99,4 +99,60 @@ struct FitLogTests {
         #expect(decoded == original)
         #expect(decoded.asResolved() == .workout(.concreteWorkout(id)))
     }
+
+    @Test func workout_decodesLegacyJSONWithoutIsPinned() throws {
+        let id = UUID()
+        let json = """
+        {"id":"\(id.uuidString)","name":"Legacy","exercises":[]}
+        """.data(using: .utf8)!
+        let w = try JSONDecoder().decode(Workout.self, from: json)
+        #expect(w.isPinned == false)
+    }
+
+    @Test func workout_encodesRoundTripWithIsPinned() throws {
+        let w = Workout(id: UUID(), name: "Pinned", exercises: [], isPinned: true)
+        let data = try JSONEncoder().encode(w)
+        let decoded = try JSONDecoder().decode(Workout.self, from: data)
+        #expect(decoded.isPinned == true)
+        #expect(decoded.name == "Pinned")
+    }
+
+    @Test func workoutTemplate_decodesLegacyJSONWithoutIsPinned() throws {
+        let id = UUID()
+        let json = """
+        {"id":"\(id.uuidString)","name":"T","slots":[]}
+        """.data(using: .utf8)!
+        let t = try JSONDecoder().decode(WorkoutTemplate.self, from: json)
+        #expect(t.isPinned == false)
+    }
+
+    @Test func homeListOrdering_keepsPinnedBeforeUnpinned() {
+        let idA = UUID(), idB = UUID(), idC = UUID()
+        let wA = Workout(id: idA, name: "a", exercises: [], isPinned: false)
+        let wB = Workout(id: idB, name: "b", exercises: [], isPinned: true)
+        let wC = Workout(id: idC, name: "c", exercises: [], isPinned: false)
+        let program = TrainingProgramState.empty(anchorDayKey: "day")
+        let ordered = HomeListOrdering.orderWorkouts([wA, wC, wB], program: program, sessions: [])
+        #expect(ordered.map(\.id) == [idB, idA, idC])
+    }
+
+    @Test func homeListOrdering_splitDisplayOrderFollowsCycleEntries() {
+        let id1 = UUID(), id2 = UUID(), id3 = UUID()
+        let w1 = Workout(id: id1, name: "A", exercises: [])
+        let w2 = Workout(id: id2, name: "B", exercises: [])
+        let w3 = Workout(id: id3, name: "C", exercises: [])
+        var program = TrainingProgramState.empty(anchorDayKey: "2026-01-01")
+        program.cycleEntries = [.concreteWorkout(id3), .concreteWorkout(id1)]
+        let ordered = HomeListOrdering.workoutsInSplitDisplayOrder([w1, w2, w3], program: program)
+        #expect(ordered.map(\.id) == [id3, id1])
+    }
+
+    @Test func homeListOrdering_splitIdsIgnoreCalendarOverrides() {
+        let idCycle = UUID(), idOverride = UUID()
+        var program = TrainingProgramState.empty(anchorDayKey: "2026-01-01")
+        program.cycleEntries = [.concreteWorkout(idCycle)]
+        program.dayOverrides["2026-03-01"] = ScheduleDayOverride(intent: .workout, planRef: .concreteWorkout(idOverride))
+        let splitIds = HomeListOrdering.splitConcreteWorkoutIds(from: program)
+        #expect(splitIds == Set([idCycle]))
+    }
 }

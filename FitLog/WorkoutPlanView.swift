@@ -93,9 +93,10 @@ struct WorkoutPlanView: View {
             }
         }
         .navigationTitle(workout.name)
+        .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button(currentVM.currentSession?.workout.id == workout.id ? "Stop" : "Start") {
+                Button {
                     if currentVM.currentSession?.workout.id == workout.id {
                         currentVM.stopWorkout()
                     } else {
@@ -103,27 +104,34 @@ struct WorkoutPlanView: View {
                             pendingWorkoutReplace = $0
                         }
                     }
+                } label: {
+                    Label(
+                        currentVM.currentSession?.workout.id == workout.id ? "Stop workout" : "Start workout",
+                        systemImage: currentVM.currentSession?.workout.id == workout.id ? "stop.fill" : "play.fill"
+                    )
                 }
+                .labelStyle(.iconOnly)
                 .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
                 .tint(currentVM.currentSession?.workout.id == workout.id ? .red : .green)
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Rename") {
-                    newWorkoutName = workout.name
-                    showRenameAlert = true
-                }
+                .accessibilityLabel(currentVM.currentSession?.workout.id == workout.id ? "Stop workout" : "Start workout")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Picker("View", selection: $displayOrder) {
+                    Button("Rename") {
+                        newWorkoutName = workout.name
+                        showRenameAlert = true
+                    }
+                    Picker("Exercise order", selection: $displayOrder) {
                         ForEach(ExerciseDisplayOrder.allCases, id: \.self) { order in
                             Text(order.rawValue).tag(order)
                         }
                     }
                     .pickerStyle(.inline)
                 } label: {
-                    Label("View", systemImage: "line.3.horizontal.decrease.circle")
+                    Label("More", systemImage: "ellipsis.circle")
                 }
+                .accessibilityLabel("More workout actions")
             }
             ToolbarItem(placement: .topBarLeading) {
                 EditButton()

@@ -445,6 +445,35 @@ struct WorkoutTemplate: Identifiable, Codable, Equatable, Hashable {
     let id: UUID
     var name: String
     var slots: [TemplateSlot]
+    /// Pinned templates appear first on Home / Library when using smart ordering.
+    var isPinned: Bool = false
+
+    init(id: UUID, name: String, slots: [TemplateSlot], isPinned: Bool = false) {
+        self.id = id
+        self.name = name
+        self.slots = slots
+        self.isPinned = isPinned
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        slots = try c.decode([TemplateSlot].self, forKey: .slots)
+        isPinned = (try? c.decode(Bool.self, forKey: .isPinned)) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(slots, forKey: .slots)
+        if isPinned { try c.encode(true, forKey: .isPinned) }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, slots, isPinned
+    }
 }
 
 struct Workout: Identifiable, Codable, Equatable {
@@ -453,12 +482,15 @@ struct Workout: Identifiable, Codable, Equatable {
     var exercises: [WorkoutExercise]
     /// Workout exercise row id → template slot id (only for workouts built from a slot template).
     var templateSlotIdByWorkoutExerciseId: [UUID: UUID]
+    /// Pinned workouts appear first on Home / Library when using smart ordering.
+    var isPinned: Bool = false
 
-    init(id: UUID, name: String, exercises: [WorkoutExercise], templateSlotIdByWorkoutExerciseId: [UUID: UUID] = [:]) {
+    init(id: UUID, name: String, exercises: [WorkoutExercise], templateSlotIdByWorkoutExerciseId: [UUID: UUID] = [:], isPinned: Bool = false) {
         self.id = id
         self.name = name
         self.exercises = exercises
         self.templateSlotIdByWorkoutExerciseId = templateSlotIdByWorkoutExerciseId
+        self.isPinned = isPinned
     }
 
     init(from decoder: Decoder) throws {
@@ -467,6 +499,7 @@ struct Workout: Identifiable, Codable, Equatable {
         name = try c.decode(String.self, forKey: .name)
         exercises = try c.decode([WorkoutExercise].self, forKey: .exercises)
         templateSlotIdByWorkoutExerciseId = try c.decodeIfPresent([UUID: UUID].self, forKey: .templateSlotIdByWorkoutExerciseId) ?? [:]
+        isPinned = (try? c.decode(Bool.self, forKey: .isPinned)) ?? false
         normalizeTemplateSlotBindingsAfterDecoding()
     }
 
@@ -478,6 +511,7 @@ struct Workout: Identifiable, Codable, Equatable {
         if !templateSlotIdByWorkoutExerciseId.isEmpty {
             try c.encode(templateSlotIdByWorkoutExerciseId, forKey: .templateSlotIdByWorkoutExerciseId)
         }
+        if isPinned { try c.encode(true, forKey: .isPinned) }
     }
 
     /// Merges legacy per-row `originSlotId` / unresolved `templateSlotId` into the workout-level map, then clears row-level legacy fields.
@@ -500,7 +534,7 @@ struct Workout: Identifiable, Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, exercises, templateSlotIdByWorkoutExerciseId
+        case id, name, exercises, templateSlotIdByWorkoutExerciseId, isPinned
     }
 }
 

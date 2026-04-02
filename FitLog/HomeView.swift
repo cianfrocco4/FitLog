@@ -7,6 +7,12 @@
 
 import SwiftUI
 
+private enum HomeListSegment: String, CaseIterable, Identifiable {
+    case workouts = "Workouts"
+    case templates = "Templates"
+    var id: String { rawValue }
+}
+
 struct HomeView: View {
     @EnvironmentObject var dayMonitor: CalendarDayMonitor
     @EnvironmentObject var dataVM: DataManager
@@ -32,10 +38,110 @@ struct HomeView: View {
     @State private var cachedWeekGlance: DataManager.WeekAtAGlance?
     @State private var cachedTodayCompletedRefs: Set<String> = []
 
+    @State private var homeListSegment: HomeListSegment = .workouts
+    @State private var homeSearchText = ""
+    @State private var templateToRename: WorkoutTemplate?
+    @State private var renameTemplateText = ""
+
+    private let homeListPreviewLimit = 5
+
     private var scheduleEngine: TrainingScheduleEngine { TrainingScheduleEngine(calendar: .current) }
 
     private var homeRefreshKey: String {
-        "\(dayMonitor.currentDayKey)-\(dataVM.completedSessions.count)-\(dataVM.trainingProgram.cycleEntries.count)-\(dataVM.trainingProgram.anchorDayKey)-\(dataVM.trainingProgram.dayOverrides.count)-\(dataVM.trainingProgram.weekOverrides.count)"
+        let pinN = dataVM.userWorkouts.filter(\.isPinned).count
+        let pinT = dataVM.userWorkoutTemplates.filter(\.isPinned).count
+        return "\(dayMonitor.currentDayKey)-\(dataVM.completedSessions.count)-\(dataVM.trainingProgram.cycleEntries.count)-\(dataVM.trainingProgram.anchorDayKey)-\(dataVM.trainingProgram.dayOverrides.count)-\(dataVM.trainingProgram.weekOverrides.count)-\(pinN)-\(pinT)"
+    }
+
+    /// User has configured a rotation on the Plan tab (`cycleEntries` non-empty).
+    private var hasActiveSplit: Bool {
+        !dataVM.trainingProgram.cycleEntries.isEmpty
+    }
+
+    private var splitConcreteIds: Set<UUID> {
+        HomeListOrdering.splitConcreteWorkoutIds(from: dataVM.trainingProgram)
+    }
+
+    private var splitTemplateIds: Set<UUID> {
+        HomeListOrdering.splitTemplateIds(from: dataVM.trainingProgram)
+    }
+
+    private var todayConcretePlanId: UUID? {
+        if case .workout(.concreteWorkout(let id)) = cachedTodayPlan { return id }
+        return nil
+    }
+
+    private var todayTemplatePlanId: UUID? {
+        if case .workout(.slotTemplate(let id)) = cachedTodayPlan { return id }
+        return nil
+    }
+
+    private var homeSearchQuery: String {
+        homeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    /// Workouts on Home: full rotation order when a split exists; otherwise a short preview of the library.
+    private var homeWorkoutsToShow: [Workout] {
+        let base: [Workout]
+        if hasActiveSplit {
+            base = HomeListOrdering.workoutsInSplitDisplayOrder(dataVM.userWorkouts, program: dataVM.trainingProgram)
+        } else {
+            base = HomeListOrdering.orderWorkouts(
+                dataVM.userWorkouts,
+                program: dataVM.trainingProgram,
+                sessions: dataVM.completedSessions
+            )
+        }
+        guard !homeSearchQuery.isEmpty else {
+            return hasActiveSplit ? base : Array(base.prefix(homeListPreviewLimit))
+        }
+        return base.filter { $0.name.lowercased().contains(homeSearchQuery) }
+    }
+
+    /// Templates on Home: rotation only with a split; otherwise a short preview.
+    private var homeTemplatesToShow: [WorkoutTemplate] {
+        let base: [WorkoutTemplate]
+        if hasActiveSplit {
+            base = HomeListOrdering.templatesInSplitDisplayOrder(
+                dataVM.userWorkoutTemplates,
+                program: dataVM.trainingProgram
+            )
+        } else {
+            base = HomeListOrdering.orderTemplates(
+                dataVM.userWorkoutTemplates,
+                program: dataVM.trainingProgram,
+                sessions: dataVM.completedSessions
+            )
+        }
+        guard !homeSearchQuery.isEmpty else {
+            return hasActiveSplit ? base : Array(base.prefix(homeListPreviewLimit))
+        }
+        return base.filter { $0.name.lowercased().contains(homeSearchQuery) }
+    }
+
+    private var offSplitWorkoutCount: Int {
+        dataVM.userWorkouts.filter { !splitConcreteIds.contains($0.id) }.count
+    }
+
+    private var offSplitTemplateCount: Int {
+        dataVM.userWorkoutTemplates.filter { !splitTemplateIds.contains($0.id) }.count
+    }
+
+    private func preferredHomeListSegment(program: TrainingProgramState, today: ResolvedScheduleDay) -> HomeListSegment {
+        switch today {
+        case .workout(.concreteWorkout):
+            return .workouts
+        case .workout(.slotTemplate):
+            return .templates
+        case .rest, .unscheduled:
+            if let first = program.cycleEntries.first {
+                switch first {
+                case .concreteWorkout: return .workouts
+                case .slotTemplate: return .templates
+                }
+            }
+            return .workouts
+        }
     }
 
     private func refreshCachedHomeData() {
@@ -110,6 +216,12 @@ struct HomeView: View {
         }
     }
 
+    private func startConcreteWorkoutFromHomeList(_ workout: Workout) {
+        currentVM.startWorkoutResolvingConflict(workout, sessionPlanOrigin: .concreteWorkout(workout.id)) {
+            pendingWorkoutReplace = $0
+        }
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -137,95 +249,100 @@ struct HomeView: View {
                 }
 
                 Section {
-                    ForEach(dataVM.userWorkouts) { workout in
-                        NavigationLink {
-                            if let binding = $dataVM.userWorkouts[workout.id] {
-                                WorkoutPlanView(workout: binding)
-                            } else {
-                                Text("Workout not found")  // fallback (should never hit)
-                                    .foregroundStyle(.red)
-                            }
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(workout.name)
-                                    .font(.headline)
-                                Text("Saved workout")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .swipeActions(edge: .trailing) {
-                            Button("Delete", role: .destructive) {
-                                dataVM.deleteWorkout(workout)
-                            }
-
-                            Button("Rename") {
-                                workoutToRename = workout
-                                renameText = workout.name
-                            }
-                            .tint(.blue)
+                    Picker("", selection: $homeListSegment) {
+                        ForEach(HomeListSegment.allCases) { segment in
+                            Text(segment.rawValue).tag(segment)
                         }
                     }
-                    .onMove(perform: dataVM.moveWorkout)
-                } header: {
-                    Text("My Workouts")
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 4)
-                        .textCase(nil)
-                }
+                    .pickerStyle(.segmented)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
 
-                Section {
-                    ForEach(dataVM.userWorkoutTemplates) { template in
-                        NavigationLink {
-                            SlotTemplatePlanView(templateId: template.id)
-                                .environmentObject(dataVM)
-                                .environmentObject(currentVM)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(template.name)
-                                    .font(.headline)
-                                Text("Template · \(template.slots.count) exercise\(template.slots.count == 1 ? "" : "s")")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                    if homeListSegment == .workouts {
+                        if homeWorkoutsToShow.isEmpty {
+                            homeWorkoutsEmptyPlaceholder
+                                .listRowInsets(homeDashboardRowInsets)
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                        } else {
+                            ForEach(homeWorkoutsToShow) { workout in
+                                homeWorkoutRow(workout)
                             }
                         }
-                        .contextMenu {
-                            Button {
-                                startWorkout(fromSlotTemplate: template)
-                            } label: {
-                                Label("Start workout", systemImage: "play.fill")
-                            }
-                            .disabled(template.slots.isEmpty)
-                        }
-                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                            if !template.slots.isEmpty {
-                                Button {
-                                    startWorkout(fromSlotTemplate: template)
+                        if hasActiveSplit {
+                            if offSplitWorkoutCount > 0 {
+                                NavigationLink {
+                                    HomeLibraryView(kind: .workouts, scope: .notInSplit)
                                 } label: {
-                                    Label("Start", systemImage: "play.fill")
+                                    Label("Other workouts (\(offSplitWorkoutCount))", systemImage: "chevron.right")
+                                        .font(.subheadline.weight(.medium))
                                 }
-                                .tint(.green)
+                            }
+                        } else if dataVM.userWorkouts.count > homeListPreviewLimit {
+                            NavigationLink {
+                                HomeLibraryView(kind: .workouts, scope: .all)
+                            } label: {
+                                Label("View all \(dataVM.userWorkouts.count) workouts", systemImage: "chevron.right")
+                                    .font(.subheadline.weight(.medium))
                             }
                         }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button("Delete", role: .destructive) {
-                                dataVM.deleteSlotTemplate(template)
+                    } else {
+                        if homeTemplatesToShow.isEmpty {
+                            homeTemplatesEmptyPlaceholder
+                                .listRowInsets(homeDashboardRowInsets)
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                        } else {
+                            ForEach(homeTemplatesToShow) { template in
+                                homeTemplateRow(template)
+                            }
+                        }
+                        if hasActiveSplit {
+                            if offSplitTemplateCount > 0 {
+                                NavigationLink {
+                                    HomeLibraryView(kind: .templates, scope: .notInSplit)
+                                } label: {
+                                    Label("Other templates (\(offSplitTemplateCount))", systemImage: "chevron.right")
+                                        .font(.subheadline.weight(.medium))
+                                }
+                            }
+                        } else if dataVM.userWorkoutTemplates.count > homeListPreviewLimit {
+                            NavigationLink {
+                                HomeLibraryView(kind: .templates, scope: .all)
+                            } label: {
+                                Label("View all \(dataVM.userWorkoutTemplates.count) templates", systemImage: "chevron.right")
+                                    .font(.subheadline.weight(.medium))
                             }
                         }
                     }
                 } header: {
-                    Text("Flexible Templates")
+                    Text("Library")
                         .font(.title2)
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 4)
                         .textCase(nil)
                 } footer: {
-                    Text("Long-press for Start workout, or swipe right on a template. You can also open a template and tap Start in the toolbar.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    if homeListSegment == .workouts {
+                        if hasActiveSplit {
+                            Text("Workouts in your Plan rotation appear here. Everything else is under Other workouts.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Set up a split in the Plan tab to focus this list on your program. Until then, you’ll see a short preview of your library.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if homeListSegment == .templates {
+                        if hasActiveSplit {
+                            Text("Templates in your Plan rotation appear here. Long-press for actions, or swipe right to start.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Long-press for actions, or swipe right to start. Open a template and tap Start in the toolbar for the full editor.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
             .listStyle(.plain)
@@ -233,10 +350,11 @@ struct HomeView: View {
             .listSectionSpacing(8)
             .fitlogWorkoutBarContentInset()
             .navigationTitle("Home")
+            .searchable(
+                text: $homeSearchText,
+                prompt: homeListSegment == .workouts ? "Search workouts" : "Search templates"
+            )
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    EditButton()
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button("New workout") {
@@ -280,6 +398,18 @@ struct HomeView: View {
                     }
                 }
             }
+            .alert("Rename Template", isPresented: Binding(
+                get: { templateToRename != nil },
+                set: { if !$0 { templateToRename = nil } }
+            )) {
+                TextField("New name", text: $renameTemplateText)
+                Button("Cancel", role: .cancel) {}
+                Button("Save") {
+                    if let template = templateToRename {
+                        dataVM.renameSlotTemplate(template, newName: renameTemplateText)
+                    }
+                }
+            }
             .navigationDestination(item: $newSlotTemplateToEdit) { templateId in
                 SlotTemplatePlanView(templateId: templateId)
                     .environmentObject(dataVM)
@@ -319,6 +449,151 @@ struct HomeView: View {
                     pendingTodayPlanNavigateAfterReplace = nil
                 }
             )
+            .task(id: dayMonitor.currentDayKey) {
+                let today = scheduleEngine.resolve(date: Date(), program: dataVM.trainingProgram)
+                homeListSegment = preferredHomeListSegment(program: dataVM.trainingProgram, today: today)
+            }
+        }
+    }
+
+    private var homeWorkoutsEmptyPlaceholder: some View {
+        Group {
+            if !homeSearchQuery.isEmpty {
+                Text("No workouts match your search.")
+            } else if hasActiveSplit, !dataVM.userWorkouts.isEmpty {
+                Text("Your Plan rotation includes workouts that aren’t in your library. Update your split in the Plan tab.")
+            } else if dataVM.userWorkouts.isEmpty {
+                Text("No workouts yet. Tap Add to create one.")
+            } else {
+                Text("No workouts to show.")
+            }
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 8)
+    }
+
+    private var homeTemplatesEmptyPlaceholder: some View {
+        Group {
+            if !homeSearchQuery.isEmpty {
+                Text("No templates match your search.")
+            } else if hasActiveSplit, !dataVM.userWorkoutTemplates.isEmpty {
+                Text("Your Plan rotation includes templates that aren’t in your library. Update your split in the Plan tab.")
+            } else if dataVM.userWorkoutTemplates.isEmpty {
+                Text("No templates yet. Tap Add to create a flexible template.")
+            } else {
+                Text("No templates to show.")
+            }
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 8)
+    }
+
+    @ViewBuilder
+    private func homeWorkoutRow(_ workout: Workout) -> some View {
+        NavigationLink {
+            if let binding = $dataVM.userWorkouts[workout.id] {
+                WorkoutPlanView(workout: binding)
+            } else {
+                Text("Workout not found")
+                    .foregroundStyle(.red)
+            }
+        } label: {
+            HomeWorkoutRowLabel(
+                title: workout.name,
+                subtitle: "Saved workout",
+                isScheduledToday: workout.id == todayConcretePlanId,
+                isInProgram: false,
+                isPinned: workout.isPinned
+            )
+        }
+        .contextMenu {
+            Button {
+                startConcreteWorkoutFromHomeList(workout)
+            } label: {
+                Label("Start workout", systemImage: "play.fill")
+            }
+            Button {
+                dataVM.setWorkoutPinned(workout, pinned: !workout.isPinned)
+            } label: {
+                Label(workout.isPinned ? "Unpin" : "Pin", systemImage: workout.isPinned ? "pin.slash" : "pin")
+            }
+            Button {
+                workoutToRename = workout
+                renameText = workout.name
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+            Button("Delete", role: .destructive) {
+                dataVM.deleteWorkout(workout)
+            }
+        }
+        .swipeActions(edge: .trailing) {
+            Button("Delete", role: .destructive) {
+                dataVM.deleteWorkout(workout)
+            }
+            Button("Rename") {
+                workoutToRename = workout
+                renameText = workout.name
+            }
+            .tint(.blue)
+        }
+    }
+
+    @ViewBuilder
+    private func homeTemplateRow(_ template: WorkoutTemplate) -> some View {
+        NavigationLink {
+            SlotTemplatePlanView(templateId: template.id)
+                .environmentObject(dataVM)
+                .environmentObject(currentVM)
+        } label: {
+            HomeWorkoutRowLabel(
+                title: template.name,
+                subtitle: "Template · \(template.slots.count) exercise\(template.slots.count == 1 ? "" : "s")",
+                isScheduledToday: template.id == todayTemplatePlanId,
+                isInProgram: false,
+                isPinned: template.isPinned
+            )
+        }
+        .contextMenu {
+            Button {
+                startWorkout(fromSlotTemplate: template)
+            } label: {
+                Label("Start workout", systemImage: "play.fill")
+            }
+            .disabled(template.slots.isEmpty)
+            Button {
+                dataVM.setTemplatePinned(template, pinned: !template.isPinned)
+            } label: {
+                Label(template.isPinned ? "Unpin" : "Pin", systemImage: template.isPinned ? "pin.slash" : "pin")
+            }
+            Button {
+                templateToRename = template
+                renameTemplateText = template.name
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+            Button("Delete", role: .destructive) {
+                dataVM.deleteSlotTemplate(template)
+            }
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            if !template.slots.isEmpty {
+                Button {
+                    startWorkout(fromSlotTemplate: template)
+                } label: {
+                    Label("Start", systemImage: "play.fill")
+                }
+                .tint(.green)
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button("Delete", role: .destructive) {
+                dataVM.deleteSlotTemplate(template)
+            }
         }
     }
 
