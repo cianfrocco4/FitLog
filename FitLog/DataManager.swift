@@ -206,14 +206,53 @@ final class DataManager: ObservableObject {
         updateTrainingProgram: Bool,
         anchorDate: Date = Date()
     ) {
+        var createdByPlanKey: [String: Exercise] = [:]
+
+        func resolveOrCreateExercise(
+            planName: String,
+            overrideId: UUID?,
+            musclesIfCreatingCustom: [MuscleGroup]
+        ) -> Exercise? {
+            if let oid = overrideId,
+               let ex = globalExercises.first(where: { $0.id == oid }) {
+                return ex
+            }
+            let trimmed = planName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            guard let result = ExerciseNameResolution.resolve(planName: trimmed, library: globalExercises) else { return nil }
+            switch result {
+            case .linked(let ex):
+                return ex
+            case .createCustom(let displayName):
+                let key = ExerciseNameResolution.dedupeKey(forPlanName: displayName)
+                if let cached = createdByPlanKey[key] { return cached }
+                let muscles = musclesIfCreatingCustom.isEmpty ? [MuscleGroup.other] : musclesIfCreatingCustom
+                let new = addNewExercise(name: displayName, description: "", muscles: muscles)
+                createdByPlanKey[key] = new
+                return new
+            }
+        }
+
         var entries: [WorkoutPlanRef] = []
         for day in proposal.workouts {
             if day.isSlotTemplateDay {
                 let templateSlots: [TemplateSlot] = day.slots.map { s in
-                    let matchedExercise: Exercise? = s.suggestedExerciseName.flatMap { name in
-                        globalExercises.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
-                    }
-                    let parsedMuscles = s.targetMuscleNames.compactMap { MuscleGroup(rawValue: $0) }
+                    let parsedMuscles = ExerciseNameResolution.resolveMuscleGroups(from: s.targetMuscleNames)
+                    let matchedExercise: Exercise? = {
+                        if let oid = s.suggestedExerciseOverrideId,
+                           let ex = globalExercises.first(where: { $0.id == oid }) {
+                            return ex
+                        }
+                        guard let raw = s.suggestedExerciseName?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+                            return nil
+                        }
+                        let musclesForNew = parsedMuscles.isEmpty ? [MuscleGroup.other] : parsedMuscles
+                        return resolveOrCreateExercise(
+                            planName: raw,
+                            overrideId: nil,
+                            musclesIfCreatingCustom: musclesForNew
+                        )
+                    }()
                     let targetedMuscles: [MuscleGroup]
                     if !parsedMuscles.isEmpty {
                         targetedMuscles = parsedMuscles
@@ -248,7 +287,11 @@ final class DataManager: ObservableObject {
                     let sets = min(max(1, exItem.sets), 10)
                     let reps = exItem.reps.trimmingCharacters(in: .whitespacesAndNewlines)
                     let repsFinal = reps.isEmpty ? "8-12" : reps
-                    guard let ex = globalExercises.first(where: { $0.name.caseInsensitiveCompare(exItem.name) == .orderedSame }) else { continue }
+                    guard let ex = resolveOrCreateExercise(
+                        planName: exItem.name,
+                        overrideId: exItem.libraryExerciseOverrideId,
+                        musclesIfCreatingCustom: [MuscleGroup.other]
+                    ) else { continue }
                     _ = addExercise(
                         to: fresh,
                         exercise: ex,

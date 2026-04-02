@@ -40,6 +40,8 @@ struct WorkoutSplitProposalExerciseItem: Equatable {
     let name: String
     let sets: Int
     let reps: String
+    /// Split-builder UI only: force this library exercise when applying (ignores name matching).
+    var libraryExerciseOverrideId: UUID? = nil
 }
 
 struct WorkoutSplitProposalSlotItem: Equatable {
@@ -49,6 +51,8 @@ struct WorkoutSplitProposalSlotItem: Equatable {
     let reps: String
     /// Must match an allowed library name when present.
     let suggestedExerciseName: String?
+    /// Split-builder UI only: force this library exercise as the slot default when applying.
+    var suggestedExerciseOverrideId: UUID? = nil
 }
 
 struct WorkoutSplitProposalDay: Equatable {
@@ -259,7 +263,7 @@ final class AIService: ObservableObject {
 
                 Concrete list mode — each workout must include an exercises array (not slots).
                 - Each exercises entry: name (string), sets (integer 1–10), reps (string, e.g. "5", "8-12", "AMRAP").
-                - Every exercises[].name MUST be exactly one string from the allowed exercise names JSON array (identical spelling and casing). No synonyms or invented names.
+                - Every exercises[].name MUST be copied verbatim from the allowed exercise names JSON array: same characters, spelling, spacing, and casing as one array element. Do not paraphrase, abbreviate, or substitute synonyms.
                 - Each workout: at least 3 exercises, at most 12 when reasonable.
                 """
             case .slotTemplates:
@@ -268,15 +272,15 @@ final class AIService: ObservableObject {
                 Slot template mode — each workout must include a slots array (omit exercises or use empty array).
                 - Each slots entry: label (short string, e.g. "Horizontal push"), targetMuscleNames (array of strings), sets (integer 1–10), reps (string), optional suggestedExerciseName (string).
                 - Every targetMuscleNames[] value MUST be exactly one string from the allowed muscle names JSON array (identical spelling as in that array). Use 1–3 muscles per slot when helpful.
-                - If suggestedExerciseName is present, it MUST be exactly one string from the allowed exercise names JSON array; omit the key if unsure.
+                - If suggestedExerciseName is present, it MUST be copied verbatim from the allowed exercise names JSON array (same characters and casing as one element); omit the key if unsure.
                 - Each workout: at least 3 slots, at most 12 slots when reasonable.
                 """
             case .mixOfBoth, .noPreference:
                 return baseIntro + """
 
                 Mixed mode — each workout has EITHER a non-empty exercises array OR a non-empty slots array (not both; one must be empty or omitted).
-                - For exercises days: same rules as concrete list mode (names from allowed exercise names JSON only; 3–12 exercises).
-                - For slots days: same rules as slot template mode (targetMuscleNames from allowed muscle names JSON; optional suggestedExerciseName from exercise names JSON; 3–12 slots).
+                - For exercises days: same rules as concrete list mode (exercise names copied verbatim from allowed exercise names JSON; 3–12 exercises).
+                - For slots days: same rules as slot template mode (targetMuscleNames from allowed muscle names JSON; optional suggestedExerciseName copied verbatim from exercise names JSON; 3–12 slots).
                 """
             }
         }()
