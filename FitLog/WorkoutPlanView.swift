@@ -295,21 +295,6 @@ private func heuristicImprovementSuggestions(for workout: Workout, dataVM: DataM
     return suggestions
 }
 
-// MARK: - Muscle group → Push/Pull/Legs/Core/Other
-private extension MuscleGroup {
-    var exerciseBucket: String {
-        switch self {
-        case .chest, .upperChest, .lowerChest, .frontDelts, .sideDelts, .rearDelts, .triceps: return "Push"
-        case .lats, .upperBack, .midBack, .rhomboids, .traps, .biceps: return "Pull"
-        case .quads, .hamstrings, .glutes, .calves, .soleus, .hipFlexors, .adductors, .abductors: return "Legs"
-        case .abs, .lowerAbs, .obliques, .core: return "Core"
-        default: return "Other"
-        }
-    }
-}
-
-private let bucketOrder = ["Push", "Pull", "Legs", "Core", "Other"]
-
 // MARK: - Exercise picker (search, favorites, recent, subgrouping, section index)
 private struct ExercisePickerView: View {
     let exercises: [Exercise]
@@ -340,26 +325,18 @@ private struct ExercisePickerView: View {
 
     private var recentExercises: [Exercise] {
         let byId = Dictionary(uniqueKeysWithValues: exercises.map { ($0.id, $0) })
-        return recentIds.compactMap { byId[$0] }.filter { filtered.contains($0) }
+        return recentIds.compactMap { byId[$0] }
+            .filter { filtered.contains($0) && !favoriteIds.contains($0.id) }
+    }
+
+    private var exercisesForBucketGrouping: [Exercise] {
+        let pinned = Set(favoriteExercises.map(\.id)).union(Set(recentExercises.map(\.id)))
+        return filtered.filter { !pinned.contains($0.id) }
     }
 
     /// Subgrouped: (bucketName, [(muscle, [Exercise])]) in bucket order.
     private var bucketedSections: [(String, [(MuscleGroup, [Exercise])])] {
-        let grouped = Dictionary(grouping: filtered) { ex in
-            ex.targetedMuscles.first ?? .other
-        }
-        var result: [(String, [(MuscleGroup, [Exercise])])] = []
-        for bucket in bucketOrder {
-            let musclesInBucket = MuscleGroup.displayOrder.filter { $0.exerciseBucket == bucket }
-            let pairs = musclesInBucket.compactMap { muscle -> (MuscleGroup, [Exercise])? in
-                let list = (grouped[muscle] ?? []).sorted {
-                    dataVM.resolvedDisplayName(for: $0).localizedCaseInsensitiveCompare(dataVM.resolvedDisplayName(for: $1)) == .orderedAscending
-                }
-                return list.isEmpty ? nil : (muscle, list)
-            }
-            if !pairs.isEmpty { result.append((bucket, pairs)) }
-        }
-        return result
+        ExerciseCategoryGrouping.bucketedSections(exercises: exercisesForBucketGrouping) { dataVM.resolvedDisplayName(for: $0) }
     }
 
     /// Section IDs for scroll-to (section index).
@@ -373,42 +350,41 @@ private struct ExercisePickerView: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            ZStack(alignment: .trailing) {
-                List {
-                    if !favoriteExercises.isEmpty {
-                        Section(header: Text("Favorites")) {
-                            exerciseRows(favoriteExercises, showFavorite: true)
-                        }
-                        .id("favorites")
+            List {
+                if !favoriteExercises.isEmpty {
+                    Section(header: Text("Favorites")) {
+                        exerciseRows(favoriteExercises, showFavorite: true)
                     }
-                    if !recentExercises.isEmpty {
-                        Section(header: Text("Recent")) {
-                            exerciseRows(recentExercises, showFavorite: true)
-                        }
-                        .id("recent")
+                    .id("favorites")
+                }
+                if !recentExercises.isEmpty {
+                    Section(header: Text("Recent")) {
+                        exerciseRows(recentExercises, showFavorite: true)
                     }
-                    ForEach(bucketedSections, id: \.0) { bucket, musclePairs in
-                        Section(header: Text(bucket)) {
-                            ForEach(musclePairs, id: \.0.id) { muscle, list in
-                                Section(header: Text(muscle.rawValue)) {
-                                    exerciseRows(list, showFavorite: true)
-                                }
+                    .id("recent")
+                }
+                ForEach(bucketedSections, id: \.0) { bucket, musclePairs in
+                    Section(header: Text(bucket)) {
+                        ForEach(musclePairs, id: \.0.id) { muscle, list in
+                            Section(header: Text(muscle.rawValue)) {
+                                exerciseRows(list, showFavorite: true)
                             }
                         }
-                        .id(bucket.lowercased())
                     }
+                    .id(bucket.lowercased())
                 }
-                .searchable(text: $searchText, prompt: "Search by name or muscle")
-                .navigationTitle("Select Exercise")
-                .navigationBarTitleDisplayMode(.inline)
-                .onAppear {
-                    favoriteIds = ExercisePickerPersistence.loadFavorites()
-                    recentIds = ExercisePickerPersistence.loadRecent()
-                }
-
+            }
+            .searchable(text: $searchText, prompt: "Search by name or muscle")
+            .navigationTitle("Select Exercise")
+            .navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .trailing, spacing: 0) {
                 if sectionIds.count > 1 {
-                    sectionIndexStrip(proxy: proxy, ids: sectionIds)
+                    ExerciseSectionIndexStrip(proxy: proxy, ids: sectionIds)
                 }
+            }
+            .onAppear {
+                favoriteIds = ExercisePickerPersistence.loadFavorites()
+                recentIds = ExercisePickerPersistence.loadRecent()
             }
         }
     }
@@ -449,33 +425,6 @@ private struct ExercisePickerView: View {
             favoriteIds.insert(id)
         }
         ExercisePickerPersistence.saveFavorites(favoriteIds)
-    }
-
-    private func sectionIndexStrip(proxy: ScrollViewProxy, ids: [String]) -> some View {
-        VStack(spacing: 2) {
-            ForEach(ids, id: \.self) { id in
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        proxy.scrollTo(id, anchor: .top)
-                    }
-                } label: {
-                    Text(indexLabel(for: id))
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.vertical, 8)
-        .padding(.leading, 4)
-    }
-
-    private func indexLabel(for id: String) -> String {
-        switch id {
-        case "favorites": return "★"
-        case "recent": return "○"
-        default: return String(id.prefix(1)).uppercased()
-        }
     }
 }
 

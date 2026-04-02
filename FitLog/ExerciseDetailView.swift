@@ -87,6 +87,9 @@ struct ExerciseDetailView: View {
                 .task(id: ex.id) {
                     await loadFormTips(for: ex)
                 }
+                .onAppear {
+                    ExercisePickerPersistence.recordRecent(exerciseId: ex.id)
+                }
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         if ex.isCustom {
