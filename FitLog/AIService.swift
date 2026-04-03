@@ -26,11 +26,11 @@ struct NewExerciseAIReview: Equatable {
 
 // MARK: - Workout split builder (JSON proposal)
 
-/// How the AI should define each day in the split (concrete exercise lists vs slot templates vs both).
+/// How the AI should define each day in the split (fixed exercise lists vs open-slot workouts vs both).
 enum WorkoutSplitDefinitionPreference: String, CaseIterable, Identifiable {
     case concreteLists = "Full exercise lists"
-    case slotTemplates = "Flexible templates (fill exercises later)"
-    case mixOfBoth = "Mix — some days full workouts, some templates"
+    case openSlotWorkouts = "Open slots (choose exercises later)"
+    case mixOfBoth = "Mix — some days fixed, some open slots"
     case noPreference = "No preference — you decide per day"
 
     var id: String { rawValue }
@@ -253,7 +253,7 @@ final class AIService: ObservableObject {
             - sessionsPerWeek: integer from 1 to \(maxSessions) inclusive (must not exceed \(maxSessions)).
             - preferredWeekdays: subset of the user's allowed weekday numbers (see user message). Use [] only if the user selected no specific days — then the app will use its default pool.
             - workouts: ordered cycle for the split. At least 1 and at most 6 objects. Each object: name (string), focus (string or empty).
-            - Use distinct workout day names; avoid duplicating names in the existing workout templates list unless intentional (prefer clear names like "Upper A", "Pull").
+            - Use distinct workout day names; avoid duplicating names in the existing workout names list unless intentional (prefer clear names like "Upper A", "Pull").
 
             Training safety: this is not medical advice. Favor balanced programming and avoid reckless volume.
             """
@@ -266,10 +266,10 @@ final class AIService: ObservableObject {
                 - Every exercises[].name MUST be copied verbatim from the allowed exercise names JSON array: same characters, spelling, spacing, and casing as one array element. Do not paraphrase, abbreviate, or substitute synonyms.
                 - Each workout: at least 3 exercises, at most 12 when reasonable.
                 """
-            case .slotTemplates:
+            case .openSlotWorkouts:
                 return baseIntro + """
 
-                Slot template mode — each workout must include a slots array (omit exercises or use empty array).
+                Open-slot mode — each workout must include a slots array (omit exercises or use empty array).
                 - Each slots entry: label (short string, e.g. "Horizontal push"), targetMuscleNames (array of strings), sets (integer 1–10), reps (string), optional suggestedExerciseName (string).
                 - Every targetMuscleNames[] value MUST be exactly one string from the allowed muscle names JSON array (identical spelling as in that array). Use 1–3 muscles per slot when helpful.
                 - If suggestedExerciseName is present, it MUST be copied verbatim from the allowed exercise names JSON array (same characters and casing as one element); omit the key if unsure.
@@ -280,7 +280,7 @@ final class AIService: ObservableObject {
 
                 Mixed mode — each workout has EITHER a non-empty exercises array OR a non-empty slots array (not both; one must be empty or omitted).
                 - For exercises days: same rules as concrete list mode (exercise names copied verbatim from allowed exercise names JSON; 3–12 exercises).
-                - For slots days: same rules as slot template mode (targetMuscleNames from allowed muscle names JSON; optional suggestedExerciseName copied verbatim from exercise names JSON; 3–12 slots).
+                - For slots days: same rules as open-slot mode (targetMuscleNames from allowed muscle names JSON; optional suggestedExerciseName copied verbatim from exercise names JSON; 3–12 slots).
                 """
             }
         }()
@@ -300,7 +300,7 @@ final class AIService: ObservableObject {
         Allowed muscle display names for slots[].targetMuscleNames (JSON array — use ONLY these exact strings):
         \(musclesJSON)
 
-        Existing workout template names for reference (JSON array):
+        Existing workout names for reference (JSON array):
         \(templatesJSON)
         """
 
@@ -396,7 +396,7 @@ final class AIService: ObservableObject {
             let useSlots: Bool = {
                 if !slotItems.isEmpty, items.isEmpty { return true }
                 if !items.isEmpty, slotItems.isEmpty { return false }
-                if definitionPreference == .slotTemplates { return !slotItems.isEmpty }
+                if definitionPreference == .openSlotWorkouts { return !slotItems.isEmpty }
                 if definitionPreference == .concreteLists { return false }
                 // mix / noPreference: if both present, prefer slots when slot count >= exercise count
                 if !slotItems.isEmpty, !items.isEmpty { return slotItems.count >= items.count }

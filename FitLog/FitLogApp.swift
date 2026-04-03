@@ -39,6 +39,7 @@ struct FitLogApp: App {
 
         let context = ModelContext(container)
         MigrationService.migrateIfNeeded(context: context)
+        WorkoutMigrationService.migrateIfNeeded(context: context)
 
         let dm = DataManager(modelContainer: container)
         _dataVM = StateObject(wrappedValue: dm)

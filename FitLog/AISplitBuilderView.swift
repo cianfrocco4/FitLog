@@ -766,7 +766,7 @@ struct AISplitBuilderView: View {
         aiService.wakeProxyHostIfNeeded()
 
         let allowed = dataVM.globalExercises.map(\.name).sorted()
-        let existingTemplates = dataVM.userWorkouts.map(\.name) + dataVM.userWorkoutTemplates.map(\.name)
+        let existingTemplates = dataVM.userWorkouts.map(\.name)
         let prefs = Array(selectedWeekdays).sorted()
 
         do {

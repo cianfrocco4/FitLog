@@ -43,10 +43,10 @@ private struct ResolveSlotExerciseSheet: View {
     private var templateSlot: TemplateSlot? {
         guard let slotId = templateSlotId,
               let origin = currentVM.currentSession?.sessionPlanOrigin,
-              case .slotTemplate(let templateId) = origin,
-              let template = dataVM.slotTemplate(id: templateId)
+              case .workout(let libraryId) = origin,
+              let lib = dataVM.workout(id: libraryId)
         else { return nil }
-        return template.slots.first(where: { $0.id == slotId })
+        return dataVM.flexibleSlots(from: lib).first(where: { $0.id == slotId })
     }
 
     private var slotMuscles: Set<MuscleGroup> {
@@ -418,9 +418,11 @@ struct CurrentWorkoutPullUpSheet: View {
         currentVM.currentSession?.workout
     }
 
-    private var isSlotTemplateSession: Bool {
-        if case .slotTemplate = currentVM.currentSession?.sessionPlanOrigin { return true }
-        return false
+    private var isFlexibleLibrarySession: Bool {
+        guard let origin = currentVM.currentSession?.sessionPlanOrigin,
+              case .workout(let libraryId) = origin,
+              let lib = dataVM.workout(id: libraryId) else { return false }
+        return lib.hasFlexibleSlots
     }
     
     var body: some View {
@@ -707,9 +709,9 @@ struct CurrentWorkoutPullUpSheet: View {
                         } label: {
                             Label("Custom sets & fields…", systemImage: "slider.horizontal.3")
                         }
-                        if isSlotTemplateSession {
+                        if isFlexibleLibrarySession {
                             Button {
-                                currentVM.appendSlotToSlotTemplateSession()
+                                currentVM.appendSlotToFlexibleLibrarySession()
                             } label: {
                                 Label("Add template slot", systemImage: "square.dashed")
                             }

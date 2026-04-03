@@ -273,15 +273,16 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         saveActiveSession()
     }
 
-    /// Appends a new template slot to the backing `WorkoutTemplate` and a matching placeholder row to the active session.
-    func appendSlotToSlotTemplateSession() {
+    /// Appends a new flexible slot to the backing library workout and a matching row to the active session.
+    func appendSlotToFlexibleLibrarySession() {
         guard var session = currentSession,
-              case .slotTemplate(let templateId) = session.sessionPlanOrigin,
+              case .workout(let libraryId) = session.sessionPlanOrigin,
               let dm = dataManager,
-              var template = dm.slotTemplate(id: templateId)
+              let lib = dm.workout(id: libraryId),
+              lib.hasFlexibleSlots
         else { return }
 
-        let n = template.slots.count + 1
+        let n = dm.flexibleSlots(from: lib).count + 1
         let newSlot = TemplateSlot(
             label: "Slot \(n)",
             targetedMuscles: [.chest],
@@ -292,13 +293,12 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             recommendedSets: 3,
             recommendedReps: "8-12"
         )
-        template.slots.append(newSlot)
-        dm.updateSlotTemplate(template)
+        dm.appendFlexibleSlot(toWorkoutId: libraryId, slot: newSlot)
 
         let weId = UUID()
         let we = WorkoutExercise(
             id: weId,
-            resolution: .unresolved(slotLabel: newSlot.label, templateSlotId: newSlot.id),
+            resolution: .flexible(newSlot.asSlotBlueprint()),
             defaultRestTime: newSlot.defaultRestTime,
             recommendedSets: newSlot.recommendedSets,
             recommendedReps: newSlot.recommendedReps
@@ -329,12 +329,12 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         }
 
         let we = session.exerciseLogs[exerciseLogIndex].workoutExercise
-        if case .slotTemplate(let templateId) = session.sessionPlanOrigin,
+        if case .workout(let libraryId) = session.sessionPlanOrigin,
            let slotId = session.workout.templateSlotIdByWorkoutExerciseId[rowId],
            let dm = dataManager,
-           var template = dm.slotTemplate(id: templateId) {
-            template.slots.removeAll { $0.id == slotId }
-            dm.updateSlotTemplate(template)
+           let lib = dm.workout(id: libraryId),
+           lib.hasFlexibleSlots {
+            dm.removeFlexibleSlot(fromWorkoutId: libraryId, slotId: slotId)
         }
 
         if let exId = we.exerciseId {
@@ -387,6 +387,17 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             we.resolution = .concrete(snap)
             session.exerciseLogs[li].workoutExercise = we
         }
+
+        if let dm = dataManager,
+           let origin = session.sessionPlanOrigin,
+           case .workout(let libraryId) = origin,
+           let lib = dm.workout(id: libraryId), lib.hasFlexibleSlots,
+           let slotId = session.workout.templateSlotIdByWorkoutExerciseId[workoutExerciseId],
+           var slot = dm.flexibleSlots(from: lib).first(where: { $0.id == slotId }) {
+            slot.defaultExerciseId = exercise.id
+            dm.updateFlexibleSlot(workoutId: libraryId, slot: slot)
+        }
+
         currentSession = session
         saveActiveSession()
     }

@@ -26,7 +26,7 @@ struct ScheduleDayOverride: Codable, Equatable {
     /// Legacy initializer: concrete workout only.
     init(intent: ScheduleDayIntent, workoutId: UUID?) {
         self.intent = intent
-        self.planRef = (intent == .workout) ? workoutId.map { .concreteWorkout($0) } : nil
+        self.planRef = (intent == .workout) ? workoutId.map { .workout($0) } : nil
     }
 
     init(from decoder: Decoder) throws {
@@ -36,7 +36,7 @@ struct ScheduleDayOverride: Codable, Equatable {
             if let ref = try? c.decode(WorkoutPlanRef.self, forKey: .planRef) {
                 planRef = ref
             } else if let id = try? c.decode(UUID.self, forKey: .workoutId) {
-                planRef = .concreteWorkout(id)
+                planRef = .workout(id)
             } else {
                 planRef = nil
             }
@@ -50,7 +50,7 @@ struct ScheduleDayOverride: Codable, Equatable {
         try c.encode(intent, forKey: .intent)
         guard intent == .workout, let ref = planRef else { return }
         try c.encode(ref, forKey: .planRef)
-        if case .concreteWorkout(let id) = ref {
+        if case .workout(let id) = ref {
             try c.encode(id, forKey: .workoutId)
         }
     }
@@ -178,13 +178,13 @@ struct TrainingProgramState: Codable, Equatable {
         } else if let legacy = try? c.decode([LegacyProgramCycleEntry].self, forKey: .cycleEntries) {
             cycleEntries = legacy.map { entry in
                 switch entry.kind {
-                case .concreteWorkout: return .concreteWorkout(entry.id)
-                case .slotTemplate: return .slotTemplate(entry.id)
+                case .concreteWorkout: return .workout(entry.id)
+                case .slotTemplate: return .workout(entry.id)
                 }
             }
         } else {
             let legacyIds = (try? c.decode([UUID].self, forKey: .cycleWorkoutIds)) ?? []
-            cycleEntries = legacyIds.map { .concreteWorkout($0) }
+            cycleEntries = legacyIds.map { .workout($0) }
         }
 
         sessionsPerWeek = (try? c.decode(Int.self, forKey: .sessionsPerWeek)) ?? 3
@@ -267,5 +267,54 @@ struct FrozenPlanDay: Codable, Equatable {
             }
             return .unscheduled
         }
+    }
+}
+
+// MARK: - Plan ref remapping (template id collision migration)
+
+extension TrainingProgramState {
+    /// Rewrites plan references when a migrated template received a new library id.
+    func remappingWorkoutPlanRefs(_ map: [UUID: UUID]) -> TrainingProgramState {
+        guard !map.isEmpty else { return self }
+        func mapRef(_ ref: WorkoutPlanRef) -> WorkoutPlanRef {
+            if let n = map[ref.libraryWorkoutId] { return .workout(n) }
+            return ref
+        }
+        var p = self
+        p.cycleEntries = p.cycleEntries.map(mapRef)
+        var nextDay: [String: ScheduleDayOverride] = [:]
+        for (k, o) in p.dayOverrides {
+            var oo = o
+            if oo.intent == .workout, let pr = oo.planRef {
+                oo.planRef = mapRef(pr)
+            }
+            nextDay[k] = oo
+        }
+        p.dayOverrides = nextDay
+        var nextWeek: [String: ScheduleWeekOverride] = [:]
+        for (wk, w) in p.weekOverrides {
+            var ww = w
+            var wmap: [String: ScheduleDayOverride] = [:]
+            for (d, o) in w.weekdayOverrides {
+                var oo = o
+                if oo.intent == .workout, let pr = oo.planRef {
+                    oo.planRef = mapRef(pr)
+                }
+                wmap[d] = oo
+            }
+            ww.weekdayOverrides = wmap
+            nextWeek[wk] = ww
+        }
+        p.weekOverrides = nextWeek
+        var nextFrozen: [String: FrozenPlanDay] = [:]
+        for (k, fd) in p.frozenCalendarDays {
+            var f = fd
+            if f.kind == .workout, let wr = f.workoutRef {
+                f.workoutRef = mapRef(wr)
+            }
+            nextFrozen[k] = f
+        }
+        p.frozenCalendarDays = nextFrozen
+        return p
     }
 }

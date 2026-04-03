@@ -19,8 +19,8 @@ struct HomeView: View {
     @State private var showSplitBuilder = false
     @State private var workoutToRename: Workout?
     @State private var renameText = ""
-    /// After creating a slot template from the Add menu, push the editor for that template.
-    @State private var newSlotTemplateToEdit: UUID?
+    /// After creating a flexible workout from the Add menu, push its slot editor.
+    @State private var newFlexibleWorkoutToEdit: UUID?
 
     @State private var pendingWorkoutReplace: PendingWorkoutReplace?
     /// After starting from Today's plan, push this detail route and open the workout sheet.
@@ -50,7 +50,7 @@ struct HomeView: View {
             if let origin = session.sessionPlanOrigin {
                 completedRefs.insert(origin.cacheKey)
             } else {
-                completedRefs.insert(WorkoutPlanRef.concreteWorkout(session.workout.id).cacheKey)
+                completedRefs.insert(WorkoutPlanRef.workout(session.workout.id).cacheKey)
             }
         }
         cachedTodayCompletedRefs = completedRefs
@@ -64,41 +64,62 @@ struct HomeView: View {
         EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16)
     }
 
-    private func startWorkout(fromSlotTemplate template: WorkoutTemplate) {
-        guard !template.slots.isEmpty else { return }
-        let sessionWorkout = dataVM.instantiateWorkout(from: template)
-        currentVM.startWorkoutResolvingConflict(sessionWorkout, sessionPlanOrigin: .slotTemplate(template.id)) {
+    private func startFlexibleWorkoutFromLibrary(_ library: Workout) {
+        let slots = dataVM.flexibleSlots(from: library)
+        guard !slots.isEmpty else { return }
+        let sessionWorkout = dataVM.sessionInstance(from: library)
+        currentVM.startWorkoutResolvingConflict(sessionWorkout, sessionPlanOrigin: .workout(library.id)) {
             pendingWorkoutReplace = $0
         }
     }
 
-    private func startConcreteWorkoutFromTodayPlan(_ workout: Workout) {
-        let ref = WorkoutPlanRef.concreteWorkout(workout.id)
-        switch currentVM.resolveStartingWorkout(workout, sessionPlanOrigin: ref) {
-        case .performStart:
-            currentVM.startWorkout(workout, sessionPlanOrigin: ref)
-            navigateTodayPlanDetailAndOpenWorkoutSheet(.concreteWorkout(workout.id))
-        case .noOpAlreadyActive:
-            break
-        case .needsReplaceConfirmation(let pending):
-            pendingWorkoutReplace = pending
-            pendingTodayPlanNavigateAfterReplace = .concreteWorkout(workout.id)
+    private func startWorkoutFromTodayPlan(_ library: Workout) {
+        let ref = WorkoutPlanRef.workout(library.id)
+        if library.hasFlexibleSlots {
+            let slots = dataVM.flexibleSlots(from: library)
+            guard !slots.isEmpty else { return }
+            let sessionWorkout = dataVM.sessionInstance(from: library)
+            switch currentVM.resolveStartingWorkout(sessionWorkout, sessionPlanOrigin: ref) {
+            case .performStart:
+                currentVM.startWorkout(sessionWorkout, sessionPlanOrigin: ref)
+                navigateTodayPlanDetailAndOpenWorkoutSheet(.plannedWorkout(library.id))
+            case .noOpAlreadyActive:
+                break
+            case .needsReplaceConfirmation(let pending):
+                pendingWorkoutReplace = pending
+                pendingTodayPlanNavigateAfterReplace = .plannedWorkout(library.id)
+            }
+        } else {
+            switch currentVM.resolveStartingWorkout(library, sessionPlanOrigin: ref) {
+            case .performStart:
+                currentVM.startWorkout(library, sessionPlanOrigin: ref)
+                navigateTodayPlanDetailAndOpenWorkoutSheet(.plannedWorkout(library.id))
+            case .noOpAlreadyActive:
+                break
+            case .needsReplaceConfirmation(let pending):
+                pendingWorkoutReplace = pending
+                pendingTodayPlanNavigateAfterReplace = .plannedWorkout(library.id)
+            }
         }
     }
 
-    private func startWorkoutFromTodayPlan(template: WorkoutTemplate) {
-        guard !template.slots.isEmpty else { return }
-        let sessionWorkout = dataVM.instantiateWorkout(from: template)
-        let ref = WorkoutPlanRef.slotTemplate(template.id)
-        switch currentVM.resolveStartingWorkout(sessionWorkout, sessionPlanOrigin: ref) {
-        case .performStart:
-            currentVM.startWorkout(sessionWorkout, sessionPlanOrigin: ref)
-            navigateTodayPlanDetailAndOpenWorkoutSheet(.slotTemplate(template.id))
-        case .noOpAlreadyActive:
-            break
-        case .needsReplaceConfirmation(let pending):
-            pendingWorkoutReplace = pending
-            pendingTodayPlanNavigateAfterReplace = .slotTemplate(template.id)
+    private func workoutSubtitle(_ workout: Workout) -> String {
+        if workout.hasFlexibleSlots {
+            let n = dataVM.flexibleSlots(from: workout).count
+            return "Open slots · \(n) slot\(n == 1 ? "" : "s")"
+        }
+        let n = workout.exercises.count
+        return "Fixed · \(n) exercise\(n == 1 ? "" : "s")"
+    }
+
+    @ViewBuilder
+    private func workoutRowLabel(_ workout: Workout) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(workout.name)
+                .font(.headline)
+            Text(workoutSubtitle(workout))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -138,27 +159,73 @@ struct HomeView: View {
 
                 Section {
                     ForEach(dataVM.userWorkouts) { workout in
-                        NavigationLink {
-                            if let binding = $dataVM.userWorkouts[workout.id] {
-                                WorkoutPlanView(workout: binding)
+                        Group {
+                            if workout.hasFlexibleSlots {
+                                NavigationLink {
+                                    SlotTemplatePlanView(workoutId: workout.id)
+                                        .environmentObject(dataVM)
+                                        .environmentObject(currentVM)
+                                } label: {
+                                    workoutRowLabel(workout)
+                                }
                             } else {
-                                Text("Workout not found")  // fallback (should never hit)
-                                    .foregroundStyle(.red)
+                                NavigationLink {
+                                    if let binding = $dataVM.userWorkouts[workout.id] {
+                                        WorkoutPlanView(workout: binding)
+                                    } else {
+                                        Text("Workout not found")
+                                            .foregroundStyle(.red)
+                                    }
+                                } label: {
+                                    workoutRowLabel(workout)
+                                }
                             }
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(workout.name)
-                                    .font(.headline)
-                                Text("Saved workout")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                        }
+                        .contextMenu {
+                            if workout.hasFlexibleSlots {
+                                let slots = dataVM.flexibleSlots(from: workout)
+                                Button {
+                                    startFlexibleWorkoutFromLibrary(workout)
+                                } label: {
+                                    Label("Start workout", systemImage: "play.fill")
+                                }
+                                .disabled(slots.isEmpty)
+                            } else {
+                                Button {
+                                    currentVM.startWorkoutResolvingConflict(workout, sessionPlanOrigin: .workout(workout.id)) {
+                                        pendingWorkoutReplace = $0
+                                    }
+                                } label: {
+                                    Label("Start workout", systemImage: "play.fill")
+                                }
+                            }
+                        }
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            if workout.hasFlexibleSlots {
+                                let slots = dataVM.flexibleSlots(from: workout)
+                                if !slots.isEmpty {
+                                    Button {
+                                        startFlexibleWorkoutFromLibrary(workout)
+                                    } label: {
+                                        Label("Start", systemImage: "play.fill")
+                                    }
+                                    .tint(.green)
+                                }
+                            } else {
+                                Button {
+                                    currentVM.startWorkoutResolvingConflict(workout, sessionPlanOrigin: .workout(workout.id)) {
+                                        pendingWorkoutReplace = $0
+                                    }
+                                } label: {
+                                    Label("Start", systemImage: "play.fill")
+                                }
+                                .tint(.green)
                             }
                         }
                         .swipeActions(edge: .trailing) {
                             Button("Delete", role: .destructive) {
                                 dataVM.deleteWorkout(workout)
                             }
-
                             Button("Rename") {
                                 workoutToRename = workout
                                 renameText = workout.name
@@ -168,62 +235,14 @@ struct HomeView: View {
                     }
                     .onMove(perform: dataVM.moveWorkout)
                 } header: {
-                    Text("My Workouts")
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 4)
-                        .textCase(nil)
-                }
-
-                Section {
-                    ForEach(dataVM.userWorkoutTemplates) { template in
-                        NavigationLink {
-                            SlotTemplatePlanView(templateId: template.id)
-                                .environmentObject(dataVM)
-                                .environmentObject(currentVM)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(template.name)
-                                    .font(.headline)
-                                Text("Template · \(template.slots.count) exercise\(template.slots.count == 1 ? "" : "s")")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .contextMenu {
-                            Button {
-                                startWorkout(fromSlotTemplate: template)
-                            } label: {
-                                Label("Start workout", systemImage: "play.fill")
-                            }
-                            .disabled(template.slots.isEmpty)
-                        }
-                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                            if !template.slots.isEmpty {
-                                Button {
-                                    startWorkout(fromSlotTemplate: template)
-                                } label: {
-                                    Label("Start", systemImage: "play.fill")
-                                }
-                                .tint(.green)
-                            }
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button("Delete", role: .destructive) {
-                                dataVM.deleteSlotTemplate(template)
-                            }
-                        }
-                    }
-                } header: {
-                    Text("Flexible Templates")
+                    Text("Workouts")
                         .font(.title2)
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 4)
                         .textCase(nil)
                 } footer: {
-                    Text("Long-press for Start workout, or swipe right on a template. You can also open a template and tap Start in the toolbar.")
+                    Text("Fixed workouts list every exercise. Workouts with open slots let you choose exercises when you start. Swipe right to start quickly.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -242,8 +261,8 @@ struct HomeView: View {
                         Button("New workout") {
                             showNewWorkout = true
                         }
-                        Button("New flexible template") {
-                            newSlotTemplateToEdit = dataVM.createSlotTemplate(name: "Template")
+                        Button("New workout with open slots") {
+                            newFlexibleWorkoutToEdit = dataVM.createWorkoutWithFlexibleSlots(name: "Workout")
                         }
                     } label: {
                         Label("Add", systemImage: "plus.circle")
@@ -280,27 +299,32 @@ struct HomeView: View {
                     }
                 }
             }
-            .navigationDestination(item: $newSlotTemplateToEdit) { templateId in
-                SlotTemplatePlanView(templateId: templateId)
+            .navigationDestination(item: $newFlexibleWorkoutToEdit) { wid in
+                SlotTemplatePlanView(workoutId: wid)
                     .environmentObject(dataVM)
                     .environmentObject(currentVM)
             }
             .navigationDestination(item: $todayPlanDetailRoute) { route in
                 switch route {
-                case .concreteWorkout(let id):
-                    if let binding = $dataVM.userWorkouts[id] {
-                        WorkoutPlanView(workout: binding)
-                            .environmentObject(dataVM)
-                            .environmentObject(currentVM)
-                            .environmentObject(aiService)
+                case .plannedWorkout(let id):
+                    if let w = dataVM.workout(id: id) {
+                        if w.hasFlexibleSlots {
+                            SlotTemplatePlanView(workoutId: id)
+                                .environmentObject(dataVM)
+                                .environmentObject(currentVM)
+                        } else if let binding = $dataVM.userWorkouts[id] {
+                            WorkoutPlanView(workout: binding)
+                                .environmentObject(dataVM)
+                                .environmentObject(currentVM)
+                                .environmentObject(aiService)
+                        } else {
+                            Text("Workout not found")
+                                .foregroundStyle(.red)
+                        }
                     } else {
                         Text("Workout not found")
                             .foregroundStyle(.red)
                     }
-                case .slotTemplate(let id):
-                    SlotTemplatePlanView(templateId: id)
-                        .environmentObject(dataVM)
-                        .environmentObject(currentVM)
                 }
             }
             .task(id: homeRefreshKey) {
@@ -423,53 +447,36 @@ struct HomeView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             case .workout(let ref):
-                switch ref {
-                case .concreteWorkout(let id):
-                    if let workout = dataVM.userWorkouts.first(where: { $0.id == id }) {
-                        let planRef = WorkoutPlanRef.concreteWorkout(workout.id)
-                        let thisPlanActive = currentVM.isActiveSessionMatching(workout: workout, planRef: planRef)
-                        TodayWorkoutCard(
-                            title: workout.name,
-                            subtitle: "Saved workout · from your training plan",
-                            isCompleted: isPlannedWorkoutCompletedToday(plan: ref),
-                            isThisPlanActive: thisPlanActive,
-                            isAnotherWorkoutActive: currentVM.isInProgress && !thisPlanActive,
-                            onStart: { startConcreteWorkoutFromTodayPlan(workout) },
-                            openActiveWorkout: { openCurrentWorkoutSheet?() },
-                            detailLabel: "View workout"
-                        ) {
-                            if let binding = $dataVM.userWorkouts[workout.id] {
-                                WorkoutPlanView(workout: binding)
-                            } else {
-                                Text("Workout not found").foregroundStyle(.red)
-                            }
-                        }
-                    } else {
-                        missingItemMessage("Missing workout", detail: "Your plan references a workout that isn’t in My Workouts. Update the split in the Plan tab.")
-                    }
-
-                case .slotTemplate(let templateId):
-                    if let template = dataVM.slotTemplate(id: templateId) {
-                        let sessionWorkout = dataVM.instantiateWorkout(from: template)
-                        let planRef = WorkoutPlanRef.slotTemplate(templateId)
-                        let thisPlanActive = currentVM.isActiveSessionMatching(workout: sessionWorkout, planRef: planRef)
-                        TodayWorkoutCard(
-                            title: template.name,
-                            subtitle: "Flexible template · pick exercises when you train",
-                            isCompleted: isPlannedWorkoutCompletedToday(plan: ref),
-                            isThisPlanActive: thisPlanActive,
-                            isAnotherWorkoutActive: currentVM.isInProgress && !thisPlanActive,
-                            onStart: { startWorkoutFromTodayPlan(template: template) },
-                            openActiveWorkout: { openCurrentWorkoutSheet?() },
-                            detailLabel: "Edit template"
-                        ) {
-                            SlotTemplatePlanView(templateId: templateId)
+                let id = ref.libraryWorkoutId
+                if let workout = dataVM.userWorkouts.first(where: { $0.id == id }) {
+                    let sessionWorkout = workout.hasFlexibleSlots ? dataVM.sessionInstance(from: workout) : workout
+                    let thisPlanActive = currentVM.isActiveSessionMatching(workout: sessionWorkout, planRef: ref)
+                    let subtitle = workout.hasFlexibleSlots
+                        ? "Open slots · pick exercises when you train"
+                        : "Fixed workout · from your training plan"
+                    let detail = workout.hasFlexibleSlots ? "Edit slots" : "View workout"
+                    TodayWorkoutCard(
+                        title: workout.name,
+                        subtitle: subtitle,
+                        isCompleted: isPlannedWorkoutCompletedToday(plan: ref),
+                        isThisPlanActive: thisPlanActive,
+                        isAnotherWorkoutActive: currentVM.isInProgress && !thisPlanActive,
+                        onStart: { startWorkoutFromTodayPlan(workout) },
+                        openActiveWorkout: { openCurrentWorkoutSheet?() },
+                        detailLabel: detail
+                    ) {
+                        if workout.hasFlexibleSlots {
+                            SlotTemplatePlanView(workoutId: id)
                                 .environmentObject(dataVM)
                                 .environmentObject(currentVM)
+                        } else if let binding = $dataVM.userWorkouts[id] {
+                            WorkoutPlanView(workout: binding)
+                        } else {
+                            Text("Workout not found").foregroundStyle(.red)
                         }
-                    } else {
-                        missingItemMessage("Missing template", detail: "Your plan references a template that was removed. Update the split in the Plan tab.")
                     }
+                } else {
+                    missingItemMessage("Missing workout", detail: "Your plan references a workout that isn’t in your library. Update the split in the Plan tab.")
                 }
             }
             if let glance = cachedWeekGlance {
@@ -598,15 +605,12 @@ struct HomeView: View {
 // MARK: - Today’s plan → detail navigation
 
 private enum TodayPlanDetailRoute: Hashable, Identifiable {
-    case concreteWorkout(UUID)
-    case slotTemplate(UUID)
+    case plannedWorkout(UUID)
 
     var id: String {
         switch self {
-        case .concreteWorkout(let uuid):
-            return "cw-\(uuid.uuidString)"
-        case .slotTemplate(let uuid):
-            return "st-\(uuid.uuidString)"
+        case .plannedWorkout(let uuid):
+            return "pw-\(uuid.uuidString)"
         }
     }
 }

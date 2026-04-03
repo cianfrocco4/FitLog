@@ -99,7 +99,7 @@ struct WorkoutPlanView: View {
                     if currentVM.currentSession?.workout.id == workout.id {
                         currentVM.stopWorkout()
                     } else {
-                        currentVM.startWorkoutResolvingConflict(workout, sessionPlanOrigin: .concreteWorkout(workout.id)) {
+                        currentVM.startWorkoutResolvingConflict(workout, sessionPlanOrigin: .workout(workout.id)) {
                             pendingWorkoutReplace = $0
                         }
                     }

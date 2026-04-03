@@ -14,7 +14,6 @@ import SwiftData
 
 final class DataManager: ObservableObject {
     @Published var userWorkouts: [Workout] = []
-    @Published var userWorkoutTemplates: [WorkoutTemplate] = []
     @Published var globalExercises: [Exercise] = []
     @Published private(set) var exerciseLocalDisplayNames: [UUID: String] = [:]
     @Published var completedSessions: [WorkoutSession] = []
@@ -40,7 +39,6 @@ final class DataManager: ObservableObject {
         globalExercises = exerciseStore.loadExercises()
         exerciseLocalDisplayNames = exerciseStore.loadDisplayNames()
         userWorkouts = workoutStore.loadWorkouts()
-        userWorkoutTemplates = workoutStore.loadWorkoutTemplates()
         completedSessions = sessionStore.loadSessions()
 
         if let program = programStore.loadProgram() {
@@ -70,7 +68,6 @@ final class DataManager: ObservableObject {
             schemaVersion: currentSchemaVersion,
             exercises: globalExercises,
             workouts: userWorkouts,
-            templates: userWorkoutTemplates,
             sessions: completedSessions,
             program: trainingProgram,
             displayNames: exerciseLocalDisplayNames
@@ -118,12 +115,9 @@ final class DataManager: ObservableObject {
         return newWorkout.id
     }
 
-    func uniqueWorkoutTemplateName(_ base: String) -> String {
-        workoutStore.uniqueName(
-            base,
-            existingWorkoutNames: Set(userWorkouts.map(\.name)),
-            existingTemplateNames: Set(userWorkoutTemplates.map(\.name))
-        )
+    func uniqueWorkoutName(_ base: String) -> String {
+        let names = Set(userWorkouts.map(\.name))
+        workoutStore.uniqueName(base, existingWorkoutNames: names, existingTemplateNames: names)
     }
 
     func applySplitBuilderTemplates(
@@ -135,7 +129,7 @@ final class DataManager: ObservableObject {
     ) {
         var newIds: [UUID] = []
         for w in workouts {
-            let name = uniqueWorkoutTemplateName(w.templateName)
+            let name = uniqueWorkoutName(w.templateName)
             let id = createWorkout(name: name)
             newIds.append(id)
             for ex in w.exercises {
@@ -155,7 +149,7 @@ final class DataManager: ObservableObject {
         }
         if updateTrainingProgram, !newIds.isEmpty {
             applyTrainingProgramSuggestion(
-                cycleEntries: newIds.map { .concreteWorkout($0) },
+                cycleEntries: newIds.map { .workout($0) },
                 sessionsPerWeek: sessionsPerWeek,
                 preferredWeekdays: preferredWeekdays,
                 anchorDate: anchorDate
@@ -165,12 +159,97 @@ final class DataManager: ObservableObject {
 
     func deleteWorkout(_ workout: Workout) {
         userWorkouts.removeAll { $0.id == workout.id }
+        var p = trainingProgram
+        mergeFrozenPastDays(from: p, into: &p.frozenCalendarDays, calendar: .current)
+        p.cycleEntries.removeAll { $0.libraryWorkoutId == workout.id }
+        trainingProgram = p
         saveWorkouts()
+        saveTrainingProgram()
     }
 
     func renameWorkout(_ workout: Workout, newName: String) {
         guard let index = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
         userWorkouts[index].name = newName
+        saveWorkouts()
+    }
+
+    /// Slot blueprints in list order (flexible rows only).
+    func flexibleSlots(from workout: Workout) -> [TemplateSlot] {
+        workout.exercises.compactMap { we in
+            guard case .flexible(let b) = we.resolution else { return nil }
+            return b.asTemplateSlot()
+        }
+    }
+
+    /// Replaces all flexible rows with the given slots (preserves workout id and name).
+    func replaceFlexibleWorkoutSlots(workoutId: UUID, slots: [TemplateSlot]) {
+        guard let idx = userWorkouts.firstIndex(where: { $0.id == workoutId }) else { return }
+        var w = userWorkouts[idx]
+        var exercises: [WorkoutExercise] = []
+        var map: [UUID: UUID] = [:]
+        for slot in slots {
+            let weId = UUID()
+            map[weId] = slot.id
+            exercises.append(
+                WorkoutExercise(
+                    id: weId,
+                    resolution: .flexible(slot.asSlotBlueprint()),
+                    defaultRestTime: slot.defaultRestTime,
+                    recommendedSets: slot.recommendedSets,
+                    recommendedReps: slot.recommendedReps
+                )
+            )
+        }
+        w.exercises = exercises
+        w.templateSlotIdByWorkoutExerciseId = map
+        userWorkouts[idx] = w
+        saveWorkouts()
+    }
+
+    /// Appends a new flexible slot to a library workout.
+    func appendFlexibleSlot(toWorkoutId workoutId: UUID, slot: TemplateSlot) {
+        guard let idx = userWorkouts.firstIndex(where: { $0.id == workoutId }) else { return }
+        var w = userWorkouts[idx]
+        let weId = UUID()
+        w.exercises.append(
+            WorkoutExercise(
+                id: weId,
+                resolution: .flexible(slot.asSlotBlueprint()),
+                defaultRestTime: slot.defaultRestTime,
+                recommendedSets: slot.recommendedSets,
+                recommendedReps: slot.recommendedReps
+            )
+        )
+        w.templateSlotIdByWorkoutExerciseId[weId] = slot.id
+        userWorkouts[idx] = w
+        saveWorkouts()
+    }
+
+    /// Removes a flexible slot from the library workout by stable slot blueprint id.
+    func removeFlexibleSlot(fromWorkoutId workoutId: UUID, slotId: UUID) {
+        guard let idx = userWorkouts.firstIndex(where: { $0.id == workoutId }) else { return }
+        var w = userWorkouts[idx]
+        let rowsToRemove = w.exercises.filter { $0.templateSlotId == slotId }.map(\.id)
+        w.exercises.removeAll { $0.templateSlotId == slotId }
+        for rid in rowsToRemove {
+            w.templateSlotIdByWorkoutExerciseId.removeValue(forKey: rid)
+        }
+        userWorkouts[idx] = w
+        saveWorkouts()
+    }
+
+    /// Updates one flexible row’s blueprint (stable slot id).
+    func updateFlexibleSlot(workoutId: UUID, slot: TemplateSlot) {
+        guard let widx = userWorkouts.firstIndex(where: { $0.id == workoutId }) else { return }
+        var w = userWorkouts[widx]
+        guard let eidx = w.exercises.firstIndex(where: { $0.templateSlotId == slot.id }) else { return }
+        var we = w.exercises[eidx]
+        we.resolution = .flexible(slot.asSlotBlueprint())
+        we.defaultRestTime = slot.defaultRestTime
+        we.recommendedSets = slot.recommendedSets
+        we.recommendedReps = slot.recommendedReps
+        w.exercises[eidx] = we
+        userWorkouts[widx] = w
         saveWorkouts()
     }
 
@@ -183,22 +262,16 @@ final class DataManager: ObservableObject {
         workoutStore.saveWorkouts(userWorkouts)
     }
 
-    // MARK: - Slot workout templates (blueprints)
+    // MARK: - Workouts with flexible (open) slots
 
+    /// Creates a library workout whose rows are flexible slot blueprints (same shape as a migrated template).
     @discardableResult
-    func createSlotTemplate(name: String) -> UUID {
-        let template = WorkoutTemplate(id: UUID(), name: name, slots: [])
-        userWorkoutTemplates.append(template)
-        saveWorkoutTemplates()
-        return template.id
-    }
-
-    @discardableResult
-    func createSlotTemplate(name: String, slots: [TemplateSlot]) -> UUID {
-        let template = WorkoutTemplate(id: UUID(), name: name, slots: slots)
-        userWorkoutTemplates.append(template)
-        saveWorkoutTemplates()
-        return template.id
+    func createWorkoutWithFlexibleSlots(name: String, slots: [TemplateSlot] = []) -> UUID {
+        let id = UUID()
+        let w = Workout.fromLegacyTemplate(WorkoutTemplate(id: id, name: name, slots: slots))
+        userWorkouts.append(w)
+        saveWorkouts()
+        return id
     }
 
     func applyWorkoutSplitProposal(
@@ -274,14 +347,14 @@ final class DataManager: ObservableObject {
                     )
                 }
                 guard !templateSlots.isEmpty else { continue }
-                let name = uniqueSlotTemplateName(day.name)
-                let id = createSlotTemplate(name: name, slots: templateSlots)
-                entries.append(.slotTemplate(id))
+                let name = uniqueFlexWorkoutName(day.name)
+                let id = createWorkoutWithFlexibleSlots(name: name, slots: templateSlots)
+                entries.append(.workout(id))
             } else {
                 guard !day.exercises.isEmpty else { continue }
-                let name = uniqueWorkoutTemplateName(day.name)
+                let name = uniqueWorkoutName(day.name)
                 let id = createWorkout(name: name)
-                entries.append(.concreteWorkout(id))
+                entries.append(.workout(id))
                 for exItem in day.exercises {
                     guard let fresh = userWorkouts.first(where: { $0.id == id }) else { break }
                     let sets = min(max(1, exItem.sets), 10)
@@ -313,64 +386,27 @@ final class DataManager: ObservableObject {
         }
     }
 
-    func uniqueSlotTemplateName(_ base: String) -> String {
-        let root = base.isEmpty ? "Template" : base
-        let existingW = Set(userWorkouts.map(\.name))
-        let existingT = Set(userWorkoutTemplates.map(\.name))
-        if !existingW.contains(root), !existingT.contains(root) { return root }
-        var n = 2
-        while existingW.contains("\(root) (\(n))") || existingT.contains("\(root) (\(n))") {
-            n += 1
-        }
-        return "\(root) (\(n))"
+    func uniqueFlexWorkoutName(_ base: String) -> String {
+        uniqueWorkoutName(base.isEmpty ? "Workout" : base)
     }
 
-    func deleteSlotTemplate(_ template: WorkoutTemplate) {
-        userWorkoutTemplates.removeAll { $0.id == template.id }
-        var p = trainingProgram
-        mergeFrozenPastDays(from: p, into: &p.frozenCalendarDays, calendar: .current)
-        p.cycleEntries.removeAll { $0 == .slotTemplate(template.id) }
-        trainingProgram = p
-        saveWorkoutTemplates()
-        saveTrainingProgram()
+    func workout(id: UUID) -> Workout? {
+        userWorkouts.first { $0.id == id }
     }
 
-    func renameSlotTemplate(_ template: WorkoutTemplate, newName: String) {
-        guard let idx = userWorkoutTemplates.firstIndex(where: { $0.id == template.id }) else { return }
-        var t = userWorkoutTemplates[idx]
-        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty {
-            t.name = trimmed
-        }
-        userWorkoutTemplates[idx] = t
-        saveWorkoutTemplates()
+    func updateWorkout(_ workout: Workout) {
+        guard let idx = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
+        userWorkouts[idx] = workout
+        saveWorkouts()
     }
 
-    func updateSlotTemplate(_ template: WorkoutTemplate) {
-        guard let idx = userWorkoutTemplates.firstIndex(where: { $0.id == template.id }) else { return }
-        userWorkoutTemplates[idx] = template
-        saveWorkoutTemplates()
-    }
-
-    func slotTemplate(id: UUID) -> WorkoutTemplate? {
-        userWorkoutTemplates.first { $0.id == id }
-    }
-
-    func instantiateWorkout(from template: WorkoutTemplate) -> Workout {
-        workoutStore.instantiateWorkout(from: template, globalExercises: globalExercises)
-    }
-
-    func saveWorkoutTemplates() {
-        workoutStore.saveWorkoutTemplates(userWorkoutTemplates)
+    /// Copy for an in-progress session: new ids when the library workout has flexible rows.
+    func sessionInstance(from library: Workout) -> Workout {
+        workoutStore.sessionInstance(from: library, globalExercises: globalExercises)
     }
 
     func planLabel(for ref: WorkoutPlanRef) -> String {
-        switch ref {
-        case .concreteWorkout(let id):
-            return userWorkouts.first(where: { $0.id == id })?.name ?? "Missing workout"
-        case .slotTemplate(let id):
-            return userWorkoutTemplates.first(where: { $0.id == id })?.name ?? "Missing template"
-        }
+        userWorkouts.first(where: { $0.id == ref.libraryWorkoutId })?.name ?? "Missing workout"
     }
 
     /// Plan assignment shown on the calendar for `date`: frozen history before today (after rotation changes), else live engine resolution.
@@ -767,7 +803,7 @@ final class DataManager: ObservableObject {
         anchorDate: Date = Date()
     ) {
         applyTrainingProgramSuggestion(
-            cycleEntries: cycleWorkoutIds.map { .concreteWorkout($0) },
+            cycleEntries: cycleWorkoutIds.map { .workout($0) },
             sessionsPerWeek: sessionsPerWeek,
             preferredWeekdays: preferredWeekdays,
             anchorDate: anchorDate
@@ -789,7 +825,7 @@ final class DataManager: ObservableObject {
     }
 
     func setTrainingCycleWorkoutIds(_ ids: [UUID]) {
-        setTrainingCycleEntries(ids.map { .concreteWorkout($0) })
+        setTrainingCycleEntries(ids.map { .workout($0) })
     }
 
     func setTrainingCycleEntries(_ entries: [WorkoutPlanRef]) {

@@ -88,22 +88,60 @@ enum MovementPattern: String, CaseIterable, Codable, Identifiable {
     var id: String { rawValue }
 }
 
-/// What the training plan scheduled for this day (concrete workout definition vs slot blueprint).
-enum WorkoutPlanRef: Equatable, Codable, Hashable {
-    case concreteWorkout(UUID)
-    case slotTemplate(UUID)
+/// What the training plan scheduled for this day (single library workout id).
+enum WorkoutPlanRef: Equatable, Hashable {
+    /// Library [`Workout`](Workout) id (fixed exercises and/or flexible slot rows).
+    case workout(UUID)
 
     var userFacingTypeLabel: String {
-        switch self {
-        case .concreteWorkout: return "Workout"
-        case .slotTemplate: return "Flexible template"
-        }
+        "Workout"
     }
 
     var cacheKey: String {
         switch self {
-        case .concreteWorkout(let id): return "cw-\(id.uuidString)"
-        case .slotTemplate(let id): return "st-\(id.uuidString)"
+        case .workout(let id): return "w-\(id.uuidString)"
+        }
+    }
+
+    /// The library workout id this reference points at.
+    var libraryWorkoutId: UUID {
+        switch self {
+        case .workout(let id): return id
+        }
+    }
+}
+
+extension WorkoutPlanRef: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case workout
+        case concreteWorkout
+        case slotTemplate
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let id = try c.decodeIfPresent(UUID.self, forKey: .workout) {
+            self = .workout(id)
+            return
+        }
+        if let id = try c.decodeIfPresent(UUID.self, forKey: .concreteWorkout) {
+            self = .workout(id)
+            return
+        }
+        if let id = try c.decodeIfPresent(UUID.self, forKey: .slotTemplate) {
+            self = .workout(id)
+            return
+        }
+        throw DecodingError.dataCorrupted(
+            DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "WorkoutPlanRef missing known keys")
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .workout(let id):
+            try c.encode(id, forKey: .workout)
         }
     }
 }
@@ -227,10 +265,140 @@ struct ExerciseSnapshot: Codable, Equatable, Hashable {
     }
 }
 
+/// Criteria and defaults for a flexible row inside a library [`Workout`](Workout) (replaces standalone template slots on disk).
+struct SlotBlueprint: Identifiable, Codable, Equatable, Hashable {
+    let id: UUID
+    var label: String
+    var targetedMuscles: [MuscleGroup]
+    var exerciseRole: ExerciseRole?
+    var movementPattern: MovementPattern?
+    var defaultExerciseId: UUID?
+    var defaultRestTime: Int
+    var recommendedSets: Int
+    var recommendedReps: String
+
+    init(
+        id: UUID = UUID(),
+        label: String,
+        targetedMuscles: [MuscleGroup],
+        exerciseRole: ExerciseRole? = nil,
+        movementPattern: MovementPattern? = nil,
+        defaultExerciseId: UUID? = nil,
+        defaultRestTime: Int = 90,
+        recommendedSets: Int = 3,
+        recommendedReps: String = "8-12"
+    ) {
+        self.id = id
+        self.label = label
+        self.targetedMuscles = targetedMuscles
+        self.exerciseRole = exerciseRole
+        self.movementPattern = movementPattern
+        self.defaultExerciseId = defaultExerciseId
+        self.defaultRestTime = defaultRestTime
+        self.recommendedSets = recommendedSets
+        self.recommendedReps = recommendedReps
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        label = (try? c.decode(String.self, forKey: .label)) ?? ""
+        let muscleStrings = (try? c.decode([String].self, forKey: .targetedMuscles)) ?? []
+        targetedMuscles = muscleStrings.map { MuscleGroup(rawValue: $0) ?? .other }
+        if let raw = try? c.decode(String.self, forKey: .exerciseRole) {
+            exerciseRole = ExerciseRole(rawValue: raw)
+        } else {
+            exerciseRole = nil
+        }
+        if let raw = try? c.decode(String.self, forKey: .movementPattern) {
+            movementPattern = MovementPattern(rawValue: raw)
+        } else {
+            movementPattern = nil
+        }
+        defaultExerciseId = try? c.decode(UUID.self, forKey: .defaultExerciseId)
+        defaultRestTime = (try? c.decode(Int.self, forKey: .defaultRestTime)) ?? 90
+        recommendedSets = (try? c.decode(Int.self, forKey: .recommendedSets)) ?? 3
+        recommendedReps = (try? c.decode(String.self, forKey: .recommendedReps)) ?? "8-12"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(label, forKey: .label)
+        try c.encode(targetedMuscles.map(\.rawValue), forKey: .targetedMuscles)
+        if let exerciseRole { try c.encode(exerciseRole.rawValue, forKey: .exerciseRole) }
+        if let movementPattern { try c.encode(movementPattern.rawValue, forKey: .movementPattern) }
+        if let defaultExerciseId { try c.encode(defaultExerciseId, forKey: .defaultExerciseId) }
+        try c.encode(defaultRestTime, forKey: .defaultRestTime)
+        try c.encode(recommendedSets, forKey: .recommendedSets)
+        try c.encode(recommendedReps, forKey: .recommendedReps)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, label, targetedMuscles, exerciseRole, movementPattern, defaultExerciseId
+        case defaultRestTime, recommendedSets, recommendedReps
+    }
+}
+
 /// Whether a workout exercise row has a concrete exercise or is waiting for the user to pick one.
-enum SlotResolution: Codable, Equatable {
+enum SlotResolution: Equatable, Hashable {
     case concrete(ExerciseSnapshot)
-    case unresolved(slotLabel: String, templateSlotId: UUID)
+    case flexible(SlotBlueprint)
+}
+
+extension SlotResolution: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case concrete
+        case flexible
+        case unresolved
+    }
+
+    private struct LegacyUnresolved: Codable {
+        var slotLabel: String
+        var templateSlotId: UUID
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if c.contains(.flexible) {
+            self = .flexible(try c.decode(SlotBlueprint.self, forKey: .flexible))
+            return
+        }
+        if c.contains(.concrete) {
+            self = .concrete(try c.decode(ExerciseSnapshot.self, forKey: .concrete))
+            return
+        }
+        if c.contains(.unresolved) {
+            let leg = try c.decode(LegacyUnresolved.self, forKey: .unresolved)
+            self = .flexible(
+                SlotBlueprint(
+                    id: leg.templateSlotId,
+                    label: leg.slotLabel,
+                    targetedMuscles: [],
+                    exerciseRole: nil,
+                    movementPattern: nil,
+                    defaultExerciseId: nil,
+                    defaultRestTime: 90,
+                    recommendedSets: 3,
+                    recommendedReps: "8-12"
+                )
+            )
+            return
+        }
+        throw DecodingError.dataCorrupted(
+            DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "SlotResolution: unknown payload")
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .concrete(let snap):
+            try c.encode(snap, forKey: .concrete)
+        case .flexible(let blueprint):
+            try c.encode(blueprint, forKey: .flexible)
+        }
+    }
 }
 
 struct WorkoutExercise: Identifiable, Codable, Equatable {
@@ -254,17 +422,23 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
     var exerciseId: UUID? { snapshot?.exerciseId }
 
     var isSlotPlaceholder: Bool {
-        if case .unresolved = resolution { return true }
+        if case .flexible = resolution { return true }
         return false
     }
 
     var slotLabel: String {
-        if case .unresolved(let label, _) = resolution { return label }
+        if case .flexible(let b) = resolution { return b.label }
         return ""
     }
 
     var templateSlotId: UUID? {
-        if case .unresolved(_, let id) = resolution { return id }
+        if case .flexible(let b) = resolution { return b.id }
+        return nil
+    }
+
+    /// Full slot criteria when this row is flexible; nil for concrete rows.
+    var slotBlueprint: SlotBlueprint? {
+        if case .flexible(let b) = resolution { return b }
         return nil
     }
 
@@ -296,7 +470,19 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
     ) {
         self.id = id
         if isSlotPlaceholder, let tid = templateSlotId {
-            self.resolution = .unresolved(slotLabel: slotLabel, templateSlotId: tid)
+            self.resolution = .flexible(
+                SlotBlueprint(
+                    id: tid,
+                    label: slotLabel,
+                    targetedMuscles: [],
+                    exerciseRole: nil,
+                    movementPattern: nil,
+                    defaultExerciseId: nil,
+                    defaultRestTime: defaultRestTime,
+                    recommendedSets: recommendedSets,
+                    recommendedReps: recommendedReps
+                )
+            )
         } else {
             self.resolution = .concrete(ExerciseSnapshot(from: exercise))
         }
@@ -324,12 +510,26 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
             let tid = try? c.decode(UUID.self, forKey: .templateSlotId)
             let label = (try? c.decode(String.self, forKey: .slotLabel)) ?? ""
             if placeholder, let tid {
-                resolution = .unresolved(slotLabel: label, templateSlotId: tid)
+                resolution = .flexible(
+                    SlotBlueprint(
+                        id: tid,
+                        label: label,
+                        targetedMuscles: [],
+                        exerciseRole: nil,
+                        movementPattern: nil,
+                        defaultExerciseId: nil,
+                        defaultRestTime: (try? c.decode(Int.self, forKey: .defaultRestTime)) ?? 90,
+                        recommendedSets: (try? c.decode(Int.self, forKey: .recommendedSets)) ?? 3,
+                        recommendedReps: (try? c.decode(String.self, forKey: .recommendedReps)) ?? "8-12"
+                    )
+                )
             } else {
                 resolution = .concrete(ExerciseSnapshot(from: fullExercise))
             }
         } else {
-            resolution = .unresolved(slotLabel: "", templateSlotId: UUID())
+            resolution = .flexible(
+                SlotBlueprint(id: UUID(), label: "", targetedMuscles: [], exerciseRole: nil, movementPattern: nil, defaultExerciseId: nil)
+            )
         }
 
         defaultRestTime = (try? c.decode(Int.self, forKey: .defaultRestTime)) ?? 90
@@ -441,6 +641,38 @@ struct TemplateSlot: Identifiable, Codable, Equatable, Hashable {
     }
 }
 
+extension TemplateSlot {
+    func asSlotBlueprint() -> SlotBlueprint {
+        SlotBlueprint(
+            id: id,
+            label: label,
+            targetedMuscles: targetedMuscles,
+            exerciseRole: exerciseRole,
+            movementPattern: movementPattern,
+            defaultExerciseId: defaultExerciseId,
+            defaultRestTime: defaultRestTime,
+            recommendedSets: recommendedSets,
+            recommendedReps: recommendedReps
+        )
+    }
+}
+
+extension SlotBlueprint {
+    func asTemplateSlot() -> TemplateSlot {
+        TemplateSlot(
+            id: id,
+            label: label,
+            targetedMuscles: targetedMuscles,
+            exerciseRole: exerciseRole,
+            movementPattern: movementPattern,
+            defaultExerciseId: defaultExerciseId,
+            defaultRestTime: defaultRestTime,
+            recommendedSets: recommendedSets,
+            recommendedReps: recommendedReps
+        )
+    }
+}
+
 struct WorkoutTemplate: Identifiable, Codable, Equatable, Hashable {
     let id: UUID
     var name: String
@@ -497,6 +729,37 @@ struct Workout: Identifiable, Codable, Equatable {
 
     func templateSlotId(forWorkoutExerciseRow rowId: UUID) -> UUID? {
         templateSlotIdByWorkoutExerciseId[rowId]
+    }
+
+    /// True when the library definition has at least one flexible row (choose exercise at session start or in editor).
+    var hasFlexibleSlots: Bool {
+        exercises.contains { $0.isSlotPlaceholder }
+    }
+
+    /// Converts a legacy slot template into a single library workout (flexible blueprints, including `defaultExerciseId` when set).
+    static func fromLegacyTemplate(_ template: WorkoutTemplate) -> Workout {
+        var exercises: [WorkoutExercise] = []
+        var slotByRow: [UUID: UUID] = [:]
+        for slot in template.slots {
+            let weId = UUID()
+            let blueprint = slot.asSlotBlueprint()
+            slotByRow[weId] = blueprint.id
+            exercises.append(
+                WorkoutExercise(
+                    id: weId,
+                    resolution: .flexible(blueprint),
+                    defaultRestTime: slot.defaultRestTime,
+                    recommendedSets: slot.recommendedSets,
+                    recommendedReps: slot.recommendedReps
+                )
+            )
+        }
+        return Workout(
+            id: template.id,
+            name: template.name,
+            exercises: exercises,
+            templateSlotIdByWorkoutExerciseId: slotByRow
+        )
     }
 
     private enum CodingKeys: String, CodingKey {
