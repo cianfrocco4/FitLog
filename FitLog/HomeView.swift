@@ -31,6 +31,7 @@ struct HomeView: View {
     @State private var cachedTodayPlan: ResolvedScheduleDay = .unscheduled
     @State private var cachedWeekGlance: DataManager.WeekAtAGlance?
     @State private var cachedTodayCompletedRefs: Set<String> = []
+    @State private var cachedProgressSummary: HomeProgressSummary?
 
     private var scheduleEngine: TrainingScheduleEngine { TrainingScheduleEngine(calendar: .current) }
 
@@ -41,6 +42,7 @@ struct HomeView: View {
     private func refreshCachedHomeData() {
         cachedTodayPlan = scheduleEngine.resolve(date: Date(), program: dataVM.trainingProgram)
         cachedWeekGlance = dataVM.weekAtAGlance(referenceDate: Date(), calendar: .current)
+        cachedProgressSummary = dataVM.homeProgressSummary(referenceDate: Date(), calendar: .current)
 
         let cal = Calendar.current
         let today = Date()
@@ -148,6 +150,15 @@ struct HomeView: View {
                         .listRowInsets(homeDashboardRowInsets)
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
+                }
+
+                if let progress = cachedProgressSummary {
+                    Section {
+                        progressSummaryCard(progress)
+                            .listRowInsets(homeDashboardRowInsets)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
                 }
 
                 Section {
@@ -423,6 +434,77 @@ struct HomeView: View {
             .clipShape(RoundedRectangle(cornerRadius: 20))
         }
         .buttonStyle(.plain)
+    }
+
+    private func progressSummaryCard(_ summary: HomeProgressSummary) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Progress", systemImage: "chart.line.uptrend.xyaxis")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            HStack(alignment: .top, spacing: 10) {
+                metricTile(
+                    title: "Strength Score",
+                    value: "\(summary.strengthScore.score)",
+                    subtitle: strengthScoreDeltaLine(summary.strengthScore)
+                )
+                metricTile(
+                    title: "PRs this week",
+                    value: "\(summary.weeklyPRCount)",
+                    subtitle: summary.weeklyPRCount == 0 ? "Keep pushing" : "New records"
+                )
+                metricTile(
+                    title: "Streak",
+                    value: "\(summary.dayStreak)d",
+                    subtitle: summary.weekStreak > 0 ? "\(summary.weekStreak)w consistency" : "Build momentum"
+                )
+            }
+
+            if let unlocked = summary.latestUnlockedMilestone {
+                HStack(spacing: 8) {
+                    Image(systemName: "rosette")
+                        .foregroundStyle(.yellow)
+                    Text("Latest milestone: \(unlocked.label)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let next = summary.nextMilestone {
+                HStack(spacing: 8) {
+                    Image(systemName: "flag.checkered")
+                        .foregroundStyle(.blue)
+                    Text("Next milestone: \(next.label)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+    }
+
+    private func metricTile(title: String, value: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.headline)
+            Text(subtitle)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func strengthScoreDeltaLine(_ summary: StrengthScoreSummary) -> String {
+        guard let delta = summary.delta else { return "No prior period" }
+        if delta == 0 { return "Flat vs prior" }
+        return delta > 0 ? "+\(delta) vs prior" : "\(delta) vs prior"
     }
 
     @ViewBuilder

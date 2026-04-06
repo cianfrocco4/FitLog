@@ -22,6 +22,8 @@ struct MainTabView: View {
             ExercisesLibraryView().tabItem { Label("Exercises", systemImage: "list.bullet") }
             AIChatView()
                 .tabItem { Label("Coach", systemImage: "bubble.left.and.bubble.right") }
+            DataAndIntegrationsView()
+                .tabItem { Label("Settings", systemImage: "gearshape") }
         }
         .environment(\.openCurrentWorkoutSheet, {
             currentVM.pendingPullUpFocus = nil
