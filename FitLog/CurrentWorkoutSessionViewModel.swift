@@ -33,6 +33,8 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     @Published var showRestCompleteAlert: Bool = false
     /// Cleared when consumed by `CurrentWorkoutPullUpSheet` on appear.
     @Published var pendingPullUpFocus: PendingPullUpFocus?
+    /// Set when a new personal record is detected while logging a set.
+    @Published var recentPersonalRecordEvent: PersonalRecordEvent?
     
     private var restTimer: Timer?
     private var workoutTimer: Timer?
@@ -106,6 +108,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         workoutTimer = nil
         cancelRestTimer()
         currentSession = nil
+        recentPersonalRecordEvent = nil
         workoutElapsedSeconds = 0
         clearInactivityReminder()
         clearPersistedActiveSession()
@@ -411,6 +414,20 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         guard let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exerciseId else { return }
 
         let set = LoggedSet(id: UUID(), weight: weight, reps: reps, restTime: restTime, timestamp: Date(), isWarmup: isWarmup, configuration: configuration, dropSegments: dropSegments)
+        let priorCurrentSets = session.exerciseLogs[exerciseIndex].loggedSets
+        let priorHistoricalSets: [LoggedSet] = (dataManager?.completedSessions ?? [])
+            .flatMap(\.exerciseLogs)
+            .filter { $0.workoutExercise.exerciseId == exId }
+            .flatMap(\.loggedSets)
+        let priorSets = priorCurrentSets + priorHistoricalSets
+        let exerciseName = dataManager?.displayName(for: session.exerciseLogs[exerciseIndex].workoutExercise) ?? "Exercise"
+        let prEvents = PersonalRecordDetector.detect(
+            newSet: set,
+            priorSets: priorSets,
+            exerciseId: exId,
+            exerciseName: exerciseName,
+            timestamp: set.timestamp
+        )
         session.exerciseLogs[exerciseIndex].loggedSets.append(set)
         let isAlreadyActive = session.activeExerciseIds.contains(exId)
 
@@ -436,6 +453,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         session.completedExerciseIds.removeAll { $0 == exId }
 
         currentSession = session
+        recentPersonalRecordEvent = prioritizedPREvent(from: prEvents)
         recordWorkoutActivity()
 
         // Start live countdown
@@ -446,6 +464,18 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         } else {
             clearRestCompletionNotification()
         }
+    }
+
+    private func prioritizedPREvent(from events: [PersonalRecordEvent]) -> PersonalRecordEvent? {
+        guard !events.isEmpty else { return nil }
+        func rank(_ kind: PersonalRecordEvent.Kind) -> Int {
+            switch kind {
+            case .maxWeight: return 3
+            case .estimatedOneRM: return 2
+            case .maxVolumeSet: return 1
+            }
+        }
+        return events.max { rank($0.kind) < rank($1.kind) }
     }
     
     private func startRestCountdown(seconds: Int) {

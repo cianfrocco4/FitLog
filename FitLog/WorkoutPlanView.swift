@@ -41,6 +41,7 @@ struct WorkoutPlanView: View {
     @State private var suggestionsLoading = false
     @State private var suggestionsExpanded = true
     @State private var pendingWorkoutReplace: PendingWorkoutReplace?
+    @State private var progressionSuggestions: [UUID: ProgressionSuggestion] = [:]
 
     /// Display list for default and alphabetical (flat). Order is view-only.
     private var displayedItems: [ExerciseDisplayItem] {
@@ -140,6 +141,23 @@ struct WorkoutPlanView: View {
             }
         }
         .workoutReplaceConflictConfirmation(currentVM: currentVM, pending: $pendingWorkoutReplace)
+        .task(id: progressionRefreshKey) {
+            refreshProgressionSuggestions()
+        }
+    }
+
+    private var progressionRefreshKey: String {
+        "\(workout.id.uuidString)-\(workout.exercises.count)-\(dataVM.completedSessions.count)"
+    }
+
+    private func refreshProgressionSuggestions() {
+        var next: [UUID: ProgressionSuggestion] = [:]
+        for we in workout.exercises {
+            if let suggestion = dataVM.progressionSuggestion(for: we) {
+                next[we.id] = suggestion
+            }
+        }
+        progressionSuggestions = next
     }
     
     private var listFlat: some View {
@@ -233,12 +251,21 @@ struct WorkoutPlanView: View {
             else { return }
             openPullUpToExerciseLogIndex?(logIndex)
         } label: {
-            HStack {
-                Text(dataVM.displayName(for: we)).font(.headline)
-                Spacer()
-                Text("Rec: \(we.recommendedSets) sets x \(we.recommendedReps)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(dataVM.displayName(for: we)).font(.headline)
+                    Spacer()
+                    Text("Rec: \(we.recommendedSets) sets x \(we.recommendedReps)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let suggestion = progressionSuggestions[we.id] {
+                    Text(suggestion.shortLine)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
     }

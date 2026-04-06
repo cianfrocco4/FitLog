@@ -413,6 +413,7 @@ struct CurrentWorkoutPullUpSheet: View {
     @State private var showFinishConfirmation = false
     @State private var showQuickAddExercise = false
     @State private var showFullAddExercise = false
+    @State private var showPRBanner = false
 
     private var activeSessionWorkout: Workout? {
         currentVM.currentSession?.workout
@@ -497,6 +498,7 @@ struct CurrentWorkoutPullUpSheet: View {
                 }
                 
                 unresolvedSlotsBanner
+                prBanner
 
                 ScrollViewReader { scrollProxy in
                     List {
@@ -782,6 +784,20 @@ struct CurrentWorkoutPullUpSheet: View {
             } message: {
                 Text("These exercises have no sets logged: \(resolvedExercisesWithNoSets.joined(separator: ", ")).")
             }
+            .onChange(of: currentVM.recentPersonalRecordEvent) { _, newValue in
+                guard newValue != nil else {
+                    showPRBanner = false
+                    return
+                }
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    showPRBanner = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        showPRBanner = false
+                    }
+                }
+            }
             .onAppear {
                 if resolveSlotSelection == nil,
                    let first = currentVM.currentSession?.exerciseLogs.first(where: { $0.workoutExercise.isSlotPlaceholder }) {
@@ -924,6 +940,31 @@ struct CurrentWorkoutPullUpSheet: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .padding(.horizontal)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var prBanner: some View {
+        if showPRBanner, let event = currentVM.recentPersonalRecordEvent {
+            HStack(spacing: 10) {
+                Image(systemName: "trophy.fill")
+                    .foregroundStyle(.yellow)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(event.title)
+                        .font(.subheadline.weight(.semibold))
+                    Text(event.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer()
+            }
+            .padding()
+            .background(Color.green.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal)
+            .padding(.top, 8)
+            .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
 
