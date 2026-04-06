@@ -117,7 +117,7 @@ final class DataManager: ObservableObject {
 
     func uniqueWorkoutName(_ base: String) -> String {
         let names = Set(userWorkouts.map(\.name))
-        workoutStore.uniqueName(base, existingWorkoutNames: names, existingTemplateNames: names)
+        return workoutStore.uniqueName(base, existingWorkoutNames: names, existingTemplateNames: names)
     }
 
     func applySplitBuilderTemplates(
