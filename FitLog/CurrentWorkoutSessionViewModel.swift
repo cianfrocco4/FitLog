@@ -98,6 +98,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
 
         if let dm = dataManager {
             dm.appendCompletedSession(session)
+            dm.syncSessionToHealthIfEnabled(session)
         } else {
             #if DEBUG
             print("[CurrentWorkoutSessionVM] Warning: dataManager is nil, session not persisted")

@@ -55,6 +55,7 @@ struct FitLogApp: App {
                     .environmentObject(dayMonitor)
                     .onAppear {
                         currentVM.dataManager = dataVM
+                        dataVM.healthSyncStatusMessage = dataVM.healthSyncService.statusMessage
                         aiService.wakeProxyHostIfNeeded()
                     }
             } else {
