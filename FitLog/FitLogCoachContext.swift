@@ -51,38 +51,37 @@ extension DataManager {
         lines.append("- Day overrides: \(trainingProgram.dayOverrides.count) entries; week overrides: \(trainingProgram.weekOverrides.count) weeks")
         lines.append("")
 
-        lines.append("## Concrete workouts (\(userWorkouts.count))")
+        lines.append("## Workouts (\(userWorkouts.count))")
         for w in userWorkouts {
-            lines.append("### \(w.name)")
-            if w.exercises.isEmpty {
-                lines.append("- (no exercises)")
-                continue
-            }
-            for we in w.exercises {
-                let exName = displayName(for: we)
-                let muscles: String
-                if let snap = we.snapshot, let ex = resolveExercise(for: snap) {
-                    muscles = ex.targetedMuscles.prefix(4).map(\.rawValue).joined(separator: ", ")
-                } else {
-                    muscles = ""
+            if w.hasFlexibleSlots {
+                lines.append("### \(w.name) (open slots)")
+                let slots = flexibleSlots(from: w)
+                if slots.isEmpty {
+                    lines.append("- (no slots yet)")
+                    continue
                 }
-                lines.append("- \(exName): \(we.recommendedSets)×\(we.recommendedReps), rest \(we.defaultRestTime)s\(muscles.isEmpty ? "" : " — muscles: \(muscles)")")
-            }
-        }
-        lines.append("")
-
-        lines.append("## Slot templates (\(userWorkoutTemplates.count))")
-        for t in userWorkoutTemplates {
-            lines.append("### \(t.name) (blueprint)")
-            if t.slots.isEmpty {
-                lines.append("- (no slots yet)")
-                continue
-            }
-            for s in t.slots {
-                let muscles = s.targetedMuscles.prefix(4).map(\.rawValue).joined(separator: ", ")
-                let role = s.exerciseRole?.rawValue ?? "any"
-                let pat = s.movementPattern?.rawValue ?? "any"
-                lines.append("- \(s.label): \(s.recommendedSets)×\(s.recommendedReps), rest \(s.defaultRestTime)s — muscles: \(muscles), role: \(role), pattern: \(pat)")
+                for s in slots {
+                    let muscles = s.targetedMuscles.prefix(4).map(\.rawValue).joined(separator: ", ")
+                    let role = s.exerciseRole?.rawValue ?? "any"
+                    let pat = s.movementPattern?.rawValue ?? "any"
+                    lines.append("- \(s.label): \(s.recommendedSets)×\(s.recommendedReps), rest \(s.defaultRestTime)s — muscles: \(muscles), role: \(role), pattern: \(pat)")
+                }
+            } else {
+                lines.append("### \(w.name) (fixed)")
+                if w.exercises.isEmpty {
+                    lines.append("- (no exercises)")
+                    continue
+                }
+                for we in w.exercises {
+                    let exName = displayName(for: we)
+                    let muscles: String
+                    if let snap = we.snapshot, let ex = resolveExercise(for: snap) {
+                        muscles = ex.targetedMuscles.prefix(4).map(\.rawValue).joined(separator: ", ")
+                    } else {
+                        muscles = ""
+                    }
+                    lines.append("- \(exName): \(we.recommendedSets)×\(we.recommendedReps), rest \(we.defaultRestTime)s\(muscles.isEmpty ? "" : " — muscles: \(muscles)")")
+                }
             }
         }
         lines.append("")

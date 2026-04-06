@@ -87,11 +87,12 @@ final class WorkoutStore {
                 guard let defId = slot.defaultExerciseId else { return nil }
                 return globalExercises.first { $0.id == defId }
             }()
+            let blueprint = slot.asSlotBlueprint()
             let resolution: SlotResolution
             if let ex = resolvedFromDefault {
                 resolution = .concrete(ExerciseSnapshot(from: ex))
             } else {
-                resolution = .unresolved(slotLabel: slot.label, templateSlotId: slot.id)
+                resolution = .flexible(blueprint)
             }
             slotByRow[weId] = slot.id
             exercises.append(
@@ -105,5 +106,48 @@ final class WorkoutStore {
             )
         }
         return Workout(id: UUID(), name: template.name, exercises: exercises, templateSlotIdByWorkoutExerciseId: slotByRow)
+    }
+
+    /// Session copy: new instance id and row ids when the library workout has flexible rows; otherwise the library workout as-is.
+    func sessionInstance(from library: Workout, globalExercises: [Exercise]) -> Workout {
+        guard library.hasFlexibleSlots else { return library }
+        var exercises: [WorkoutExercise] = []
+        var slotByRow: [UUID: UUID] = [:]
+        for row in library.exercises {
+            let weId = UUID()
+            let resolution: SlotResolution
+            switch row.resolution {
+            case .concrete(let snap):
+                resolution = .concrete(snap)
+            case .flexible(let blueprint):
+                let resolvedFromDefault: Exercise? = {
+                    guard let defId = blueprint.defaultExerciseId else { return nil }
+                    return globalExercises.first { $0.id == defId }
+                }()
+                if let ex = resolvedFromDefault {
+                    resolution = .concrete(ExerciseSnapshot(from: ex))
+                } else {
+                    resolution = .flexible(blueprint)
+                }
+                slotByRow[weId] = blueprint.id
+            }
+            exercises.append(
+                WorkoutExercise(
+                    id: weId,
+                    resolution: resolution,
+                    defaultRestTime: row.defaultRestTime,
+                    recommendedSets: row.recommendedSets,
+                    recommendedReps: row.recommendedReps,
+                    configurationFields: row.configurationFields,
+                    recommendedConfigBySet: row.recommendedConfigBySet
+                )
+            )
+        }
+        return Workout(
+            id: UUID(),
+            name: library.name,
+            exercises: exercises,
+            templateSlotIdByWorkoutExerciseId: slotByRow
+        )
     }
 }

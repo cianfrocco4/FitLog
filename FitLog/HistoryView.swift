@@ -10,16 +10,16 @@ import Charts
 
 private enum HistorySessionOriginFilter: String, CaseIterable, Identifiable {
     case all
-    case concreteAndOlder
-    case slotTemplate
+    case fixedRoutine
+    case openSlotPlan
 
     var id: String { rawValue }
 
     var shortLabel: String {
         switch self {
         case .all: return "All"
-        case .concreteAndOlder: return "Routines"
-        case .slotTemplate: return "Templates"
+        case .fixedRoutine: return "Fixed"
+        case .openSlotPlan: return "Open slots"
         }
     }
 
@@ -27,24 +27,27 @@ private enum HistorySessionOriginFilter: String, CaseIterable, Identifiable {
         switch self {
         case .all:
             return "Analytics use every completed session in the time range."
-        case .concreteAndOlder:
-            return "Saved workout routines and older sessions logged before source tracking."
-        case .slotTemplate:
-            return "Only sessions started from a flexible template on Plan."
+        case .fixedRoutine:
+            return "Fixed library workouts and older sessions without plan tracking."
+        case .openSlotPlan:
+            return "Sessions started from a library workout with open slots."
         }
     }
 
-    func includes(_ session: WorkoutSession) -> Bool {
+    func includes(_ session: WorkoutSession, dataVM: DataManager) -> Bool {
         switch self {
         case .all: return true
-        case .concreteAndOlder:
+        case .fixedRoutine:
             switch session.sessionPlanOrigin {
-            case nil, .concreteWorkout: return true
-            case .slotTemplate: return false
+            case nil: return true
+            case .workout(let id):
+                guard let w = dataVM.workout(id: id) else { return true }
+                return !w.hasFlexibleSlots
             }
-        case .slotTemplate:
-            if case .slotTemplate = session.sessionPlanOrigin { return true }
-            return false
+        case .openSlotPlan:
+            guard case .workout(let id) = session.sessionPlanOrigin,
+                  let w = dataVM.workout(id: id) else { return false }
+            return w.hasFlexibleSlots
         }
     }
 }
@@ -214,14 +217,14 @@ struct HistoryView: View {
     }
 
     private var filteredSessions: [WorkoutSession] {
-        sessionsInDateRange.filter { sessionOriginFilter.includes($0) }
+        sessionsInDateRange.filter { sessionOriginFilter.includes($0, dataVM: dataVM) }
     }
 
     private var priorFilteredSessions: [WorkoutSession] {
         guard let (ps, pe) = dayRange.priorWindow() else { return [] }
         return dataVM.completedSessions.filter { s in
             let d = s.endTime ?? s.startTime
-            return d >= ps && d < pe && sessionOriginFilter.includes(s)
+            return d >= ps && d < pe && sessionOriginFilter.includes(s, dataVM: dataVM)
         }
     }
 
@@ -838,10 +841,11 @@ struct HistoryView: View {
         switch session.sessionPlanOrigin {
         case nil:
             return "Older"
-        case .concreteWorkout:
-            return "Routine"
-        case .slotTemplate:
-            return "Template"
+        case .workout(let id):
+            if let w = dataVM.workout(id: id) {
+                return w.hasFlexibleSlots ? "Open slots" : "Fixed"
+            }
+            return "Plan"
         }
     }
 
@@ -856,7 +860,7 @@ struct HistoryView: View {
             m[seg, default: 0] += 1
             tallies[weekStart] = m
         }
-        let segmentOrder = ["Routine", "Template", "Older"]
+        let segmentOrder = ["Fixed", "Open slots", "Plan", "Older"]
         return tallies.flatMap { weekStart, counts in
             segmentOrder.compactMap { seg in
                 let c = counts[seg] ?? 0
@@ -1075,10 +1079,11 @@ struct HistoryView: View {
         switch session.sessionPlanOrigin {
         case nil:
             return "Older session"
-        case .concreteWorkout:
-            return "Saved workout"
-        case .slotTemplate:
-            return "Flexible template"
+        case .workout(let id):
+            if let w = dataVM.workout(id: id) {
+                return w.hasFlexibleSlots ? "Open-slot workout" : "Fixed workout"
+            }
+            return "From training plan"
         }
     }
     
@@ -1155,11 +1160,11 @@ private struct SessionDetailView: View {
         switch session.sessionPlanOrigin {
         case nil:
             return "Not recorded (older log)"
-        case .concreteWorkout:
-            return "Saved workout"
-        case .slotTemplate(let id):
-            let name = dataVM.slotTemplate(id: id)?.name
-            return name.map { "Template: \($0)" } ?? "Flexible template"
+        case .workout(let id):
+            if let w = dataVM.workout(id: id) {
+                return w.hasFlexibleSlots ? "Open slots: \(w.name)" : "Fixed: \(w.name)"
+            }
+            return "Plan workout (removed from library)"
         }
     }
 
@@ -1634,12 +1639,13 @@ private struct MuscleSessionVolumePoint: Identifiable {
 
 // MARK: - Shared formatters (used by detail views)
 extension HistoryView {
-    /// Template slot label for this log when the session was started from a slot template and bindings exist.
+    /// Slot label when the session was started from a flexible library workout and row bindings exist.
     static func templateSlotCaption(for log: ExerciseLog, session: WorkoutSession, dataVM: DataManager) -> String? {
-        guard case .slotTemplate(let templateId) = session.sessionPlanOrigin,
+        guard case .workout(let libraryId) = session.sessionPlanOrigin,
               let slotUUID = session.workout.templateSlotId(forWorkoutExerciseRow: log.workoutExercise.id),
-              let template = dataVM.slotTemplate(id: templateId),
-              let slot = template.slots.first(where: { $0.id == slotUUID })
+              let lib = dataVM.workout(id: libraryId),
+              lib.hasFlexibleSlots,
+              let slot = dataVM.flexibleSlots(from: lib).first(where: { $0.id == slotUUID })
         else { return nil }
         let label = slot.label.trimmingCharacters(in: .whitespacesAndNewlines)
         return label.isEmpty ? nil : label

@@ -95,8 +95,8 @@ final class ExerciseStore {
         switch we.resolution {
         case .concrete(let snap):
             return displayName(for: snap, globalExercises: globalExercises, localNames: localNames)
-        case .unresolved(let label, _):
-            return label.isEmpty ? "Choose exercise" : label
+        case .flexible(let blueprint):
+            return blueprint.label.isEmpty ? "Choose exercise" : blueprint.label
         }
     }
 }

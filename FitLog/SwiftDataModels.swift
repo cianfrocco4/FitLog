@@ -23,7 +23,8 @@ struct VersionedPayload<T: Codable>: Codable {
 /// Bump this when the JSON shape of any persisted blob changes.
 /// The version history:
 ///   1 – initial SwiftData migration (ExerciseSnapshot, SlotResolution, WorkoutPlanRef cycle entries)
-let currentSchemaVersion = 1
+///   2 – unified workout library (SlotBlueprint, single WorkoutPlanRef.workout, backups omit templates)
+let currentSchemaVersion = 2
 
 /// Encode a value wrapped in a VersionedPayload.
 func versionedEncode<T: Codable>(_ value: T) -> Data {
@@ -48,20 +49,48 @@ struct BackupSnapshot: Codable {
     let schemaVersion: Int
     let exercises: [Exercise]
     let workouts: [Workout]
-    let templates: [WorkoutTemplate]
     let sessions: [WorkoutSession]
     let program: TrainingProgramState
     /// Display names keyed by exercise UUID string.
     let displayNames: [String: String]
 
-    init(schemaVersion: Int, exercises: [Exercise], workouts: [Workout], templates: [WorkoutTemplate], sessions: [WorkoutSession], program: TrainingProgramState, displayNames: [UUID: String]) {
+    init(schemaVersion: Int, exercises: [Exercise], workouts: [Workout], sessions: [WorkoutSession], program: TrainingProgramState, displayNames: [UUID: String]) {
         self.schemaVersion = schemaVersion
         self.exercises = exercises
         self.workouts = workouts
-        self.templates = templates
         self.sessions = sessions
         self.program = program
         self.displayNames = Dictionary(uniqueKeysWithValues: displayNames.map { ($0.key.uuidString, $0.value) })
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, exercises, workouts, templates, sessions, program, displayNames
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
+        exercises = try c.decode([Exercise].self, forKey: .exercises)
+        var loadedWorkouts = try c.decode([Workout].self, forKey: .workouts)
+        if let legacyTemplates = try c.decodeIfPresent([WorkoutTemplate].self, forKey: .templates) {
+            for t in legacyTemplates {
+                loadedWorkouts.append(Workout.fromLegacyTemplate(t))
+            }
+        }
+        workouts = loadedWorkouts
+        sessions = try c.decode([WorkoutSession].self, forKey: .sessions)
+        program = try c.decode(TrainingProgramState.self, forKey: .program)
+        displayNames = try c.decode([String: String].self, forKey: .displayNames)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(schemaVersion, forKey: .schemaVersion)
+        try c.encode(exercises, forKey: .exercises)
+        try c.encode(workouts, forKey: .workouts)
+        try c.encode(sessions, forKey: .sessions)
+        try c.encode(program, forKey: .program)
+        try c.encode(displayNames, forKey: .displayNames)
     }
 }
 
