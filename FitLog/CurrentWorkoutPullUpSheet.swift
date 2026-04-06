@@ -614,10 +614,8 @@ struct CurrentWorkoutPullUpSheet: View {
                                             .buttonStyle(.borderedProminent)
                                             .tint(.blue)
 
-                                            Button {
+                                            Button("Repeat Last") {
                                                 currentVM.repeatLastSet(exerciseIndex: index)
-                                            } label: {
-                                                Label("Repeat last", systemImage: "arrow.counterclockwise")
                                             }
                                             .buttonStyle(.bordered)
                                             .disabled(log.loggedSets.isEmpty)
