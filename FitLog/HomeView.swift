@@ -29,12 +29,35 @@ struct HomeView: View {
     @State private var cachedWeekGlance: DataManager.WeekAtAGlance?
     @State private var cachedTodayCompletedRefs: Set<String> = []
     @State private var cachedProgressSummary: HomeProgressSummary?
+    @State private var weekGlanceExpanded = true
+    @State private var workoutSearchText = ""
 
     private var scheduleEngine: TrainingScheduleEngine { TrainingScheduleEngine(calendar: .current) }
 
     private var homeRefreshKey: String {
         "\(dayMonitor.currentDayKey)-\(dataVM.completedSessions.count)-\(dataVM.trainingProgram.cycleEntries.count)-\(dataVM.trainingProgram.anchorDayKey)-\(dataVM.trainingProgram.dayOverrides.count)-\(dataVM.trainingProgram.weekOverrides.count)"
     }
+
+    private var workoutSearchTrimmed: String {
+        workoutSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var filteredWorkouts: [Workout] {
+        guard !workoutSearchTrimmed.isEmpty else { return dataVM.userWorkouts }
+        return dataVM.userWorkouts.filter {
+            $0.name.localizedCaseInsensitiveContains(workoutSearchTrimmed)
+        }
+    }
+
+    private var homeDashboardListInsets: EdgeInsets {
+        EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
+    }
+
+    private static let homeDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "EEEE, MMM d"
+        return f
+    }()
 
     private func refreshCachedHomeData() {
         cachedTodayPlan = scheduleEngine.resolve(date: Date(), program: dataVM.trainingProgram)
@@ -57,10 +80,6 @@ struct HomeView: View {
 
     private func isPlannedWorkoutCompletedToday(plan: WorkoutPlanRef) -> Bool {
         cachedTodayCompletedRefs.contains(plan.cacheKey)
-    }
-
-    private var homeDashboardRowInsets: EdgeInsets {
-        EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16)
     }
 
     private func startWorkoutFromLibrary(_ library: Workout) {
@@ -96,6 +115,50 @@ struct HomeView: View {
         }
     }
 
+    @ViewBuilder
+    private func workoutRow(for workout: Workout) -> some View {
+        Group {
+            NavigationLink {
+                if let binding = $dataVM.userWorkouts[workout.id] {
+                    WorkoutPlanView(workout: binding)
+                        .environmentObject(dataVM)
+                        .environmentObject(currentVM)
+                        .environmentObject(aiService)
+                } else {
+                    Text("Workout not found")
+                        .foregroundStyle(.red)
+                }
+            } label: {
+                workoutRowLabel(workout)
+            }
+        }
+        .contextMenu {
+            Button {
+                startWorkoutFromLibrary(workout)
+            } label: {
+                Label("Start workout", systemImage: "play.fill")
+            }
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            Button {
+                startWorkoutFromLibrary(workout)
+            } label: {
+                Label("Start", systemImage: "play.fill")
+            }
+            .tint(.green)
+        }
+        .swipeActions(edge: .trailing) {
+            Button("Delete", role: .destructive) {
+                dataVM.deleteWorkout(workout)
+            }
+            Button("Rename") {
+                workoutToRename = workout
+                renameText = workout.name
+            }
+            .tint(.blue)
+        }
+    }
+
     private func navigateTodayPlanDetailAndOpenWorkoutSheet(_ route: TodayPlanDetailRoute) {
         todayPlanDetailRoute = route
         Task { @MainActor in
@@ -107,120 +170,76 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             List {
-                if currentVM.isInProgress {
-                    Section {
+                Section {
+                    if currentVM.isInProgress {
                         activeWorkoutIndicatorCard
-                            .listRowInsets(homeDashboardRowInsets)
+                            .listRowInsets(homeDashboardListInsets)
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
                     }
-                }
 
-                Section {
-                    aiSplitBuilderCard
-                        .listRowInsets(homeDashboardRowInsets)
+                    todayDashboardBlock
+                        .listRowInsets(homeDashboardListInsets)
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
-                }
 
-                if let progress = cachedProgressSummary {
-                    Section {
+                    if let progress = cachedProgressSummary {
                         progressSummaryCard(progress)
-                            .listRowInsets(homeDashboardRowInsets)
+                            .listRowInsets(homeDashboardListInsets)
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
                     }
                 }
 
                 Section {
-                    todayPlanSuggestionCard
-                        .listRowInsets(homeDashboardRowInsets)
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                }
-
-                Section {
-                    ForEach(dataVM.userWorkouts) { workout in
-                        Group {
-                            NavigationLink {
-                                if let binding = $dataVM.userWorkouts[workout.id] {
-                                    WorkoutPlanView(workout: binding)
-                                        .environmentObject(dataVM)
-                                        .environmentObject(currentVM)
-                                        .environmentObject(aiService)
-                                } else {
-                                    Text("Workout not found")
-                                        .foregroundStyle(.red)
-                                }
-                            } label: {
-                                workoutRowLabel(workout)
-                            }
+                    if workoutSearchTrimmed.isEmpty {
+                        ForEach(dataVM.userWorkouts) { workout in
+                            workoutRow(for: workout)
                         }
-                        .contextMenu {
-                            Button {
-                                startWorkoutFromLibrary(workout)
-                            } label: {
-                                Label("Start workout", systemImage: "play.fill")
-                            }
-                        }
-                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                            Button {
-                                startWorkoutFromLibrary(workout)
-                            } label: {
-                                Label("Start", systemImage: "play.fill")
-                            }
-                            .tint(.green)
-                        }
-                        .swipeActions(edge: .trailing) {
-                            Button("Delete", role: .destructive) {
-                                dataVM.deleteWorkout(workout)
-                            }
-                            Button("Rename") {
-                                workoutToRename = workout
-                                renameText = workout.name
-                            }
-                            .tint(.blue)
+                        .onMove(perform: dataVM.moveWorkout)
+                    } else {
+                        ForEach(filteredWorkouts) { workout in
+                            workoutRow(for: workout)
                         }
                     }
-                    .onMove(perform: dataVM.moveWorkout)
                 } header: {
-                    Text("Workouts")
-                        .font(.title2)
+                    Text("Your workouts")
+                        .font(.subheadline)
                         .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 4)
+                        .foregroundStyle(.secondary)
                         .textCase(nil)
                 } footer: {
-                    Text("Each workout is one list: fixed exercises and open slots in any order. Open slots let you pick exercises when you start. Swipe right to start quickly.")
+                    Text("Swipe right on a row to start quickly.")
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
                 }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .listSectionSpacing(8)
+            .listSectionSpacing(12)
             .fitlogWorkoutBarContentInset()
             .navigationTitle("Home")
+            .navigationBarTitleDisplayMode(.large)
+            .searchable(text: $workoutSearchText, prompt: "Search workouts")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     EditButton()
+                        .disabled(!workoutSearchTrimmed.isEmpty)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button("New workout") {
+                        Button("New workout", systemImage: "plus.rectangle.on.folder") {
                             showNewWorkout = true
                         }
-                    } label: {
-                        Label("Add", systemImage: "plus.circle")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Sign Out", role: .destructive) {
+                        Button("Build split with AI", systemImage: "sparkles") {
+                            showSplitBuilder = true
+                        }
+                        Divider()
+                        Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
                             authVM.logout()
                         }
                     } label: {
-                        Image(systemName: "person.circle")
+                        Label("Add", systemImage: "plus.circle")
                     }
                 }
             }
@@ -327,75 +346,49 @@ struct HomeView: View {
         .accessibilityHint("Opens the current workout")
     }
 
-    private var aiSplitBuilderCard: some View {
-        Button {
-            showSplitBuilder = true
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "sparkles")
-                    .font(.title2)
-                    .foregroundStyle(.tint)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Build split with AI")
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text("Goals, schedule, and exercises from your library.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.leading)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-        }
-        .buttonStyle(.plain)
-    }
-
     private func progressSummaryCard(_ summary: HomeProgressSummary) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             Label("Progress", systemImage: "chart.line.uptrend.xyaxis")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            HStack(alignment: .top, spacing: 10) {
-                metricTile(
-                    title: "Strength Score",
-                    value: "\(summary.strengthScore.score)",
-                    subtitle: strengthScoreDeltaLine(summary.strengthScore)
-                )
-                metricTile(
-                    title: "PRs this week",
-                    value: "\(summary.weeklyPRCount)",
-                    subtitle: summary.weeklyPRCount == 0 ? "Keep pushing" : "New records"
-                )
-                metricTile(
-                    title: "Streak",
-                    value: "\(summary.dayStreak)d",
-                    subtitle: summary.weekStreak > 0 ? "\(summary.weekStreak)w consistency" : "Build momentum"
-                )
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 10) {
+                    metricChip(
+                        title: "Strength",
+                        value: "\(summary.strengthScore.score)",
+                        subtitle: strengthScoreDeltaLine(summary.strengthScore)
+                    )
+                    metricChip(
+                        title: "PRs (week)",
+                        value: "\(summary.weeklyPRCount)",
+                        subtitle: summary.weeklyPRCount == 0 ? "Keep pushing" : "New records"
+                    )
+                    metricChip(
+                        title: "Streak",
+                        value: "\(summary.dayStreak)d",
+                        subtitle: summary.weekStreak > 0 ? "\(summary.weekStreak)w consistency" : "Build momentum"
+                    )
+                }
             }
 
             if let unlocked = summary.latestUnlockedMilestone {
                 HStack(spacing: 8) {
                     Image(systemName: "rosette")
                         .foregroundStyle(.yellow)
-                    Text("Latest milestone: \(unlocked.label)")
+                    Text("Latest: \(unlocked.label)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(2)
                 }
             } else if let next = summary.nextMilestone {
                 HStack(spacing: 8) {
                     Image(systemName: "flag.checkered")
                         .foregroundStyle(.blue)
-                    Text("Next milestone: \(next.label)")
+                    Text("Next: \(next.label)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(2)
                 }
             }
         }
@@ -405,7 +398,7 @@ struct HomeView: View {
         .clipShape(RoundedRectangle(cornerRadius: 20))
     }
 
-    private func metricTile(title: String, value: String, subtitle: String) -> some View {
+    private func metricChip(title: String, value: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.caption2)
@@ -417,7 +410,8 @@ struct HomeView: View {
                 .foregroundStyle(.tertiary)
                 .lineLimit(2)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(width: 120, alignment: .leading)
+        .frame(minHeight: 72, alignment: .top)
         .padding(10)
         .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
     }
@@ -428,25 +422,28 @@ struct HomeView: View {
         return delta > 0 ? "+\(delta) vs prior" : "\(delta) vs prior"
     }
 
-    @ViewBuilder
-    private var todayPlanSuggestionCard: some View {
+    private var todayDashboardBlock: some View {
         let plan = cachedTodayPlan
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Today’s plan", systemImage: "calendar.badge.checkmark")
-                .font(.subheadline.weight(.semibold))
+        return VStack(alignment: .leading, spacing: 10) {
+            Text(Self.homeDateFormatter.string(from: Date()))
+                .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
+
+            Label("Today", systemImage: "sun.max.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
 
             switch plan {
             case .rest:
                 Text("Rest day")
                     .font(.title3.weight(.semibold))
-                Text("Recovery is part of the program. See the Plan tab to adjust today if needed.")
+                Text("Recovery is part of the program. Adjust today in the Plan tab if needed.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             case .unscheduled:
-                Text("No workout scheduled")
+                Text("Nothing scheduled")
                     .font(.title3.weight(.semibold))
-                Text("Set your split and weekly schedule in the Plan tab, or start any workout below.")
+                Text("Set your split in the Plan tab, or start a workout below.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             case .workout(let ref):
@@ -454,7 +451,7 @@ struct HomeView: View {
                 if let workout = dataVM.userWorkouts.first(where: { $0.id == id }) {
                     let sessionWorkout = workout.hasFlexibleSlots ? dataVM.sessionInstance(from: workout) : workout
                     let thisPlanActive = currentVM.isActiveSessionMatching(workout: sessionWorkout, planRef: ref)
-                    let subtitle = "\(workout.listDetailSubtitle) · from your training plan"
+                    let subtitle = "\(workout.listDetailSubtitle) · from your plan"
                     TodayWorkoutCard(
                         title: workout.name,
                         subtitle: subtitle,
@@ -463,23 +460,24 @@ struct HomeView: View {
                         isAnotherWorkoutActive: currentVM.isInProgress && !thisPlanActive,
                         onStart: { startWorkoutFromTodayPlan(workout) },
                         openActiveWorkout: { openCurrentWorkoutSheet?() },
+                        onViewWorkoutDetail: { todayPlanDetailRoute = .plannedWorkout(id) },
                         detailLabel: "View workout"
-                    ) {
-                        if let binding = $dataVM.userWorkouts[id] {
-                            WorkoutPlanView(workout: binding)
-                                .environmentObject(dataVM)
-                                .environmentObject(currentVM)
-                                .environmentObject(aiService)
-                        } else {
-                            Text("Workout not found").foregroundStyle(.red)
-                        }
-                    }
+                    )
                 } else {
                     missingItemMessage("Missing workout", detail: "Your plan references a workout that isn’t in your library. Update the split in the Plan tab.")
                 }
             }
+
             if let glance = cachedWeekGlance {
-                thisWeekSubsection(glance)
+                DisclosureGroup(isExpanded: $weekGlanceExpanded) {
+                    thisWeekSubsection(glance)
+                        .padding(.top, 6)
+                } label: {
+                    Text("This week")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityHint("Shows workouts completed each day this week")
             }
         }
         .padding()
@@ -501,13 +499,6 @@ struct HomeView: View {
     private func thisWeekSubsection(_ glance: DataManager.WeekAtAGlance) -> some View {
         let cal = Calendar.current
         VStack(alignment: .leading, spacing: 10) {
-            Divider()
-                .padding(.top, 2)
-
-            Text("This week")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-
             if let goal = glance.weeklyGoal {
                 if glance.completedCount >= goal {
                     Text("Goal met")
@@ -617,7 +608,7 @@ private enum TodayPlanDetailRoute: Hashable, Identifiable {
 // MARK: - Reusable today-workout card
 
 /// Unified card component for the today-plan section, handling active/completed/startable states.
-private struct TodayWorkoutCard<Destination: View>: View {
+private struct TodayWorkoutCard: View {
     let title: String
     let subtitle: String
     let isCompleted: Bool
@@ -625,84 +616,95 @@ private struct TodayWorkoutCard<Destination: View>: View {
     let isAnotherWorkoutActive: Bool
     let onStart: () -> Void
     let openActiveWorkout: () -> Void
+    let onViewWorkoutDetail: () -> Void
     let detailLabel: String
-    @ViewBuilder let destination: () -> Destination
 
     var body: some View {
-        Text(title)
-            .font(.title3.weight(.semibold))
-        Text(subtitle)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
-        if isThisPlanActive {
-            Label("This plan is in progress", systemImage: "figure.run")
-                .font(.headline)
-                .foregroundStyle(.green)
-            Text("Continue logging sets from the bar below or open the full workout.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Button {
-                openActiveWorkout()
-            } label: {
-                Label("Open workout", systemImage: "arrow.up.circle")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.green)
-
-            NavigationLink(destination: destination) {
-                Label(detailLabel, systemImage: "list.bullet")
-                    .font(.subheadline.weight(.medium))
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-        } else if isAnotherWorkoutActive {
-            Text("Another workout is still active. Starting this one will complete it and save it to your history.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Button(action: onStart) {
-                Label("Start workout", systemImage: "play.fill")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-
-            NavigationLink(destination: destination) {
-                Label(detailLabel, systemImage: "list.bullet")
-                    .font(.subheadline.weight(.medium))
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-        } else if isCompleted {
-            Label("Completed today", systemImage: "checkmark.circle.fill")
-                .font(.headline)
-                .foregroundStyle(.green)
-            Text("You finished this planned session. Rest up or choose another below.")
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.title3.weight(.semibold))
+            Text(subtitle)
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            NavigationLink(destination: destination) {
-                Label(detailLabel, systemImage: "list.bullet")
-                    .font(.subheadline.weight(.medium))
-                    .frame(maxWidth: .infinity)
+            if isThisPlanActive {
+                Label("In progress", systemImage: "figure.run")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.green)
+                Text("Continue from the bar below or open the full workout.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                primaryDetailRow(
+                    primaryTitle: "Open workout",
+                    primarySystemImage: "arrow.up.circle",
+                    primaryTint: .green,
+                    primaryAction: openActiveWorkout
+                )
+            } else if isAnotherWorkoutActive {
+                Text("Another workout is active. Starting this one will save it to history.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                primaryDetailRow(
+                    primaryTitle: "Start workout",
+                    primarySystemImage: "play.fill",
+                    primaryTint: Color.accentColor,
+                    primaryAction: onStart
+                )
+            } else if isCompleted {
+                Label("Done today", systemImage: "checkmark.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.green)
+                compactDetailLink
+            } else {
+                primaryDetailRow(
+                    primaryTitle: "Start workout",
+                    primarySystemImage: "play.fill",
+                    primaryTint: Color.accentColor,
+                    primaryAction: onStart
+                )
             }
-            .buttonStyle(.bordered)
-        } else {
-            Button(action: onStart) {
-                Label("Start workout", systemImage: "play.fill")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-
-            NavigationLink(destination: destination) {
-                Label(detailLabel, systemImage: "list.bullet")
-                    .font(.subheadline.weight(.medium))
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
         }
+    }
+
+    @ViewBuilder
+    private func primaryDetailRow(
+        primaryTitle: String,
+        primarySystemImage: String,
+        primaryTint: Color,
+        primaryAction: @escaping () -> Void
+    ) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            Button(action: primaryAction) {
+                HStack(spacing: 6) {
+                    Spacer(minLength: 0)
+                    Image(systemName: primarySystemImage)
+                        .font(.subheadline.weight(.semibold))
+                    Text(primaryTitle)
+                        .font(.subheadline.weight(.semibold))
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(primaryTint)
+            .controlSize(.regular)
+            .frame(maxWidth: .infinity)
+
+            Button(action: onViewWorkoutDetail) {
+                Image(systemName: "list.bullet.rectangle")
+                    .font(.body.weight(.medium))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .accessibilityLabel(detailLabel)
+        }
+    }
+
+    private var compactDetailLink: some View {
+        Button(action: onViewWorkoutDetail) {
+            Label(detailLabel, systemImage: "list.bullet.rectangle")
+                .font(.subheadline.weight(.medium))
+        }
+        .buttonStyle(.bordered)
     }
 }
