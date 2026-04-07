@@ -74,7 +74,7 @@ struct DataAndIntegrationsView: View {
                 } label: {
                     Label("Import data file", systemImage: "square.and.arrow.down")
                 }
-                Text("Supports .fitlog/.json full restore and .csv session import. Import replaces current workouts, templates, sessions, program, and display names.")
+                Text("Supports .fitlog/.json full restore and .csv session import. Import replaces current exercises, workouts, sessions, program, and display names.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

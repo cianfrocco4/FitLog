@@ -113,6 +113,15 @@ final class DataTransferServiceClient {
 }
 
 enum DataTransferService {
+    /// Picks JSON vs CSV from the file URL extension (nil if unknown).
+    static func inferFormat(from url: URL) -> DataTransferFormat? {
+        switch url.pathExtension.lowercased() {
+        case "csv": return .csv
+        case "json", "fitlog": return .json
+        default: return nil
+        }
+    }
+
     static func makeExportData(
         format: DataTransferFormat,
         snapshot: BackupSnapshot
@@ -128,7 +137,7 @@ enum DataTransferService {
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             return try encoder.encode(payload)
         case .csv:
-            return csvData(from: snapshot)
+            return try csvData(from: snapshot)
         }
     }
 
@@ -322,7 +331,6 @@ enum DataTransferService {
             schemaVersion: currentSchemaVersion,
             exercises: exercises,
             workouts: workouts,
-            templates: [],
             sessions: sessions,
             program: TrainingProgramState.empty(anchorDayKey: TrainingProgramState.dayKey(for: Date())),
             displayNames: [:]
@@ -338,8 +346,12 @@ enum DataTransferService {
                 return ex.name
             }
             return snap.nameAtTimeOfLog
-        case .unresolved(let label, _):
-            return label.isEmpty ? "Choose exercise" : label
+        case .flexible(let b):
+            if let eid = b.defaultExerciseId, let ex = exercises.first(where: { $0.id == eid }) {
+                return ex.name
+            }
+            let label = b.label.trimmingCharacters(in: .whitespacesAndNewlines)
+            return label.isEmpty ? "Open slot" : label
         }
     }
 

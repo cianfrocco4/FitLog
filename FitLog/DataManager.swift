@@ -1056,7 +1056,6 @@ final class DataManager: ObservableObject {
             schemaVersion: currentSchemaVersion,
             exercises: globalExercises,
             workouts: userWorkouts,
-            templates: userWorkoutTemplates,
             sessions: completedSessions,
             program: trainingProgram,
             displayNames: exerciseLocalDisplayNames
@@ -1066,7 +1065,6 @@ final class DataManager: ObservableObject {
     func overwriteWithImportedSnapshot(_ snapshot: BackupSnapshot) {
         globalExercises = snapshot.exercises
         userWorkouts = snapshot.workouts
-        userWorkoutTemplates = snapshot.templates
         completedSessions = snapshot.sessions
         trainingProgram = snapshot.program
         exerciseLocalDisplayNames = Dictionary(
@@ -1078,7 +1076,6 @@ final class DataManager: ObservableObject {
 
         saveExercises()
         saveWorkouts()
-        saveWorkoutTemplates()
         saveSessions()
         saveTrainingProgram()
         saveExerciseLocalDisplayNames()
