@@ -18,8 +18,8 @@ private enum HistorySessionOriginFilter: String, CaseIterable, Identifiable {
     var shortLabel: String {
         switch self {
         case .all: return "All"
-        case .fixedRoutine: return "Fixed"
-        case .openSlotPlan: return "Open slots"
+        case .fixedRoutine: return "No open slots"
+        case .openSlotPlan: return "Has open slots"
         }
     }
 
@@ -28,9 +28,9 @@ private enum HistorySessionOriginFilter: String, CaseIterable, Identifiable {
         case .all:
             return "Analytics use every completed session in the time range."
         case .fixedRoutine:
-            return "Fixed library workouts and older sessions without plan tracking."
+            return "Sessions whose library workout had no open slots (every row has a default exercise), plus older logs without plan tracking."
         case .openSlotPlan:
-            return "Sessions started from a library workout with open slots."
+            return "Sessions started from a library workout that included at least one open slot (no default exercise)."
         }
     }
 
@@ -42,12 +42,12 @@ private enum HistorySessionOriginFilter: String, CaseIterable, Identifiable {
             case nil: return true
             case .workout(let id):
                 guard let w = dataVM.workout(id: id) else { return true }
-                return !w.hasFlexibleSlots
+                return !w.hasOpenSlots
             }
         case .openSlotPlan:
             guard case .workout(let id) = session.sessionPlanOrigin,
                   let w = dataVM.workout(id: id) else { return false }
-            return w.hasFlexibleSlots
+            return w.hasOpenSlots
         }
     }
 }
@@ -843,7 +843,7 @@ struct HistoryView: View {
             return "Older"
         case .workout(let id):
             if let w = dataVM.workout(id: id) {
-                return w.hasFlexibleSlots ? "Open slots" : "Fixed"
+                return w.hasOpenSlots ? "Has open slots" : "No open slots"
             }
             return "Plan"
         }
@@ -860,7 +860,7 @@ struct HistoryView: View {
             m[seg, default: 0] += 1
             tallies[weekStart] = m
         }
-        let segmentOrder = ["Fixed", "Open slots", "Plan", "Older"]
+        let segmentOrder = ["No open slots", "Has open slots", "Plan", "Older"]
         return tallies.flatMap { weekStart, counts in
             segmentOrder.compactMap { seg in
                 let c = counts[seg] ?? 0
@@ -1081,7 +1081,7 @@ struct HistoryView: View {
             return "Older session"
         case .workout(let id):
             if let w = dataVM.workout(id: id) {
-                return w.hasFlexibleSlots ? "Open-slot workout" : "Fixed workout"
+                return "\(w.name) · \(w.listDetailSubtitle)"
             }
             return "From training plan"
         }
@@ -1162,7 +1162,7 @@ private struct SessionDetailView: View {
             return "Not recorded (older log)"
         case .workout(let id):
             if let w = dataVM.workout(id: id) {
-                return w.hasFlexibleSlots ? "Open slots: \(w.name)" : "Fixed: \(w.name)"
+                return "\(w.name) (\(w.listDetailSubtitle))"
             }
             return "Plan workout (removed from library)"
         }

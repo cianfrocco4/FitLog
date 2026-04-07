@@ -10,7 +10,13 @@
 //
 
 import Foundation
+import os
 import SwiftData
+
+private let unifiedSlotsMigrationLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.acianfrocco.FitLog",
+    category: "UnifiedSlotsMigration"
+)
 
 final class DataManager: ObservableObject {
     @Published var userWorkouts: [Workout] = []
@@ -52,8 +58,113 @@ final class DataManager: ObservableObject {
         }
 
         migrateLegacyCustomExercises()
+        migrateWorkoutsToUnifiedSlotsIfNeeded()
         rotateBackup()
         freezeYesterdayPlanAssignmentIfNeeded()
+    }
+
+    /// Converts legacy `.concrete` library rows into `.flexible` blueprints with `defaultExerciseId`. Runs once.
+    /// TestFlight-safe: verified JSON backup before mutating, Codable round-trips, SwiftData save success, reload parity; completion flag only if all pass.
+    private func migrateWorkoutsToUnifiedSlotsIfNeeded() {
+        let key = WorkoutUnifiedSlotsMigration.completedUserDefaultsKey
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+
+        let hasConcreteLibraryRow = userWorkouts.contains { workout in
+            workout.exercises.contains { we in
+                if case .concrete = we.resolution { return true }
+                return false
+            }
+        }
+
+        if hasConcreteLibraryRow {
+            let snapshot = BackupSnapshot(
+                schemaVersion: currentSchemaVersion,
+                exercises: globalExercises,
+                workouts: userWorkouts,
+                sessions: completedSessions,
+                program: trainingProgram,
+                displayNames: exerciseLocalDisplayNames
+            )
+            guard WorkoutUnifiedSlotsMigration.writePreMigrationBackupVerified(snapshot) else {
+                unifiedSlotsMigrationLog.error("Pre-migration backup missing or failed JSON verification; unified slots migration skipped.")
+                return
+            }
+            unifiedSlotsMigrationLog.notice("Pre-migration backup written and verified (workouts=\(snapshot.workouts.count), exercises=\(snapshot.exercises.count)).")
+        }
+
+        var migrated = userWorkouts
+        let changed = WorkoutUnifiedSlotsMigration.migrateWorkoutsInPlace(&migrated, globalExercises: globalExercises)
+
+        if !changed {
+            UserDefaults.standard.set(true, forKey: key)
+            unifiedSlotsMigrationLog.notice("Unified slots migration: nothing to convert; marked complete.")
+            return
+        }
+
+        guard WorkoutUnifiedSlotsMigration.validateWorkoutsEncode(migrated) else {
+            unifiedSlotsMigrationLog.error("Unified slots migration aborted: migrated workouts failed to encode.")
+            return
+        }
+        guard WorkoutUnifiedSlotsMigration.validateWorkoutsCodableRoundTrip(migrated) else {
+            unifiedSlotsMigrationLog.error("Unified slots migration aborted: workouts JSON round-trip failed.")
+            return
+        }
+
+        let postSnapshot = BackupSnapshot(
+            schemaVersion: currentSchemaVersion,
+            exercises: globalExercises,
+            workouts: migrated,
+            sessions: completedSessions,
+            program: trainingProgram,
+            displayNames: exerciseLocalDisplayNames
+        )
+        guard WorkoutUnifiedSlotsMigration.validateFullSnapshotCodableRoundTrip(postSnapshot) else {
+            unifiedSlotsMigrationLog.error("Unified slots migration aborted: full app snapshot round-trip failed.")
+            return
+        }
+        guard WorkoutUnifiedSlotsMigration.libraryHasNoConcreteRows(migrated) else {
+            unifiedSlotsMigrationLog.error("Unified slots migration aborted: concrete rows still present after in-memory transform.")
+            return
+        }
+
+        let previous = userWorkouts
+        userWorkouts = migrated
+
+        guard saveWorkouts() else {
+            userWorkouts = previous
+            unifiedSlotsMigrationLog.error("Unified slots migration aborted: SwiftData save failed.")
+            return
+        }
+
+        let reloaded = workoutStore.loadWorkouts()
+        guard Self.workoutsMatchAfterUnifiedMigration(persisted: reloaded, expected: migrated) else {
+            userWorkouts = reloaded
+            unifiedSlotsMigrationLog.error("Unified slots migration aborted: reloaded workouts did not match migrated state; using disk. Will retry next launch.")
+            return
+        }
+        guard WorkoutUnifiedSlotsMigration.libraryHasNoConcreteRows(reloaded) else {
+            userWorkouts = reloaded
+            unifiedSlotsMigrationLog.error("Unified slots migration aborted: reloaded data still has concrete library rows.")
+            return
+        }
+
+        userWorkouts = reloaded
+        UserDefaults.standard.set(true, forKey: key)
+        unifiedSlotsMigrationLog.notice("Unified slots migration completed (workouts=\(reloaded.count)).")
+    }
+
+    /// Per-workout exercise row ids and counts must match after save → load.
+    private static func workoutsMatchAfterUnifiedMigration(persisted: [Workout], expected: [Workout]) -> Bool {
+        guard persisted.count == expected.count else { return false }
+        let expectedById = Dictionary(uniqueKeysWithValues: expected.map { ($0.id, $0) })
+        for w in persisted {
+            guard let exp = expectedById[w.id] else { return false }
+            guard w.exercises.count == exp.exercises.count else { return false }
+            let idsP = Set(w.exercises.map(\.id))
+            let idsE = Set(exp.exercises.map(\.id))
+            guard idsP == idsE else { return false }
+        }
+        return true
     }
 
     // MARK: - Rotating backups
@@ -117,7 +228,7 @@ final class DataManager: ObservableObject {
 
     func uniqueWorkoutName(_ base: String) -> String {
         let names = Set(userWorkouts.map(\.name))
-        workoutStore.uniqueName(base, existingWorkoutNames: names, existingTemplateNames: names)
+        return workoutStore.uniqueName(base, existingWorkoutNames: names, existingTemplateNames: names)
     }
 
     func applySplitBuilderTemplates(
@@ -181,34 +292,10 @@ final class DataManager: ObservableObject {
         }
     }
 
-    /// Replaces all flexible rows with the given slots (preserves workout id and name).
-    func replaceFlexibleWorkoutSlots(workoutId: UUID, slots: [TemplateSlot]) {
-        guard let idx = userWorkouts.firstIndex(where: { $0.id == workoutId }) else { return }
-        var w = userWorkouts[idx]
-        var exercises: [WorkoutExercise] = []
-        var map: [UUID: UUID] = [:]
-        for slot in slots {
-            let weId = UUID()
-            map[weId] = slot.id
-            exercises.append(
-                WorkoutExercise(
-                    id: weId,
-                    resolution: .flexible(slot.asSlotBlueprint()),
-                    defaultRestTime: slot.defaultRestTime,
-                    recommendedSets: slot.recommendedSets,
-                    recommendedReps: slot.recommendedReps
-                )
-            )
-        }
-        w.exercises = exercises
-        w.templateSlotIdByWorkoutExerciseId = map
-        userWorkouts[idx] = w
-        saveWorkouts()
-    }
-
-    /// Appends a new flexible slot to a library workout.
-    func appendFlexibleSlot(toWorkoutId workoutId: UUID, slot: TemplateSlot) {
-        guard let idx = userWorkouts.firstIndex(where: { $0.id == workoutId }) else { return }
+    /// Appends a new flexible slot to a library workout. Returns the slot blueprint id, or nil if the workout was not found.
+    @discardableResult
+    func appendFlexibleSlot(toWorkoutId workoutId: UUID, slot: TemplateSlot) -> UUID? {
+        guard let idx = userWorkouts.firstIndex(where: { $0.id == workoutId }) else { return nil }
         var w = userWorkouts[idx]
         let weId = UUID()
         w.exercises.append(
@@ -223,6 +310,7 @@ final class DataManager: ObservableObject {
         w.templateSlotIdByWorkoutExerciseId[weId] = slot.id
         userWorkouts[idx] = w
         saveWorkouts()
+        return slot.id
     }
 
     /// Removes a flexible slot from the library workout by stable slot blueprint id.
@@ -258,7 +346,8 @@ final class DataManager: ObservableObject {
         saveWorkouts()
     }
 
-    func saveWorkouts() {
+    @discardableResult
+    func saveWorkouts() -> Bool {
         workoutStore.saveWorkouts(userWorkouts)
     }
 
@@ -308,73 +397,67 @@ final class DataManager: ObservableObject {
 
         var entries: [WorkoutPlanRef] = []
         for day in proposal.workouts {
-            if day.isSlotTemplateDay {
-                let templateSlots: [TemplateSlot] = day.slots.map { s in
-                    let parsedMuscles = ExerciseNameResolution.resolveMuscleGroups(from: s.targetMuscleNames)
-                    let matchedExercise: Exercise? = {
-                        if let oid = s.suggestedExerciseOverrideId,
-                           let ex = globalExercises.first(where: { $0.id == oid }) {
-                            return ex
-                        }
-                        guard let raw = s.suggestedExerciseName?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
-                            return nil
-                        }
-                        let musclesForNew = parsedMuscles.isEmpty ? [MuscleGroup.other] : parsedMuscles
-                        return resolveOrCreateExercise(
-                            planName: raw,
-                            overrideId: nil,
-                            musclesIfCreatingCustom: musclesForNew
-                        )
-                    }()
-                    let targetedMuscles: [MuscleGroup]
-                    if !parsedMuscles.isEmpty {
-                        targetedMuscles = parsedMuscles
-                    } else if let ex = matchedExercise, !ex.targetedMuscles.isEmpty {
-                        targetedMuscles = ex.targetedMuscles
-                    } else {
-                        targetedMuscles = [MuscleGroup.other]
+            let slotSources: [WorkoutSplitProposalSlotItem] = {
+                if !day.slots.isEmpty { return day.slots }
+                return day.exercises.compactMap { ex in
+                    let n = ex.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !n.isEmpty else { return nil }
+                    let sets = min(max(1, ex.sets), 10)
+                    let repsRaw = ex.reps.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let reps = repsRaw.isEmpty ? "8-12" : repsRaw
+                    return WorkoutSplitProposalSlotItem(
+                        label: n,
+                        targetMuscleNames: [],
+                        sets: sets,
+                        reps: reps,
+                        suggestedExerciseName: n,
+                        suggestedExerciseOverrideId: ex.libraryExerciseOverrideId
+                    )
+                }
+            }()
+            guard !slotSources.isEmpty else { continue }
+
+            let templateSlots: [TemplateSlot] = slotSources.map { s in
+                let parsedMuscles = ExerciseNameResolution.resolveMuscleGroups(from: s.targetMuscleNames)
+                let matchedExercise: Exercise? = {
+                    if let oid = s.suggestedExerciseOverrideId,
+                       let ex = globalExercises.first(where: { $0.id == oid }) {
+                        return ex
                     }
-                    let repsRaw = s.reps.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let repsFinal = repsRaw.isEmpty ? "8-12" : repsRaw
-                    return TemplateSlot(
-                        label: s.label,
-                        targetedMuscles: targetedMuscles,
-                        exerciseRole: matchedExercise?.exerciseRole,
-                        movementPattern: matchedExercise?.movementPattern,
-                        defaultExerciseId: matchedExercise?.id,
-                        recommendedSets: min(max(1, s.sets), 10),
-                        recommendedReps: repsFinal
+                    guard let raw = s.suggestedExerciseName?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+                        return nil
+                    }
+                    let musclesForNew = parsedMuscles.isEmpty ? [MuscleGroup.other] : parsedMuscles
+                    return resolveOrCreateExercise(
+                        planName: raw,
+                        overrideId: nil,
+                        musclesIfCreatingCustom: musclesForNew
                     )
+                }()
+                let targetedMuscles: [MuscleGroup]
+                if !parsedMuscles.isEmpty {
+                    targetedMuscles = parsedMuscles
+                } else if let ex = matchedExercise, !ex.targetedMuscles.isEmpty {
+                    targetedMuscles = ex.targetedMuscles
+                } else {
+                    targetedMuscles = [MuscleGroup.other]
                 }
-                guard !templateSlots.isEmpty else { continue }
-                let name = uniqueFlexWorkoutName(day.name)
-                let id = createWorkoutWithFlexibleSlots(name: name, slots: templateSlots)
-                entries.append(.workout(id))
-            } else {
-                guard !day.exercises.isEmpty else { continue }
-                let name = uniqueWorkoutName(day.name)
-                let id = createWorkout(name: name)
-                entries.append(.workout(id))
-                for exItem in day.exercises {
-                    guard let fresh = userWorkouts.first(where: { $0.id == id }) else { break }
-                    let sets = min(max(1, exItem.sets), 10)
-                    let reps = exItem.reps.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let repsFinal = reps.isEmpty ? "8-12" : reps
-                    guard let ex = resolveOrCreateExercise(
-                        planName: exItem.name,
-                        overrideId: exItem.libraryExerciseOverrideId,
-                        musclesIfCreatingCustom: [MuscleGroup.other]
-                    ) else { continue }
-                    _ = addExercise(
-                        to: fresh,
-                        exercise: ex,
-                        recommendedSets: sets,
-                        recommendedReps: repsFinal,
-                        configurationFields: [],
-                        recommendedConfigBySet: Array(repeating: [:], count: sets)
-                    )
-                }
+                let repsRaw = s.reps.trimmingCharacters(in: .whitespacesAndNewlines)
+                let repsFinal = repsRaw.isEmpty ? "8-12" : repsRaw
+                return TemplateSlot(
+                    label: s.label,
+                    targetedMuscles: targetedMuscles,
+                    exerciseRole: matchedExercise?.exerciseRole,
+                    movementPattern: matchedExercise?.movementPattern,
+                    defaultExerciseId: matchedExercise?.id,
+                    recommendedSets: min(max(1, s.sets), 10),
+                    recommendedReps: repsFinal
+                )
             }
+
+            let name = uniqueFlexWorkoutName(day.name)
+            let id = createWorkoutWithFlexibleSlots(name: name, slots: templateSlots)
+            entries.append(.workout(id))
         }
         if updateTrainingProgram, !entries.isEmpty {
             applyTrainingProgramSuggestion(
@@ -531,8 +614,19 @@ final class DataManager: ObservableObject {
         let snap = ExerciseSnapshot(from: exercise)
         for i in userWorkouts.indices {
             for j in userWorkouts[i].exercises.indices {
-                if userWorkouts[i].exercises[j].exerciseId == exercise.id {
+                guard userWorkouts[i].exercises[j].exerciseId == exercise.id else { continue }
+                switch userWorkouts[i].exercises[j].resolution {
+                case .concrete:
                     userWorkouts[i].exercises[j].resolution = .concrete(snap)
+                case .flexible(var b):
+                    b.defaultExerciseId = exercise.id
+                    if b.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        b.label = exercise.name
+                    }
+                    b.targetedMuscles = exercise.targetedMuscles
+                    b.exerciseRole = exercise.exerciseRole
+                    b.movementPattern = exercise.movementPattern
+                    userWorkouts[i].exercises[j].resolution = .flexible(b)
                 }
             }
         }
@@ -544,7 +638,23 @@ final class DataManager: ObservableObject {
         clearLocalExerciseDisplayName(for: exercise.id)
         globalExercises.removeAll { $0.id == exercise.id }
         for i in userWorkouts.indices {
-            userWorkouts[i].exercises.removeAll { $0.exerciseId == exercise.id }
+            var removedRowIds: [UUID] = []
+            var newList: [WorkoutExercise] = []
+            for var we in userWorkouts[i].exercises {
+                if case .concrete(let s) = we.resolution, s.exerciseId == exercise.id {
+                    removedRowIds.append(we.id)
+                    continue
+                }
+                if case .flexible(var b) = we.resolution, b.defaultExerciseId == exercise.id {
+                    b.defaultExerciseId = nil
+                    we.resolution = .flexible(b)
+                }
+                newList.append(we)
+            }
+            userWorkouts[i].exercises = newList
+            for rid in removedRowIds {
+                userWorkouts[i].templateSlotIdByWorkoutExerciseId.removeValue(forKey: rid)
+            }
         }
         saveExercises()
         saveWorkouts()
@@ -780,12 +890,30 @@ final class DataManager: ObservableObject {
         recommendedConfigBySet: [[String: String]]
     ) -> WorkoutExercise? {
         guard let index = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return nil }
-        var we = WorkoutExercise(id: UUID(), exercise: exercise)
-        we.recommendedSets = recommendedSets
-        we.recommendedReps = recommendedReps
-        we.configurationFields = configurationFields
-        we.recommendedConfigBySet = recommendedConfigBySet
+        let weId = UUID()
+        let slotId = UUID()
+        let blueprint = SlotBlueprint(
+            id: slotId,
+            label: exercise.name,
+            targetedMuscles: exercise.targetedMuscles.isEmpty ? [.other] : exercise.targetedMuscles,
+            exerciseRole: exercise.exerciseRole,
+            movementPattern: exercise.movementPattern,
+            defaultExerciseId: exercise.id,
+            defaultRestTime: 90,
+            recommendedSets: recommendedSets,
+            recommendedReps: recommendedReps
+        )
+        let we = WorkoutExercise(
+            id: weId,
+            resolution: .flexible(blueprint),
+            defaultRestTime: 90,
+            recommendedSets: recommendedSets,
+            recommendedReps: recommendedReps,
+            configurationFields: configurationFields,
+            recommendedConfigBySet: recommendedConfigBySet
+        )
         userWorkouts[index].exercises.append(we)
+        userWorkouts[index].templateSlotIdByWorkoutExerciseId[weId] = slotId
         saveWorkouts()
         return we
     }

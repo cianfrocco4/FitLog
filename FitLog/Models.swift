@@ -263,6 +263,38 @@ struct ExerciseSnapshot: Codable, Equatable, Hashable {
         self.exerciseId = exercise.id
         self.nameAtTimeOfLog = exercise.name
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case exerciseId
+        case nameAtTimeOfLog
+        case id
+        case name
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let eid = try c.decodeIfPresent(UUID.self, forKey: .exerciseId) {
+            exerciseId = eid
+        } else if let legacy = try c.decodeIfPresent(UUID.self, forKey: .id) {
+            exerciseId = legacy
+        } else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.exerciseId,
+                DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "ExerciseSnapshot requires exerciseId or id")
+            )
+        }
+        let ntLogRaw = try c.decodeIfPresent(String.self, forKey: .nameAtTimeOfLog)
+        let nameRaw = try c.decodeIfPresent(String.self, forKey: .name)
+        let ntLog = (ntLogRaw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let nm = (nameRaw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        nameAtTimeOfLog = !ntLog.isEmpty ? ntLog : nm
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(exerciseId, forKey: .exerciseId)
+        try c.encode(nameAtTimeOfLog, forKey: .nameAtTimeOfLog)
+    }
 }
 
 /// Criteria and defaults for a flexible row inside a library [`Workout`](Workout) (replaces standalone template slots on disk).
@@ -365,7 +397,13 @@ extension SlotResolution: Codable {
             return
         }
         if c.contains(.concrete) {
-            self = .concrete(try c.decode(ExerciseSnapshot.self, forKey: .concrete))
+            if let snap = try? c.decode(ExerciseSnapshot.self, forKey: .concrete) {
+                self = .concrete(snap)
+                return
+            }
+            // Legacy: full Exercise embedded under `concrete` before snapshots were used everywhere.
+            let ex = try c.decode(Exercise.self, forKey: .concrete)
+            self = .concrete(ExerciseSnapshot(from: ex))
             return
         }
         if c.contains(.unresolved) {
@@ -418,13 +456,21 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
         return nil
     }
 
-    /// The exercise ID for concrete rows; nil for unresolved slots.
-    var exerciseId: UUID? { snapshot?.exerciseId }
+    /// Resolved library exercise id: concrete snapshot, or flexible row default when set.
+    var exerciseId: UUID? {
+        if case .concrete(let s) = resolution { return s.exerciseId }
+        if case .flexible(let b) = resolution { return b.defaultExerciseId }
+        return nil
+    }
 
-    var isSlotPlaceholder: Bool {
-        if case .flexible = resolution { return true }
+    /// Flexible row with no default exercise yet (user picks each time / must resolve in session).
+    var isOpenSlot: Bool {
+        if case .flexible(let b) = resolution { return b.defaultExerciseId == nil }
         return false
     }
+
+    /// Same as `isOpenSlot` (legacy name used across the app).
+    var isSlotPlaceholder: Bool { isOpenSlot }
 
     var slotLabel: String {
         if case .flexible(let b) = resolution { return b.label }
@@ -731,9 +777,27 @@ struct Workout: Identifiable, Codable, Equatable {
         templateSlotIdByWorkoutExerciseId[rowId]
     }
 
-    /// True when the library definition has at least one flexible row (choose exercise at session start or in editor).
+    /// True when the library workout uses slot blueprints (session copy resolves defaults / open picks).
     var hasFlexibleSlots: Bool {
-        exercises.contains { $0.isSlotPlaceholder }
+        exercises.contains { we in
+            if case .flexible = we.resolution { return true }
+            return false
+        }
+    }
+
+    /// True when at least one slot has no default exercise (user picks each session).
+    var hasOpenSlots: Bool {
+        exercises.contains { $0.isOpenSlot }
+    }
+
+    /// Short summary for library lists, e.g. "4 slots" or "4 slots · 1 open".
+    var listDetailSubtitle: String {
+        if exercises.isEmpty { return "Empty workout" }
+        let n = exercises.count
+        let nOpen = exercises.filter(\.isOpenSlot).count
+        let slotWord = n == 1 ? "slot" : "slots"
+        if nOpen == 0 { return "\(n) \(slotWord)" }
+        return "\(n) \(slotWord) · \(nOpen) open"
     }
 
     /// Converts a legacy slot template into a single library workout (flexible blueprints, including `defaultExerciseId` when set).

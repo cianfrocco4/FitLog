@@ -258,7 +258,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         recommendedConfigBySet: [[String: String]]
     ) {
         guard var session = currentSession else { return }
-        var we = WorkoutExercise(
+        let we = WorkoutExercise(
             id: UUID(),
             exercise: exercise,
             recommendedSets: recommendedSets,

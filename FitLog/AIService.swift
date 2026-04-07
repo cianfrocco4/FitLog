@@ -26,16 +26,6 @@ struct NewExerciseAIReview: Equatable {
 
 // MARK: - Workout split builder (JSON proposal)
 
-/// How the AI should define each day in the split (fixed exercise lists vs open-slot workouts vs both).
-enum WorkoutSplitDefinitionPreference: String, CaseIterable, Identifiable {
-    case concreteLists = "Full exercise lists"
-    case openSlotWorkouts = "Open slots (choose exercises later)"
-    case mixOfBoth = "Mix — some days fixed, some open slots"
-    case noPreference = "No preference — you decide per day"
-
-    var id: String { rawValue }
-}
-
 struct WorkoutSplitProposalExerciseItem: Equatable {
     let name: String
     let sets: Int
@@ -61,7 +51,7 @@ struct WorkoutSplitProposalDay: Equatable {
     let exercises: [WorkoutSplitProposalExerciseItem]
     let slots: [WorkoutSplitProposalSlotItem]
 
-    /// Slot-based day when `slots` is non-empty (exercises, if any, are ignored for apply).
+    /// True when the proposal carries slot rows (including legacy exercise-only days once normalized).
     var isSlotTemplateDay: Bool { !slots.isEmpty }
 }
 
@@ -192,11 +182,17 @@ final class AIService: ObservableObject {
         for we in workout.exercises {
             let name: String
             let muscles: String
-            if let snap = we.snapshot, let ex = globalExercises.first(where: { $0.id == snap.exerciseId }) {
+            if let eid = we.exerciseId, let ex = globalExercises.first(where: { $0.id == eid }) {
                 name = ex.name
                 muscles = ex.targetedMuscles.prefix(2).map(\.rawValue).joined(separator: ", ")
+            } else if let snap = we.snapshot {
+                name = globalExercises.first(where: { $0.id == snap.exerciseId })?.name ?? snap.nameAtTimeOfLog
+                muscles = ""
+            } else if case .flexible(let b) = we.resolution {
+                name = b.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Open slot" : b.label
+                muscles = b.targetedMuscles.prefix(2).map(\.rawValue).joined(separator: ", ")
             } else {
-                name = we.snapshot?.nameAtTimeOfLog ?? "Unknown"
+                name = "Unknown"
                 muscles = ""
             }
             lines.append("- \(name) (\(we.recommendedSets) sets x \(we.recommendedReps))\(muscles.isEmpty ? "" : " — \(muscles)")")
@@ -213,8 +209,7 @@ final class AIService: ObservableObject {
         preferredWeekdays: [Int],
         experienceLevel: String?,
         allowedExerciseNames: [String],
-        existingWorkoutTemplateNames: [String],
-        definitionPreference: WorkoutSplitDefinitionPreference = .concreteLists
+        existingWorkoutTemplateNames: [String]
     ) async throws -> WorkoutSplitProposal {
         if !isConfigured {
             throw AIServiceError.notConfigured
@@ -240,49 +235,26 @@ final class AIService: ObservableObject {
         let musclesJSON = String(data: musclesData, encoding: .utf8) ?? "[]"
         let expLine = (experienceLevel?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? "not specified"
 
-        let definitionLine = "Workout definition mode: \(definitionPreference.rawValue)."
-
         let system: String = {
-            let baseIntro = """
+            """
             You design strength-training workout splits for the FitLog iOS app. Reply with ONLY a compact JSON object, no markdown or prose.
 
             Required keys (camelCase): rationale (string), sessionsPerWeek (integer), preferredWeekdays (array of integers), workouts (array).
 
-            Shared rules:
+            Workout structure — every workout is a list of slots (the app stores each row as a flexible slot):
+            - Each workout object: name (string), focus (string or empty), slots (array). You may also include exercises (array) for convenience; the app will turn each exercise into a slot with a default movement.
+            - Each slots entry uses: label (short human-readable slot name, e.g. "Horizontal push" or "Quad compound"), targetMuscleNames (array of strings), sets (integer 1–10), reps (string, e.g. "5", "8-12", "AMRAP"), optional suggestedExerciseName (string).
+            - targetMuscleNames: each value MUST be exactly one string from the allowed muscle names JSON array (identical spelling). Use 1–3 muscles per slot when helpful; use ["Other"] if unclear.
+            - suggestedExerciseName: when you want a specific default movement for this slot, set it to a string copied verbatim from the allowed exercise names JSON array (same characters and casing as one element). Omit suggestedExerciseName (or use null) for a generic open slot where the user picks a different exercise each session.
+            - You may mix within one workout: some slots with suggestedExerciseName and some without.
+            - Each workout: at least 3 slots (or 3 exercises if you use exercises instead), at most 12 slot-like rows when reasonable.
             - rationale: 1–3 short sentences on why this split fits the user.
             - sessionsPerWeek: integer from 1 to \(maxSessions) inclusive (must not exceed \(maxSessions)).
             - preferredWeekdays: subset of the user's allowed weekday numbers (see user message). Use [] only if the user selected no specific days — then the app will use its default pool.
-            - workouts: ordered cycle for the split. At least 1 and at most 6 objects. Each object: name (string), focus (string or empty).
-            - Use distinct workout day names; avoid duplicating names in the existing workout names list unless intentional (prefer clear names like "Upper A", "Pull").
+            - workouts: ordered cycle. At least 1 and at most 6 objects. Use distinct workout day names; avoid duplicating names in the existing workout names list unless intentional.
 
             Training safety: this is not medical advice. Favor balanced programming and avoid reckless volume.
             """
-            switch definitionPreference {
-            case .concreteLists:
-                return baseIntro + """
-
-                Concrete list mode — each workout must include an exercises array (not slots).
-                - Each exercises entry: name (string), sets (integer 1–10), reps (string, e.g. "5", "8-12", "AMRAP").
-                - Every exercises[].name MUST be copied verbatim from the allowed exercise names JSON array: same characters, spelling, spacing, and casing as one array element. Do not paraphrase, abbreviate, or substitute synonyms.
-                - Each workout: at least 3 exercises, at most 12 when reasonable.
-                """
-            case .openSlotWorkouts:
-                return baseIntro + """
-
-                Open-slot mode — each workout must include a slots array (omit exercises or use empty array).
-                - Each slots entry: label (short string, e.g. "Horizontal push"), targetMuscleNames (array of strings), sets (integer 1–10), reps (string), optional suggestedExerciseName (string).
-                - Every targetMuscleNames[] value MUST be exactly one string from the allowed muscle names JSON array (identical spelling as in that array). Use 1–3 muscles per slot when helpful.
-                - If suggestedExerciseName is present, it MUST be copied verbatim from the allowed exercise names JSON array (same characters and casing as one element); omit the key if unsure.
-                - Each workout: at least 3 slots, at most 12 slots when reasonable.
-                """
-            case .mixOfBoth, .noPreference:
-                return baseIntro + """
-
-                Mixed mode — each workout has EITHER a non-empty exercises array OR a non-empty slots array (not both; one must be empty or omitted).
-                - For exercises days: same rules as concrete list mode (exercise names copied verbatim from allowed exercise names JSON; 3–12 exercises).
-                - For slots days: same rules as open-slot mode (targetMuscleNames from allowed muscle names JSON; optional suggestedExerciseName copied verbatim from exercise names JSON; 3–12 slots).
-                """
-            }
         }()
 
         let userPrompt = """
@@ -292,9 +264,8 @@ final class AIService: ObservableObject {
         Experience: \(expLine)
         Target sessions per week (maximum \(maxSessions)): \(maxSessions)
         \(daysNote)
-        \(definitionLine)
 
-        Allowed exercise names (JSON array — concrete exercises[].name and optional slots[].suggestedExerciseName must use ONLY these strings when used):
+        Allowed exercise names (JSON array — optional slots[].suggestedExerciseName and exercises[].name must use ONLY these strings when used):
         \(namesJSON)
 
         Allowed muscle display names for slots[].targetMuscleNames (JSON array — use ONLY these exact strings):
@@ -308,8 +279,7 @@ final class AIService: ObservableObject {
         return try parseWorkoutSplitProposal(
             jsonString: content,
             maxSessions: maxSessions,
-            userPreferredWeekdays: daysSorted,
-            definitionPreference: definitionPreference
+            userPreferredWeekdays: daysSorted
         )
     }
 
@@ -320,27 +290,111 @@ final class AIService: ObservableObject {
         return symbols[weekday - 1]
     }
 
+    /// Strips optional ``` fences, then extracts the first balanced `{...}` (first/last `}` breaks when strings contain `}`).
+    private static func extractJSONObjectString(from raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.hasPrefix("```") {
+            if let firstNl = s.firstIndex(of: "\n") {
+                s = String(s[s.index(after: firstNl)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if let endFence = s.range(of: "\n```") {
+                s = String(s[..<endFence.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            } else if let endFence = s.range(of: "```") {
+                s = String(s[..<endFence.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        if let balanced = extractFirstBalancedJSONObject(s) {
+            return balanced
+        }
+        if let start = s.firstIndex(of: "{"), let end = s.lastIndex(of: "}"), start < end {
+            return String(s[start...end])
+        }
+        return s
+    }
+
+    private static func extractFirstBalancedJSONObject(_ s: String) -> String? {
+        guard let start = s.firstIndex(of: "{") else { return nil }
+        var depth = 0
+        var inString = false
+        var escapeNext = false
+        var i = start
+        while i < s.endIndex {
+            let ch = s[i]
+            if inString {
+                if escapeNext {
+                    escapeNext = false
+                } else if ch == "\\" {
+                    escapeNext = true
+                } else if ch == "\"" {
+                    inString = false
+                }
+            } else {
+                switch ch {
+                case "\"":
+                    inString = true
+                case "{":
+                    depth += 1
+                case "}":
+                    depth -= 1
+                    if depth == 0 {
+                        return String(s[start...i])
+                    }
+                default:
+                    break
+                }
+            }
+            i = s.index(after: i)
+        }
+        return nil
+    }
+
+    /// Tries default keys, then snake_case decoding.
+    private static func decodeSplitProposalJSONIfPresent(from data: Data) -> SplitProposalJSON? {
+        let plain = JSONDecoder()
+        let snake = JSONDecoder()
+        snake.keyDecodingStrategy = .convertFromSnakeCase
+        for dec in [plain, snake] {
+            if let parsed = try? dec.decode(SplitProposalJSON.self, from: data) {
+                return parsed
+            }
+        }
+        return nil
+    }
+
     private func parseWorkoutSplitProposal(
         jsonString: String,
         maxSessions: Int,
-        userPreferredWeekdays: [Int],
-        definitionPreference: WorkoutSplitDefinitionPreference
+        userPreferredWeekdays: [Int]
     ) throws -> WorkoutSplitProposal {
-        let trimmed = jsonString.trimmingCharacters(in: .whitespacesAndNewlines)
-        let slice: String = {
-            if let start = trimmed.firstIndex(of: "{"), let end = trimmed.lastIndex(of: "}"), start < end {
-                return String(trimmed[start...end])
-            }
-            return trimmed
-        }()
+        let slice = Self.extractJSONObjectString(from: jsonString)
         guard let data = slice.data(using: .utf8) else { throw AIServiceError.emptyContent }
-        let json: SplitProposalJSON
-        do {
-            json = try JSONDecoder().decode(SplitProposalJSON.self, from: data)
-        } catch {
-            throw AIServiceError.invalidJSONContent
+
+        if let structured = Self.decodeSplitProposalJSONIfPresent(from: data),
+           let proposal = Self.buildSplitProposal(
+            from: structured,
+            maxSessions: maxSessions,
+            userPreferredWeekdays: userPreferredWeekdays
+           ) {
+            return proposal
         }
 
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let proposal = Self.buildSplitProposal(
+                from: root,
+                maxSessions: maxSessions,
+                userPreferredWeekdays: userPreferredWeekdays
+              )
+        else {
+            throw AIServiceError.invalidJSONContent
+        }
+        return proposal
+    }
+
+    private static func buildSplitProposal(
+        from json: SplitProposalJSON,
+        maxSessions: Int,
+        userPreferredWeekdays: [Int]
+    ) -> WorkoutSplitProposal? {
         let rawSessions = json.sessionsPerWeek ?? maxSessions
         let sessions = min(max(1, rawSessions), maxSessions)
 
@@ -359,60 +413,11 @@ final class AIService: ObservableObject {
 
         var days: [WorkoutSplitProposalDay] = []
         for w in (json.workouts ?? []).prefix(6) {
-            let name = w.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            if name.isEmpty { continue }
-            let focus = (w.focus?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
-
-            var slotItems: [WorkoutSplitProposalSlotItem] = []
-            for sl in (w.slots ?? []).prefix(12) {
-                let label = (sl.label ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                if label.isEmpty { continue }
-                let muscles = (sl.targetMuscleNames ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-                let sets = min(max(1, sl.sets ?? 3), 10)
-                let repsRaw = (sl.reps ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                let reps = repsRaw.isEmpty ? "8-12" : repsRaw
-                let suggested = (sl.suggestedExerciseName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                slotItems.append(
-                    WorkoutSplitProposalSlotItem(
-                        label: label,
-                        targetMuscleNames: muscles,
-                        sets: sets,
-                        reps: reps,
-                        suggestedExerciseName: suggested.isEmpty ? nil : suggested
-                    )
-                )
-            }
-
-            var items: [WorkoutSplitProposalExerciseItem] = []
-            for ex in (w.exercises ?? []).prefix(12) {
-                let exName = ex.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                if exName.isEmpty { continue }
-                let sets = min(max(1, ex.sets ?? 3), 10)
-                let repsRaw = (ex.reps ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                let reps = repsRaw.isEmpty ? "8-12" : repsRaw
-                items.append(WorkoutSplitProposalExerciseItem(name: exName, sets: sets, reps: reps))
-            }
-
-            let useSlots: Bool = {
-                if !slotItems.isEmpty, items.isEmpty { return true }
-                if !items.isEmpty, slotItems.isEmpty { return false }
-                if definitionPreference == .openSlotWorkouts { return !slotItems.isEmpty }
-                if definitionPreference == .concreteLists { return false }
-                // mix / noPreference: if both present, prefer slots when slot count >= exercise count
-                if !slotItems.isEmpty, !items.isEmpty { return slotItems.count >= items.count }
-                return !slotItems.isEmpty
-            }()
-
-            if useSlots {
-                days.append(WorkoutSplitProposalDay(name: name, focus: focus, exercises: [], slots: slotItems))
-            } else {
-                days.append(WorkoutSplitProposalDay(name: name, focus: focus, exercises: items, slots: []))
-            }
+            guard let day = mapWorkoutJSON(w) else { continue }
+            days.append(day)
         }
 
-        if days.isEmpty {
-            throw AIServiceError.invalidJSONContent
-        }
+        guard !days.isEmpty else { return nil }
 
         let rationale = (json.rationale ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let rationaleFinal = rationale.isEmpty ? "Here is a split based on your inputs." : rationale
@@ -422,6 +427,198 @@ final class AIService: ObservableObject {
             sessionsPerWeek: sessions,
             preferredWeekdays: prefs,
             workouts: days
+        )
+    }
+
+    private static func buildSplitProposal(
+        from root: [String: Any],
+        maxSessions: Int,
+        userPreferredWeekdays: [Int]
+    ) -> WorkoutSplitProposal? {
+        let rawSessions = SplitDictionaryParsers.flexibleInt(root["sessionsPerWeek"] ?? root["sessions_per_week"]) ?? maxSessions
+        let sessions = min(max(1, rawSessions), maxSessions)
+
+        let rawPrefs = SplitDictionaryParsers.flexibleIntArray(root["preferredWeekdays"] ?? root["preferred_weekdays"] ?? root["weekdays"])
+            .filter { $0 >= 1 && $0 <= 7 }
+        let userDaySet = Set(userPreferredWeekdays)
+        let prefs: [Int] = {
+            if userDaySet.isEmpty {
+                return Array(Set(rawPrefs)).sorted()
+            }
+            let intersected = rawPrefs.filter { userDaySet.contains($0) }
+            if intersected.isEmpty {
+                return userPreferredWeekdays.sorted()
+            }
+            return Array(Set(intersected)).sorted()
+        }()
+
+        let workoutDicts = SplitDictionaryParsers.workoutArrays(from: root)
+        var days: [WorkoutSplitProposalDay] = []
+        for w in workoutDicts.prefix(6) {
+            guard let day = mapWorkoutDictionary(w) else { continue }
+            days.append(day)
+        }
+
+        guard !days.isEmpty else { return nil }
+
+        let rationaleRaw = (root["rationale"] as? String) ?? (root["summary"] as? String) ?? (root["notes"] as? String) ?? ""
+        let rationale = rationaleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rationaleFinal = rationale.isEmpty ? "Here is a split based on your inputs." : rationale
+
+        return WorkoutSplitProposal(
+            rationale: rationaleFinal,
+            sessionsPerWeek: sessions,
+            preferredWeekdays: prefs,
+            workouts: days
+        )
+    }
+
+    private static func mapWorkoutJSON(_ w: SplitProposalWorkoutJSON) -> WorkoutSplitProposalDay? {
+        let name = (w.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty { return nil }
+        let focus = (w.focus?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
+
+        var slotItems: [WorkoutSplitProposalSlotItem] = []
+        for sl in (w.slots ?? []).prefix(12) {
+            if let item = slotItemFromDecodedJSON(sl) {
+                slotItems.append(item)
+            }
+        }
+
+        var exerciseItems: [WorkoutSplitProposalExerciseItem] = []
+        for ex in (w.exercises ?? []).prefix(12) {
+            let exName = ex.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if exName.isEmpty { continue }
+            let sets = min(max(1, ex.sets ?? 3), 10)
+            let repsRaw = (ex.reps ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let reps = repsRaw.isEmpty ? "8-12" : repsRaw
+            exerciseItems.append(WorkoutSplitProposalExerciseItem(name: exName, sets: sets, reps: reps))
+        }
+
+        let merged = mergeSlotsAndExercises(slotItems: slotItems, exerciseItems: exerciseItems)
+        return WorkoutSplitProposalDay(name: name, focus: focus, exercises: [], slots: merged)
+    }
+
+    private static func mapWorkoutDictionary(_ dict: [String: Any]) -> WorkoutSplitProposalDay? {
+        let name = SplitDictionaryParsers.string(from: dict["name"] ?? dict["title"] ?? dict["day"] ?? dict["label"] ?? dict["dayName"]).trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty { return nil }
+        let focus = SplitDictionaryParsers.string(from: dict["focus"] ?? dict["description"] ?? dict["theme"]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let focusFinal: String? = focus.isEmpty ? nil : focus
+
+        var slotItems: [WorkoutSplitProposalSlotItem] = []
+        var slotDicts: [[String: Any]] = []
+        for key in ["slots", "openSlots", "open_slots", "slotTemplates", "slot_templates", "templateSlots", "template_slots", "slotList", "slot_list"] {
+            slotDicts.append(contentsOf: SplitDictionaryParsers.dictionaryArray(from: dict[key]))
+        }
+        for sl in slotDicts.prefix(12) {
+            if let item = slotItemFromDictionary(sl) {
+                slotItems.append(item)
+            }
+        }
+
+        var exerciseItems: [WorkoutSplitProposalExerciseItem] = []
+        exerciseLoop: for key in ["exercises", "movements", "lifts", "exerciseList", "exercise_list"] {
+            guard let raw = dict[key] else { continue }
+            let dictRows = SplitDictionaryParsers.dictionaryArray(from: raw)
+            if !dictRows.isEmpty {
+                for ex in dictRows.prefix(12) {
+                    let exName = SplitDictionaryParsers.string(from: ex["name"] ?? ex["exercise"] ?? ex["exerciseName"] ?? ex["title"] ?? ex["movement"]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if exName.isEmpty { continue }
+                    let sets = min(max(1, SplitDictionaryParsers.flexibleInt(ex["sets"]) ?? 3), 10)
+                    let repsRaw = SplitDictionaryParsers.string(from: ex["reps"]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    let reps = repsRaw.isEmpty ? "8-12" : repsRaw
+                    exerciseItems.append(WorkoutSplitProposalExerciseItem(name: exName, sets: sets, reps: reps))
+                }
+                break exerciseLoop
+            }
+            let stringNames = SplitDictionaryParsers.stringArray(from: raw)
+            if !stringNames.isEmpty {
+                for exName in stringNames.prefix(12) {
+                    exerciseItems.append(WorkoutSplitProposalExerciseItem(name: exName, sets: 3, reps: "8-12"))
+                }
+                break exerciseLoop
+            }
+        }
+
+        let merged = mergeSlotsAndExercises(slotItems: slotItems, exerciseItems: exerciseItems)
+        return WorkoutSplitProposalDay(name: name, focus: focusFinal, exercises: [], slots: merged)
+    }
+
+    /// Open-slot rows from legacy exercise lists: label + default movement match the exercise name.
+    private static func slotsBackedByExercises(_ items: [WorkoutSplitProposalExerciseItem]) -> [WorkoutSplitProposalSlotItem] {
+        items.map { ex in
+            let exName = ex.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let sets = min(max(1, ex.sets), 10)
+            let repsRaw = ex.reps.trimmingCharacters(in: .whitespacesAndNewlines)
+            let reps = repsRaw.isEmpty ? "8-12" : repsRaw
+            let label = exName.isEmpty ? "Exercise" : exName
+            return WorkoutSplitProposalSlotItem(
+                label: label,
+                targetMuscleNames: exName.isEmpty ? ["Other"] : [],
+                sets: sets,
+                reps: reps,
+                suggestedExerciseName: exName.isEmpty ? nil : exName,
+                suggestedExerciseOverrideId: ex.libraryExerciseOverrideId
+            )
+        }
+    }
+
+    private static func mergeSlotsAndExercises(
+        slotItems: [WorkoutSplitProposalSlotItem],
+        exerciseItems: [WorkoutSplitProposalExerciseItem]
+    ) -> [WorkoutSplitProposalSlotItem] {
+        let fromExercises = slotsBackedByExercises(exerciseItems)
+        return Array((slotItems + fromExercises).prefix(12))
+    }
+
+    private static func slotItemFromDecodedJSON(_ sl: SplitProposalSlotJSON) -> WorkoutSplitProposalSlotItem? {
+        var label = sl.displayLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let muscles = (sl.targetMuscleNames ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        let sets = min(max(1, sl.sets ?? 3), 10)
+        let repsRaw = (sl.reps ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let reps = repsRaw.isEmpty ? "8-12" : repsRaw
+        let suggested = (sl.suggestedEffective ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let suggestedOpt = suggested.isEmpty ? nil : suggested
+        if label.isEmpty, let s = suggestedOpt {
+            label = s
+        }
+        if label.isEmpty, !muscles.isEmpty {
+            label = muscles.prefix(3).joined(separator: ", ")
+        }
+        if label.isEmpty { return nil }
+        let muscleOut: [String] = muscles.isEmpty ? (suggestedOpt == nil ? ["Other"] : []) : muscles
+        return WorkoutSplitProposalSlotItem(
+            label: label,
+            targetMuscleNames: muscleOut,
+            sets: sets,
+            reps: reps,
+            suggestedExerciseName: suggestedOpt
+        )
+    }
+
+    private static func slotItemFromDictionary(_ sl: [String: Any]) -> WorkoutSplitProposalSlotItem? {
+        let rawLabel = SplitDictionaryParsers.string(from: sl["label"] ?? sl["name"] ?? sl["slot"] ?? sl["title"] ?? sl["role"] ?? sl["type"]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let muscles = SplitDictionaryParsers.stringArray(from: sl["targetMuscleNames"] ?? sl["target_muscle_names"] ?? sl["muscles"] ?? sl["muscleGroups"] ?? sl["muscle_groups"])
+        let sets = min(max(1, SplitDictionaryParsers.flexibleInt(sl["sets"]) ?? 3), 10)
+        let repsRaw = SplitDictionaryParsers.string(from: sl["reps"]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let reps = repsRaw.isEmpty ? "8-12" : repsRaw
+        let suggested = SplitDictionaryParsers.string(from: sl["suggestedExerciseName"] ?? sl["suggested_exercise_name"] ?? sl["suggestedExercise"] ?? sl["exercise"] ?? sl["exerciseName"] ?? sl["defaultExercise"]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let suggestedOpt = suggested.isEmpty ? nil : suggested
+        var label = rawLabel
+        if label.isEmpty, let s = suggestedOpt {
+            label = s
+        }
+        if label.isEmpty, !muscles.isEmpty {
+            label = muscles.prefix(3).joined(separator: ", ")
+        }
+        if label.isEmpty { return nil }
+        let muscleOut: [String] = muscles.isEmpty ? (suggestedOpt == nil ? ["Other"] : []) : muscles
+        return WorkoutSplitProposalSlotItem(
+            label: label,
+            targetMuscleNames: muscleOut,
+            sets: sets,
+            reps: reps,
+            suggestedExerciseName: suggestedOpt
         )
     }
 
@@ -575,13 +772,15 @@ final class AIService: ObservableObject {
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw AIServiceError.invalidResponse }
         if http.statusCode != 200 {
+            #if DEBUG
             let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? [String: Any]
             let errorMessage = message?["message"] as? String ?? String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
-            throw AIServiceError.apiError(statusCode: http.statusCode, message: errorMessage)
+            print("[AIService] API error \(http.statusCode): \(errorMessage)")
+            #endif
+            throw AIServiceError.apiError(statusCode: http.statusCode, message: "")
         }
-        let decoded = try JSONDecoder().decode(OpenAICompletionResponse.self, from: data)
-        guard let content = decoded.choices.first?.message.content else { throw AIServiceError.emptyContent }
-        return content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let raw = try extractAssistantTextFromChatCompletionsJSON(data)
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -592,20 +791,130 @@ enum AIServiceError: LocalizedError {
     case emptyContent
     case invalidJSONContent
     case apiError(statusCode: Int, message: String)
-    
+
     var errorDescription: String? {
         switch self {
         case .notConfigured:
-            return "OpenAI API key not set. Add OPENAI_API_KEY to your Xcode scheme or Info.plist."
+            return "This feature isn’t available in the app right now."
         case .invalidResponse:
-            return "Invalid response from server."
+            return "Something went wrong. Please try again."
         case .emptyContent:
-            return "Empty response from model."
+            return "The assistant didn’t return any text. Please try again."
         case .invalidJSONContent:
             return "Could not read the AI response."
-        case .apiError(let code, let message):
-            return "API error (\(code)): \(message)"
+        case .apiError:
+            return "Couldn’t reach the AI service. Please try again in a moment."
         }
+    }
+}
+
+// MARK: - Split proposal: loose dictionary parsing (alternate keys / shapes from models)
+
+private enum SplitDictionaryParsers {
+    static func flexibleInt(_ value: Any?) -> Int? {
+        switch value {
+        case let i as Int: return i
+        case let s as String: return Int(s.trimmingCharacters(in: .whitespacesAndNewlines))
+        case let d as Double: return Int(d)
+        case let n as NSNumber: return n.intValue
+        default: return nil
+        }
+    }
+
+    static func flexibleIntArray(_ value: Any?) -> [Int] {
+        if let arr = value as? [Int] { return arr }
+        if let arr = value as? [String] {
+            return arr.compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        }
+        if let arr = value as? [Any] {
+            return arr.compactMap { flexibleInt($0) }
+        }
+        return []
+    }
+
+    static func string(from value: Any?) -> String {
+        switch value {
+        case let s as String: return s
+        case let i as Int: return String(i)
+        case let d as Double: return String(Int(d))
+        case let n as NSNumber: return n.stringValue
+        default: return ""
+        }
+    }
+
+    static func stringArray(from value: Any?) -> [String] {
+        if let arr = value as? [String] {
+            return arr.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        }
+        if let s = value as? String, !s.isEmpty { return [s] }
+        if let arr = value as? [Any] {
+            return arr.compactMap { v in
+                let t = string(from: v).trimmingCharacters(in: .whitespacesAndNewlines)
+                return t.isEmpty ? nil : t
+            }
+        }
+        return []
+    }
+
+    static func dictionaryArray(from value: Any?) -> [[String: Any]] {
+        if let arr = value as? [[String: Any]] { return arr }
+        if let arr = value as? [Any] {
+            return arr.compactMap { $0 as? [String: Any] }
+        }
+        return []
+    }
+
+    static func workoutArrays(from root: [String: Any]) -> [[String: Any]] {
+        let keys = ["workouts", "days", "trainingDays", "splitDays", "workoutDays", "programDays"]
+        for k in keys {
+            if let arr = root[k] as? [[String: Any]], !arr.isEmpty { return arr }
+            if let arr = root[k] as? [Any] {
+                let mapped = arr.compactMap { $0 as? [String: Any] }
+                if !mapped.isEmpty { return mapped }
+            }
+        }
+        if let split = root["split"] as? [String: Any] {
+            let nested = workoutArrays(from: split)
+            if !nested.isEmpty { return nested }
+        }
+        if let inner = root["trainingProgram"] as? [String: Any] {
+            return workoutArrays(from: inner)
+        }
+        if let inner = root["program"] as? [String: Any] {
+            return workoutArrays(from: inner)
+        }
+        return []
+    }
+}
+
+// MARK: - Split proposal JSON (lenient decoding for real model output)
+
+private enum SplitJSONDecode {
+    static func flexibleInt<Key: CodingKey>(from c: KeyedDecodingContainer<Key>, key: Key) -> Int? {
+        if let i = try? c.decode(Int.self, forKey: key) { return i }
+        if let s = try? c.decode(String.self, forKey: key) {
+            return Int(s.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        if let d = try? c.decode(Double.self, forKey: key) { return Int(d) }
+        return nil
+    }
+
+    static func flexibleString<Key: CodingKey>(from c: KeyedDecodingContainer<Key>, key: Key) -> String? {
+        if let s = try? c.decode(String.self, forKey: key) { return s }
+        if let i = try? c.decode(Int.self, forKey: key) { return String(i) }
+        if let d = try? c.decode(Double.self, forKey: key) {
+            if d.rounded() == d { return String(Int(d)) }
+            return String(d)
+        }
+        return nil
+    }
+
+    static func flexibleWeekdayArray<Key: CodingKey>(from c: KeyedDecodingContainer<Key>, key: Key) -> [Int]? {
+        if let arr = try? c.decode([Int].self, forKey: key) { return arr }
+        if let strs = try? c.decode([String].self, forKey: key) {
+            return strs.compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        }
+        return nil
     }
 }
 
@@ -614,37 +923,231 @@ private struct SplitProposalJSON: Decodable {
     let sessionsPerWeek: Int?
     let preferredWeekdays: [Int]?
     let workouts: [SplitProposalWorkoutJSON]?
+
+    private enum CodingKeys: String, CodingKey {
+        case rationale
+        case sessionsPerWeek
+        case preferredWeekdays
+        case workouts
+        case days
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        rationale = try c.decodeIfPresent(String.self, forKey: .rationale)
+        sessionsPerWeek = SplitJSONDecode.flexibleInt(from: c, key: .sessionsPerWeek)
+        preferredWeekdays = SplitJSONDecode.flexibleWeekdayArray(from: c, key: .preferredWeekdays)
+        if let w = try c.decodeIfPresent([SplitProposalWorkoutJSON].self, forKey: .workouts), !w.isEmpty {
+            workouts = w
+        } else {
+            workouts = try c.decodeIfPresent([SplitProposalWorkoutJSON].self, forKey: .days)
+        }
+    }
 }
 
 private struct SplitProposalWorkoutJSON: Decodable {
-    let name: String
+    let name: String?
     let focus: String?
     let exercises: [SplitProposalExerciseJSON]?
     let slots: [SplitProposalSlotJSON]?
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case title
+        case day
+        case label
+        case focus
+        case exercises
+        case movements
+        case lifts
+        case exerciseList
+        case slots
+        case openSlots
+        case templateSlots
+        case slotTemplates
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let n = (try c.decodeIfPresent(String.self, forKey: .name) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let t = (try c.decodeIfPresent(String.self, forKey: .title) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let d = (try c.decodeIfPresent(String.self, forKey: .day) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let l = (try c.decodeIfPresent(String.self, forKey: .label) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let picked = [n, t, d, l].first { !$0.isEmpty }
+        name = picked
+        focus = try c.decodeIfPresent(String.self, forKey: .focus)
+        exercises = Self.decodeExerciseArray(from: c)
+        slots = Self.decodeSlotArray(from: c)
+    }
+
+    /// Models often emit `exercises` as an array of strings, or use synonyms like `movements` / `lifts`.
+    private static func decodeExerciseArray(from c: KeyedDecodingContainer<CodingKeys>) -> [SplitProposalExerciseJSON]? {
+        let keys: [CodingKeys] = [.exercises, .movements, .lifts, .exerciseList]
+        for key in keys {
+            if let one = try? c.decode(SplitProposalExerciseJSON.self, forKey: key) {
+                return one.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : [one]
+            }
+            if let s = try? c.decode(String.self, forKey: key) {
+                let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !t.isEmpty { return [SplitProposalExerciseJSON(plainName: t)] }
+            }
+            if let objs = try? c.decode([SplitProposalExerciseJSON].self, forKey: key) {
+                let nonEmpty = objs.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                if !nonEmpty.isEmpty { return nonEmpty }
+            }
+            if let strings = try? c.decode([String].self, forKey: key) {
+                let mapped = strings
+                    .map { SplitProposalExerciseJSON(plainName: $0) }
+                    .filter { !$0.name.isEmpty }
+                if !mapped.isEmpty { return mapped }
+            }
+        }
+        return nil
+    }
+
+    private static func decodeSlotArray(from c: KeyedDecodingContainer<CodingKeys>) -> [SplitProposalSlotJSON]? {
+        var merged: [SplitProposalSlotJSON] = []
+        for key in [CodingKeys.slots, .openSlots, .templateSlots, .slotTemplates] {
+            if let arr = try? c.decode([SplitProposalSlotJSON].self, forKey: key) {
+                merged.append(contentsOf: arr)
+            }
+        }
+        return merged.isEmpty ? nil : merged
+    }
 }
 
 private struct SplitProposalSlotJSON: Decodable {
-    let label: String?
+    let displayLabel: String
+    let suggestedEffective: String?
     let targetMuscleNames: [String]?
     let sets: Int?
     let reps: String?
-    let suggestedExerciseName: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case label
+        case name
+        case title
+        case slot
+        case role
+        case targetMuscleNames
+        case target_muscles
+        case muscles
+        case muscleGroups
+        case sets
+        case reps
+        case suggestedExerciseName
+        case exercise
+        case exerciseName
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func trim(_ s: String?) -> String { (s ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+
+        let label = trim(try c.decodeIfPresent(String.self, forKey: .label))
+        let name = trim(try c.decodeIfPresent(String.self, forKey: .name))
+        let title = trim(try c.decodeIfPresent(String.self, forKey: .title))
+        let slot = trim(try c.decodeIfPresent(String.self, forKey: .slot))
+        let role = trim(try c.decodeIfPresent(String.self, forKey: .role))
+        let suggested = trim(SplitJSONDecode.flexibleString(from: c, key: .suggestedExerciseName))
+        let exercise = trim(try c.decodeIfPresent(String.self, forKey: .exercise))
+        let exerciseName = trim(try c.decodeIfPresent(String.self, forKey: .exerciseName))
+
+        let suggestedPick = [suggested, exercise, exerciseName].first { !$0.isEmpty }
+        suggestedEffective = suggestedPick
+
+        let labelPick = [label, name, title, slot, role, suggestedPick ?? ""].first { !$0.isEmpty } ?? ""
+        displayLabel = labelPick
+
+        if let arr = try? c.decode([String].self, forKey: .targetMuscleNames) {
+            targetMuscleNames = arr
+        } else if let s = try? c.decode(String.self, forKey: .targetMuscleNames) {
+            targetMuscleNames = [s]
+        } else if let arr = try? c.decode([String].self, forKey: .target_muscles) {
+            targetMuscleNames = arr
+        } else if let s = try? c.decode(String.self, forKey: .target_muscles) {
+            targetMuscleNames = [s]
+        } else if let arr = try? c.decode([String].self, forKey: .muscles) {
+            targetMuscleNames = arr
+        } else if let s = try? c.decode(String.self, forKey: .muscles) {
+            targetMuscleNames = [s]
+        } else if let arr = try? c.decode([String].self, forKey: .muscleGroups) {
+            targetMuscleNames = arr
+        } else if let s = try? c.decode(String.self, forKey: .muscleGroups) {
+            targetMuscleNames = [s]
+        } else {
+            targetMuscleNames = nil
+        }
+
+        sets = SplitJSONDecode.flexibleInt(from: c, key: .sets)
+        reps = SplitJSONDecode.flexibleString(from: c, key: .reps)
+    }
 }
 
 private struct SplitProposalExerciseJSON: Decodable {
     let name: String
     let sets: Int?
     let reps: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case exercise
+        case exerciseName
+        case title
+        case movement
+        case sets
+        case reps
+    }
+
+    /// Array-of-strings exercise list from the model.
+    init(plainName raw: String) {
+        name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        sets = nil
+        reps = nil
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let n = (try c.decodeIfPresent(String.self, forKey: .name) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let ex = (try c.decodeIfPresent(String.self, forKey: .exercise) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let en = (try c.decodeIfPresent(String.self, forKey: .exerciseName) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let t = (try c.decodeIfPresent(String.self, forKey: .title) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let m = (try c.decodeIfPresent(String.self, forKey: .movement) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        name = [n, ex, en, t, m].first { !$0.isEmpty } ?? ""
+        sets = SplitJSONDecode.flexibleInt(from: c, key: .sets)
+        reps = SplitJSONDecode.flexibleString(from: c, key: .reps)
+    }
 }
 
-private struct OpenAICompletionResponse: Decodable {
-    let choices: [Choice]
-    struct Choice: Decodable {
-        let message: Message
-        struct Message: Decodable {
-            let content: String?
-        }
+/// Pulls `choices[0].message.content` whether `content` is a string or an array of parts (some models / proxies).
+private func extractAssistantTextFromChatCompletionsJSON(_ data: Data) throws -> String {
+    let obj = try JSONSerialization.jsonObject(with: data)
+    guard let top = obj as? [String: Any],
+          let choices = top["choices"] as? [Any],
+          let first = choices.first as? [String: Any],
+          let message = first["message"] as? [String: Any] else {
+        throw AIServiceError.invalidResponse
     }
+    let content = message["content"]
+    if let s = content as? String { return s }
+    if let arr = content as? [Any] {
+        var chunks: [String] = []
+        for item in arr {
+            if let s = item as? String, !s.isEmpty {
+                chunks.append(s)
+                continue
+            }
+            guard let d = item as? [String: Any] else { continue }
+            if let t = d["text"] as? String, !t.isEmpty {
+                chunks.append(t)
+            } else if let t = d["content"] as? String, !t.isEmpty {
+                chunks.append(t)
+            }
+        }
+        let joined = chunks.joined()
+        if !joined.isEmpty { return joined }
+    }
+    throw AIServiceError.emptyContent
 }
 
 private struct NewExerciseReviewJSON: Decodable {

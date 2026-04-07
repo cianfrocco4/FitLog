@@ -24,7 +24,8 @@ struct VersionedPayload<T: Codable>: Codable {
 /// The version history:
 ///   1 – initial SwiftData migration (ExerciseSnapshot, SlotResolution, WorkoutPlanRef cycle entries)
 ///   2 – unified workout library (SlotBlueprint, single WorkoutPlanRef.workout, backups omit templates)
-let currentSchemaVersion = 2
+///   3 – library workouts use slot blueprints only (concrete rows migrated to flexible + defaultExerciseId)
+let currentSchemaVersion = 3
 
 /// Encode a value wrapped in a VersionedPayload.
 func versionedEncode<T: Codable>(_ value: T) -> Data {

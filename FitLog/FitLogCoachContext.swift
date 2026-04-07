@@ -53,26 +53,28 @@ extension DataManager {
 
         lines.append("## Workouts (\(userWorkouts.count))")
         for w in userWorkouts {
-            if w.hasFlexibleSlots {
-                lines.append("### \(w.name) (open slots)")
-                let slots = flexibleSlots(from: w)
-                if slots.isEmpty {
-                    lines.append("- (no slots yet)")
-                    continue
-                }
-                for s in slots {
-                    let muscles = s.targetedMuscles.prefix(4).map(\.rawValue).joined(separator: ", ")
-                    let role = s.exerciseRole?.rawValue ?? "any"
-                    let pat = s.movementPattern?.rawValue ?? "any"
-                    lines.append("- \(s.label): \(s.recommendedSets)×\(s.recommendedReps), rest \(s.defaultRestTime)s — muscles: \(muscles), role: \(role), pattern: \(pat)")
-                }
-            } else {
-                lines.append("### \(w.name) (fixed)")
-                if w.exercises.isEmpty {
-                    lines.append("- (no exercises)")
-                    continue
-                }
-                for we in w.exercises {
+            lines.append("### \(w.name) (\(w.listDetailSubtitle))")
+            if w.exercises.isEmpty {
+                lines.append("- (empty)")
+                continue
+            }
+            for we in w.exercises {
+                if we.isOpenSlot, case .flexible(let b) = we.resolution {
+                    let muscles = b.targetedMuscles.prefix(4).map(\.rawValue).joined(separator: ", ")
+                    let role = b.exerciseRole?.rawValue ?? "any"
+                    let pat = b.movementPattern?.rawValue ?? "any"
+                    lines.append("- [open slot] \(b.label): \(we.recommendedSets)×\(we.recommendedReps), rest \(we.defaultRestTime)s — muscles: \(muscles), role: \(role), pattern: \(pat)")
+                } else if case .flexible(let b) = we.resolution, b.defaultExerciseId != nil {
+                    let exName = displayName(for: we)
+                    let muscles: String
+                    if let eid = b.defaultExerciseId, let ex = globalExercises.first(where: { $0.id == eid }) {
+                        muscles = ex.targetedMuscles.prefix(4).map(\.rawValue).joined(separator: ", ")
+                    } else {
+                        muscles = ""
+                    }
+                    let slotNote = b.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : " (slot: \(b.label))"
+                    lines.append("- \(exName)\(slotNote): \(we.recommendedSets)×\(we.recommendedReps), rest \(we.defaultRestTime)s\(muscles.isEmpty ? "" : " — muscles: \(muscles)")")
+                } else {
                     let exName = displayName(for: we)
                     let muscles: String
                     if let snap = we.snapshot, let ex = resolveExercise(for: snap) {

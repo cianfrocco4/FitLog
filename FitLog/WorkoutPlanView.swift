@@ -14,6 +14,11 @@ enum ExerciseDisplayOrder: String, CaseIterable {
     case byMuscleGroup = "By muscle"
 }
 
+/// Pushes `FlexibleSlotEditorView` after adding an open slot.
+private struct OpenSlotEditorNavigation: Identifiable, Hashable {
+    let id: UUID
+}
+
 /// Wraps a workout exercise with its index in the persisted array (for tap/delete/move).
 private struct ExerciseDisplayItem: Identifiable {
     let id: UUID
@@ -41,6 +46,17 @@ struct WorkoutPlanView: View {
     @State private var suggestionsLoading = false
     @State private var suggestionsExpanded = true
     @State private var pendingWorkoutReplace: PendingWorkoutReplace?
+    @State private var openSlotEditorNavigation: OpenSlotEditorNavigation?
+
+    /// Active session started from this library workout (`sessionInstance` uses a different workout id).
+    private var isThisLibrarySessionActive: Bool {
+        guard let s = currentVM.currentSession, s.endTime == nil else { return false }
+        return s.sessionPlanOrigin == .workout(workout.id)
+    }
+
+    private var workoutForSessionStart: Workout {
+        workout.hasFlexibleSlots ? dataVM.sessionInstance(from: workout) : workout
+    }
 
     /// Display list for default and alphabetical (flat). Order is view-only.
     private var displayedItems: [ExerciseDisplayItem] {
@@ -62,9 +78,15 @@ struct WorkoutPlanView: View {
     private var displayedSections: [(String, [ExerciseDisplayItem])] {
         let enumerated = workout.exercises.enumerated().map { ExerciseDisplayItem(workoutExercise: $0.element, sourceIndex: $0.offset) }
         let grouped = Dictionary(grouping: enumerated) { item -> String in
-            if let snap = item.workoutExercise.snapshot,
-               let ex = dataVM.resolveExercise(for: snap) {
+            let we = item.workoutExercise
+            if let eid = we.exerciseId, let ex = dataVM.globalExercises.first(where: { $0.id == eid }) {
                 return ex.targetedMuscles.first?.rawValue ?? MuscleGroup.other.rawValue
+            }
+            if let snap = we.snapshot, let ex = dataVM.resolveExercise(for: snap) {
+                return ex.targetedMuscles.first?.rawValue ?? MuscleGroup.other.rawValue
+            }
+            if case .flexible(let b) = we.resolution, let first = b.targetedMuscles.first {
+                return first.rawValue
             }
             return MuscleGroup.other.rawValue
         }
@@ -95,17 +117,20 @@ struct WorkoutPlanView: View {
         .navigationTitle(workout.name)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button(currentVM.currentSession?.workout.id == workout.id ? "Stop" : "Start") {
-                    if currentVM.currentSession?.workout.id == workout.id {
+                Button(isThisLibrarySessionActive ? "Stop" : "Start") {
+                    if isThisLibrarySessionActive {
                         currentVM.stopWorkout()
                     } else {
-                        currentVM.startWorkoutResolvingConflict(workout, sessionPlanOrigin: .workout(workout.id)) {
+                        currentVM.startWorkoutResolvingConflict(
+                            workoutForSessionStart,
+                            sessionPlanOrigin: .workout(workout.id)
+                        ) {
                             pendingWorkoutReplace = $0
                         }
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(currentVM.currentSession?.workout.id == workout.id ? .red : .green)
+                .tint(isThisLibrarySessionActive ? .red : .green)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Rename") {
@@ -140,6 +165,15 @@ struct WorkoutPlanView: View {
             }
         }
         .workoutReplaceConflictConfirmation(currentVM: currentVM, pending: $pendingWorkoutReplace)
+        .navigationDestination(item: $openSlotEditorNavigation) { nav in
+            FlexibleSlotEditorView(workoutId: workout.id, slotId: nav.id, autoFocusLabelOnAppear: true)
+                .environmentObject(dataVM)
+                .onDisappear {
+                    if openSlotEditorNavigation?.id == nav.id {
+                        openSlotEditorNavigation = nil
+                    }
+                }
+        }
     }
     
     private var listFlat: some View {
@@ -166,7 +200,7 @@ struct WorkoutPlanView: View {
                 }
             }
             suggestionsSection
-            Button("Add Exercise") { showAddExercise = true }
+            addItemsSection
         }
     }
     
@@ -183,7 +217,14 @@ struct WorkoutPlanView: View {
                 }
             }
             suggestionsSection
-            Button("Add Exercise") { showAddExercise = true }
+            addItemsSection
+        }
+    }
+
+    private var addItemsSection: some View {
+        Section {
+            Button("Add slot with exercise") { showAddExercise = true }
+            Button("Add open slot") { addOpenSlot() }
         }
     }
 
@@ -222,25 +263,86 @@ struct WorkoutPlanView: View {
         }
     }
     
+    @ViewBuilder
     private func exerciseRow(item: ExerciseDisplayItem) -> some View {
         let we = item.workoutExercise
-        return Button {
-            guard currentVM.currentSession?.workout.id == workout.id,
-                  item.sourceIndex < workout.exercises.count
-            else { return }
-            let rowId = workout.exercises[item.sourceIndex].id
-            guard let logIndex = currentVM.currentSession?.exerciseLogs.firstIndex(where: { $0.workoutExercise.id == rowId })
-            else { return }
-            openPullUpToExerciseLogIndex?(logIndex)
-        } label: {
-            HStack {
-                Text(dataVM.displayName(for: we)).font(.headline)
-                Spacer()
-                Text("Rec: \(we.recommendedSets) sets x \(we.recommendedReps)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        if case .flexible = we.resolution, let slotId = we.templateSlotId {
+            NavigationLink {
+                FlexibleSlotEditorView(workoutId: workout.id, slotId: slotId)
+                    .environmentObject(dataVM)
+            } label: {
+                flexibleRowLabel(we)
+            }
+        } else {
+            Button {
+                guard isThisLibrarySessionActive,
+                      item.sourceIndex < workout.exercises.count
+                else { return }
+                let rowId = workout.exercises[item.sourceIndex].id
+                guard let logIndex = currentVM.currentSession?.exerciseLogs.firstIndex(where: { $0.workoutExercise.id == rowId })
+                else { return }
+                openPullUpToExerciseLogIndex?(logIndex)
+            } label: {
+                concreteRowLabel(we)
             }
         }
+    }
+
+    private func flexibleRowLabel(_ we: WorkoutExercise) -> some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(dataVM.displayName(for: we))
+                        .font(.headline)
+                    Text("Open slot")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.secondary.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+                if case .flexible(let b) = we.resolution, !b.targetedMuscles.isEmpty {
+                    Text(b.targetedMuscles.prefix(3).map(\.rawValue).joined(separator: ", "))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Text("Rec: \(we.recommendedSets) sets x \(we.recommendedReps)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func concreteRowLabel(_ we: WorkoutExercise) -> some View {
+        HStack {
+            Text(dataVM.displayName(for: we)).font(.headline)
+            Spacer()
+            Text("Rec: \(we.recommendedSets) sets x \(we.recommendedReps)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func addOpenSlot() {
+        let slots = dataVM.flexibleSlots(from: workout)
+        let n = slots.count + 1
+        let slot = TemplateSlot(
+            label: "Slot \(n)",
+            targetedMuscles: [.chest],
+            exerciseRole: .compound,
+            movementPattern: .horizontalPush,
+            defaultExerciseId: nil,
+            defaultRestTime: 90,
+            recommendedSets: 3,
+            recommendedReps: "8-12"
+        )
+        guard let newSlotId = dataVM.appendFlexibleSlot(toWorkoutId: workout.id, slot: slot) else { return }
+        if let updated = dataVM.userWorkouts.first(where: { $0.id == workout.id }) {
+            workout = updated
+        }
+        openSlotEditorNavigation = OpenSlotEditorNavigation(id: newSlotId)
     }
 
     private func loadSuggestions() async {
@@ -269,8 +371,12 @@ private func heuristicImprovementSuggestions(for workout: Workout, dataVM: DataM
     var setsByMuscle: [MuscleGroup: Int] = [:]
     for we in workout.exercises {
         let primary: MuscleGroup
-        if let snap = we.snapshot, let ex = dataVM.resolveExercise(for: snap) {
+        if let eid = we.exerciseId, let ex = dataVM.globalExercises.first(where: { $0.id == eid }) {
             primary = ex.targetedMuscles.first ?? .other
+        } else if let snap = we.snapshot, let ex = dataVM.resolveExercise(for: snap) {
+            primary = ex.targetedMuscles.first ?? .other
+        } else if case .flexible(let b) = we.resolution, let first = b.targetedMuscles.first {
+            primary = first
         } else {
             primary = .other
         }

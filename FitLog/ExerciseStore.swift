@@ -82,13 +82,17 @@ final class ExerciseStore {
 
     func displayName(for snapshot: ExerciseSnapshot, globalExercises: [Exercise], localNames: [UUID: String]) -> String {
         if let ex = globalExercises.first(where: { $0.id == snapshot.exerciseId }) {
-            return resolvedDisplayName(for: ex, globalExercises: globalExercises, localNames: localNames)
+            let s = resolvedDisplayName(for: ex, globalExercises: globalExercises, localNames: localNames)
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !t.isEmpty { return s }
         }
         if let custom = localNames[snapshot.exerciseId] {
             let t = custom.trimmingCharacters(in: .whitespacesAndNewlines)
             if !t.isEmpty { return t }
         }
-        return snapshot.nameAtTimeOfLog
+        let snapName = snapshot.nameAtTimeOfLog.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !snapName.isEmpty { return snapshot.nameAtTimeOfLog }
+        return "Exercise"
     }
 
     func displayName(for we: WorkoutExercise, globalExercises: [Exercise], localNames: [UUID: String]) -> String {
@@ -96,6 +100,10 @@ final class ExerciseStore {
         case .concrete(let snap):
             return displayName(for: snap, globalExercises: globalExercises, localNames: localNames)
         case .flexible(let blueprint):
+            if let defId = blueprint.defaultExerciseId,
+               let ex = globalExercises.first(where: { $0.id == defId }) {
+                return resolvedDisplayName(for: ex, globalExercises: globalExercises, localNames: localNames)
+            }
             return blueprint.label.isEmpty ? "Choose exercise" : blueprint.label
         }
     }

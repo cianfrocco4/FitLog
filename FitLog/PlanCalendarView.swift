@@ -11,6 +11,7 @@ struct PlanCalendarView: View {
     @EnvironmentObject var dayMonitor: CalendarDayMonitor
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @EnvironmentObject var aiService: AIService
 
     @State private var visibleMonth: Date = Date()
     @State private var daySheetDate: Date?
@@ -94,6 +95,7 @@ struct PlanCalendarView: View {
                 DayPlanSheet(date: item.date)
                     .environmentObject(dataVM)
                     .environmentObject(currentVM)
+                    .environmentObject(aiService)
             }
             .sheet(item: Binding(
                 get: { weekEditAnchor.map { WeekSheetItem(anchor: $0) } },
@@ -299,6 +301,7 @@ private struct WeekSheetItem: Identifiable {
 struct DayPlanSheet: View {
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @EnvironmentObject var aiService: AIService
     @Environment(\.dismiss) private var dismiss
 
     let date: Date
@@ -378,21 +381,16 @@ struct DayPlanSheet: View {
                 }
 
                 Section {
-                    if let wid = planWorkoutIdForLink, let w = dataVM.workout(id: wid) {
-                        if w.hasFlexibleSlots {
-                            NavigationLink("Edit open slots") {
-                                SlotTemplatePlanView(workoutId: wid)
+                    if let wid = planWorkoutIdForLink {
+                        NavigationLink("Open workout") {
+                            if let binding = $dataVM.userWorkouts[wid] {
+                                WorkoutPlanView(workout: binding)
                                     .environmentObject(dataVM)
                                     .environmentObject(currentVM)
-                            }
-                        } else {
-                            NavigationLink("Open workout") {
-                                if let binding = $dataVM.userWorkouts[wid] {
-                                    WorkoutPlanView(workout: binding)
-                                } else {
-                                    Text("This workout was removed from your library.")
-                                        .foregroundStyle(.secondary)
-                                }
+                                    .environmentObject(aiService)
+                            } else {
+                                Text("This workout was removed from your library.")
+                                    .foregroundStyle(.secondary)
                             }
                         }
                     }

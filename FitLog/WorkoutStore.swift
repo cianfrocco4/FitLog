@@ -26,17 +26,20 @@ final class WorkoutStore {
         return sdWorkouts.map { $0.toStruct() }
     }
 
-    func saveWorkouts(_ workouts: [Workout]) {
+    @discardableResult
+    func saveWorkouts(_ workouts: [Workout]) -> Bool {
         do {
             try modelContext.delete(model: SDWorkout.self)
             for (i, w) in workouts.enumerated() {
                 modelContext.insert(SDWorkout.from(w, sortOrder: i))
             }
             try modelContext.save()
+            return true
         } catch {
             #if DEBUG
             print("[SwiftData] Save workouts failed: \(error.localizedDescription)")
             #endif
+            return false
         }
     }
 

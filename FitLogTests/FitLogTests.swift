@@ -133,4 +133,94 @@ struct FitLogTests {
             #expect(Bool(false), "Expected flexible blueprint")
         }
     }
+
+    @Test func exerciseSnapshot_decodesLegacyIdAndNameKeys() throws {
+        let eid = UUID()
+        let json = Data(#"{"id":"\#(eid.uuidString)","name":"Squat"}"#.utf8)
+        let decoded = try JSONDecoder().decode(ExerciseSnapshot.self, from: json)
+        #expect(decoded.exerciseId == eid)
+        #expect(decoded.nameAtTimeOfLog == "Squat")
+    }
+
+    @Test func slotResolution_decodesConcreteLegacyFullExercise() throws {
+        let eid = UUID()
+        let json = Data(
+            #"""
+            {"concrete":{"id":"\#(eid.uuidString)","name":"Bench Press","description":"","targetedMuscles":[]}}
+            """#.utf8
+        )
+        let decoded = try JSONDecoder().decode(SlotResolution.self, from: json)
+        if case .concrete(let s) = decoded {
+            #expect(s.exerciseId == eid)
+            #expect(s.nameAtTimeOfLog == "Bench Press")
+        } else {
+            #expect(Bool(false), "Expected concrete snapshot from legacy Exercise payload")
+        }
+    }
+
+    @Test func workoutExercise_keepsConcreteWhenConcretePayloadWasFullExercise() throws {
+        let rowId = UUID()
+        let eid = UUID()
+        let json = Data(
+            #"""
+            {"id":"\#(rowId.uuidString)","resolution":{"concrete":{"id":"\#(eid.uuidString)","name":"Row","description":"","targetedMuscles":[]}},"defaultRestTime":90,"recommendedSets":3,"recommendedReps":"8-12","configurationFields":[],"recommendedConfigBySet":[]}
+            """#.utf8
+        )
+        let decoded = try JSONDecoder().decode(WorkoutExercise.self, from: json)
+        #expect(decoded.id == rowId)
+        if case .concrete(let s) = decoded.resolution {
+            #expect(s.exerciseId == eid)
+            #expect(s.nameAtTimeOfLog == "Row")
+        } else {
+            #expect(Bool(false), "Expected concrete row, not empty flexible fallback")
+        }
+    }
+
+    @Test func workoutExercise_exerciseId_includesFlexibleDefault() {
+        let eid = UUID()
+        let bid = UUID()
+        let b = SlotBlueprint(id: bid, label: "Horizontal push", targetedMuscles: [.chest], defaultExerciseId: eid)
+        let we = WorkoutExercise(id: UUID(), resolution: .flexible(b))
+        #expect(we.exerciseId == eid)
+        #expect(!we.isOpenSlot)
+        #expect(we.isSlotPlaceholder == false)
+    }
+
+    @Test func unifiedSlotsMigration_convertsConcreteLibraryRow() {
+        let exId = UUID()
+        let rowId = UUID()
+        let wid = UUID()
+        let libraryExercise = Exercise(
+            id: exId,
+            name: "Back Squat",
+            description: "",
+            targetedMuscles: [.quads, .glutes],
+            isCustom: false,
+            configurationOptions: [],
+            exerciseRole: .compound,
+            movementPattern: .squat
+        )
+        let snap = ExerciseSnapshot(exerciseId: exId, nameAtTimeOfLog: "Back Squat")
+        let we = WorkoutExercise(
+            id: rowId,
+            resolution: .concrete(snap),
+            defaultRestTime: 120,
+            recommendedSets: 4,
+            recommendedReps: "5",
+            configurationFields: [],
+            recommendedConfigBySet: []
+        )
+        var workouts = [Workout(id: wid, name: "Legs", exercises: [we], templateSlotIdByWorkoutExerciseId: [:])]
+        let changed = WorkoutUnifiedSlotsMigration.migrateWorkoutsInPlace(&workouts, globalExercises: [libraryExercise])
+        #expect(changed == true)
+        guard case .flexible(let b) = workouts[0].exercises[0].resolution else {
+            #expect(Bool(false), "Expected flexible blueprint")
+            return
+        }
+        #expect(b.defaultExerciseId == exId)
+        #expect(b.label == "Back Squat")
+        #expect(workouts[0].templateSlotIdByWorkoutExerciseId[rowId] == b.id)
+        #expect(workouts[0].exercises[0].recommendedSets == 4)
+        #expect(workouts[0].exercises[0].recommendedReps == "5")
+    }
 }
