@@ -72,9 +72,8 @@ enum WorkoutMigrationService {
             let sessions = try context.fetch(sessionDescriptor)
             for sd in sessions {
                 guard var s = sd.toStruct() else { continue }
-                if let o = s.sessionPlanOrigin, let newId = idRemap[o.libraryWorkoutId] {
-                    s.sessionPlanOrigin = .workout(newId)
-                }
+                guard let o = s.sessionPlanOrigin, let newId = idRemap[o.libraryWorkoutId] else { continue }
+                s.sessionPlanOrigin = .workout(newId)
                 context.delete(sd)
                 context.insert(SDWorkoutSession.from(s))
             }

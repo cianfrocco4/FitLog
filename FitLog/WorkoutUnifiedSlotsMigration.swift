@@ -15,6 +15,44 @@ enum WorkoutUnifiedSlotsMigration {
     /// Stable filename for support: most recent pre-migration export before unified slots run.
     static let latestPreMigrationBackupFileName = "pre_unified_slots_latest.json"
 
+    /// True if any exercise row in the embedded workout snapshot still uses `.concrete` (library or historical session).
+    static func embeddedWorkoutHasConcreteRow(_ workout: Workout) -> Bool {
+        workout.exercises.contains { we in
+            if case .concrete = we.resolution { return true }
+            return false
+        }
+    }
+
+    /// Converts concrete rows in a **session’s** embedded workout to flexible blueprints and syncs `exerciseLogs[].workoutExercise` by row id.
+    static func migrateSessionConcreteSnapshotInPlace(_ session: inout WorkoutSession, globalExercises: [Exercise]) -> Bool {
+        var arr = [session.workout]
+        let changed = migrateWorkoutsInPlace(&arr, globalExercises: globalExercises)
+        guard changed, let migratedWorkout = arr.first else { return false }
+        session.workout = migratedWorkout
+        let byId = Dictionary(uniqueKeysWithValues: migratedWorkout.exercises.map { ($0.id, $0) })
+        for i in session.exerciseLogs.indices {
+            let lid = session.exerciseLogs[i].workoutExercise.id
+            if let row = byId[lid] {
+                session.exerciseLogs[i].workoutExercise = row
+            }
+        }
+        return true
+    }
+
+    /// Migrates every session whose embedded workout still has concrete rows (historical workouts before unified slots).
+    static func migrateAllSessionsConcreteSnapshotsInPlace(_ sessions: inout [WorkoutSession], globalExercises: [Exercise]) -> Bool {
+        var any = false
+        for i in sessions.indices {
+            guard embeddedWorkoutHasConcreteRow(sessions[i].workout) else { continue }
+            var s = sessions[i]
+            if migrateSessionConcreteSnapshotInPlace(&s, globalExercises: globalExercises) {
+                sessions[i] = s
+                any = true
+            }
+        }
+        return any
+    }
+
     /// Converts concrete library rows to flexible blueprints with defaults. Returns whether any workout changed.
     static func migrateWorkoutsInPlace(_ workouts: inout [Workout], globalExercises: [Exercise]) -> Bool {
         var changed = false
@@ -139,5 +177,22 @@ enum WorkoutUnifiedSlotsMigration {
                 return false
             }
         }
+    }
+
+    /// Ensures migrated sessions still round-trip through JSON (same shape as SwiftData blobs).
+    static func validateSessionsCodableRoundTrip(_ sessions: [WorkoutSession]) -> Bool {
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        guard let data = try? encoder.encode(sessions),
+              let copy = try? decoder.decode([WorkoutSession].self, from: data)
+        else { return false }
+        guard copy.count == sessions.count else { return false }
+        for (a, b) in zip(sessions, copy) {
+            guard a.id == b.id,
+                  a.workout.exercises.count == b.workout.exercises.count,
+                  a.exerciseLogs.count == b.exerciseLogs.count
+            else { return false }
+        }
+        return true
     }
 }

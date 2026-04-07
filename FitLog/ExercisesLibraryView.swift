@@ -108,55 +108,53 @@ struct ExercisesLibraryView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if useFlatList {
-                    listFlat
-                } else {
-                    listByCategory
-                }
+        Group {
+            if useFlatList {
+                listFlat
+            } else {
+                listByCategory
             }
-            .navigationTitle("Exercise Library")
-            .searchable(text: $searchText, prompt: "Search by name or muscle")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Menu {
-                        Picker("Browse", selection: $browseMode) {
-                            ForEach(ExerciseLibraryBrowseMode.allCases, id: \.self) { mode in
-                                Text(mode.rawValue).tag(mode)
-                            }
+        }
+        .navigationTitle("Exercise Library")
+        .searchable(text: $searchText, prompt: "Search by name or muscle")
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Menu {
+                    Picker("Browse", selection: $browseMode) {
+                        ForEach(ExerciseLibraryBrowseMode.allCases, id: \.self) { mode in
+                            Text(mode.rawValue).tag(mode)
                         }
-                        Picker("Show", selection: $libraryFilter) {
-                            ForEach(ExerciseLibraryFilter.allCases, id: \.self) { filter in
-                                Text(filter.rawValue).tag(filter)
-                            }
-                        }
-                    } label: {
-                        Label("View", systemImage: "line.3.horizontal.decrease.circle")
                     }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Add New") { showAddSheet = true }
+                    Picker("Show", selection: $libraryFilter) {
+                        ForEach(ExerciseLibraryFilter.allCases, id: \.self) { filter in
+                            Text(filter.rawValue).tag(filter)
+                        }
+                    }
+                } label: {
+                    Label("View", systemImage: "line.3.horizontal.decrease.circle")
                 }
             }
-            .sheet(isPresented: $showAddSheet) {
-                NewExerciseSheet()
-                    .environmentObject(dataVM)
-                    .environmentObject(aiService)
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Add New") { showAddSheet = true }
             }
-            .sheet(item: $exerciseToRenameLocally) { item in
-                LocalExerciseRenameSheet(
-                    exercise: item.exercise,
-                    initialDisplayName: dataVM.resolvedDisplayName(for: item.exercise)
-                )
+        }
+        .sheet(isPresented: $showAddSheet) {
+            NewExerciseSheet()
                 .environmentObject(dataVM)
-            }
-            .sheet(item: $exerciseToEdit, onDismiss: { exerciseToEdit = nil }) { item in
-                EditExerciseSheet(exercise: item.exercise)
-            }
-            .onAppear {
-                favoriteIds = ExercisePickerPersistence.loadFavorites()
-            }
+                .environmentObject(aiService)
+        }
+        .sheet(item: $exerciseToRenameLocally) { item in
+            LocalExerciseRenameSheet(
+                exercise: item.exercise,
+                initialDisplayName: dataVM.resolvedDisplayName(for: item.exercise)
+            )
+            .environmentObject(dataVM)
+        }
+        .sheet(item: $exerciseToEdit, onDismiss: { exerciseToEdit = nil }) { item in
+            EditExerciseSheet(exercise: item.exercise)
+        }
+        .onAppear {
+            favoriteIds = ExercisePickerPersistence.loadFavorites()
         }
     }
 

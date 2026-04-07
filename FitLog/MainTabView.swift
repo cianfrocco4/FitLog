@@ -19,11 +19,10 @@ struct MainTabView: View {
             HomeView().tabItem { Label("Home", systemImage: "house") }
             PlanCalendarView().tabItem { Label("Plan", systemImage: "calendar") }
             HistoryView().tabItem { Label("History", systemImage: "chart.bar") }
-            ExercisesLibraryView().tabItem { Label("Exercises", systemImage: "list.bullet") }
             AIChatView()
                 .tabItem { Label("Coach", systemImage: "bubble.left.and.bubble.right") }
-            DataAndIntegrationsView()
-                .tabItem { Label("Settings", systemImage: "gearshape") }
+            MoreTabRootView()
+                .tabItem { Label("More", systemImage: "ellipsis.circle") }
         }
         .environment(\.openCurrentWorkoutSheet, {
             currentVM.pendingPullUpFocus = nil

@@ -37,17 +37,20 @@ final class SessionStore {
         }
     }
 
-    func saveSessions(_ sessions: [WorkoutSession]) {
+    @discardableResult
+    func saveSessions(_ sessions: [WorkoutSession]) -> Bool {
         do {
             try modelContext.delete(model: SDWorkoutSession.self)
             for s in sessions {
                 modelContext.insert(SDWorkoutSession.from(s))
             }
             try modelContext.save()
+            return true
         } catch {
             #if DEBUG
             print("[SwiftData] Save sessions failed: \(error.localizedDescription)")
             #endif
+            return false
         }
     }
 }

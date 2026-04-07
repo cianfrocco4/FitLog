@@ -68,12 +68,13 @@ final class DataManager: ObservableObject {
 
         migrateLegacyCustomExercises()
         migrateWorkoutsToUnifiedSlotsIfNeeded()
+        repairSessionConcreteSnapshotsIfNeeded()
         rotateBackup()
         freezeYesterdayPlanAssignmentIfNeeded()
     }
 
-    /// Converts legacy `.concrete` library rows into `.flexible` blueprints with `defaultExerciseId`. Runs once.
-    /// TestFlight-safe: verified JSON backup before mutating, Codable round-trips, SwiftData save success, reload parity; completion flag only if all pass.
+    /// Converts legacy `.concrete` rows in **library workouts and historical session snapshots** to `.flexible` blueprints. Runs once (UserDefaults flag).
+    /// Session snapshots were previously omitted, which left History decoding fragile and could strand plan/session data out of sync with the library model.
     private func migrateWorkoutsToUnifiedSlotsIfNeeded() {
         let key = WorkoutUnifiedSlotsMigration.completedUserDefaultsKey
         guard !UserDefaults.standard.bool(forKey: key) else { return }
@@ -84,8 +85,11 @@ final class DataManager: ObservableObject {
                 return false
             }
         }
+        let hasConcreteSessionSnapshot = completedSessions.contains {
+            WorkoutUnifiedSlotsMigration.embeddedWorkoutHasConcreteRow($0.workout)
+        }
 
-        if hasConcreteLibraryRow {
+        if hasConcreteLibraryRow || hasConcreteSessionSnapshot {
             let snapshot = BackupSnapshot(
                 schemaVersion: currentSchemaVersion,
                 exercises: globalExercises,
@@ -98,32 +102,47 @@ final class DataManager: ObservableObject {
                 unifiedSlotsMigrationLog.error("Pre-migration backup missing or failed JSON verification; unified slots migration skipped.")
                 return
             }
-            unifiedSlotsMigrationLog.notice("Pre-migration backup written and verified (workouts=\(snapshot.workouts.count), exercises=\(snapshot.exercises.count)).")
+            unifiedSlotsMigrationLog.notice("Pre-migration backup written and verified (workouts=\(snapshot.workouts.count), sessions=\(snapshot.sessions.count)).")
         }
 
-        var migrated = userWorkouts
-        let changed = WorkoutUnifiedSlotsMigration.migrateWorkoutsInPlace(&migrated, globalExercises: globalExercises)
+        var migratedLibrary = userWorkouts
+        let libraryChanged = WorkoutUnifiedSlotsMigration.migrateWorkoutsInPlace(&migratedLibrary, globalExercises: globalExercises)
 
-        if !changed {
+        var migratedSessions = completedSessions
+        let sessionsChanged = WorkoutUnifiedSlotsMigration.migrateAllSessionsConcreteSnapshotsInPlace(
+            &migratedSessions,
+            globalExercises: globalExercises
+        )
+
+        if !libraryChanged && !sessionsChanged {
             UserDefaults.standard.set(true, forKey: key)
-            unifiedSlotsMigrationLog.notice("Unified slots migration: nothing to convert; marked complete.")
+            unifiedSlotsMigrationLog.notice("Unified slots migration: no concrete rows in library or session snapshots; marked complete.")
             return
         }
 
-        guard WorkoutUnifiedSlotsMigration.validateWorkoutsEncode(migrated) else {
-            unifiedSlotsMigrationLog.error("Unified slots migration aborted: migrated workouts failed to encode.")
-            return
+        if libraryChanged {
+            guard WorkoutUnifiedSlotsMigration.validateWorkoutsEncode(migratedLibrary) else {
+                unifiedSlotsMigrationLog.error("Unified slots migration aborted: migrated workouts failed to encode.")
+                return
+            }
+            guard WorkoutUnifiedSlotsMigration.validateWorkoutsCodableRoundTrip(migratedLibrary) else {
+                unifiedSlotsMigrationLog.error("Unified slots migration aborted: workouts JSON round-trip failed.")
+                return
+            }
         }
-        guard WorkoutUnifiedSlotsMigration.validateWorkoutsCodableRoundTrip(migrated) else {
-            unifiedSlotsMigrationLog.error("Unified slots migration aborted: workouts JSON round-trip failed.")
-            return
+
+        if sessionsChanged {
+            guard WorkoutUnifiedSlotsMigration.validateSessionsCodableRoundTrip(migratedSessions) else {
+                unifiedSlotsMigrationLog.error("Unified slots migration aborted: migrated sessions failed JSON round-trip.")
+                return
+            }
         }
 
         let postSnapshot = BackupSnapshot(
             schemaVersion: currentSchemaVersion,
             exercises: globalExercises,
-            workouts: migrated,
-            sessions: completedSessions,
+            workouts: migratedLibrary,
+            sessions: migratedSessions,
             program: trainingProgram,
             displayNames: exerciseLocalDisplayNames
         )
@@ -131,35 +150,84 @@ final class DataManager: ObservableObject {
             unifiedSlotsMigrationLog.error("Unified slots migration aborted: full app snapshot round-trip failed.")
             return
         }
-        guard WorkoutUnifiedSlotsMigration.libraryHasNoConcreteRows(migrated) else {
-            unifiedSlotsMigrationLog.error("Unified slots migration aborted: concrete rows still present after in-memory transform.")
-            return
+
+        if libraryChanged {
+            guard WorkoutUnifiedSlotsMigration.libraryHasNoConcreteRows(migratedLibrary) else {
+                unifiedSlotsMigrationLog.error("Unified slots migration aborted: concrete rows still present in library after transform.")
+                return
+            }
         }
 
-        let previous = userWorkouts
-        userWorkouts = migrated
+        let previousLibrary = userWorkouts
+        let previousSessions = completedSessions
 
-        guard saveWorkouts() else {
-            userWorkouts = previous
-            unifiedSlotsMigrationLog.error("Unified slots migration aborted: SwiftData save failed.")
-            return
-        }
-
-        let reloaded = workoutStore.loadWorkouts()
-        guard Self.workoutsMatchAfterUnifiedMigration(persisted: reloaded, expected: migrated) else {
+        if libraryChanged {
+            userWorkouts = migratedLibrary
+            guard saveWorkouts() else {
+                userWorkouts = previousLibrary
+                unifiedSlotsMigrationLog.error("Unified slots migration aborted: SwiftData workout save failed.")
+                return
+            }
+            let reloaded = workoutStore.loadWorkouts()
+            guard Self.workoutsMatchAfterUnifiedMigration(persisted: reloaded, expected: migratedLibrary) else {
+                userWorkouts = reloaded
+                unifiedSlotsMigrationLog.error("Unified slots migration aborted: reloaded workouts did not match migrated state; using disk. Will retry next launch.")
+                return
+            }
+            guard WorkoutUnifiedSlotsMigration.libraryHasNoConcreteRows(reloaded) else {
+                userWorkouts = reloaded
+                unifiedSlotsMigrationLog.error("Unified slots migration aborted: reloaded library still has concrete rows.")
+                return
+            }
             userWorkouts = reloaded
-            unifiedSlotsMigrationLog.error("Unified slots migration aborted: reloaded workouts did not match migrated state; using disk. Will retry next launch.")
-            return
-        }
-        guard WorkoutUnifiedSlotsMigration.libraryHasNoConcreteRows(reloaded) else {
-            userWorkouts = reloaded
-            unifiedSlotsMigrationLog.error("Unified slots migration aborted: reloaded data still has concrete library rows.")
-            return
         }
 
-        userWorkouts = reloaded
+        if sessionsChanged {
+            completedSessions = migratedSessions
+            guard sessionStore.saveSessions(completedSessions) else {
+                completedSessions = previousSessions
+                if libraryChanged {
+                    userWorkouts = previousLibrary
+                    _ = saveWorkouts()
+                }
+                unifiedSlotsMigrationLog.error("Unified slots migration aborted: SwiftData session save failed; reverted in-memory state.")
+                return
+            }
+            let reloadedSessions = sessionStore.loadSessions()
+            guard reloadedSessions.count == migratedSessions.count else {
+                completedSessions = sessionStore.loadSessions()
+                unifiedSlotsMigrationLog.error("Unified slots migration: session count mismatch after save; using disk state.")
+                return
+            }
+            completedSessions = reloadedSessions
+        }
+
         UserDefaults.standard.set(true, forKey: key)
-        unifiedSlotsMigrationLog.notice("Unified slots migration completed (workouts=\(reloaded.count)).")
+        let finalWorkoutCount = userWorkouts.count
+        let finalSessionCount = completedSessions.count
+        unifiedSlotsMigrationLog.notice(
+            "Unified slots migration completed (libraryWorkouts=\(finalWorkoutCount), sessions=\(finalSessionCount), libraryChanged=\(libraryChanged), sessionsChanged=\(sessionsChanged))."
+        )
+    }
+
+    /// Fixes users who already ran an older build that migrated the library but not embedded session workouts (History / round-trip issues).
+    private func repairSessionConcreteSnapshotsIfNeeded() {
+        guard UserDefaults.standard.bool(forKey: WorkoutUnifiedSlotsMigration.completedUserDefaultsKey) else { return }
+        var sessions = completedSessions
+        guard WorkoutUnifiedSlotsMigration.migrateAllSessionsConcreteSnapshotsInPlace(&sessions, globalExercises: globalExercises) else {
+            return
+        }
+        guard WorkoutUnifiedSlotsMigration.validateSessionsCodableRoundTrip(sessions) else {
+            unifiedSlotsMigrationLog.error("Session concrete repair aborted: JSON round-trip failed.")
+            return
+        }
+        guard sessionStore.saveSessions(sessions) else {
+            unifiedSlotsMigrationLog.error("Session concrete repair aborted: SwiftData save failed.")
+            return
+        }
+        completedSessions = sessionStore.loadSessions()
+        let repairedCount = completedSessions.count
+        unifiedSlotsMigrationLog.notice("Repaired session snapshots: concrete→flexible (count=\(repairedCount)).")
     }
 
     /// Per-workout exercise row ids and counts must match after save → load.
@@ -820,7 +888,8 @@ final class DataManager: ObservableObject {
         sessionStore.appendSession(session)
     }
 
-    func saveSessions() {
+    @discardableResult
+    func saveSessions() -> Bool {
         sessionStore.saveSessions(completedSessions)
     }
 

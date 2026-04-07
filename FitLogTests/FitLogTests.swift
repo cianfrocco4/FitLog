@@ -223,4 +223,48 @@ struct FitLogTests {
         #expect(workouts[0].exercises[0].recommendedSets == 4)
         #expect(workouts[0].exercises[0].recommendedReps == "5")
     }
+
+    @Test func unifiedSlotsMigration_migratesSessionSnapshotAndSyncsLogs() {
+        let exId = UUID()
+        let rowId = UUID()
+        let sessionId = UUID()
+        let libraryExercise = Exercise(
+            id: exId,
+            name: "Bench Press",
+            description: "",
+            targetedMuscles: [.chest],
+            isCustom: false,
+            configurationOptions: [],
+            exerciseRole: .compound,
+            movementPattern: .horizontalPush
+        )
+        let snap = ExerciseSnapshot(exerciseId: exId, nameAtTimeOfLog: "Bench Press")
+        let we = WorkoutExercise(id: rowId, resolution: .concrete(snap), recommendedSets: 3, recommendedReps: "8")
+        let workout = Workout(id: UUID(), name: "Push", exercises: [we], templateSlotIdByWorkoutExerciseId: [:])
+        let log = ExerciseLog(
+            id: UUID(),
+            workoutExercise: we,
+            loggedSets: []
+        )
+        var session = WorkoutSession(
+            id: sessionId,
+            workout: workout,
+            startTime: Date(),
+            endTime: Date(),
+            exerciseLogs: [log],
+            sessionPlanOrigin: .workout(UUID())
+        )
+        let changed = WorkoutUnifiedSlotsMigration.migrateSessionConcreteSnapshotInPlace(&session, globalExercises: [libraryExercise])
+        #expect(changed == true)
+        guard case .flexible(let b) = session.workout.exercises[0].resolution else {
+            #expect(Bool(false), "Expected flexible in session workout")
+            return
+        }
+        #expect(b.defaultExerciseId == exId)
+        guard case .flexible = session.exerciseLogs[0].workoutExercise.resolution else {
+            #expect(Bool(false), "Expected log row synced to flexible")
+            return
+        }
+        #expect(session.exerciseLogs[0].workoutExercise.id == rowId)
+    }
 }
