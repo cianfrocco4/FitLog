@@ -591,8 +591,9 @@ struct HistoryView: View {
                 .foregroundStyle(by: .value("Source", row.segment))
             }
             .chartForegroundStyleScale([
-                "Routine": Color.blue,
-                "Template": Color.purple,
+                "No open slots": Color.blue,
+                "Has open slots": Color.purple,
+                "Plan": Color.indigo,
                 "Older": Color.secondary
             ])
             .chartLegend(.visible)
@@ -946,6 +947,11 @@ struct HistoryView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button("Delete", role: .destructive) {
+                            dataVM.deleteCompletedSession(id: session.id)
+                        }
+                    }
                 }
             }
         } header: {
@@ -968,7 +974,7 @@ struct HistoryView: View {
                 ForEach(sorted, id: \.key) { workoutId, sessions in
                     let name = sessions.first?.workout.name ?? "Unknown"
                     let last = sessions.map(\.endTime).compactMap { $0 }.max()
-                    NavigationLink(destination: WorkoutHistoryDetailView(sessions: sessions, workoutName: name).environmentObject(dataVM)) {
+                    NavigationLink(destination: WorkoutHistoryDetailView(workoutId: workoutId, workoutName: name).environmentObject(dataVM)) {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(name)
@@ -1152,7 +1158,10 @@ struct HistoryView: View {
 // MARK: - Session detail (single workout session: exercises + logged sets)
 private struct SessionDetailView: View {
     @EnvironmentObject var dataVM: DataManager
+    @Environment(\.dismiss) private var dismiss
     let session: WorkoutSession
+
+    @State private var confirmDeleteSession = false
 
     private var endDate: Date { session.endTime ?? session.startTime }
 
@@ -1229,22 +1238,44 @@ private struct SessionDetailView: View {
         }
         .navigationTitle(session.workout.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Delete", role: .destructive) {
+                    confirmDeleteSession = true
+                }
+            }
+        }
+        .confirmationDialog(
+            "Remove this workout from your history? This cannot be undone.",
+            isPresented: $confirmDeleteSession,
+            titleVisibility: .visible
+        ) {
+            Button("Delete from history", role: .destructive) {
+                dataVM.deleteCompletedSession(id: session.id)
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 }
 
 // MARK: - Workout history (list of sessions for one workout)
 private struct WorkoutHistoryDetailView: View {
     @EnvironmentObject var dataVM: DataManager
-    let sessions: [WorkoutSession]
+    let workoutId: UUID
     let workoutName: String
 
+    private var sessionsForWorkout: [WorkoutSession] {
+        dataVM.completedSessions.filter { $0.workout.id == workoutId }
+    }
+
     private var sortedSessions: [WorkoutSession] {
-        sessions.sorted { ($0.endTime ?? $0.startTime) > ($1.endTime ?? $1.startTime) }
+        sessionsForWorkout.sorted { ($0.endTime ?? $0.startTime) > ($1.endTime ?? $1.startTime) }
     }
 
     /// Chronological for chart (oldest → newest).
     private var durationTrendPoints: [WorkoutDurationPoint] {
-        sessions
+        sessionsForWorkout
             .sorted { ($0.endTime ?? $0.startTime) < ($1.endTime ?? $1.startTime) }
             .map { s in
                 let end = s.endTime ?? s.startTime
@@ -1313,6 +1344,11 @@ private struct WorkoutHistoryDetailView: View {
                         Text(HistoryView.durationStringStatic(for: session))
                             .font(.subheadline.monospacedDigit())
                             .foregroundStyle(.secondary)
+                    }
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button("Delete", role: .destructive) {
+                        dataVM.deleteCompletedSession(id: session.id)
                     }
                 }
             }

@@ -888,6 +888,18 @@ final class DataManager: ObservableObject {
         sessionStore.appendSession(session)
     }
 
+    /// Removes a completed session from history and persists. Returns false if save failed (state rolled back).
+    @discardableResult
+    func deleteCompletedSession(id: UUID) -> Bool {
+        let previous = completedSessions
+        completedSessions.removeAll { $0.id == id }
+        guard sessionStore.saveSessions(completedSessions) else {
+            completedSessions = previous
+            return false
+        }
+        return true
+    }
+
     @discardableResult
     func saveSessions() -> Bool {
         sessionStore.saveSessions(completedSessions)
