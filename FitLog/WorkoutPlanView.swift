@@ -47,6 +47,7 @@ struct WorkoutPlanView: View {
     @State private var suggestionsExpanded = true
     @State private var pendingWorkoutReplace: PendingWorkoutReplace?
     @State private var openSlotEditorNavigation: OpenSlotEditorNavigation?
+    @State private var progressionSuggestions: [UUID: ProgressionSuggestion] = [:]
 
     /// Active session started from this library workout (`sessionInstance` uses a different workout id).
     private var isThisLibrarySessionActive: Bool {
@@ -174,6 +175,23 @@ struct WorkoutPlanView: View {
                     }
                 }
         }
+        .task(id: progressionRefreshKey) {
+            refreshProgressionSuggestions()
+        }
+    }
+
+    private var progressionRefreshKey: String {
+        "\(workout.id.uuidString)-\(workout.exercises.count)-\(dataVM.completedSessions.count)"
+    }
+
+    private func refreshProgressionSuggestions() {
+        var next: [UUID: ProgressionSuggestion] = [:]
+        for we in workout.exercises {
+            if let suggestion = dataVM.progressionSuggestion(for: we) {
+                next[we.id] = suggestion
+            }
+        }
+        progressionSuggestions = next
     }
     
     private var listFlat: some View {
@@ -266,12 +284,13 @@ struct WorkoutPlanView: View {
     @ViewBuilder
     private func exerciseRow(item: ExerciseDisplayItem) -> some View {
         let we = item.workoutExercise
+        let progression = progressionSuggestions[we.id]
         if case .flexible = we.resolution, let slotId = we.templateSlotId {
             NavigationLink {
                 FlexibleSlotEditorView(workoutId: workout.id, slotId: slotId)
                     .environmentObject(dataVM)
             } label: {
-                flexibleRowLabel(we)
+                flexibleRowLabel(we, progression: progression)
             }
         } else {
             Button {
@@ -283,45 +302,63 @@ struct WorkoutPlanView: View {
                 else { return }
                 openPullUpToExerciseLogIndex?(logIndex)
             } label: {
-                concreteRowLabel(we)
+                concreteRowLabel(we, progression: progression)
             }
         }
     }
 
-    private func flexibleRowLabel(_ we: WorkoutExercise) -> some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(dataVM.displayName(for: we))
-                        .font(.headline)
-                    Text("Open slot")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.secondary.opacity(0.12))
-                        .clipShape(Capsule())
+    private func flexibleRowLabel(_ we: WorkoutExercise, progression: ProgressionSuggestion? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(dataVM.displayName(for: we))
+                            .font(.headline)
+                        Text("Open slot")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.secondary.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+                    if case .flexible(let b) = we.resolution, !b.targetedMuscles.isEmpty {
+                        Text(b.targetedMuscles.prefix(3).map(\.rawValue).joined(separator: ", "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                if case .flexible(let b) = we.resolution, !b.targetedMuscles.isEmpty {
-                    Text(b.targetedMuscles.prefix(3).map(\.rawValue).joined(separator: ", "))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Spacer()
+                Text("Rec: \(we.recommendedSets) sets x \(we.recommendedReps)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            Spacer()
-            Text("Rec: \(we.recommendedSets) sets x \(we.recommendedReps)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if let suggestion = progression {
+                Text(suggestion.shortLine)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
-    private func concreteRowLabel(_ we: WorkoutExercise) -> some View {
-        HStack {
-            Text(dataVM.displayName(for: we)).font(.headline)
-            Spacer()
-            Text("Rec: \(we.recommendedSets) sets x \(we.recommendedReps)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    private func concreteRowLabel(_ we: WorkoutExercise, progression: ProgressionSuggestion? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(dataVM.displayName(for: we)).font(.headline)
+                Spacer()
+                Text("Rec: \(we.recommendedSets) sets x \(we.recommendedReps)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let suggestion = progression {
+                Text(suggestion.shortLine)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 

@@ -7,6 +7,7 @@
 
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 
 extension View {
@@ -42,4 +43,9 @@ extension Binding where Value == [Workout] {
             set: { self.wrappedValue[index] = $0 }
         )
     }
+}
+
+extension UTType {
+    static let fitlogArchive = UTType(exportedAs: "com.acianfrocco.fitlog.archive", conformingTo: .json)
+    static let fitlogCSV = UTType(exportedAs: "com.acianfrocco.fitlog.csv", conformingTo: .commaSeparatedText)
 }

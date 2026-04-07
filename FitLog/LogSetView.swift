@@ -206,6 +206,21 @@ struct LogSetView: View {
                         }
                     }
 
+                    if let we = workoutExercise,
+                       let suggestion = dataVM.progressionSuggestion(for: we) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Adaptive progression")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(suggestion.shortLine)
+                                .font(.caption)
+                            Text(suggestion.rationale)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 2)
+                    }
+
                     if effectiveRestAfterSet {
                         Stepper(
                             "Rest after set: \(restTime)s",

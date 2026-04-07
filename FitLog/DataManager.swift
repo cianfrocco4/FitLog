@@ -29,6 +29,10 @@ final class DataManager: ObservableObject {
     let sessionStore: SessionStore
     let exerciseStore: ExerciseStore
     let programStore: TrainingProgramStore
+    let healthSyncService: HealthKitSyncService
+    let dataTransferService: DataTransferServiceClient
+    @Published var healthSyncEnabled: Bool = false
+    @Published var healthSyncStatusMessage: String?
 
     // MARK: - Lifecycle
 
@@ -38,7 +42,12 @@ final class DataManager: ObservableObject {
         self.sessionStore = SessionStore(modelContext: ctx)
         self.exerciseStore = ExerciseStore(modelContext: ctx)
         self.programStore = TrainingProgramStore(modelContext: ctx)
+        self.healthSyncService = HealthKitSyncService()
+        self.dataTransferService = DataTransferServiceClient(dataManagerProvider: { nil })
         loadAll()
+        self.dataTransferService.attachDataManager(self)
+        healthSyncEnabled = healthSyncService.syncEnabled
+        healthSyncStatusMessage = healthSyncService.statusMessage
     }
 
     func loadAll() {
@@ -815,6 +824,15 @@ final class DataManager: ObservableObject {
         sessionStore.saveSessions(completedSessions)
     }
 
+    func syncSessionToHealthIfEnabled(_ session: WorkoutSession) {
+        Task {
+            await healthSyncService.writeWorkoutIfAuthorized(session: session)
+            await MainActor.run {
+                healthSyncStatusMessage = healthSyncService.statusMessage
+            }
+        }
+    }
+
     // MARK: - Week summary / analytics
 
     var workoutsThisWeek: Int {
@@ -1020,5 +1038,49 @@ final class DataManager: ObservableObject {
 
     func workoutDisplayName(forWorkoutId id: UUID) -> String {
         userWorkouts.first(where: { $0.id == id })?.name ?? "Missing workout"
+    }
+
+    // MARK: - Integrations / data transfer
+
+    @MainActor
+    func setHealthSyncEnabled(_ enabled: Bool) {
+        Task { @MainActor in
+            let granted = await healthSyncService.setSyncEnabled(enabled)
+            healthSyncEnabled = granted
+            healthSyncStatusMessage = healthSyncService.statusMessage
+        }
+    }
+
+    func backupSnapshot() -> BackupSnapshot {
+        BackupSnapshot(
+            schemaVersion: currentSchemaVersion,
+            exercises: globalExercises,
+            workouts: userWorkouts,
+            templates: userWorkoutTemplates,
+            sessions: completedSessions,
+            program: trainingProgram,
+            displayNames: exerciseLocalDisplayNames
+        )
+    }
+
+    func overwriteWithImportedSnapshot(_ snapshot: BackupSnapshot) {
+        globalExercises = snapshot.exercises
+        userWorkouts = snapshot.workouts
+        userWorkoutTemplates = snapshot.templates
+        completedSessions = snapshot.sessions
+        trainingProgram = snapshot.program
+        exerciseLocalDisplayNames = Dictionary(
+            uniqueKeysWithValues: snapshot.displayNames.compactMap { key, value in
+                guard let id = UUID(uuidString: key) else { return nil }
+                return (id, value)
+            }
+        )
+
+        saveExercises()
+        saveWorkouts()
+        saveWorkoutTemplates()
+        saveSessions()
+        saveTrainingProgram()
+        saveExerciseLocalDisplayNames()
     }
 }
