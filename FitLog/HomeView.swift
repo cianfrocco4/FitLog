@@ -165,6 +165,23 @@ struct HomeView: View {
                 }
 
                 Section {
+                    aiSplitProgramRow
+                        .listRowInsets(homeDashboardListInsets)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                } header: {
+                    Text("Program")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.secondary)
+                        .textCase(nil)
+                } footer: {
+                    Text("Uses your goals, schedule, and exercise library—then updates Plan.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+
+                Section {
                     if homeShowsWorkoutPreviewOnly {
                         ForEach(homePreviewWorkouts) { workout in
                             HomeWorkoutListRow(
@@ -364,6 +381,38 @@ struct HomeView: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityHint("Opens the current workout")
+    }
+
+    /// Between “today / progress” and the workout list: planning is separate from day-to-day lifts.
+    private var aiSplitProgramRow: some View {
+        Button {
+            showSplitBuilder = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "sparkles")
+                    .font(.title2)
+                    .foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Build split with AI")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text("Goals, schedule, and exercises from your library")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens the AI split builder")
     }
 
     private func progressSummaryCard(_ summary: HomeProgressSummary) -> some View {
