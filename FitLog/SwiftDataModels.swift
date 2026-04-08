@@ -25,6 +25,10 @@ struct VersionedPayload<T: Codable>: Codable {
 ///   1 – initial SwiftData migration (ExerciseSnapshot, SlotResolution, WorkoutPlanRef cycle entries)
 ///   2 – unified workout library (SlotBlueprint, single WorkoutPlanRef.workout, backups omit templates)
 ///   3 – library workouts use slot blueprints only (concrete rows migrated to flexible + defaultExerciseId)
+///
+/// **AI split builder wizard defaults** use a separate, versioned UserDefaults envelope
+/// (`SplitBuilderPreferencesStore`) — not `VersionedPayload` / SwiftData — so workout and program
+/// data are unaffected if wizard prefs are reset or migrated independently.
 let currentSchemaVersion = 3
 
 /// Encode a value wrapped in a VersionedPayload.

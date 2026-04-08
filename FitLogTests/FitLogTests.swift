@@ -267,4 +267,52 @@ struct FitLogTests {
         }
         #expect(session.exerciseLogs[0].workoutExercise.id == rowId)
     }
+
+    @Test func splitProposalProgramAnalyzer_countsSetsAndInfersPPL() {
+        let days: [SplitProposalProgramAnalyzer.DayInput] = [
+            .init(
+                name: "Push",
+                focus: "",
+                slots: [
+                    .init(label: "Chest", targetMuscleNames: [MuscleGroup.chest.rawValue], sets: 4),
+                    .init(label: "Delts", targetMuscleNames: [MuscleGroup.frontDelts.rawValue], sets: 3)
+                ]
+            ),
+            .init(
+                name: "Pull",
+                focus: "",
+                slots: [
+                    .init(label: "Back", targetMuscleNames: [MuscleGroup.lats.rawValue], sets: 4)
+                ]
+            ),
+            .init(
+                name: "Legs",
+                focus: "",
+                slots: [
+                    .init(label: "Quads", targetMuscleNames: [MuscleGroup.quads.rawValue], sets: 5)
+                ]
+            )
+        ]
+        let stats = SplitProposalProgramAnalyzer.stats(for: days)
+        #expect(stats.totalHardSetsPerWeek == 16)
+        #expect(stats.inferredSplitStyle.contains("Push"))
+        let warns = SplitProposalProgramAnalyzer.warnings(stats: stats, days: days)
+        #expect(warns.contains { $0.message.contains("leg") } == false)
+    }
+
+    @Test func splitProposalProgramAnalyzer_warnsWhenNoLegs() {
+        let days: [SplitProposalProgramAnalyzer.DayInput] = [
+            .init(
+                name: "Upper",
+                focus: "",
+                slots: [
+                    .init(label: "Chest", targetMuscleNames: [MuscleGroup.chest.rawValue], sets: 6),
+                    .init(label: "Back", targetMuscleNames: [MuscleGroup.lats.rawValue], sets: 6)
+                ]
+            )
+        ]
+        let stats = SplitProposalProgramAnalyzer.stats(for: days)
+        let warns = SplitProposalProgramAnalyzer.warnings(stats: stats, days: days)
+        #expect(warns.contains { $0.message.localizedCaseInsensitiveContains("leg") })
+    }
 }

@@ -62,6 +62,27 @@ struct WorkoutSplitProposal: Equatable {
     let workouts: [WorkoutSplitProposalDay]
 }
 
+/// Structured wizard input for `generateWorkoutSplitProposal` (encoded to JSON in the user message).
+struct WorkoutSplitBuilderStructuredInput: Equatable {
+    var primaryGoal: String
+    var equipment: String
+    var splitPreference: String
+    var experienceLevel: String
+    var sessionsPerWeek: Int
+    var preferredWeekdays: [Int]
+    var limitationsNotes: String
+    var additionalNotes: String
+    /// Typical session length cap; nil = unspecified.
+    var sessionDurationMinutes: Int?
+    var intensityStyle: String
+    var progressionStyle: String
+    var priorityMusclesOrLiftsNotes: String
+    var recoveryContextNotes: String
+    var deloadPreference: String
+    /// When regenerating, extra line(s) for the model (e.g. “shorter sessions”).
+    var adjustmentInstruction: String?
+}
+
 final class AIService: ObservableObject {
     private static let openAIURL = URL(string: "https://api.openai.com/v1/chat/completions")!
     /// Model ID from OpenAIConfig.aiModel (configurable via FITLOG_AI_MODEL).
@@ -204,18 +225,15 @@ final class AIService: ObservableObject {
 
     /// Proposes a training split using only exercise names from `allowedExerciseNames` (exact strings from the app library).
     func generateWorkoutSplitProposal(
-        interests: String,
-        sessionsPerWeek: Int,
-        preferredWeekdays: [Int],
-        experienceLevel: String?,
+        structured: WorkoutSplitBuilderStructuredInput,
         allowedExerciseNames: [String],
         existingWorkoutTemplateNames: [String]
     ) async throws -> WorkoutSplitProposal {
         if !isConfigured {
             throw AIServiceError.notConfigured
         }
-        let maxSessions = min(max(1, sessionsPerWeek), 7)
-        let userDays = Set(preferredWeekdays.filter { $0 >= 1 && $0 <= 7 })
+        let maxSessions = min(max(1, structured.sessionsPerWeek), 7)
+        let userDays = Set(structured.preferredWeekdays.filter { $0 >= 1 && $0 <= 7 })
         let daysSorted = userDays.sorted()
         let daysNote: String = {
             if daysSorted.isEmpty {
@@ -225,7 +243,26 @@ final class AIService: ObservableObject {
             return "Preferred training days (weekday numbers \(daysSorted.map(String.init).joined(separator: ", ")), 1=Sun…7=Sat): \(labels)"
         }()
 
-        let trimmedInterests = String(interests.prefix(600))
+        let payload = SplitBuilderAPIPayload(
+            primaryGoal: structured.primaryGoal,
+            equipment: structured.equipment,
+            splitPreference: structured.splitPreference,
+            experienceLevel: structured.experienceLevel,
+            sessionsPerWeekCap: maxSessions,
+            preferredWeekdayNumbers: daysSorted,
+            sessionDurationMinutes: structured.sessionDurationMinutes,
+            intensityStyle: structured.intensityStyle,
+            progressionStyle: structured.progressionStyle,
+            limitationsNotes: String(structured.limitationsNotes.prefix(400)),
+            additionalNotes: String(structured.additionalNotes.prefix(400)),
+            priorityMusclesOrLiftsNotes: String(structured.priorityMusclesOrLiftsNotes.prefix(400)),
+            recoveryContextNotes: String(structured.recoveryContextNotes.prefix(400)),
+            deloadPreference: structured.deloadPreference,
+            adjustmentInstruction: structured.adjustmentInstruction.map { String($0.prefix(500)) }
+        )
+        let payloadData = try JSONEncoder().encode(payload)
+        let structuredJSON = String(data: payloadData, encoding: .utf8) ?? "{}"
+
         let namesData = try JSONEncoder().encode(allowedExerciseNames)
         let namesJSON = String(data: namesData, encoding: .utf8) ?? "[]"
         let templatesData = try JSONEncoder().encode(existingWorkoutTemplateNames)
@@ -233,7 +270,6 @@ final class AIService: ObservableObject {
         let muscleNames = MuscleGroup.allCases.map(\.rawValue).sorted()
         let musclesData = try JSONEncoder().encode(muscleNames)
         let musclesJSON = String(data: musclesData, encoding: .utf8) ?? "[]"
-        let expLine = (experienceLevel?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? "not specified"
 
         let system: String = {
             """
@@ -248,22 +284,32 @@ final class AIService: ObservableObject {
             - suggestedExerciseName: when you want a specific default movement for this slot, set it to a string copied verbatim from the allowed exercise names JSON array (same characters and casing as one element). Omit suggestedExerciseName (or use null) for a generic open slot where the user picks a different exercise each session.
             - You may mix within one workout: some slots with suggestedExerciseName and some without.
             - Each workout: at least 3 slots (or 3 exercises if you use exercises instead), at most 12 slot-like rows when reasonable.
-            - rationale: 1–3 short sentences on why this split fits the user.
+            - Order slots: compounds and priority patterns first, accessories after.
+            - rationale: 1–3 short sentences on why this split fits the user JSON profile (goals, equipment, time, intensity, progression).
             - sessionsPerWeek: integer from 1 to \(maxSessions) inclusive (must not exceed \(maxSessions)).
             - preferredWeekdays: subset of the user's allowed weekday numbers (see user message). Use [] only if the user selected no specific days — then the app will use its default pool.
-            - workouts: ordered cycle. At least 1 and at most 6 objects. Use distinct workout day names; avoid duplicating names in the existing workout names list unless intentional.
+            - workouts: ordered cycle. At least 1 and at most 6 objects. Use distinct workout day names; avoid duplicating names in the existing workout names list unless refreshing that program on purpose.
 
-            Training safety: this is not medical advice. Favor balanced programming and avoid reckless volume.
+            Programming quality:
+            - Respect equipment: never imply machines or barbells the user cannot access (see JSON equipment).
+            - If sessionDurationMinutes is set, bias toward fewer slots and/or fewer sets so sessions are realistic.
+            - Match intensityStyle (e.g. heavy vs moderate) and progressionStyle in rep ranges and set counts.
+            - Include balanced pushing vs pulling volume unless the user JSON explains an intentional skew.
+            - Include leg work when sessions/week >= 2 unless the user is upper-body only by explicit goal.
+            - Scale total hard sets to experience: beginners lower, advanced can be higher but not extreme.
+            - If deloadPreference mentions a cadence, mention it briefly in rationale (the app may schedule separately).
+
+            Training safety: this is not medical advice. Favor balanced programming and avoid reckless volume; honor injuries/limitations in the JSON.
             """
         }()
 
         let userPrompt = """
-        User goals, equipment, and constraints (may be brief):
-        \(trimmedInterests)
+        Structured user profile — JSON object (authoritative; design the split to match every field that is non-empty):
+        \(structuredJSON)
 
-        Experience: \(expLine)
-        Target sessions per week (maximum \(maxSessions)): \(maxSessions)
+        Scheduling context:
         \(daysNote)
+        Target sessions per week (hard cap \(maxSessions)): \(maxSessions)
 
         Allowed exercise names (JSON array — optional slots[].suggestedExerciseName and exercises[].name must use ONLY these strings when used):
         \(namesJSON)
@@ -271,16 +317,39 @@ final class AIService: ObservableObject {
         Allowed muscle display names for slots[].targetMuscleNames (JSON array — use ONLY these exact strings):
         \(musclesJSON)
 
-        Existing workout names for reference (JSON array):
+        Existing workout template names (JSON array — avoid accidental duplicate day names unless intentional):
         \(templatesJSON)
         """
 
-        let content = try await performRequest(system: system, user: userPrompt, maxTokens: 3_500, jsonObject: true)
+        let content = try await performChatCompletions(
+            messages: [("system", system), ("user", userPrompt)],
+            maxTokens: 3_500,
+            jsonObject: true,
+            temperature: 0.35
+        )
         return try parseWorkoutSplitProposal(
             jsonString: content,
             maxSessions: maxSessions,
             userPreferredWeekdays: daysSorted
         )
+    }
+
+    private struct SplitBuilderAPIPayload: Encodable {
+        let primaryGoal: String
+        let equipment: String
+        let splitPreference: String
+        let experienceLevel: String
+        let sessionsPerWeekCap: Int
+        let preferredWeekdayNumbers: [Int]
+        let sessionDurationMinutes: Int?
+        let intensityStyle: String
+        let progressionStyle: String
+        let limitationsNotes: String
+        let additionalNotes: String
+        let priorityMusclesOrLiftsNotes: String
+        let recoveryContextNotes: String
+        let deloadPreference: String
+        let adjustmentInstruction: String?
     }
 
     private func weekdaySymbol(_ weekday: Int) -> String {
@@ -674,7 +743,7 @@ final class AIService: ObservableObject {
         let systemContent = Self.fitLogCoachSystemPrompt + "\n\n--- User's FitLog data snapshot (ground truth; do not invent sessions or exercises not listed) ---\n" + (trimmedSnapshot.isEmpty ? "(no structured data yet)" : trimmedSnapshot)
         var messages: [(role: String, content: String)] = [("system", systemContent)]
         messages.append(contentsOf: conversation)
-        return try await performChatCompletions(messages: messages, maxTokens: 1400, jsonObject: false)
+        return try await performChatCompletions(messages: messages, maxTokens: 1400, jsonObject: false, temperature: nil)
     }
 
     private static let fitLogCoachSystemPrompt = """
@@ -747,10 +816,20 @@ final class AIService: ObservableObject {
     
     // MARK: - API
     private func performRequest(system: String, user: String, maxTokens: Int = 500, jsonObject: Bool = false) async throws -> String {
-        try await performChatCompletions(messages: [("system", system), ("user", user)], maxTokens: maxTokens, jsonObject: jsonObject)
+        try await performChatCompletions(
+            messages: [("system", system), ("user", user)],
+            maxTokens: maxTokens,
+            jsonObject: jsonObject,
+            temperature: nil
+        )
     }
 
-    private func performChatCompletions(messages: [(role: String, content: String)], maxTokens: Int, jsonObject: Bool) async throws -> String {
+    private func performChatCompletions(
+        messages: [(role: String, content: String)],
+        maxTokens: Int,
+        jsonObject: Bool,
+        temperature: Double?
+    ) async throws -> String {
         let useProxy = proxyBaseURL != nil
         if !useProxy, (apiKey == nil || apiKey!.isEmpty) { throw AIServiceError.notConfigured }
         var request = URLRequest(url: chatCompletionsURL)
@@ -765,6 +844,9 @@ final class AIService: ObservableObject {
             "messages": messagePayload,
             "max_tokens": maxTokens
         ]
+        if let temperature {
+            body["temperature"] = temperature
+        }
         if jsonObject {
             body["response_format"] = ["type": "json_object"]
         }

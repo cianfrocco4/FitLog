@@ -13,17 +13,27 @@ struct MainTabView: View {
     @EnvironmentObject var aiService: AIService
     @EnvironmentObject var dayMonitor: CalendarDayMonitor
     @State private var showCurrentWorkoutPullUp = false
+    @State private var rootTab: FitlogRootTab = .home
 
     var body: some View {
-        TabView {
-            HomeView().tabItem { Label("Home", systemImage: "house") }
-            PlanCalendarView().tabItem { Label("Plan", systemImage: "calendar") }
-            HistoryView().tabItem { Label("History", systemImage: "chart.bar") }
+        TabView(selection: $rootTab) {
+            HomeView()
+                .tabItem { Label("Home", systemImage: "house") }
+                .tag(FitlogRootTab.home)
+            PlanCalendarView()
+                .tabItem { Label("Plan", systemImage: "calendar") }
+                .tag(FitlogRootTab.plan)
+            HistoryView()
+                .tabItem { Label("History", systemImage: "chart.bar") }
+                .tag(FitlogRootTab.history)
             AIChatView()
                 .tabItem { Label("Coach", systemImage: "bubble.left.and.bubble.right") }
+                .tag(FitlogRootTab.coach)
             MoreTabRootView()
                 .tabItem { Label("More", systemImage: "ellipsis.circle") }
+                .tag(FitlogRootTab.more)
         }
+        .environment(\.fitlogRootTabSelection, $rootTab)
         .environment(\.openCurrentWorkoutSheet, {
             currentVM.pendingPullUpFocus = nil
             showCurrentWorkoutPullUp = true
