@@ -81,6 +81,10 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             session.activeExerciseIds = [firstId]
         }
         session.completedExerciseIds = []
+        beginInProgressSession(session)
+    }
+
+    private func beginInProgressSession(_ session: WorkoutSession) {
         currentSession = session
         totalPausedDuration = 0
         workoutPausedAt = nil
@@ -111,6 +115,22 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         currentSession = nil
         recentPersonalRecordEvent = nil
         workoutElapsedSeconds = 0
+        clearInactivityReminder()
+        clearPersistedActiveSession()
+    }
+
+    /// Drops the in-progress workout without writing to history or HealthKit.
+    func cancelWorkout() {
+        guard currentSession != nil else { return }
+
+        workoutTimer?.invalidate()
+        workoutTimer = nil
+        cancelRestTimer()
+        currentSession = nil
+        recentPersonalRecordEvent = nil
+        workoutElapsedSeconds = 0
+        totalPausedDuration = 0
+        workoutPausedAt = nil
         clearInactivityReminder()
         clearPersistedActiveSession()
     }
@@ -698,10 +718,34 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         return .needsReplaceConfirmation(PendingWorkoutReplace(workout: workout, sessionPlanOrigin: sessionPlanOrigin))
     }
 
+    /// Like `resolveStartingWorkout`, but when a replace is required the payload includes `resumedSession` for apply-after-stop.
+    func resolveStartingResumedSession(_ resumed: WorkoutSession) -> WorkoutStartResolution {
+        switch resolveStartingWorkout(resumed.workout, sessionPlanOrigin: resumed.sessionPlanOrigin) {
+        case .performStart:
+            return .performStart
+        case .noOpAlreadyActive:
+            return .noOpAlreadyActive
+        case .needsReplaceConfirmation:
+            return .needsReplaceConfirmation(
+                PendingWorkoutReplace(
+                    workout: resumed.workout,
+                    sessionPlanOrigin: resumed.sessionPlanOrigin,
+                    resumedSession: resumed
+                )
+            )
+        }
+    }
+
     /// Ends the current session (saved as completed) and starts the new one.
     func stopThenStartWorkout(_ workout: Workout, sessionPlanOrigin: WorkoutPlanRef? = nil) {
         stopWorkout()
         startWorkout(workout, sessionPlanOrigin: sessionPlanOrigin)
+    }
+
+    /// Ends the current session (saved) and continues with a resumed in-progress snapshot (same sets/state as when that session was finished).
+    func stopThenApplyResumedSession(_ resumed: WorkoutSession) {
+        stopWorkout()
+        beginInProgressSession(resumed)
     }
 
     /// Starts immediately, or invokes `onNeedReplaceConfirmation` when the user must confirm replacing the active session.
@@ -713,6 +757,22 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         switch resolveStartingWorkout(workout, sessionPlanOrigin: sessionPlanOrigin) {
         case .performStart:
             startWorkout(workout, sessionPlanOrigin: sessionPlanOrigin)
+        case .noOpAlreadyActive:
+            break
+        case .needsReplaceConfirmation(let pending):
+            onNeedReplaceConfirmation(pending)
+        }
+    }
+
+    /// Resumes from a **completed** session (copied logs and UI state). Same replace-active flow as `startWorkoutResolvingConflict`.
+    func startWorkoutResumingFromCompleted(
+        _ completed: WorkoutSession,
+        onNeedReplaceConfirmation: @escaping (PendingWorkoutReplace) -> Void
+    ) {
+        let resumed = WorkoutSession.resumingFromCompletedSession(completed)
+        switch resolveStartingResumedSession(resumed) {
+        case .performStart:
+            beginInProgressSession(resumed)
         case .noOpAlreadyActive:
             break
         case .needsReplaceConfirmation(let pending):
@@ -733,4 +793,6 @@ struct PendingWorkoutReplace: Identifiable {
     let id = UUID()
     let workout: Workout
     let sessionPlanOrigin: WorkoutPlanRef?
+    /// When set, confirming replace applies this in-progress session instead of starting an empty workout from `workout`.
+    var resumedSession: WorkoutSession? = nil
 }

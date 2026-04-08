@@ -956,6 +956,43 @@ struct WorkoutSession: Identifiable, Codable {
     private enum CodingKeys: String, CodingKey {
         case id, workout, startTime, endTime, exerciseLogs, activeExerciseIds, completedExerciseIds, sessionPlanOrigin
     }
+
+    /// New in-progress session with the same workout snapshot, exercise rows, logged sets, and active/completed exercise state as `completed`.
+    static func resumingFromCompletedSession(_ completed: WorkoutSession) -> WorkoutSession {
+        let copiedLogs: [ExerciseLog] = completed.exerciseLogs.map { log in
+            let newSets = log.loggedSets.map { s in
+                LoggedSet(
+                    id: UUID(),
+                    weight: s.weight,
+                    reps: s.reps,
+                    restTime: s.restTime,
+                    timestamp: s.timestamp,
+                    isWarmup: s.isWarmup,
+                    configuration: s.configuration,
+                    dropSegments: s.dropSegments
+                )
+            }
+            return ExerciseLog(id: UUID(), workoutExercise: log.workoutExercise, loggedSets: newSets)
+        }
+        var active = completed.activeExerciseIds
+        if active.isEmpty {
+            if let exId = copiedLogs.first(where: { !$0.workoutExercise.isSlotPlaceholder })?.workoutExercise.exerciseId {
+                active = [exId]
+            } else if let exId = copiedLogs.first?.workoutExercise.exerciseId {
+                active = [exId]
+            }
+        }
+        return WorkoutSession(
+            id: UUID(),
+            workout: completed.workout,
+            startTime: Date(),
+            endTime: nil,
+            exerciseLogs: copiedLogs,
+            activeExerciseIds: active,
+            completedExerciseIds: completed.completedExerciseIds,
+            sessionPlanOrigin: completed.sessionPlanOrigin
+        )
+    }
 }
 
 extension LoggedSet {

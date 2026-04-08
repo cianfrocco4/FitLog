@@ -49,6 +49,18 @@ struct HomeView: View {
         }
     }
 
+    /// Beyond this count (with no search query), Home shows a short preview plus **All workouts**.
+    private var homeWorkoutFullListThreshold: Int { 8 }
+    private var homeWorkoutPreviewCount: Int { 6 }
+
+    private var homeShowsWorkoutPreviewOnly: Bool {
+        dataVM.userWorkouts.count > homeWorkoutFullListThreshold && workoutSearchTrimmed.isEmpty
+    }
+
+    private var homePreviewWorkouts: [Workout] {
+        Array(dataVM.userWorkouts.prefix(homeWorkoutPreviewCount))
+    }
+
     private var homeDashboardListInsets: EdgeInsets {
         EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
     }
@@ -104,58 +116,19 @@ struct HomeView: View {
         }
     }
 
-    @ViewBuilder
-    private func workoutRowLabel(_ workout: Workout) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(workout.name)
-                .font(.headline)
-            Text(workout.listDetailSubtitle)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+    /// Resume today’s last completed instance of this plan (same logged sets), or start fresh if none.
+    private func resumeTodayPlanFromLastCompletedSession(_ library: Workout) {
+        let ref = WorkoutPlanRef.workout(library.id)
+        guard let last = dataVM.mostRecentCompletedSessionToday(forLibraryWorkoutId: library.id) else {
+            startWorkoutFromTodayPlan(library)
+            return
         }
-    }
-
-    @ViewBuilder
-    private func workoutRow(for workout: Workout) -> some View {
-        Group {
-            NavigationLink {
-                if let binding = $dataVM.userWorkouts[workout.id] {
-                    WorkoutPlanView(workout: binding)
-                        .environmentObject(dataVM)
-                        .environmentObject(currentVM)
-                        .environmentObject(aiService)
-                } else {
-                    Text("Workout not found")
-                        .foregroundStyle(.red)
-                }
-            } label: {
-                workoutRowLabel(workout)
-            }
+        currentVM.startWorkoutResumingFromCompleted(last) { pending in
+            pendingWorkoutReplace = pending
+            pendingTodayPlanNavigateAfterReplace = .plannedWorkout(library.id)
         }
-        .contextMenu {
-            Button {
-                startWorkoutFromLibrary(workout)
-            } label: {
-                Label("Start workout", systemImage: "play.fill")
-            }
-        }
-        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            Button {
-                startWorkoutFromLibrary(workout)
-            } label: {
-                Label("Start", systemImage: "play.fill")
-            }
-            .tint(.green)
-        }
-        .swipeActions(edge: .trailing) {
-            Button("Delete", role: .destructive) {
-                dataVM.deleteWorkout(workout)
-            }
-            Button("Rename") {
-                workoutToRename = workout
-                renameText = workout.name
-            }
-            .tint(.blue)
+        if currentVM.isInProgress {
+            navigateTodayPlanDetailAndOpenWorkoutSheet(.plannedWorkout(library.id))
         }
     }
 
@@ -192,14 +165,57 @@ struct HomeView: View {
                 }
 
                 Section {
-                    if workoutSearchTrimmed.isEmpty {
+                    if homeShowsWorkoutPreviewOnly {
+                        ForEach(homePreviewWorkouts) { workout in
+                            HomeWorkoutListRow(
+                                workout: workout,
+                                workoutToRename: $workoutToRename,
+                                renameText: $renameText,
+                                onStartLibrary: startWorkoutFromLibrary
+                            )
+                        }
+                        NavigationLink {
+                            HomeWorkoutLibraryView()
+                                .environmentObject(dataVM)
+                                .environmentObject(currentVM)
+                                .environmentObject(aiService)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "rectangle.stack")
+                                    .font(.title3)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 28)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("All workouts")
+                                        .font(.headline)
+                                    Text("\(dataVM.userWorkouts.count) saved · search, reorder, and edit")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                    } else if workoutSearchTrimmed.isEmpty {
                         ForEach(dataVM.userWorkouts) { workout in
-                            workoutRow(for: workout)
+                            HomeWorkoutListRow(
+                                workout: workout,
+                                workoutToRename: $workoutToRename,
+                                renameText: $renameText,
+                                onStartLibrary: startWorkoutFromLibrary
+                            )
                         }
                         .onMove(perform: dataVM.moveWorkout)
                     } else {
                         ForEach(filteredWorkouts) { workout in
-                            workoutRow(for: workout)
+                            HomeWorkoutListRow(
+                                workout: workout,
+                                workoutToRename: $workoutToRename,
+                                renameText: $renameText,
+                                onStartLibrary: startWorkoutFromLibrary
+                            )
                         }
                     }
                 } header: {
@@ -209,9 +225,13 @@ struct HomeView: View {
                         .foregroundStyle(.secondary)
                         .textCase(nil)
                 } footer: {
-                    Text("Swipe right on a row to start quickly.")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                    Text(
+                        homeShowsWorkoutPreviewOnly
+                            ? "Showing the first \(homeWorkoutPreviewCount) in your list order. Open All workouts for the full library."
+                            : "Swipe right on a row to start quickly."
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
                 }
             }
             .listStyle(.plain)
@@ -220,11 +240,11 @@ struct HomeView: View {
             .fitlogWorkoutBarContentInset()
             .navigationTitle("Home")
             .navigationBarTitleDisplayMode(.large)
-            .searchable(text: $workoutSearchText, prompt: "Search workouts")
+            .searchable(text: $workoutSearchText, prompt: homeShowsWorkoutPreviewOnly ? "Search all workouts" : "Search workouts")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     EditButton()
-                        .disabled(!workoutSearchTrimmed.isEmpty)
+                        .disabled(!workoutSearchTrimmed.isEmpty || homeShowsWorkoutPreviewOnly)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -458,7 +478,8 @@ struct HomeView: View {
                         isCompleted: isPlannedWorkoutCompletedToday(plan: ref),
                         isThisPlanActive: thisPlanActive,
                         isAnotherWorkoutActive: currentVM.isInProgress && !thisPlanActive,
-                        onStart: { startWorkoutFromTodayPlan(workout) },
+                        onStartPlanWorkout: { startWorkoutFromTodayPlan(workout) },
+                        onResumeCompletedToday: { resumeTodayPlanFromLastCompletedSession(workout) },
                         openActiveWorkout: { openCurrentWorkoutSheet?() },
                         onViewWorkoutDetail: { todayPlanDetailRoute = .plannedWorkout(id) },
                         detailLabel: "View workout"
@@ -592,6 +613,138 @@ struct HomeView: View {
     }
 }
 
+// MARK: - Workout library row (Home + full list)
+
+private struct HomeWorkoutListRow: View {
+    @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @EnvironmentObject var aiService: AIService
+
+    let workout: Workout
+    @Binding var workoutToRename: Workout?
+    @Binding var renameText: String
+    let onStartLibrary: (Workout) -> Void
+
+    var body: some View {
+        Group {
+            NavigationLink {
+                if let binding = $dataVM.userWorkouts[workout.id] {
+                    WorkoutPlanView(workout: binding)
+                        .environmentObject(dataVM)
+                        .environmentObject(currentVM)
+                        .environmentObject(aiService)
+                } else {
+                    Text("Workout not found")
+                        .foregroundStyle(.red)
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(workout.name)
+                        .font(.headline)
+                    Text(workout.listDetailSubtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .contextMenu {
+            Button {
+                onStartLibrary(workout)
+            } label: {
+                Label("Start workout", systemImage: "play.fill")
+            }
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            Button {
+                onStartLibrary(workout)
+            } label: {
+                Label("Start", systemImage: "play.fill")
+            }
+            .tint(.green)
+        }
+        .swipeActions(edge: .trailing) {
+            Button("Delete", role: .destructive) {
+                dataVM.deleteWorkout(workout)
+            }
+            Button("Rename") {
+                workoutToRename = workout
+                renameText = workout.name
+            }
+            .tint(.blue)
+        }
+    }
+}
+
+// MARK: - Full workout library (pushed from Home when the list is long)
+
+private struct HomeWorkoutLibraryView: View {
+    @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @EnvironmentObject var aiService: AIService
+
+    @State private var workoutSearchText = ""
+    @State private var workoutToRename: Workout?
+    @State private var renameText = ""
+    @State private var pendingWorkoutReplace: PendingWorkoutReplace?
+
+    private var searchTrimmed: String {
+        workoutSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var displayedWorkouts: [Workout] {
+        guard !searchTrimmed.isEmpty else { return dataVM.userWorkouts }
+        return dataVM.userWorkouts.filter { $0.name.localizedCaseInsensitiveContains(searchTrimmed) }
+    }
+
+    private func startWorkoutFromLibrary(_ library: Workout) {
+        let toStart = library.hasFlexibleSlots ? dataVM.sessionInstance(from: library) : library
+        currentVM.startWorkoutResolvingConflict(toStart, sessionPlanOrigin: .workout(library.id)) {
+            pendingWorkoutReplace = $0
+        }
+    }
+
+    var body: some View {
+        List {
+            ForEach(displayedWorkouts) { workout in
+                HomeWorkoutListRow(
+                    workout: workout,
+                    workoutToRename: $workoutToRename,
+                    renameText: $renameText,
+                    onStartLibrary: startWorkoutFromLibrary
+                )
+            }
+            .onMove { source, dest in
+                guard searchTrimmed.isEmpty else { return }
+                dataVM.moveWorkout(from: source, to: dest)
+            }
+        }
+        .listStyle(.plain)
+        .navigationTitle("Workouts")
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $workoutSearchText, prompt: "Search workouts")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                EditButton()
+                    .disabled(!searchTrimmed.isEmpty)
+            }
+        }
+        .alert("Rename Workout", isPresented: Binding(
+            get: { workoutToRename != nil },
+            set: { if !$0 { workoutToRename = nil } }
+        )) {
+            TextField("New name", text: $renameText)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                if let workout = workoutToRename {
+                    dataVM.renameWorkout(workout, newName: renameText)
+                }
+            }
+        }
+        .workoutReplaceConflictConfirmation(currentVM: currentVM, pending: $pendingWorkoutReplace)
+        .fitlogWorkoutBarContentInset()
+    }
+}
+
 // MARK: - Today’s plan → detail navigation
 
 private enum TodayPlanDetailRoute: Hashable, Identifiable {
@@ -614,7 +767,8 @@ private struct TodayWorkoutCard: View {
     let isCompleted: Bool
     let isThisPlanActive: Bool
     let isAnotherWorkoutActive: Bool
-    let onStart: () -> Void
+    let onStartPlanWorkout: () -> Void
+    let onResumeCompletedToday: () -> Void
     let openActiveWorkout: () -> Void
     let onViewWorkoutDetail: () -> Void
     let detailLabel: String
@@ -648,19 +802,33 @@ private struct TodayWorkoutCard: View {
                     primaryTitle: "Start workout",
                     primarySystemImage: "play.fill",
                     primaryTint: Color.accentColor,
-                    primaryAction: onStart
+                    primaryAction: onStartPlanWorkout
                 )
             } else if isCompleted {
                 Label("Done today", systemImage: "checkmark.circle.fill")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.green)
-                compactDetailLink
+                Text("Pick up where you left off—including logged sets—or start fresh below.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                primaryDetailRow(
+                    primaryTitle: "Continue session",
+                    primarySystemImage: "arrow.clockwise.circle.fill",
+                    primaryTint: Color.accentColor,
+                    primaryAction: onResumeCompletedToday
+                )
+                Button(action: onStartPlanWorkout) {
+                    Text("Start fresh instead")
+                        .font(.subheadline.weight(.medium))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
             } else {
                 primaryDetailRow(
                     primaryTitle: "Start workout",
                     primarySystemImage: "play.fill",
                     primaryTint: Color.accentColor,
-                    primaryAction: onStart
+                    primaryAction: onStartPlanWorkout
                 )
             }
         }

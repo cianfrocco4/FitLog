@@ -25,7 +25,11 @@ struct WorkoutReplaceConflictConfirmation: ViewModifier {
             ) {
                 Button("Continue", role: .destructive) {
                     if let p = pending {
-                        currentVM.stopThenStartWorkout(p.workout, sessionPlanOrigin: p.sessionPlanOrigin)
+                        if let resumed = p.resumedSession {
+                            currentVM.stopThenApplyResumedSession(resumed)
+                        } else {
+                            currentVM.stopThenStartWorkout(p.workout, sessionPlanOrigin: p.sessionPlanOrigin)
+                        }
                     }
                     pending = nil
                     onAfterReplace?()
@@ -37,7 +41,10 @@ struct WorkoutReplaceConflictConfirmation: ViewModifier {
             } message: {
                 if let p = pending {
                     let activeName = currentVM.currentSession?.workout.name ?? "your current workout"
-                    Text("“\(activeName)” is still in progress. Starting “\(p.workout.name)” will complete that session and save it to your history.")
+                    let suffix = p.resumedSession != nil
+                        ? " Your logged sets from that earlier session will be restored."
+                        : ""
+                    Text("“\(activeName)” is still in progress. Starting “\(p.workout.name)” will complete that session and save it to your history.\(suffix)")
                 }
             }
     }

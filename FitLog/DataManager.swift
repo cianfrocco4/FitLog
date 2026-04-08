@@ -888,6 +888,26 @@ final class DataManager: ObservableObject {
         sessionStore.appendSession(session)
     }
 
+    /// Template for a new live session from a **completed** session (library + flexible slots when possible).
+    func workoutForNewSession(fromCompleted session: WorkoutSession) -> Workout {
+        if let library = userWorkouts.first(where: { $0.id == session.workout.id }) {
+            return library.hasFlexibleSlots ? sessionInstance(from: library) : library
+        }
+        return session.workout
+    }
+
+    /// Most recent completed session today for this library workout (plan ref or legacy same workout id).
+    func mostRecentCompletedSessionToday(forLibraryWorkoutId libraryWorkoutId: UUID, referenceDate: Date = Date(), calendar: Calendar = .current) -> WorkoutSession? {
+        let planRef = WorkoutPlanRef.workout(libraryWorkoutId)
+        let candidates = completedSessions.filter { session in
+            guard let end = session.endTime, calendar.isDate(end, inSameDayAs: referenceDate) else { return false }
+            if session.sessionPlanOrigin == planRef { return true }
+            if session.sessionPlanOrigin == nil, session.workout.id == libraryWorkoutId { return true }
+            return false
+        }
+        return candidates.max(by: { ($0.endTime ?? $0.startTime) < ($1.endTime ?? $1.startTime) })
+    }
+
     /// Removes a completed session from history and persists. Returns false if save failed (state rolled back).
     @discardableResult
     func deleteCompletedSession(id: UUID) -> Bool {

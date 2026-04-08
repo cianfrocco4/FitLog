@@ -411,6 +411,7 @@ struct CurrentWorkoutPullUpSheet: View {
     @State private var logSetSheetSelection: LogSetSheetSelection?
     @State private var resolveSlotSelection: ResolveSlotWE?
     @State private var showFinishConfirmation = false
+    @State private var showDiscardWorkoutConfirmation = false
     @State private var showQuickAddExercise = false
     @State private var showFullAddExercise = false
     @State private var showPRBanner = false
@@ -697,6 +698,12 @@ struct CurrentWorkoutPullUpSheet: View {
             .navigationTitle("Current Workout")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Discard") {
+                        showDiscardWorkoutConfirmation = true
+                    }
+                    .foregroundStyle(.red)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button {
@@ -783,6 +790,19 @@ struct CurrentWorkoutPullUpSheet: View {
                 }
             } message: {
                 Text("These exercises have no sets logged: \(resolvedExercisesWithNoSets.joined(separator: ", ")).")
+            }
+            .confirmationDialog(
+                "Discard workout?",
+                isPresented: $showDiscardWorkoutConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Discard without saving", role: .destructive) {
+                    currentVM.cancelWorkout()
+                    dismiss()
+                }
+                Button("Keep working out", role: .cancel) {}
+            } message: {
+                Text("Nothing will be added to your history.")
             }
             .onChange(of: currentVM.recentPersonalRecordEvent) { _, newValue in
                 guard newValue != nil else {

@@ -178,8 +178,30 @@ private func historyEpleyEst1RM(weight: Double, reps: Int) -> Double {
     return weight * (1 + Double(reps) / 30)
 }
 
+private func completedSessionIsSameCalendarDay(_ session: WorkoutSession, as reference: Date = Date(), calendar: Calendar = .current) -> Bool {
+    guard let end = session.endTime else { return false }
+    return calendar.isDate(end, inSameDayAs: reference)
+}
+
+private func startAgainFromCompletedSession(
+    _ session: WorkoutSession,
+    currentVM: CurrentWorkoutSessionViewModel,
+    openCurrentWorkoutSheet: (() -> Void)?,
+    setPendingReplace: @escaping (PendingWorkoutReplace?) -> Void
+) {
+    currentVM.startWorkoutResumingFromCompleted(session) {
+        setPendingReplace($0)
+    }
+    if currentVM.isInProgress {
+        openCurrentWorkoutSheet?()
+    }
+}
+
 struct HistoryView: View {
     @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
+    @State private var pendingStartAgainReplace: PendingWorkoutReplace?
     @State private var dayRange: HistoryDayRange = .d7
     @State private var sessionOriginFilter: HistorySessionOriginFilter = .all
     @State private var mainTab: HistoryMainTab = .overview
@@ -294,6 +316,11 @@ struct HistoryView: View {
                     exploreSearch = ""
                 }
             }
+            .workoutReplaceConflictConfirmation(
+                currentVM: currentVM,
+                pending: $pendingStartAgainReplace,
+                onAfterReplace: { openCurrentWorkoutSheet?() }
+            )
         }
     }
 
@@ -929,7 +956,10 @@ struct HistoryView: View {
                 }
             } else {
                 ForEach(filteredSessions) { session in
-                    NavigationLink(destination: SessionDetailView(session: session).environmentObject(dataVM)) {
+                    NavigationLink(destination: SessionDetailView(session: session)
+                        .environmentObject(dataVM)
+                        .environmentObject(currentVM)
+                    ) {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(session.workout.name)
@@ -945,6 +975,21 @@ struct HistoryView: View {
                             Text(durationString(for: session))
                                 .font(.subheadline.monospacedDigit())
                                 .foregroundStyle(.secondary)
+                        }
+                    }
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        if completedSessionIsSameCalendarDay(session) {
+                            Button {
+                                startAgainFromCompletedSession(
+                                    session,
+                                    currentVM: currentVM,
+                                    openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+                                    setPendingReplace: { pendingStartAgainReplace = $0 }
+                                )
+                            } label: {
+                                Label("Continue", systemImage: "arrow.clockwise.circle.fill")
+                            }
+                            .tint(.green)
                         }
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -974,7 +1019,10 @@ struct HistoryView: View {
                 ForEach(sorted, id: \.key) { workoutId, sessions in
                     let name = sessions.first?.workout.name ?? "Unknown"
                     let last = sessions.map(\.endTime).compactMap { $0 }.max()
-                    NavigationLink(destination: WorkoutHistoryDetailView(workoutId: workoutId, workoutName: name).environmentObject(dataVM)) {
+                    NavigationLink(destination: WorkoutHistoryDetailView(workoutId: workoutId, workoutName: name)
+                        .environmentObject(dataVM)
+                        .environmentObject(currentVM)
+                    ) {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(name)
@@ -1158,12 +1206,19 @@ struct HistoryView: View {
 // MARK: - Session detail (single workout session: exercises + logged sets)
 private struct SessionDetailView: View {
     @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
     let session: WorkoutSession
 
     @State private var confirmDeleteSession = false
+    @State private var pendingStartAgainReplace: PendingWorkoutReplace?
 
     private var endDate: Date { session.endTime ?? session.startTime }
+
+    private var canStartAgainToday: Bool {
+        completedSessionIsSameCalendarDay(session)
+    }
 
     private var sessionPlanLine: String {
         switch session.sessionPlanOrigin {
@@ -1198,6 +1253,22 @@ private struct SessionDetailView: View {
                     Text(sessionPlanLine)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.trailing)
+                }
+            }
+            if canStartAgainToday {
+                Section {
+                    Button {
+                        startAgainFromCompletedSession(
+                            session,
+                            currentVM: currentVM,
+                            openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+                            setPendingReplace: { pendingStartAgainReplace = $0 }
+                        )
+                    } label: {
+                        Label("Continue session", systemImage: "arrow.clockwise.circle.fill")
+                    }
+                } footer: {
+                    Text("Continues this session with the same logged sets and progress. This finished entry stays in your history until you complete the new run.")
                 }
             }
             ForEach(session.exerciseLogs) { log in
@@ -1256,12 +1327,20 @@ private struct SessionDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+        .workoutReplaceConflictConfirmation(
+            currentVM: currentVM,
+            pending: $pendingStartAgainReplace,
+            onAfterReplace: { openCurrentWorkoutSheet?() }
+        )
     }
 }
 
 // MARK: - Workout history (list of sessions for one workout)
 private struct WorkoutHistoryDetailView: View {
     @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
+    @State private var pendingStartAgainReplace: PendingWorkoutReplace?
     let workoutId: UUID
     let workoutName: String
 
@@ -1331,7 +1410,10 @@ private struct WorkoutHistoryDetailView: View {
                 }
             }
             ForEach(sortedSessions) { session in
-                NavigationLink(destination: SessionDetailView(session: session).environmentObject(dataVM)) {
+                NavigationLink(destination: SessionDetailView(session: session)
+                    .environmentObject(dataVM)
+                    .environmentObject(currentVM)
+                ) {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(HistoryView.formatDateStatic(session.endTime ?? session.startTime))
@@ -1346,6 +1428,21 @@ private struct WorkoutHistoryDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                    if completedSessionIsSameCalendarDay(session) {
+                        Button {
+                            startAgainFromCompletedSession(
+                                session,
+                                currentVM: currentVM,
+                                openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+                                setPendingReplace: { pendingStartAgainReplace = $0 }
+                            )
+                        } label: {
+                            Label("Continue", systemImage: "arrow.clockwise.circle.fill")
+                        }
+                        .tint(.green)
+                    }
+                }
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     Button("Delete", role: .destructive) {
                         dataVM.deleteCompletedSession(id: session.id)
@@ -1355,6 +1452,11 @@ private struct WorkoutHistoryDetailView: View {
         }
         .navigationTitle(workoutName)
         .navigationBarTitleDisplayMode(.inline)
+        .workoutReplaceConflictConfirmation(
+            currentVM: currentVM,
+            pending: $pendingStartAgainReplace,
+            onAfterReplace: { openCurrentWorkoutSheet?() }
+        )
     }
 }
 
