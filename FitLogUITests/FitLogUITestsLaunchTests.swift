@@ -9,8 +9,9 @@ import XCTest
 
 final class FitLogUITestsLaunchTests: XCTestCase {
 
+    /// Avoid multiplying launch runs (light/dark, etc.) on Xcode Cloud — one configuration is enough.
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
-        true
+        false
     }
 
     override func setUpWithError() throws {
@@ -20,6 +21,7 @@ final class FitLogUITestsLaunchTests: XCTestCase {
     @MainActor
     func testLaunch() throws {
         let app = XCUIApplication()
+        FitLogUITestSupport.configure(app)
         app.launch()
 
         // Insert steps here to perform after app launch but before taking a screenshot,

@@ -57,7 +57,9 @@ struct FitLogApp: App {
                     .onAppear {
                         currentVM.dataManager = dataVM
                         dataVM.healthSyncStatusMessage = dataVM.healthSyncService.statusMessage
-                        aiService.wakeProxyHostIfNeeded()
+                        if !FitLogUITestLaunch.isActive {
+                            aiService.wakeProxyHostIfNeeded()
+                        }
                     }
             } else {
                 LoginView()
@@ -70,7 +72,7 @@ struct FitLogApp: App {
                 currentVM.appDidEnterBackground()
             case .active:
                 currentVM.appDidBecomeActive()
-                if authVM.isLoggedIn {
+                if authVM.isLoggedIn, !FitLogUITestLaunch.isActive {
                     aiService.wakeProxyHostIfNeeded()
                 }
             default:

@@ -69,6 +69,7 @@ struct MainTabView: View {
             dataVM.freezeYesterdayPlanAssignmentIfNeeded()
         }
         .onAppear {
+            guard !FitLogUITestLaunch.isActive else { return }
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         }
     }

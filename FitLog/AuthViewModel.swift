@@ -18,6 +18,11 @@ final class AuthViewModel: ObservableObject {
     @AppStorage("appleUserName") var userName: String = ""
     
     init() {
+        if FitLogUITestLaunch.isActive {
+            // Avoid ASAuthorizationAppleIDProvider network/credential callbacks on CI simulators.
+            isLoggedIn = true
+            return
+        }
         checkCredentialStateIfNeeded()
     }
     
