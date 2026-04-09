@@ -15,6 +15,10 @@ struct SplitProposalProgramStats: Equatable {
     var pushOrientedSets: Int
     var pullOrientedSets: Int
     var legOrientedSets: Int
+    /// Knee-dominant leg volume (quads, hip flexors) — coarse.
+    var quadKneeOrientedSets: Int
+    /// Hip hinge / posterior leg (hamstrings, glutes, posterior chain) — coarse.
+    var hipPosteriorLegSets: Int
     var distinctMuscleGroupsTouched: Int
     /// Short label such as “Push / Pull / Legs” when names match.
     var inferredSplitStyle: String
@@ -51,6 +55,8 @@ enum SplitProposalProgramAnalyzer {
         var push = 0
         var pull = 0
         var legs = 0
+        var quadKnee = 0
+        var hipPost = 0
         var muscleKeys = Set<String>()
 
         for day in days {
@@ -66,6 +72,8 @@ enum SplitProposalProgramAnalyzer {
                         if bucketPush.contains(g) { push += s }
                         if bucketPull.contains(g) { pull += s }
                         if bucketLegs.contains(g) { legs += s }
+                        if bucketQuadKnee.contains(g) { quadKnee += s }
+                        if bucketHipPosteriorLeg.contains(g) { hipPost += s }
                     }
                 }
             }
@@ -77,6 +85,8 @@ enum SplitProposalProgramAnalyzer {
             pushOrientedSets: push,
             pullOrientedSets: pull,
             legOrientedSets: legs,
+            quadKneeOrientedSets: quadKnee,
+            hipPosteriorLegSets: hipPost,
             distinctMuscleGroupsTouched: muscleKeys.count,
             inferredSplitStyle: style
         )
@@ -84,6 +94,22 @@ enum SplitProposalProgramAnalyzer {
 
     static func warnings(stats: SplitProposalProgramStats, days: [DayInput]) -> [SplitProposalProgramWarning] {
         var out: [SplitProposalProgramWarning] = []
+
+        let dayTallies = pushPullDominantDayTallies(days: days)
+        if dayTallies.pushDominantDays > dayTallies.pullDominantDays {
+            out.append(SplitProposalProgramWarning(
+                severity: .caution,
+                message: "More push-focused training days (\(dayTallies.pushDominantDays)) than pull-focused days (\(dayTallies.pullDominantDays)). That biases shoulders and posture over time — add pull-focused templates, balance upper days, or regenerate (applies to any split: PPL, upper/lower, bro-style, etc.)."
+            ))
+        }
+
+        if stats.legOrientedSets > 12,
+           stats.quadKneeOrientedSets > max(12, stats.hipPosteriorLegSets * 2 + 6) {
+            out.append(SplitProposalProgramWarning(
+                severity: .caution,
+                message: "Leg volume looks heavily knee/quad-dominant vs hip hinge and hamstrings/glutes. Add RDLs, hinges, leg curls, or similar for balance (any leg split)."
+            ))
+        }
 
         if stats.legOrientedSets == 0 {
             out.append(SplitProposalProgramWarning(
@@ -144,6 +170,46 @@ enum SplitProposalProgramAnalyzer {
         return out
     }
 
+    /// Per training day: compare slot volume whose muscles skew push vs pull (legs/core days often neutral).
+    private static func pushPullDominantDayTallies(days: [DayInput]) -> (pushDominantDays: Int, pullDominantDays: Int) {
+        let setGapToCallDominant = 6
+        var pushDominantDays = 0
+        var pullDominantDays = 0
+        for day in days {
+            var dayPush = 0
+            var dayPull = 0
+            for slot in day.slots {
+                let s = min(max(slot.sets, 0), 99)
+                let groups = ExerciseNameResolution.resolveMuscleGroups(from: slot.targetMuscleNames)
+                if groups.isEmpty { continue }
+                var pushHits = 0
+                var pullHits = 0
+                var legHits = 0
+                for g in groups {
+                    if bucketPush.contains(g) { pushHits += 1 }
+                    if bucketPull.contains(g) { pullHits += 1 }
+                    if bucketLegs.contains(g) { legHits += 1 }
+                }
+                // Leg-only or mostly leg slots don't count toward upper push/pull imbalance.
+                if legHits > max(pushHits, pullHits) { continue }
+                if pushHits > pullHits {
+                    dayPush += s
+                } else if pullHits > pushHits {
+                    dayPull += s
+                } else if pushHits > 0 && pushHits == pullHits {
+                    dayPush += s / 2
+                    dayPull += s - s / 2
+                }
+            }
+            if dayPush >= dayPull + setGapToCallDominant {
+                pushDominantDays += 1
+            } else if dayPull >= dayPush + setGapToCallDominant {
+                pullDominantDays += 1
+            }
+        }
+        return (pushDominantDays, pullDominantDays)
+    }
+
     // MARK: - Buckets (coarse, for hints only)
 
     private static let bucketPush: Set<MuscleGroup> = [
@@ -161,6 +227,15 @@ enum SplitProposalProgramAnalyzer {
     private static let bucketLegs: Set<MuscleGroup> = [
         .quads, .hamstrings, .glutes, .calves, .soleus,
         .adductors, .abductors, .hipFlexors
+    ]
+
+    /// For lower-body balance hints (knee vs hinge / posterior).
+    private static let bucketQuadKnee: Set<MuscleGroup> = [
+        .quads, .hipFlexors
+    ]
+
+    private static let bucketHipPosteriorLeg: Set<MuscleGroup> = [
+        .hamstrings, .glutes, .posteriorChain
     ]
 
     private static func inferSplitStyle(dayNames: [String]) -> String {

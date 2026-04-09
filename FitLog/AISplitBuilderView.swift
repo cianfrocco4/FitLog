@@ -829,10 +829,12 @@ struct AISplitBuilderView: View {
             LabeledContent("Muscle tags used", value: "\(programStats.distinctMuscleGroupsTouched)")
             let rough = "\(programStats.pushOrientedSets) / \(programStats.pullOrientedSets) / \(programStats.legOrientedSets)"
             LabeledContent("Push / pull / leg emphasis (rough)", value: "\(rough) set·muscle hits")
+            let legKneeHinge = "\(programStats.quadKneeOrientedSets) / \(programStats.hipPosteriorLegSets)"
+            LabeledContent("Leg: knee vs hinge / posterior (rough)", value: "\(legKneeHinge) set·muscle hits")
         } header: {
             Text("Program snapshot")
         } footer: {
-            Text("Set·muscle hits count each slot’s sets toward each listed muscle — a coarse balance hint, not exact volume science.")
+            Text("Set·muscle hits are coarse (any split). Compare push vs pull totals and knee vs hinge leg work for balance.")
         }
     }
 

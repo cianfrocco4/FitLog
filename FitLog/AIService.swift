@@ -294,14 +294,32 @@ final class AIService: ObservableObject {
             - Respect equipment: never imply machines or barbells the user cannot access (see JSON equipment).
             - If sessionDurationMinutes is set, bias toward fewer slots and/or fewer sets so sessions are realistic.
             - Match intensityStyle (e.g. heavy vs moderate) and progressionStyle in rep ranges and set counts.
-            - Include balanced pushing vs pulling volume unless the user JSON explains an intentional skew.
             - Include leg work when sessions/week >= 2 unless the user is upper-body only by explicit goal.
             - Scale total hard sets to experience: beginners lower, advanced can be higher but not extreme.
             - If deloadPreference mentions a cadence, mention it briefly in rationale (the app may schedule separately).
 
+            Program balance (mandatory — applies to EVERY split style: PPL, upper/lower, bro-style, full body, athletic, “no preference”, etc.):
+            UPPER BODY — push vs pull:
+            - Classify each workout as push-dominant (chest, triceps, front/side delts), pull-dominant (lats, upper/mid back, rhomboids, traps for rows, rear delts, biceps), legs/core-only (lower and abs — not counted here), or mixed upper if push and pull sets are similar.
+            - Across the full `workouts` rotation, the COUNT of push-dominant days MUST NOT exceed the COUNT of pull-dominant days. Never “fix” an awkward session count by adding extra pressing days before adding pulling days.
+            - Weekly set totals: sets attributed to push muscles must not exceed ~120% of sets attributed to pull muscles unless the user JSON explicitly requests more pressing.
+            - Upper/Lower: each Upper template should include BOTH major push and major pull patterns, OR the two Upper days together must balance push and pull across the week (state which in rationale).
+            - Body-part / bro splits: chest/shoulders/arms days still require enough distinct pull-focused volume elsewhere in the week (back day, pull slots) so total pull days ≥ push days and global push:pull set ratio stays sane.
+            - Full body: each session should include at least one substantial pull and one substantial push pattern when equipment allows; spread volume so the week is not push-heavy.
+            LOWER BODY — knee vs hip / posterior:
+            - When programming legs, include both knee-dominant work (quads) and hip-hinge / posterior-chain work (hamstrings, glutes, posterior chain) across the week — not quad-only unless the user’s notes say so.
+            - Calves and single-joint accessories are fine; avoid a week of only squats/leg press with no hinge or hamstring emphasis.
+            SESSION COUNT vs PATTERN:
+            - If `sessionsPerWeek` does not divide evenly into the user’s stated split style (e.g. 4 days with a 3-day PPL flavor), do NOT duplicate the same movement category disproportionately; choose a different structure (e.g. upper/lower ×2, balanced upper, extra pull day, full body) and explain in rationale.
+
             Training safety: this is not medical advice. Favor balanced programming and avoid reckless volume; honor injuries/limitations in the JSON.
             """
         }()
+
+        let balanceAddendum = Self.splitBuilderBalanceAddendum(
+            sessionsPerWeek: maxSessions,
+            splitPreference: structured.splitPreference
+        )
 
         let userPrompt = """
         Structured user profile — JSON object (authoritative; design the split to match every field that is non-empty):
@@ -310,6 +328,8 @@ final class AIService: ObservableObject {
         Scheduling context:
         \(daysNote)
         Target sessions per week (hard cap \(maxSessions)): \(maxSessions)
+
+        \(balanceAddendum)
 
         Allowed exercise names (JSON array — optional slots[].suggestedExerciseName and exercises[].name must use ONLY these strings when used):
         \(namesJSON)
@@ -325,13 +345,51 @@ final class AIService: ObservableObject {
             messages: [("system", system), ("user", userPrompt)],
             maxTokens: 3_500,
             jsonObject: true,
-            temperature: 0.35
+            temperature: 0.28
         )
         return try parseWorkoutSplitProposal(
             jsonString: content,
             maxSessions: maxSessions,
             userPreferredWeekdays: daysSorted
         )
+    }
+
+    /// User-message emphasis: balance rules for the chosen split + session count (all split types).
+    private static func splitBuilderBalanceAddendum(sessionsPerWeek: Int, splitPreference: String) -> String {
+        let sp = splitPreference.lowercased()
+        let mentionsPush = sp.contains("push")
+        let mentionsPull = sp.contains("pull")
+        let mentionsLeg = sp.contains("leg") || sp.contains("ppl")
+        let pplFlavor = mentionsPush && mentionsPull && (mentionsLeg || sp.contains("ppl"))
+        let upperLower = sp.contains("upper") && sp.contains("lower")
+        let broFlavor = sp.contains("bro") || sp.contains("muscle group") || sp.contains("body part")
+        let fullBody = sp.contains("full body")
+
+        var lines: [String] = []
+        lines.append("BALANCE — apply to this program regardless of split style (user preference: “\(splitPreference)”, sessions/week=\(sessionsPerWeek)):")
+        lines.append("• Upper: push-dominant day count ≤ pull-dominant day count; weekly push sets ≤ ~120% of pull sets unless the user asked otherwise.")
+        lines.append("• Lower: include both quad/knee-dominant and hinge/hamstrings/glutes/posterior-chain emphasis across the week when legs are trained.")
+        lines.append("• Name workouts honestly; do not hide extra pressing days as “upper” or “full body” without real pull volume.")
+
+        if upperLower {
+            lines.append("• Upper/Lower: each Upper day should contain major push AND major pull work, OR state clearly how two Upper days split push vs pull so the week balances.")
+        }
+        if broFlavor {
+            lines.append("• Body-part rotation: arm/chest/shoulder days must not outnumber back/pull-focused days; include enough rows, pulldowns, and rear-delts so pull days ≥ push days.")
+        }
+        if fullBody {
+            lines.append("• Full body: every session needs meaningful push and pull slots (and leg patterns over the week) — avoid sessions that are mostly pressing.")
+        }
+        if pplFlavor {
+            lines.append("• PPL-style: if sessions/week=\(sessionsPerWeek) is not divisible by 3, do not duplicate Push before Pull — use Upper/Lower×2, Push+Pull+Legs+(balanced upper, second pull, or full body), etc.")
+            if sessionsPerWeek == 4 {
+                lines.append("• 4×/week PPL flavor: never [Push][Push][Pull][Legs]; match push and pull session counts or add a balanced/extra-pull day.")
+            }
+        }
+        if sessionsPerWeek >= 5, !fullBody {
+            lines.append("• Higher frequency (\(sessionsPerWeek)×/week): watch redundant overlap — spread patterns so the same muscle group isn’t hammered on adjacent days without antagonist work.")
+        }
+        return lines.joined(separator: "\n")
     }
 
     private struct SplitBuilderAPIPayload: Encodable {
