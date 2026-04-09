@@ -7,6 +7,10 @@
 
 import Foundation
 import UserNotifications
+import AudioToolbox
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// When opening the pull-up sheet from elsewhere (e.g. workout plan), expand this row and optionally present the log-set sheet.
 struct PendingPullUpFocus: Equatable {
@@ -374,6 +378,41 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         saveActiveSession()
     }
 
+    /// Reorders exercises for the active session. Library-backed workouts update `userWorkouts` and resync logs; ad-hoc sessions reorder the in-memory workout snapshot and logs together.
+    func moveExerciseLogs(fromOffsets source: IndexSet, toOffset destination: Int) {
+        guard var session = currentSession else { return }
+        let workoutId = session.workout.id
+        if let dm = dataManager, dm.userWorkouts.contains(where: { $0.id == workoutId }) {
+            dm.moveExercise(in: session.workout, from: source, to: destination)
+            if let updated = dm.userWorkouts.first(where: { $0.id == workoutId }) {
+                syncExercises(withUpdatedWorkout: updated)
+            }
+            recordWorkoutActivity()
+        } else {
+            session.workout.exercises.move(fromOffsets: source, toOffset: destination)
+            session.exerciseLogs.move(fromOffsets: source, toOffset: destination)
+            currentSession = session
+            recordWorkoutActivity()
+            saveActiveSession()
+        }
+    }
+
+    func setSessionNotes(_ text: String) {
+        guard var session = currentSession else { return }
+        session.sessionNotes = text
+        currentSession = session
+        recordWorkoutActivity()
+        saveActiveSession()
+    }
+
+    func setExerciseLogNotes(at index: Int, notes: String) {
+        guard var session = currentSession, session.exerciseLogs.indices.contains(index) else { return }
+        session.exerciseLogs[index].notes = notes
+        currentSession = session
+        recordWorkoutActivity()
+        saveActiveSession()
+    }
+
     /// Replace a template slot placeholder with a real exercise while preserving `WorkoutExercise.id` (stable for logs).
     /// Swapping an already-resolved exercise clears its logged sets.
     func resolveSlotPlaceholder(workoutExerciseId: UUID, exercise: Exercise) {
@@ -437,15 +476,16 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             restTime: last.restTime,
             isWarmup: last.isWarmup,
             configuration: last.configuration,
-            dropSegments: last.dropSegments
+            dropSegments: last.dropSegments,
+            rpe: last.rpe
         )
     }
     
-    func logSet(exerciseIndex: Int, weight: Double, reps: Int, restTime: Int, isWarmup: Bool = false, configuration: [String: String] = [:], dropSegments: [DropSetSegment] = []) {
+    func logSet(exerciseIndex: Int, weight: Double, reps: Int, restTime: Int, isWarmup: Bool = false, configuration: [String: String] = [:], dropSegments: [DropSetSegment] = [], rpe: Double? = nil) {
         guard var session = currentSession, exerciseIndex < session.exerciseLogs.count else { return }
         guard let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exerciseId else { return }
 
-        let set = LoggedSet(id: UUID(), weight: weight, reps: reps, restTime: restTime, timestamp: Date(), isWarmup: isWarmup, configuration: configuration, dropSegments: dropSegments)
+        let set = LoggedSet(id: UUID(), weight: weight, reps: reps, restTime: restTime, timestamp: Date(), isWarmup: isWarmup, configuration: configuration, dropSegments: dropSegments, rpe: rpe)
         let priorCurrentSets = session.exerciseLogs[exerciseIndex].loggedSets
         let priorHistoricalSets: [LoggedSet] = (dataManager?.completedSessions ?? [])
             .flatMap(\.exerciseLogs)
@@ -524,9 +564,19 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             if self.remainingRestTime <= 0 {
                 self.restTimer?.invalidate()
                 self.restTimer = nil
+                Self.playRestCompleteFeedback()
                 self.showRestCompleteAlert = true
             }
         }
+    }
+
+    private static func playRestCompleteFeedback() {
+        #if canImport(UIKit)
+        let gen = UINotificationFeedbackGenerator()
+        gen.prepare()
+        gen.notificationOccurred(.success)
+        #endif
+        AudioServicesPlaySystemSound(1005)
     }
     
     func cancelRestTimer() {
@@ -563,7 +613,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     func addEmptySet(toExerciseIndex: Int) {
         guard var session = currentSession, toExerciseIndex < session.exerciseLogs.count else { return }
         
-        let emptySet = LoggedSet(id: UUID(), weight: 0.0, reps: 0, restTime: 90, timestamp: Date(), isWarmup: false, configuration: [:], dropSegments: [])
+        let emptySet = LoggedSet(id: UUID(), weight: 0.0, reps: 0, restTime: 90, timestamp: Date(), isWarmup: false, configuration: [:], dropSegments: [], rpe: nil)
         session.exerciseLogs[toExerciseIndex].loggedSets.append(emptySet)
         currentSession = session
         recordWorkoutActivity()

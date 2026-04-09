@@ -848,8 +848,10 @@ struct LoggedSet: Identifiable, Codable {
     var configuration: [String: String]
     /// Lighter loads after `weight` × `reps`, in order (optional).
     var dropSegments: [DropSetSegment]
+    /// Rate of perceived exertion (optional), typically ~6–10.
+    var rpe: Double?
 
-    init(id: UUID, weight: Double, reps: Int, restTime: Int, timestamp: Date, isWarmup: Bool = false, configuration: [String: String] = [:], dropSegments: [DropSetSegment] = []) {
+    init(id: UUID, weight: Double, reps: Int, restTime: Int, timestamp: Date, isWarmup: Bool = false, configuration: [String: String] = [:], dropSegments: [DropSetSegment] = [], rpe: Double? = nil) {
         self.id = id
         self.weight = weight
         self.reps = reps
@@ -858,6 +860,7 @@ struct LoggedSet: Identifiable, Codable {
         self.isWarmup = isWarmup
         self.configuration = configuration
         self.dropSegments = dropSegments
+        self.rpe = rpe
     }
 
     init(from decoder: Decoder) throws {
@@ -870,6 +873,7 @@ struct LoggedSet: Identifiable, Codable {
         isWarmup = (try? c.decode(Bool.self, forKey: .isWarmup)) ?? false
         configuration = (try? c.decode([String: String].self, forKey: .configuration)) ?? [:]
         dropSegments = (try? c.decode([DropSetSegment].self, forKey: .dropSegments)) ?? []
+        rpe = try c.decodeIfPresent(Double.self, forKey: .rpe)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -882,10 +886,11 @@ struct LoggedSet: Identifiable, Codable {
         try c.encode(isWarmup, forKey: .isWarmup)
         if !configuration.isEmpty { try c.encode(configuration, forKey: .configuration) }
         if !dropSegments.isEmpty { try c.encode(dropSegments, forKey: .dropSegments) }
+        if let rpe { try c.encode(rpe, forKey: .rpe) }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, weight, reps, restTime, timestamp, isWarmup, configuration, dropSegments
+        case id, weight, reps, restTime, timestamp, isWarmup, configuration, dropSegments, rpe
     }
 }
 
@@ -893,6 +898,35 @@ struct ExerciseLog: Identifiable, Codable {
     let id: UUID
     var workoutExercise: WorkoutExercise
     var loggedSets: [LoggedSet]
+    /// Freeform notes for this exercise during the session.
+    var notes: String
+
+    init(id: UUID, workoutExercise: WorkoutExercise, loggedSets: [LoggedSet], notes: String = "") {
+        self.id = id
+        self.workoutExercise = workoutExercise
+        self.loggedSets = loggedSets
+        self.notes = notes
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        workoutExercise = try c.decode(WorkoutExercise.self, forKey: .workoutExercise)
+        loggedSets = try c.decode([LoggedSet].self, forKey: .loggedSets)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(workoutExercise, forKey: .workoutExercise)
+        try c.encode(loggedSets, forKey: .loggedSets)
+        if !notes.isEmpty { try c.encode(notes, forKey: .notes) }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, workoutExercise, loggedSets, notes
+    }
 }
 
 struct WorkoutSession: Identifiable, Codable {
@@ -907,6 +941,8 @@ struct WorkoutSession: Identifiable, Codable {
     var completedExerciseIds: [UUID] = []
     /// What the user started from (for History / Coach). Nil = legacy session before this field existed.
     var sessionPlanOrigin: WorkoutPlanRef?
+    /// Notes for the whole workout (optional).
+    var sessionNotes: String = ""
     var isCompleted: Bool { endTime != nil }
 
     init(
@@ -917,7 +953,8 @@ struct WorkoutSession: Identifiable, Codable {
         exerciseLogs: [ExerciseLog],
         activeExerciseIds: [UUID] = [],
         completedExerciseIds: [UUID] = [],
-        sessionPlanOrigin: WorkoutPlanRef? = nil
+        sessionPlanOrigin: WorkoutPlanRef? = nil,
+        sessionNotes: String = ""
     ) {
         self.id = id
         self.workout = workout
@@ -927,6 +964,7 @@ struct WorkoutSession: Identifiable, Codable {
         self.activeExerciseIds = activeExerciseIds
         self.completedExerciseIds = completedExerciseIds
         self.sessionPlanOrigin = sessionPlanOrigin
+        self.sessionNotes = sessionNotes
     }
 
     init(from decoder: Decoder) throws {
@@ -939,6 +977,7 @@ struct WorkoutSession: Identifiable, Codable {
         activeExerciseIds = (try? c.decode([UUID].self, forKey: .activeExerciseIds)) ?? []
         completedExerciseIds = (try? c.decode([UUID].self, forKey: .completedExerciseIds)) ?? []
         sessionPlanOrigin = try? c.decode(WorkoutPlanRef.self, forKey: .sessionPlanOrigin)
+        sessionNotes = try c.decodeIfPresent(String.self, forKey: .sessionNotes) ?? ""
     }
 
     func encode(to encoder: Encoder) throws {
@@ -951,10 +990,11 @@ struct WorkoutSession: Identifiable, Codable {
         if !activeExerciseIds.isEmpty { try c.encode(activeExerciseIds, forKey: .activeExerciseIds) }
         if !completedExerciseIds.isEmpty { try c.encode(completedExerciseIds, forKey: .completedExerciseIds) }
         if let sessionPlanOrigin { try c.encode(sessionPlanOrigin, forKey: .sessionPlanOrigin) }
+        if !sessionNotes.isEmpty { try c.encode(sessionNotes, forKey: .sessionNotes) }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, workout, startTime, endTime, exerciseLogs, activeExerciseIds, completedExerciseIds, sessionPlanOrigin
+        case id, workout, startTime, endTime, exerciseLogs, activeExerciseIds, completedExerciseIds, sessionPlanOrigin, sessionNotes
     }
 
     /// New in-progress session with the same workout snapshot, exercise rows, logged sets, and active/completed exercise state as `completed`.
@@ -969,10 +1009,11 @@ struct WorkoutSession: Identifiable, Codable {
                     timestamp: s.timestamp,
                     isWarmup: s.isWarmup,
                     configuration: s.configuration,
-                    dropSegments: s.dropSegments
+                    dropSegments: s.dropSegments,
+                    rpe: s.rpe
                 )
             }
-            return ExerciseLog(id: UUID(), workoutExercise: log.workoutExercise, loggedSets: newSets)
+            return ExerciseLog(id: UUID(), workoutExercise: log.workoutExercise, loggedSets: newSets, notes: log.notes)
         }
         var active = completed.activeExerciseIds
         if active.isEmpty {

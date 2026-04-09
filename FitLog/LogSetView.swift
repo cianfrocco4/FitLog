@@ -44,6 +44,8 @@ struct LogSetView: View {
     @State private var dropRows: [EditableDropRow] = []
     /// Manual override for superset rest. `nil` = use auto-determined value.
     @State private var restOverride: Bool?
+    /// Optional RPE 6–10; `nil` means not recorded.
+    @State private var rpeChoice: Int? = nil
 
     private var workoutExercise: WorkoutExercise? {
         guard let session = sessionVM.currentSession, exerciseIndex < session.exerciseLogs.count else { return nil }
@@ -231,6 +233,13 @@ struct LogSetView: View {
                     }
 
                     Toggle("Mark as warm-up set", isOn: $isWarmup)
+
+                    Picker("RPE (optional)", selection: $rpeChoice) {
+                        Text("None").tag(nil as Int?)
+                        ForEach(Array(6...10), id: \.self) { v in
+                            Text("\(v)").tag(Optional(v))
+                        }
+                    }
                 }
 
                 Section {
@@ -294,7 +303,8 @@ struct LogSetView: View {
                             restTime: effectiveRest,
                             isWarmup: isWarmup,
                             configuration: configValues,
-                            dropSegments: dropSetEnabled ? sanitizedDropSegments : []
+                            dropSegments: dropSetEnabled ? sanitizedDropSegments : [],
+                            rpe: rpeChoice.map { Double($0) }
                         )
 
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -334,6 +344,12 @@ struct LogSetView: View {
                 dropSetEnabled = false
                 dropRows = []
             }
+            if let r = lastInSession.rpe {
+                let rounded = Int(r.rounded())
+                rpeChoice = (6...10).contains(rounded) ? rounded : nil
+            } else {
+                rpeChoice = nil
+            }
             restOverride = nil
             if isSupersetContext && !autoRestAfterSet {
                 restTime = 0
@@ -372,6 +388,12 @@ struct LogSetView: View {
                 dropSetEnabled = false
                 dropRows = []
             }
+            if let r = recent.rpe {
+                let rounded = Int(r.rounded())
+                rpeChoice = (6...10).contains(rounded) ? rounded : nil
+            } else {
+                rpeChoice = nil
+            }
         } else {
             restTime = currentLog.workoutExercise.defaultRestTime
 
@@ -384,6 +406,7 @@ struct LogSetView: View {
             }
             dropSetEnabled = false
             dropRows = []
+            rpeChoice = nil
         }
 
         restOverride = nil

@@ -415,6 +415,7 @@ struct CurrentWorkoutPullUpSheet: View {
     @State private var showQuickAddExercise = false
     @State private var showFullAddExercise = false
     @State private var showPRBanner = false
+    @State private var exerciseListEditMode = EditMode.inactive
 
     private var activeSessionWorkout: Workout? {
         currentVM.currentSession?.workout
@@ -488,6 +489,15 @@ struct CurrentWorkoutPullUpSheet: View {
                     }
                     .padding(.top, currentVM.remainingRestTime > 0 ? 0 : 16)
                     .padding(.horizontal)
+
+                    TextField("Workout notes (optional)", text: Binding(
+                        get: { currentVM.currentSession?.sessionNotes ?? "" },
+                        set: { currentVM.setSessionNotes($0) }
+                    ), axis: .vertical)
+                    .lineLimit(2...5)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.subheadline)
+                    .padding(.horizontal)
                 }
 
                 if let session = currentVM.currentSession, session.activeExerciseIds.count > 1 {
@@ -502,6 +512,9 @@ struct CurrentWorkoutPullUpSheet: View {
                 
                 unresolvedSlotsBanner
                 prBanner
+                restCompleteBanner
+
+                exerciseNavigationBar
 
                 ScrollViewReader { scrollProxy in
                     List {
@@ -610,6 +623,14 @@ struct CurrentWorkoutPullUpSheet: View {
                                         if let previousLog = lastCompletedLog(for: log) {
                                             previousSessionSummaryRow(previousLog: previousLog)
                                         }
+                                        TextField("Notes for this exercise", text: Binding(
+                                            get: { currentVM.currentSession?.exerciseLogs[index].notes ?? "" },
+                                            set: { currentVM.setExerciseLogNotes(at: index, notes: $0) }
+                                        ), axis: .vertical)
+                                        .lineLimit(2...5)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.subheadline)
+                                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                                         HStack(spacing: 12) {
                                             Button("Add New Set") {
                                                 logSetSheetSelection = LogSetSheetSelection(exerciseIndex: index)
@@ -673,6 +694,21 @@ struct CurrentWorkoutPullUpSheet: View {
                                 }
                                 .id(log.id)
                             }
+                            .onMove { source, destination in
+                                let logs = currentVM.currentSession?.exerciseLogs ?? []
+                                let expandedId = expandedExerciseIndex.flatMap { logs.indices.contains($0) ? logs[$0].id : nil }
+                                let logSheetId = logSetSheetSelection.flatMap { sel in
+                                    logs.indices.contains(sel.exerciseIndex) ? logs[sel.exerciseIndex].id : nil
+                                }
+                                currentVM.moveExerciseLogs(fromOffsets: source, toOffset: destination)
+                                guard let newLogs = currentVM.currentSession?.exerciseLogs else { return }
+                                if let eid = expandedId, let ni = newLogs.firstIndex(where: { $0.id == eid }) {
+                                    expandedExerciseIndex = ni
+                                }
+                                if let lid = logSheetId, let ni = newLogs.firstIndex(where: { $0.id == lid }) {
+                                    logSetSheetSelection = LogSetSheetSelection(exerciseIndex: ni)
+                                }
+                            }
                         } else {
                             Section {
                                 Text("No exercises in current session")
@@ -681,6 +717,7 @@ struct CurrentWorkoutPullUpSheet: View {
                             }
                         }
                     }
+                    .environment(\.editMode, $exerciseListEditMode)
                     .listStyle(.plain)
                     .onChange(of: expandedExerciseIndex) { _, newValue in
                         guard let idx = newValue,
@@ -703,6 +740,13 @@ struct CurrentWorkoutPullUpSheet: View {
                         showDiscardWorkoutConfirmation = true
                     }
                     .foregroundStyle(.red)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(exerciseListEditMode == .active ? "Done" : "Reorder") {
+                        withAnimation {
+                            exerciseListEditMode = exerciseListEditMode == .active ? .inactive : .active
+                        }
+                    }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -766,22 +810,6 @@ struct CurrentWorkoutPullUpSheet: View {
                         .environmentObject(dataVM)
                         .environmentObject(aiService)
                 }
-            }
-            .alert(
-                "Rest over",
-                isPresented: Binding(
-                    get: { currentVM.showRestCompleteAlert },
-                    set: { newValue in
-                        currentVM.showRestCompleteAlert = newValue
-                    }
-                )
-            ) {
-                Button("OK", role: .cancel) {
-                    currentVM.showRestCompleteAlert = false
-                    advanceToNextExerciseAfterRestIfNeeded()
-                }
-            } message: {
-                Text("Time for your next set.")
             }
             .alert("Finish workout?", isPresented: $showFinishConfirmation) {
                 Button("Cancel", role: .cancel) {}
@@ -934,6 +962,17 @@ struct CurrentWorkoutPullUpSheet: View {
         }
     }
 
+    private func navigateAdjacentExercise(delta: Int) {
+        guard let logs = currentVM.currentSession?.exerciseLogs, !logs.isEmpty,
+              let idx = expandedExerciseIndex else { return }
+        let newIdx = idx + delta
+        guard logs.indices.contains(newIdx) else { return }
+        expandedExerciseIndex = newIdx
+        if let exId = logs[newIdx].workoutExercise.exerciseId {
+            currentVM.setPrimaryExercise(exerciseId: exId)
+        }
+    }
+
     // MARK: - Unresolved slots banner
 
     @ViewBuilder
@@ -985,6 +1024,71 @@ struct CurrentWorkoutPullUpSheet: View {
             .padding(.horizontal)
             .padding(.top, 8)
             .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    @ViewBuilder
+    private var restCompleteBanner: some View {
+        if currentVM.showRestCompleteAlert {
+            HStack(spacing: 10) {
+                Image(systemName: "bell.fill")
+                    .foregroundStyle(.orange)
+                Text("Rest over — time for your next set.")
+                    .font(.subheadline.weight(.medium))
+                Spacer(minLength: 8)
+                Button("Continue") {
+                    currentVM.showRestCompleteAlert = false
+                    advanceToNextExerciseAfterRestIfNeeded()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.orange)
+            }
+            .padding()
+            .background(Color.orange.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal)
+            .padding(.top, 8)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    @ViewBuilder
+    private var exerciseNavigationBar: some View {
+        if let idx = expandedExerciseIndex,
+           let logs = currentVM.currentSession?.exerciseLogs,
+           !logs.isEmpty,
+           idx < logs.count {
+            HStack(spacing: 16) {
+                Button {
+                    navigateAdjacentExercise(delta: -1)
+                } label: {
+                    Label("Previous", systemImage: "chevron.left")
+                }
+                .labelStyle(.titleAndIcon)
+                .disabled(idx <= 0)
+
+                Spacer()
+
+                Text("\(idx + 1) of \(logs.count)")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button {
+                    navigateAdjacentExercise(delta: 1)
+                } label: {
+                    Label("Next", systemImage: "chevron.right")
+                }
+                .labelStyle(.titleAndIcon)
+                .disabled(idx >= logs.count - 1)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            .background(Color(.systemGray6))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal)
+            .padding(.top, 6)
         }
     }
 
@@ -1092,6 +1196,11 @@ struct CurrentWorkoutPullUpSheet: View {
                         .clipShape(Capsule())
                 }
                 Spacer()
+                if let rpeLabel = loggedSetRpeLabel(set) {
+                    Text(rpeLabel)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Text("Rest: \(set.restTime)s")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1105,6 +1214,14 @@ struct CurrentWorkoutPullUpSheet: View {
         .padding(10)
         .background(Color.gray.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func loggedSetRpeLabel(_ set: LoggedSet) -> String? {
+        guard let r = set.rpe else { return nil }
+        if abs(r.truncatingRemainder(dividingBy: 1)) < 0.001 {
+            return "RPE \(Int(r))"
+        }
+        return String(format: "RPE %.1f", r)
     }
 
     /// Shows the recommended configuration for each set in this workout, if any.

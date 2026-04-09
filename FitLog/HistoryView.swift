@@ -1203,6 +1203,13 @@ struct HistoryView: View {
     }
 }
 
+private func historyRpeLabel(_ rpe: Double) -> String {
+    if abs(rpe.truncatingRemainder(dividingBy: 1)) < 0.001 {
+        return "RPE \(Int(rpe))"
+    }
+    return String(format: "RPE %.1f", rpe)
+}
+
 // MARK: - Session detail (single workout session: exercises + logged sets)
 private struct SessionDetailView: View {
     @EnvironmentObject var dataVM: DataManager
@@ -1255,6 +1262,12 @@ private struct SessionDetailView: View {
                         .multilineTextAlignment(.trailing)
                 }
             }
+            if !session.sessionNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Section("Workout notes") {
+                    Text(session.sessionNotes)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
             if canStartAgainToday {
                 Section {
                     Button {
@@ -1285,6 +1298,14 @@ private struct SessionDetailView: View {
                                         .padding(.vertical, 2)
                                         .background(.quaternary, in: Capsule())
                                 }
+                                if let rpe = set.rpe {
+                                    Text(historyRpeLabel(rpe))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(.quaternary, in: Capsule())
+                                }
                                 Spacer()
                             }
                             let summary = set.configurationSummary(fieldNames: log.workoutExercise.configurationFields)
@@ -1300,6 +1321,11 @@ private struct SessionDetailView: View {
                         Text(dataVM.displayName(for: log.workoutExercise))
                         if let slotLabel = HistoryView.templateSlotCaption(for: log, session: session, dataVM: dataVM) {
                             Text("Slot: \(slotLabel)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        if !log.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text(log.notes)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
