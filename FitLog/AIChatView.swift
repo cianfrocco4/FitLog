@@ -104,9 +104,12 @@ final class CoachChatController: ObservableObject {
 struct AIChatView: View {
     @EnvironmentObject private var dataVM: DataManager
     @EnvironmentObject private var aiService: AIService
+    @Environment(\.fitlogCoachDeepLink) private var coachDeepLink
 
     @StateObject private var chat = CoachChatController()
     @FocusState private var isComposerFocused: Bool
+    @State private var showSplitBuilder = false
+    @State private var splitBuilderPrefill: String?
 
     var body: some View {
         NavigationStack {
@@ -174,12 +177,31 @@ struct AIChatView: View {
                         if isComposerFocused {
                             Button("Done") { dismissCoachKeyboard() }
                         }
+                        Button {
+                            splitBuilderPrefill = nil
+                            showSplitBuilder = true
+                        } label: {
+                            Label("AI split builder", systemImage: "sparkles")
+                        }
                         Button("Clear") {
                             dismissCoachKeyboard()
                             chat.clearChat()
                         }
                         .disabled(chat.messages.isEmpty && chat.draft.isEmpty)
                     }
+                }
+            }
+            .sheet(isPresented: $showSplitBuilder) {
+                AISplitBuilderView()
+                    .environmentObject(dataVM)
+                    .environmentObject(aiService)
+                    .environment(\.fitlogAISplitCoachPrefill, splitBuilderPrefill)
+            }
+            .onChange(of: coachDeepLink.wrappedValue) { _, new in
+                if case .openAISplitBuilder(let prefill) = new {
+                    splitBuilderPrefill = prefill
+                    showSplitBuilder = true
+                    coachDeepLink.wrappedValue = .idle
                 }
             }
         }

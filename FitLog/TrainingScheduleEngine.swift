@@ -57,6 +57,13 @@ struct TrainingScheduleEngine {
         return keys.contains(dk)
     }
 
+    /// Counts toward rotation order: a scheduled training weekday that is not marked as a skipped (missed) slot.
+    private func isCycleProgressDay(_ date: Date, program: TrainingProgramState) -> Bool {
+        guard isDefaultTrainingDay(date, program: program) else { return false }
+        let key = TrainingProgramState.dayKey(for: date, calendar: calendar)
+        return !program.skippedCycleTrainingDayKeys.contains(key)
+    }
+
     func trainingDayKeysInWeek(containing date: Date, program: TrainingProgramState) -> Set<String> {
         guard let interval = calendar.dateInterval(of: .weekOfYear, for: date) else { return [] }
         var days: [Date] = []
@@ -91,30 +98,32 @@ struct TrainingScheduleEngine {
         let anchorStart = calendar.startOfDay(for: anchorDate)
         let dateStart = calendar.startOfDay(for: date)
 
+        let phase = program.cyclePhaseOffset
+
         if dateStart >= anchorStart {
             var ord = 0
             var walk = anchorStart
             while walk <= dateStart {
-                if isDefaultTrainingDay(walk, program: program) {
+                if isCycleProgressDay(walk, program: program) {
                     ord += 1
                 }
                 guard let next = calendar.date(byAdding: .day, value: 1, to: walk) else { break }
                 walk = next
             }
-            let idx = (ord - 1) % n
+            let idx = ((ord - 1 + phase) % n + n) % n
             return program.cycleEntries[idx]
         }
 
         var k = 0
         var back = calendar.date(byAdding: .day, value: -1, to: anchorStart) ?? anchorStart
         while back >= dateStart {
-            if isDefaultTrainingDay(back, program: program) {
+            if isCycleProgressDay(back, program: program) {
                 k += 1
             }
             guard let prev = calendar.date(byAdding: .day, value: -1, to: back) else { break }
             back = prev
         }
-        let idx = ((-k % n) + n) % n
+        let idx = ((-k + phase) % n + n) % n
         return program.cycleEntries[idx]
     }
 }

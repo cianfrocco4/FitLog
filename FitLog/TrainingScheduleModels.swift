@@ -88,6 +88,10 @@ struct TrainingProgramState: Codable, Equatable {
     var preferredWeekdays: [Int]
     /// `yyyy-MM-dd` in the user's current calendar, start-of-day semantics for anchoring the rotation.
     var anchorDayKey: String
+    /// Rotates which cycle entry maps to the first counted training day on/after the anchor (0…n-1).
+    var cyclePhaseOffset: Int
+    /// Training days that do not advance the rotation (e.g. missed planned workouts).
+    var skippedCycleTrainingDayKeys: [String]
     var dayOverrides: [String: ScheduleDayOverride]
     var weekOverrides: [String: ScheduleWeekOverride]
     /// Day keys (`yyyy-MM-dd`) before today only; see `FrozenPlanDay`.
@@ -99,6 +103,8 @@ struct TrainingProgramState: Codable, Equatable {
             sessionsPerWeek: 3,
             preferredWeekdays: [],
             anchorDayKey: anchorDayKey,
+            cyclePhaseOffset: 0,
+            skippedCycleTrainingDayKeys: [],
             dayOverrides: [:],
             weekOverrides: [:],
             frozenCalendarDays: [:]
@@ -149,6 +155,8 @@ struct TrainingProgramState: Codable, Equatable {
         sessionsPerWeek: Int,
         preferredWeekdays: [Int],
         anchorDayKey: String,
+        cyclePhaseOffset: Int = 0,
+        skippedCycleTrainingDayKeys: [String] = [],
         dayOverrides: [String: ScheduleDayOverride],
         weekOverrides: [String: ScheduleWeekOverride],
         frozenCalendarDays: [String: FrozenPlanDay] = [:]
@@ -157,6 +165,8 @@ struct TrainingProgramState: Codable, Equatable {
         self.sessionsPerWeek = sessionsPerWeek
         self.preferredWeekdays = preferredWeekdays
         self.anchorDayKey = anchorDayKey
+        self.cyclePhaseOffset = cyclePhaseOffset
+        self.skippedCycleTrainingDayKeys = skippedCycleTrainingDayKeys
         self.dayOverrides = dayOverrides
         self.weekOverrides = weekOverrides
         self.frozenCalendarDays = frozenCalendarDays
@@ -190,6 +200,8 @@ struct TrainingProgramState: Codable, Equatable {
         sessionsPerWeek = (try? c.decode(Int.self, forKey: .sessionsPerWeek)) ?? 3
         preferredWeekdays = (try? c.decode([Int].self, forKey: .preferredWeekdays)) ?? []
         anchorDayKey = (try? c.decode(String.self, forKey: .anchorDayKey)) ?? Self.dayKey(for: Date())
+        cyclePhaseOffset = (try? c.decode(Int.self, forKey: .cyclePhaseOffset)) ?? 0
+        skippedCycleTrainingDayKeys = (try? c.decode([String].self, forKey: .skippedCycleTrainingDayKeys)) ?? []
         dayOverrides = (try? c.decode([String: ScheduleDayOverride].self, forKey: .dayOverrides)) ?? [:]
         weekOverrides = (try? c.decode([String: ScheduleWeekOverride].self, forKey: .weekOverrides)) ?? [:]
         frozenCalendarDays = (try? c.decode([String: FrozenPlanDay].self, forKey: .frozenCalendarDays)) ?? [:]
@@ -201,6 +213,8 @@ struct TrainingProgramState: Codable, Equatable {
         try c.encode(sessionsPerWeek, forKey: .sessionsPerWeek)
         try c.encode(preferredWeekdays, forKey: .preferredWeekdays)
         try c.encode(anchorDayKey, forKey: .anchorDayKey)
+        try c.encode(cyclePhaseOffset, forKey: .cyclePhaseOffset)
+        try c.encode(skippedCycleTrainingDayKeys, forKey: .skippedCycleTrainingDayKeys)
         try c.encode(dayOverrides, forKey: .dayOverrides)
         try c.encode(weekOverrides, forKey: .weekOverrides)
         if !frozenCalendarDays.isEmpty {
@@ -209,7 +223,7 @@ struct TrainingProgramState: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case cycleEntries, cycleWorkoutIds, sessionsPerWeek, preferredWeekdays, anchorDayKey, dayOverrides, weekOverrides, frozenCalendarDays
+        case cycleEntries, cycleWorkoutIds, sessionsPerWeek, preferredWeekdays, anchorDayKey, cyclePhaseOffset, skippedCycleTrainingDayKeys, dayOverrides, weekOverrides, frozenCalendarDays
     }
 }
 

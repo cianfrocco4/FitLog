@@ -11,6 +11,33 @@ import Testing
 
 struct FitLogTests {
 
+    @Test func trainingScheduleEngine_skippedTrainingDayDoesNotAdvanceCycle() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.firstWeekday = 1
+        let engine = TrainingScheduleEngine(calendar: cal)
+        let idPush = UUID(), idPull = UUID(), idLegs = UUID()
+        let anchor = cal.date(from: DateComponents(year: 2026, month: 3, day: 16))!
+        let dayKey = TrainingProgramState.dayKey(for: anchor, calendar: cal)
+        let mon = anchor
+        let wed = cal.date(byAdding: .day, value: 2, to: mon)!
+        let fri = cal.date(byAdding: .day, value: 4, to: mon)!
+        var program = TrainingProgramState(
+            cycleEntries: [.workout(idPush), .workout(idPull), .workout(idLegs)],
+            sessionsPerWeek: 3,
+            preferredWeekdays: [2, 4, 6],
+            anchorDayKey: dayKey,
+            cyclePhaseOffset: 0,
+            skippedCycleTrainingDayKeys: [dayKey],
+            dayOverrides: [:],
+            weekOverrides: [:]
+        )
+        // Monday was a planned workout day but skipped — rotation should not advance past it.
+        #expect(engine.defaultCycleEntry(for: wed, program: program) == .workout(idPush))
+        #expect(engine.defaultCycleEntry(for: fri, program: program) == .workout(idPull))
+        program.skippedCycleTrainingDayKeys = []
+        #expect(engine.defaultCycleEntry(for: wed, program: program) == .workout(idPull))
+    }
+
     @Test func trainingScheduleEngine_assignsCycleOnPreferredTrainingDays() {
         var cal = Calendar(identifier: .gregorian)
         cal.firstWeekday = 1

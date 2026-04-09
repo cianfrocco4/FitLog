@@ -14,6 +14,7 @@ struct MainTabView: View {
     @EnvironmentObject var dayMonitor: CalendarDayMonitor
     @State private var showCurrentWorkoutPullUp = false
     @State private var rootTab: FitlogRootTab = .home
+    @State private var coachDeepLink: FitlogCoachDeepLink = .idle
 
     var body: some View {
         TabView(selection: $rootTab) {
@@ -34,6 +35,7 @@ struct MainTabView: View {
                 .tag(FitlogRootTab.more)
         }
         .environment(\.fitlogRootTabSelection, $rootTab)
+        .environment(\.fitlogCoachDeepLink, $coachDeepLink)
         .environment(\.openCurrentWorkoutSheet, {
             currentVM.pendingPullUpFocus = nil
             showCurrentWorkoutPullUp = true
@@ -67,6 +69,7 @@ struct MainTabView: View {
         }
         .onChange(of: dayMonitor.currentDayKey) { _, _ in
             dataVM.freezeYesterdayPlanAssignmentIfNeeded()
+            dataVM.reconcileSkippedCycleTrainingDays()
         }
         .onAppear {
             guard !FitLogUITestLaunch.isActive else { return }

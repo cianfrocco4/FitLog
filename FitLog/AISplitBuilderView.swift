@@ -161,6 +161,7 @@ struct AISplitBuilderView: View {
     @EnvironmentObject private var aiService: AIService
     @Environment(\.dismiss) private var dismiss
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
+    @Environment(\.fitlogAISplitCoachPrefill) private var coachPrefillFromEnvironment
 
     @State private var primaryGoal: PrimaryTrainingGoal = .general
     @State private var equipment: EquipmentAccess = .fullGym
@@ -195,6 +196,7 @@ struct AISplitBuilderView: View {
 
     @State private var currentStep: WizardStep = .goals
     @State private var didLoadPersistedWizard = false
+    @State private var didApplyCoachPrefill = false
 
     private enum LibraryPickContext: Identifiable {
         case slotDefault(dayId: UUID, slotId: UUID)
@@ -329,6 +331,16 @@ struct AISplitBuilderView: View {
             guard !didLoadPersistedWizard else { return }
             didLoadPersistedWizard = true
             applyPersistedState(SplitBuilderPreferencesStore.load())
+            if let pre = coachPrefillFromEnvironment, !pre.isEmpty, !didApplyCoachPrefill {
+                didApplyCoachPrefill = true
+                let block = "[Plan context]\n\(pre)\n\n"
+                if additionalNotes.isEmpty {
+                    additionalNotes = String(block.prefix(SplitBuilderLimits.maxOptionalFieldChars))
+                } else {
+                    let merged = block + additionalNotes
+                    additionalNotes = String(merged.prefix(SplitBuilderLimits.maxOptionalFieldChars))
+                }
+            }
         }
         .onChange(of: primaryGoal) { _, _ in persistWizardState() }
         .onChange(of: equipment) { _, _ in persistWizardState() }

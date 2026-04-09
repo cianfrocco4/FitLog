@@ -16,8 +16,23 @@ enum FitlogRootTab: Int, Hashable {
     case more = 4
 }
 
+/// In-memory Coach tab routing (e.g. Plan tab opens AI split builder with plan context).
+enum FitlogCoachDeepLink: Equatable {
+    case idle
+    /// Prefill is merged into the split builder “Additional notes” field.
+    case openAISplitBuilder(prefill: String?)
+}
+
 private struct FitlogRootTabSelectionKey: EnvironmentKey {
     static let defaultValue: Binding<FitlogRootTab>? = nil
+}
+
+private struct FitlogCoachDeepLinkKey: EnvironmentKey {
+    static var defaultValue: Binding<FitlogCoachDeepLink> { .constant(.idle) }
+}
+
+private struct FitlogAISplitCoachPrefillKey: EnvironmentKey {
+    static let defaultValue: String? = nil
 }
 
 extension EnvironmentValues {
@@ -25,5 +40,17 @@ extension EnvironmentValues {
     var fitlogRootTabSelection: Binding<FitlogRootTab>? {
         get { self[FitlogRootTabSelectionKey.self] }
         set { self[FitlogRootTabSelectionKey.self] = newValue }
+    }
+
+    /// Switch Coach tab and optionally present the AI split builder with prefilled plan context.
+    var fitlogCoachDeepLink: Binding<FitlogCoachDeepLink> {
+        get { self[FitlogCoachDeepLinkKey.self] }
+        set { self[FitlogCoachDeepLinkKey.self] = newValue }
+    }
+
+    /// Merged into AI split builder “Additional notes” once when non-nil (Plan / Coach deep link).
+    var fitlogAISplitCoachPrefill: String? {
+        get { self[FitlogAISplitCoachPrefillKey.self] }
+        set { self[FitlogAISplitCoachPrefillKey.self] = newValue }
     }
 }

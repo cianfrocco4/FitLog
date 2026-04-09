@@ -71,6 +71,8 @@ final class DataManager: ObservableObject {
         repairSessionConcreteSnapshotsIfNeeded()
         rotateBackup()
         freezeYesterdayPlanAssignmentIfNeeded()
+        reconcileSkippedCycleTrainingDays()
+        publishWidgetSnapshot()
     }
 
     /// Converts legacy `.concrete` rows in **library workouts and historical session snapshots** to `.flexible` blueprints. Runs once (UserDefaults flag).
@@ -881,11 +883,14 @@ final class DataManager: ObservableObject {
 
     func refreshCompletedSessions() {
         completedSessions = sessionStore.loadSessions()
+        reconcileSkippedCycleTrainingDays()
+        publishWidgetSnapshot()
     }
 
     func appendCompletedSession(_ session: WorkoutSession) {
         completedSessions.append(session)
         sessionStore.appendSession(session)
+        reconcileSkippedCycleTrainingDays()
     }
 
     /// Template for a new live session from a **completed** session (library + flexible slots when possible).
@@ -917,12 +922,19 @@ final class DataManager: ObservableObject {
             completedSessions = previous
             return false
         }
+        reconcileSkippedCycleTrainingDays()
+        publishWidgetSnapshot()
         return true
     }
 
     @discardableResult
     func saveSessions() -> Bool {
-        sessionStore.saveSessions(completedSessions)
+        let ok = sessionStore.saveSessions(completedSessions)
+        if ok {
+            reconcileSkippedCycleTrainingDays()
+            publishWidgetSnapshot()
+        }
+        return ok
     }
 
     func syncSessionToHealthIfEnabled(_ session: WorkoutSession) {
@@ -1041,6 +1053,23 @@ final class DataManager: ObservableObject {
 
     func saveTrainingProgram() {
         programStore.saveProgram(trainingProgram)
+        publishWidgetSnapshot()
+    }
+
+    /// One line for AI split builder / Coach prefill from the current training program.
+    func planCycleContextLineForCoach() -> String {
+        let p = trainingProgram
+        guard !p.cycleEntries.isEmpty else {
+            return "No workout rotation configured yet. Sessions per week: \(p.sessionsPerWeek)."
+        }
+        let names = p.cycleEntries.map { planLabel(for: $0) }.joined(separator: " → ")
+        let pool: String
+        if p.preferredWeekdays.isEmpty {
+            pool = "training day pool Mon–Fri (default)"
+        } else {
+            pool = "preferred weekdays: \(p.preferredWeekdays.sorted().map(String.init).joined(separator: ", "))"
+        }
+        return "Current rotation: \(names). Pattern: \(p.sessionsPerWeek)×/week, \(pool). Anchor: \(p.anchorDayKey)."
     }
 
     func applyTrainingProgramSuggestion(
@@ -1068,6 +1097,8 @@ final class DataManager: ObservableObject {
         p.sessionsPerWeek = min(max(1, sessionsPerWeek), 7)
         p.preferredWeekdays = preferredWeekdays
         p.anchorDayKey = TrainingProgramState.dayKey(for: anchorDate)
+        p.cyclePhaseOffset = 0
+        p.skippedCycleTrainingDayKeys = []
         applyTrainingProgramAfterFreezingPast(p)
     }
 
@@ -1078,6 +1109,7 @@ final class DataManager: ObservableObject {
     func setTrainingCycleEntries(_ entries: [WorkoutPlanRef]) {
         var p = trainingProgram
         p.cycleEntries = entries
+        normalizeCycleDerivedFields(&p)
         applyTrainingProgramAfterFreezingPast(p)
     }
 
@@ -1096,7 +1128,84 @@ final class DataManager: ObservableObject {
     func setTrainingAnchorDate(_ date: Date) {
         var p = trainingProgram
         p.anchorDayKey = TrainingProgramState.dayKey(for: date)
+        normalizeCycleDerivedFields(&p)
         applyTrainingProgramAfterFreezingPast(p)
+    }
+
+    /// Sets the rotation anchor to this calendar day and phase so the chosen workout is “day 1” of the cycle for future default assignments.
+    func realignTrainingCycleAnchor(to date: Date, for ref: WorkoutPlanRef, calendar: Calendar = .current) {
+        guard let idx = trainingProgram.cycleEntries.firstIndex(of: ref) else { return }
+        var p = trainingProgram
+        p.anchorDayKey = TrainingProgramState.dayKey(for: date, calendar: calendar)
+        p.cyclePhaseOffset = idx
+        normalizeCycleDerivedFields(&p)
+        applyTrainingProgramAfterFreezingPast(p)
+    }
+
+    private func normalizeCycleDerivedFields(_ p: inout TrainingProgramState) {
+        let n = p.cycleEntries.count
+        if n == 0 {
+            p.cyclePhaseOffset = 0
+            p.skippedCycleTrainingDayKeys = []
+            return
+        }
+        p.cyclePhaseOffset = ((p.cyclePhaseOffset % n) + n) % n
+    }
+
+    /// Marks past days where a workout was planned but nothing was logged so the rotation does not stay stuck on missed sessions.
+    func reconcileSkippedCycleTrainingDays(calendar: Calendar = .current) {
+        let cal = calendar
+        guard !trainingProgram.cycleEntries.isEmpty else {
+            if !trainingProgram.skippedCycleTrainingDayKeys.isEmpty {
+                var p = trainingProgram
+                p.skippedCycleTrainingDayKeys = []
+                trainingProgram = p
+                saveTrainingProgram()
+            }
+            return
+        }
+
+        let todayStart = cal.startOfDay(for: Date())
+        guard let yesterday = cal.date(byAdding: .day, value: -1, to: todayStart) else { return }
+
+        var walkStart: Date
+        if let oldest = completedSessions.filter(\.isCompleted).map({ cal.startOfDay(for: $0.endTime ?? $0.startTime) }).min() {
+            walkStart = oldest
+        } else if let fallback = cal.date(byAdding: .day, value: -14, to: todayStart) {
+            walkStart = fallback
+        } else {
+            walkStart = yesterday
+        }
+
+        var newSkips = Set(trainingProgram.skippedCycleTrainingDayKeys)
+        var walk = walkStart
+        if walk > yesterday { return }
+
+        while walk <= yesterday {
+            let dk = TrainingProgramState.dayKey(for: walk, calendar: cal)
+            let planned = resolvedScheduleDay(for: walk, calendar: cal)
+            let done = primaryCompletedSession(on: walk, calendar: cal) != nil
+            switch planned {
+            case .workout:
+                if done {
+                    newSkips.remove(dk)
+                } else {
+                    newSkips.insert(dk)
+                }
+            case .rest, .unscheduled:
+                newSkips.remove(dk)
+            }
+            guard let nx = cal.date(byAdding: .day, value: 1, to: walk) else { break }
+            walk = nx
+        }
+
+        let newArr = newSkips.sorted()
+        if newSkips != Set(trainingProgram.skippedCycleTrainingDayKeys) {
+            var p = trainingProgram
+            p.skippedCycleTrainingDayKeys = newArr
+            trainingProgram = p
+            saveTrainingProgram()
+        }
     }
 
     func clearTrainingDayOverride(dayKey: String) {
@@ -1180,5 +1289,7 @@ final class DataManager: ObservableObject {
         saveSessions()
         saveTrainingProgram()
         saveExerciseLocalDisplayNames()
+        reconcileSkippedCycleTrainingDays()
+        publishWidgetSnapshot()
     }
 }

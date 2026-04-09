@@ -24,5 +24,9 @@
 	<true/>
 	<key>com.apple.developer.healthkit</key>
 	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.acianfrocco.FitLog</string>
+	</array>
 </dict>
 </plist>
