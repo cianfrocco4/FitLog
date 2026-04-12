@@ -21,9 +21,18 @@
 			remoteGlobalIDString = 9226B59F2F4DEC1D006B04FE;
 			remoteInfo = FitLog;
 		};
+		A1B2C3D12F4DEC20006BE00C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 9226B5982F4DEC1D006B04FE /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1B2C3D12F4DEC20006BE006;
+			remoteInfo = FitLogLiveActivityExtension;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A1B2C3D12F4DEC20006BE001 /* RestTimerActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestTimerActivityAttributes.swift; sourceTree = "<group>"; };
+		A1B2C3D12F4DEC20006BE005 /* FitLogLiveActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FitLogLiveActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		9226B5A02F4DEC1D006B04FE /* FitLog.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FitLog.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9226B5B42F4DEC20006B04FE /* FitLogTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FitLogTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9226B5BE2F4DEC20006B04FE /* FitLogUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FitLogUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -36,6 +45,13 @@
 				Info.plist,
 			);
 			target = 9226B59F2F4DEC1D006B04FE /* FitLog */;
+		};
+		A1B2C3D12F4DEC20006BE00E /* Exceptions for "FitLogLiveActivityExtension" folder in "FitLogLiveActivityExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A1B2C3D12F4DEC20006BE006 /* FitLogLiveActivityExtension */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -58,10 +74,31 @@
 			path = FitLogUITests;
 			sourceTree = "<group>";
 		};
+		A1B2C3D12F4DEC20006BE00F /* FitLogLiveActivityExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A1B2C3D12F4DEC20006BE00E /* Exceptions for "FitLogLiveActivityExtension" folder in "FitLogLiveActivityExtension" target */,
+			);
+			path = FitLogLiveActivityExtension;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXBuildFile section */
+		A1B2C3D12F4DEC20006BE003 /* RestTimerActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D12F4DEC20006BE001 /* RestTimerActivityAttributes.swift */; };
+		A1B2C3D12F4DEC20006BE004 /* RestTimerActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D12F4DEC20006BE001 /* RestTimerActivityAttributes.swift */; };
+		A1B2C3D12F4DEC20006BE00B /* FitLogLiveActivityExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1B2C3D12F4DEC20006BE005 /* FitLogLiveActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		9226B59D2F4DEC1D006B04FE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3D12F4DEC20006BE009 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -88,17 +125,28 @@
 		9226B5972F4DEC1D006B04FE = {
 			isa = PBXGroup;
 			children = (
+				A1B2C3D12F4DEC20006BE002 /* Shared */,
 				9226B5A22F4DEC1D006B04FE /* FitLog */,
+				A1B2C3D12F4DEC20006BE00F /* FitLogLiveActivityExtension */,
 				9226B5B72F4DEC20006B04FE /* FitLogTests */,
 				9226B5C12F4DEC20006B04FE /* FitLogUITests */,
 				9226B5A12F4DEC1D006B04FE /* Products */,
 			);
 			sourceTree = "<group>";
 		};
+		A1B2C3D12F4DEC20006BE002 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3D12F4DEC20006BE001 /* RestTimerActivityAttributes.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
 		9226B5A12F4DEC1D006B04FE /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				9226B5A02F4DEC1D006B04FE /* FitLog.app */,
+				A1B2C3D12F4DEC20006BE005 /* FitLogLiveActivityExtension.appex */,
 				9226B5B42F4DEC20006B04FE /* FitLogTests.xctest */,
 				9226B5BE2F4DEC20006B04FE /* FitLogUITests.xctest */,
 			);
@@ -115,10 +163,12 @@
 				9226B59C2F4DEC1D006B04FE /* Sources */,
 				9226B59D2F4DEC1D006B04FE /* Frameworks */,
 				9226B59E2F4DEC1D006B04FE /* Resources */,
+				A1B2C3D12F4DEC20006BE00A /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A1B2C3D12F4DEC20006BE00D /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				9226B5A22F4DEC1D006B04FE /* FitLog */,
@@ -129,6 +179,28 @@
 			productName = FitLog;
 			productReference = 9226B5A02F4DEC1D006B04FE /* FitLog.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A1B2C3D12F4DEC20006BE006 /* FitLogLiveActivityExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1B2C3D12F4DEC20006BE010 /* Build configuration list for PBXNativeTarget "FitLogLiveActivityExtension" */;
+			buildPhases = (
+				A1B2C3D12F4DEC20006BE007 /* Sources */,
+				A1B2C3D12F4DEC20006BE009 /* Frameworks */,
+				A1B2C3D12F4DEC20006BE008 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A1B2C3D12F4DEC20006BE00F /* FitLogLiveActivityExtension */,
+			);
+			name = FitLogLiveActivityExtension;
+			packageProductDependencies = (
+			);
+			productName = FitLogLiveActivityExtension;
+			productReference = A1B2C3D12F4DEC20006BE005 /* FitLogLiveActivityExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		9226B5B32F4DEC20006B04FE /* FitLogTests */ = {
 			isa = PBXNativeTarget;
@@ -197,6 +269,9 @@
 						CreatedOnToolsVersion = 16.2;
 						TestTargetID = 9226B59F2F4DEC1D006B04FE;
 					};
+					A1B2C3D12F4DEC20006BE006 = {
+						CreatedOnToolsVersion = 16.2;
+					};
 				};
 			};
 			buildConfigurationList = 9226B59B2F4DEC1D006B04FE /* Build configuration list for PBXProject "FitLog" */;
@@ -214,6 +289,7 @@
 			projectRoot = "";
 			targets = (
 				9226B59F2F4DEC1D006B04FE /* FitLog */,
+				A1B2C3D12F4DEC20006BE006 /* FitLogLiveActivityExtension */,
 				9226B5B32F4DEC20006B04FE /* FitLogTests */,
 				9226B5BD2F4DEC20006B04FE /* FitLogUITests */,
 			);
@@ -242,6 +318,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1B2C3D12F4DEC20006BE008 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -249,6 +332,15 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1B2C3D12F4DEC20006BE003 /* RestTimerActivityAttributes.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3D12F4DEC20006BE007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1B2C3D12F4DEC20006BE004 /* RestTimerActivityAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -279,6 +371,11 @@
 			target = 9226B59F2F4DEC1D006B04FE /* FitLog */;
 			targetProxy = 9226B5BF2F4DEC20006B04FE /* PBXContainerItemProxy */;
 		};
+		A1B2C3D12F4DEC20006BE00D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A1B2C3D12F4DEC20006BE006 /* FitLogLiveActivityExtension */;
+			targetProxy = A1B2C3D12F4DEC20006BE00C /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -301,6 +398,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -333,6 +431,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -340,6 +439,56 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.acianfrocco.FitLog;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A1B2C3D12F4DEC20006BE011 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = N7HAUF9TT9;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FitLogLiveActivityExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.acianfrocco.FitLog.LiveActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A1B2C3D12F4DEC20006BE012 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = N7HAUF9TT9;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FitLogLiveActivityExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.acianfrocco.FitLog.LiveActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -573,6 +722,15 @@
 			buildConfigurations = (
 				9226B5D02F4DEC20006B04FE /* Debug */,
 				9226B5D12F4DEC20006B04FE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1B2C3D12F4DEC20006BE010 /* Build configuration list for PBXNativeTarget "FitLogLiveActivityExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1B2C3D12F4DEC20006BE011 /* Debug */,
+				A1B2C3D12F4DEC20006BE012 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

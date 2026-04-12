@@ -558,12 +558,32 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
 
         guard seconds > 0 else { return }
 
+        let workoutTitle = currentSession?.workout.name ?? "Workout"
+        Task { @MainActor in
+            RestTimerLiveActivityCoordinator.shared.syncRestCountdown(
+                remainingSeconds: remainingRestTime,
+                workoutName: workoutTitle
+            )
+        }
+
         restTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             self.remainingRestTime -= 1
+            let title = self.currentSession?.workout.name ?? "Workout"
+            if self.remainingRestTime > 0 {
+                Task { @MainActor in
+                    RestTimerLiveActivityCoordinator.shared.syncRestCountdown(
+                        remainingSeconds: self.remainingRestTime,
+                        workoutName: title
+                    )
+                }
+            }
             if self.remainingRestTime <= 0 {
                 self.restTimer?.invalidate()
                 self.restTimer = nil
+                Task { @MainActor in
+                    RestTimerLiveActivityCoordinator.shared.endRestActivity()
+                }
                 Self.playRestCompleteFeedback()
                 self.showRestCompleteAlert = true
             }
@@ -585,6 +605,9 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         remainingRestTime = 0
         showRestCompleteAlert = false
         clearRestCompletionNotification()
+        Task { @MainActor in
+            RestTimerLiveActivityCoordinator.shared.endRestActivity()
+        }
     }
 
     private func clearRestCompletionNotification() {
@@ -651,6 +674,10 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             remainingRestTime = max(0, remainingRestTime - Int(elapsed))
             if remainingRestTime > 0 {
                 startRestCountdown(seconds: remainingRestTime)
+            } else {
+                Task { @MainActor in
+                    RestTimerLiveActivityCoordinator.shared.endRestActivity()
+                }
             }
             backgroundDate = nil
             wasTimerRunning = false

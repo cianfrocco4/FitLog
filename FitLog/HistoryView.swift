@@ -297,6 +297,7 @@ struct HistoryView: View {
                 case .overview:
                     kpiSection
                     consistencySection
+                    yearTrainingHeatmapSection
                     trendsChartsSection
                     muscleBalanceSection
                 case .sessions:
@@ -511,6 +512,122 @@ struct HistoryView: View {
             }
         } header: {
             Text("Consistency")
+        }
+    }
+
+    private struct YearHeatmapDay: Identifiable {
+        let id: Date
+        let date: Date
+        let sessionCount: Int
+    }
+
+    /// Last 365 days (calendar days), all completed sessions — independent of the History range filters.
+    private var yearHeatmapDays: [YearHeatmapDay] {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        guard let start = cal.date(byAdding: .day, value: -364, to: today) else { return [] }
+        var countByDay: [Date: Int] = [:]
+        for s in dataVM.completedSessions where s.isCompleted {
+            let d = cal.startOfDay(for: s.endTime ?? s.startTime)
+            countByDay[d, default: 0] += 1
+        }
+        var out: [YearHeatmapDay] = []
+        var d = start
+        while d <= today {
+            out.append(YearHeatmapDay(id: d, date: d, sessionCount: countByDay[d] ?? 0))
+            guard let next = cal.date(byAdding: .day, value: 1, to: d) else { break }
+            d = next
+        }
+        return out
+    }
+
+    private var yearHeatmapWeekColumns: [[YearHeatmapDay]] {
+        let days = yearHeatmapDays
+        guard !days.isEmpty else { return [] }
+        var weeks: [[YearHeatmapDay]] = []
+        var row: [YearHeatmapDay] = []
+        for day in days {
+            row.append(day)
+            if row.count == 7 {
+                weeks.append(row)
+                row = []
+            }
+        }
+        if !row.isEmpty {
+            weeks.append(row)
+        }
+        return weeks
+    }
+
+    private func yearHeatmapCellColor(count: Int) -> Color {
+        switch count {
+        case 0: return Color.primary.opacity(0.07)
+        case 1: return Color.green.opacity(0.38)
+        case 2: return Color.green.opacity(0.58)
+        default: return Color.green.opacity(0.82)
+        }
+    }
+
+    private var yearTrainingHeatmapSection: some View {
+        Section {
+            if dataVM.completedSessions.isEmpty {
+                Text("Complete workouts to see your training density here.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Each square is a day; darker green means more sessions that day.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(alignment: .top, spacing: 3) {
+                            ForEach(Array(yearHeatmapWeekColumns.enumerated()), id: \.offset) { _, week in
+                                VStack(spacing: 3) {
+                                    ForEach(week) { day in
+                                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                                            .fill(yearHeatmapCellColor(count: day.sessionCount))
+                                            .frame(width: 10, height: 10)
+                                            .accessibilityLabel(
+                                                day.sessionCount == 0
+                                                    ? "No workout"
+                                                    : "\(day.sessionCount) session\(day.sessionCount == 1 ? "" : "s")"
+                                            )
+                                    }
+                                    if week.count < 7 {
+                                        ForEach(0..<(7 - week.count), id: \.self) { _ in
+                                            Color.clear.frame(width: 10, height: 10)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    HStack(spacing: 8) {
+                        Text("Less")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(yearHeatmapCellColor(count: 0))
+                            .frame(width: 10, height: 10)
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(yearHeatmapCellColor(count: 1))
+                            .frame(width: 10, height: 10)
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(yearHeatmapCellColor(count: 2))
+                            .frame(width: 10, height: 10)
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(yearHeatmapCellColor(count: 3))
+                            .frame(width: 10, height: 10)
+                        Text("More")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        } header: {
+            Text("Training year (365 days)")
         }
     }
 
@@ -1220,6 +1337,7 @@ private struct SessionDetailView: View {
 
     @State private var confirmDeleteSession = false
     @State private var pendingStartAgainReplace: PendingWorkoutReplace?
+    @State private var prKindsBySetId: [UUID: [PersonalRecordEvent.Kind]] = [:]
 
     private var endDate: Date { session.endTime ?? session.startTime }
 
@@ -1306,6 +1424,16 @@ private struct SessionDetailView: View {
                                         .padding(.vertical, 2)
                                         .background(.quaternary, in: Capsule())
                                 }
+                                if let kinds = prKindsBySetId[set.id], !kinds.isEmpty {
+                                    ForEach(kinds, id: \.self) { k in
+                                        Text(sessionDetailPRBadgeLabel(k))
+                                            .font(.caption2.weight(.bold))
+                                            .foregroundStyle(.orange)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color.orange.opacity(0.15), in: Capsule())
+                                    }
+                                }
                                 Spacer()
                             }
                             let summary = set.configurationSummary(fieldNames: log.workoutExercise.configurationFields)
@@ -1358,6 +1486,30 @@ private struct SessionDetailView: View {
             pending: $pendingStartAgainReplace,
             onAfterReplace: { openCurrentWorkoutSheet?() }
         )
+        .onAppear {
+            rebuildSessionDetailPRMap()
+        }
+    }
+
+    private func sessionDetailPRBadgeLabel(_ kind: PersonalRecordEvent.Kind) -> String {
+        switch kind {
+        case .maxWeight: return "Wt PR"
+        case .estimatedOneRM: return "1RM PR"
+        case .maxVolumeSet: return "Vol PR"
+        }
+    }
+
+    private func rebuildSessionDetailPRMap() {
+        var map: [UUID: [PersonalRecordEvent.Kind]] = [:]
+        for log in session.exerciseLogs {
+            for set in log.loggedSets {
+                let kinds = dataVM.personalRecordKindsForHistoricalSet(set: set, log: log, session: session)
+                if !kinds.isEmpty {
+                    map[set.id] = kinds
+                }
+            }
+        }
+        prKindsBySetId = map
     }
 }
 

@@ -10,7 +10,7 @@ import Foundation
 // MARK: - PR / milestones / score / progression models
 
 struct PersonalRecordEvent: Identifiable, Equatable {
-    enum Kind: String, CaseIterable {
+    enum Kind: String, CaseIterable, Hashable {
         case maxWeight = "Heaviest load"
         case estimatedOneRM = "Estimated 1RM"
         case maxVolumeSet = "Set volume"
@@ -67,6 +67,32 @@ struct PersonalRecordEvent: Identifiable, Equatable {
     private static func weightString(_ n: Double) -> String {
         if n == floor(n) { return String(Int(n)) }
         return String(format: "%.1f", n)
+    }
+}
+
+/// One row in the all-time personal records timeline (derived from completed sessions).
+struct ArchivedPersonalRecord: Identifiable, Equatable {
+    let id: UUID
+    let exerciseId: UUID
+    let exerciseName: String
+    let kind: PersonalRecordEvent.Kind
+    let value: Double
+    let achievedAt: Date
+
+    init(
+        id: UUID = UUID(),
+        exerciseId: UUID,
+        exerciseName: String,
+        kind: PersonalRecordEvent.Kind,
+        value: Double,
+        achievedAt: Date
+    ) {
+        self.id = id
+        self.exerciseId = exerciseId
+        self.exerciseName = exerciseName
+        self.kind = kind
+        self.value = value
+        self.achievedAt = achievedAt
     }
 }
 
@@ -538,5 +564,146 @@ extension DataManager {
         let low = max(1, min(nums[0], nums[1]))
         let high = max(low, max(nums[0], nums[1]))
         return (low, high)
+    }
+
+    // MARK: - All-time PRs & historical set context
+
+    private struct PRScanMaxima {
+        var maxWeight: Double = 0
+        var maxOneRM: Double = 0
+        var maxSetVolume: Double = 0
+        var initialized = false
+    }
+
+    /// Chronological scan: every time a set establishes a new best for weight, est. 1RM, or set volume for that exercise.
+    func allTimePersonalRecords() -> [ArchivedPersonalRecord] {
+        let sessions = completedSessions.filter(\.isCompleted).sorted {
+            let a = $0.endTime ?? $0.startTime
+            let b = $1.endTime ?? $1.startTime
+            if a != b { return a < b }
+            return $0.id.uuidString < $1.id.uuidString
+        }
+        var maximaByExercise: [UUID: PRScanMaxima] = [:]
+        var records: [ArchivedPersonalRecord] = []
+
+        for session in sessions {
+            let when = session.endTime ?? session.startTime
+            for log in session.exerciseLogs {
+                guard let exerciseId = log.workoutExercise.exerciseId else { continue }
+                let name = displayName(for: log.workoutExercise)
+                let ordered = log.loggedSets.sorted { $0.timestamp < $1.timestamp }
+                for set in ordered where set.reps > 0 && !set.isWarmup {
+                    var m = maximaByExercise[exerciseId] ?? PRScanMaxima()
+                    let oneRM = PersonalRecordDetector.epley(weight: set.weight, reps: set.reps)
+                    let vol = set.totalVolumeLoad
+
+                    let isWeightPR = !m.initialized || set.weight > m.maxWeight + 0.0001
+                    let isOneRMPR = !m.initialized || oneRM > m.maxOneRM + 0.0001
+                    let isVolumePR = !m.initialized || vol > m.maxSetVolume + 0.0001
+
+                    if isWeightPR {
+                        records.append(
+                            ArchivedPersonalRecord(
+                                exerciseId: exerciseId,
+                                exerciseName: name,
+                                kind: .maxWeight,
+                                value: set.weight,
+                                achievedAt: when
+                            )
+                        )
+                    }
+                    if isOneRMPR {
+                        records.append(
+                            ArchivedPersonalRecord(
+                                exerciseId: exerciseId,
+                                exerciseName: name,
+                                kind: .estimatedOneRM,
+                                value: oneRM,
+                                achievedAt: when
+                            )
+                        )
+                    }
+                    if isVolumePR {
+                        records.append(
+                            ArchivedPersonalRecord(
+                                exerciseId: exerciseId,
+                                exerciseName: name,
+                                kind: .maxVolumeSet,
+                                value: vol,
+                                achievedAt: when
+                            )
+                        )
+                    }
+
+                    m.maxWeight = max(m.maxWeight, set.weight)
+                    m.maxOneRM = max(m.maxOneRM, oneRM)
+                    m.maxSetVolume = max(m.maxSetVolume, vol)
+                    m.initialized = true
+                    maximaByExercise[exerciseId] = m
+                }
+            }
+        }
+
+        return records.sorted { $0.achievedAt > $1.achievedAt }
+    }
+
+    private func isHistoricalSetStrictlyBefore(
+        sessionA: WorkoutSession,
+        setA: LoggedSet,
+        sessionB: WorkoutSession,
+        setB: LoggedSet
+    ) -> Bool {
+        guard sessionA.isCompleted, sessionB.isCompleted else { return false }
+        let endA = sessionA.endTime ?? sessionA.startTime
+        let endB = sessionB.endTime ?? sessionB.startTime
+        if endA != endB { return endA < endB }
+        if sessionA.id != sessionB.id { return sessionA.id.uuidString < sessionB.id.uuidString }
+        if setA.timestamp != setB.timestamp { return setA.timestamp < setB.timestamp }
+        return setA.id.uuidString < setB.id.uuidString
+    }
+
+    /// Sets for the same exercise that count as \"before\" this set for PR detection (completed history only).
+    func priorSetsForPersonalRecordDetection(
+        exerciseId: UUID,
+        beforeSession: WorkoutSession,
+        beforeSet: LoggedSet
+    ) -> [LoggedSet] {
+        var out: [LoggedSet] = []
+        for s in completedSessions where s.isCompleted {
+            for log in s.exerciseLogs {
+                guard log.workoutExercise.exerciseId == exerciseId else { continue }
+                for ls in log.loggedSets {
+                    guard ls.reps > 0, !ls.isWarmup else { continue }
+                    if isHistoricalSetStrictlyBefore(sessionA: s, setA: ls, sessionB: beforeSession, setB: beforeSet) {
+                        out.append(ls)
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    func personalRecordKindsForHistoricalSet(
+        set: LoggedSet,
+        log: ExerciseLog,
+        session: WorkoutSession
+    ) -> [PersonalRecordEvent.Kind] {
+        guard let exerciseId = log.workoutExercise.exerciseId,
+              set.reps > 0, !set.isWarmup,
+              session.isCompleted
+        else { return [] }
+        let prior = priorSetsForPersonalRecordDetection(
+            exerciseId: exerciseId,
+            beforeSession: session,
+            beforeSet: set
+        )
+        let name = displayName(for: log.workoutExercise)
+        return PersonalRecordDetector.detect(
+            newSet: set,
+            priorSets: prior,
+            exerciseId: exerciseId,
+            exerciseName: name,
+            timestamp: set.timestamp
+        ).map(\.kind)
     }
 }

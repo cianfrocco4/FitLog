@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Charts
 
 struct HomeView: View {
     @EnvironmentObject var dayMonitor: CalendarDayMonitor
@@ -441,6 +442,8 @@ struct HomeView: View {
                 }
             }
 
+            strengthTrendSparkline(summary.strengthScore.trend)
+
             if let unlocked = summary.latestUnlockedMilestone {
                 HStack(spacing: 8) {
                     Image(systemName: "rosette")
@@ -489,6 +492,48 @@ struct HomeView: View {
         guard let delta = summary.delta else { return "No prior period" }
         if delta == 0 { return "Flat vs prior" }
         return delta > 0 ? "+\(delta) vs prior" : "\(delta) vs prior"
+    }
+
+    @ViewBuilder
+    private func strengthTrendSparkline(_ trend: [StrengthScorePoint]) -> some View {
+        let hasAny = trend.contains { $0.score > 0 }
+        if hasAny {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("8-week strength trend")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Chart(trend) { pt in
+                    AreaMark(
+                        x: .value("Week", pt.weekStart),
+                        y: .value("Score", pt.score)
+                    )
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.indigo.opacity(0.35), .indigo.opacity(0.06)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    LineMark(
+                        x: .value("Week", pt.weekStart),
+                        y: .value("Score", pt.score)
+                    )
+                    .interpolationMethod(.catmullRom)
+                    .foregroundStyle(.indigo)
+                }
+                .chartXAxis {
+                    AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                        AxisGridLine()
+                        AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks(position: .leading)
+                }
+                .frame(height: 88)
+            }
+            .padding(.top, 4)
+        }
     }
 
     private var todayDashboardBlock: some View {

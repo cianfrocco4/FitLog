@@ -8,9 +8,17 @@
 import SwiftUI
 
 struct MoreTabRootView: View {
+    @EnvironmentObject var dataVM: DataManager
+
     var body: some View {
         NavigationStack {
             List {
+                NavigationLink {
+                    PersonalRecordsView()
+                        .environmentObject(dataVM)
+                } label: {
+                    Label("Personal records", systemImage: "trophy.fill")
+                }
                 NavigationLink {
                     ExercisesLibraryView()
                 } label: {

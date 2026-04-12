@@ -31,6 +31,7 @@ struct MainTabView: View {
                 .tabItem { Label("Coach", systemImage: "bubble.left.and.bubble.right") }
                 .tag(FitlogRootTab.coach)
             MoreTabRootView()
+                .environmentObject(dataVM)
                 .tabItem { Label("More", systemImage: "ellipsis.circle") }
                 .tag(FitlogRootTab.more)
         }
