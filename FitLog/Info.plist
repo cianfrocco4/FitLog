@@ -9,7 +9,7 @@
 	<key>NSUserNotificationsUsageDescription</key>
 	<string>The Workout Log uses notifications to remind you when rest time is over during workouts.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>The Workout Log can read workout metadata in Apple Health to keep your training records consistent.</string>
+	<string>The Workout Log can read workout and body-mass data from Apple Health to keep your training and measurement logs consistent.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>The Workout Log writes completed strength workouts to Apple Health when Health sync is enabled.</string>
 	<key>CFBundleIconName</key>

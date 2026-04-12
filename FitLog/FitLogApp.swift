@@ -16,6 +16,7 @@ struct FitLogApp: App {
     @StateObject private var currentVM = CurrentWorkoutSessionViewModel()
     @StateObject private var aiService = AIService(apiKey: OpenAIConfig.apiKey, baseURL: OpenAIConfig.aiBaseURL, model: OpenAIConfig.aiModel)
     @StateObject private var dayMonitor = CalendarDayMonitor()
+    @StateObject private var userPreferences = UserPreferences()
 
     let modelContainer: ModelContainer
     @StateObject private var dataVM: DataManager
@@ -54,6 +55,7 @@ struct FitLogApp: App {
                     .environmentObject(currentVM)
                     .environmentObject(aiService)
                     .environmentObject(dayMonitor)
+                    .environmentObject(userPreferences)
                     .onAppear {
                         currentVM.dataManager = dataVM
                         dataVM.healthSyncStatusMessage = dataVM.healthSyncService.statusMessage

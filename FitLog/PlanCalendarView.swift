@@ -100,7 +100,7 @@ struct PlanCalendarView: View {
             }
             .fitlogWorkoutBarContentInset()
             .navigationTitle("Plan")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {

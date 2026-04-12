@@ -10,6 +10,7 @@ import UniformTypeIdentifiers
 
 struct DataAndIntegrationsView: View {
     @EnvironmentObject private var dataVM: DataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var showArchiveImporter = false
     @State private var archiveExportURL: URL?
@@ -18,6 +19,17 @@ struct DataAndIntegrationsView: View {
 
     var body: some View {
         Form {
+            Section("Units") {
+                Picker("Weight display", selection: $userPreferences.weightDisplayUnit) {
+                    ForEach(WeightDisplayUnit.allCases) { u in
+                        Text(u == .pounds ? "Pounds (lb)" : "Kilograms (kg)").tag(u)
+                    }
+                }
+                Text("Workout weights are stored consistently; this only changes labels and step size.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Health") {
                 Toggle("Sync completed workouts to Apple Health", isOn: $dataVM.healthSyncEnabled)
                     .onChange(of: dataVM.healthSyncEnabled) { _, enabled in

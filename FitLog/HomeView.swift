@@ -14,6 +14,7 @@ struct HomeView: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var authVM: AuthViewModel
     @EnvironmentObject var aiService: AIService
+    @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
 
     @State private var showNewWorkout = false
@@ -30,6 +31,7 @@ struct HomeView: View {
     @State private var cachedWeekGlance: DataManager.WeekAtAGlance?
     @State private var cachedTodayCompletedRefs: Set<String> = []
     @State private var cachedProgressSummary: HomeProgressSummary?
+    @State private var cachedWeeklyRecap: DataManager.WeeklyRecapSummary?
     @State private var weekGlanceExpanded = true
     @State private var workoutSearchText = ""
 
@@ -76,6 +78,7 @@ struct HomeView: View {
         cachedTodayPlan = scheduleEngine.resolve(date: Date(), program: dataVM.trainingProgram)
         cachedWeekGlance = dataVM.weekAtAGlance(referenceDate: Date(), calendar: .current)
         cachedProgressSummary = dataVM.homeProgressSummary(referenceDate: Date(), calendar: .current)
+        cachedWeeklyRecap = dataVM.weeklyRecapSummary()
 
         let cal = Calendar.current
         let today = Date()
@@ -119,7 +122,6 @@ struct HomeView: View {
 
     /// Resume today’s last completed instance of this plan (same logged sets), or start fresh if none.
     private func resumeTodayPlanFromLastCompletedSession(_ library: Workout) {
-        let ref = WorkoutPlanRef.workout(library.id)
         guard let last = dataVM.mostRecentCompletedSessionToday(forLibraryWorkoutId: library.id) else {
             startWorkoutFromTodayPlan(library)
             return
@@ -159,6 +161,13 @@ struct HomeView: View {
 
                     if let progress = cachedProgressSummary {
                         progressSummaryCard(progress)
+                            .listRowInsets(homeDashboardListInsets)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
+
+                    if let recap = cachedWeeklyRecap, recap.shouldShowRecapCard {
+                        weeklyRecapCard(recap)
                             .listRowInsets(homeDashboardListInsets)
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
@@ -414,6 +423,42 @@ struct HomeView: View {
         }
         .buttonStyle(.plain)
         .accessibilityHint("Opens the AI split builder")
+    }
+
+    private func weeklyRecapCard(_ recap: DataManager.WeeklyRecapSummary) -> some View {
+        let unit = userPreferences.weightDisplayUnit
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Week in review", systemImage: "sparkles")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if recap.metWeeklyGoal {
+                    Text("Goal met")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.green)
+                }
+            }
+            Text("\(recap.sessionsThisWeek) workout\(recap.sessionsThisWeek == 1 ? "" : "s") · \(recap.setsThisWeek) sets")
+                .font(.title3.weight(.semibold))
+            Text(WeightStoreConversion.formatVolumeLbRep(recap.volumeThisWeekLbRep, unit: unit))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            if let fr = recap.volumeChangeFraction, recap.sessionsPriorWeek > 0 {
+                let pct = Int((fr * 100).rounded())
+                Text(
+                    pct >= 0
+                        ? "Training volume up about \(pct)% vs last week."
+                        : "Training volume down about \(-pct)% vs last week."
+                )
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
     }
 
     private func progressSummaryCard(_ summary: HomeProgressSummary) -> some View {

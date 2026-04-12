@@ -7,6 +7,7 @@ import SwiftUI
 
 struct PersonalRecordsView: View {
     @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var userPreferences: UserPreferences
 
     private var records: [ArchivedPersonalRecord] {
         dataVM.allTimePersonalRecords()
@@ -54,13 +55,14 @@ struct PersonalRecordsView: View {
     }
 
     private func valueLabel(_ row: ArchivedPersonalRecord) -> String {
-        let n = row.value
-        let s = n == floor(n) ? "\(Int(n))" : String(format: "%.1f", n)
+        let unit = userPreferences.weightDisplayUnit
         switch row.kind {
         case .maxWeight, .estimatedOneRM:
-            return "\(s) lb"
+            let d = WeightStoreConversion.displayValue(storedPounds: row.value, unit: unit)
+            let s = d == floor(d) ? "\(Int(d))" : String(format: "%.1f", d)
+            return "\(s) \(unit.shortLabel)"
         case .maxVolumeSet:
-            return "\(s) lb·rep"
+            return WeightStoreConversion.formatVolumeLbRep(row.value, unit: unit)
         }
     }
 }

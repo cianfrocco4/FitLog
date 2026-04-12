@@ -34,6 +34,10 @@ final class DataManager: ObservableObject {
     @Published var healthSyncEnabled: Bool = false
     @Published var healthSyncStatusMessage: String?
 
+    private let bodyMetricsStore = BodyMetricsStore()
+    @Published var bodyMetricEntries: [BodyMetricEntry] = []
+    @Published var progressPhotoRecords: [ProgressPhotoRecord] = []
+
     // MARK: - Lifecycle
 
     init(modelContainer: ModelContainer) {
@@ -73,6 +77,7 @@ final class DataManager: ObservableObject {
         freezeYesterdayPlanAssignmentIfNeeded()
         reconcileSkippedCycleTrainingDays()
         publishWidgetSnapshot()
+        reloadBodyAndPhotosFromDisk()
     }
 
     /// Converts legacy `.concrete` rows in **library workouts and historical session snapshots** to `.flexible` blueprints. Runs once (UserDefaults flag).
@@ -996,6 +1001,80 @@ final class DataManager: ObservableObject {
         return WeekAtAGlance(isoWeekKey: weekKey, days: days, completedCount: completed, weeklyGoal: goal)
     }
 
+    /// ISO-week snapshot for the Home recap card (current vs prior week).
+    struct WeeklyRecapSummary: Equatable {
+        let isoWeekKey: String
+        let sessionsThisWeek: Int
+        let sessionsPriorWeek: Int
+        /// Sum of `LoggedSet.totalVolumeLoad` (pounds × reps) for the week.
+        let volumeThisWeekLbRep: Double
+        let volumePriorWeekLbRep: Double
+        let setsThisWeek: Int
+        let weeklyGoal: Int?
+
+        var metWeeklyGoal: Bool {
+            guard let g = weeklyGoal else { return false }
+            return sessionsThisWeek >= g
+        }
+
+        /// Show the celebration / summary card when the user actually trained this week.
+        var shouldShowRecapCard: Bool { sessionsThisWeek > 0 }
+
+        var volumeChangeFraction: Double? {
+            guard volumePriorWeekLbRep > 1 else { return nil }
+            return (volumeThisWeekLbRep - volumePriorWeekLbRep) / volumePriorWeekLbRep
+        }
+    }
+
+    func weeklyRecapSummary(referenceDate: Date = Date(), calendar: Calendar = .current) -> WeeklyRecapSummary? {
+        let weekKey = TrainingProgramState.isoWeekKey(for: referenceDate, calendar: calendar)
+        guard let weekInterval = calendar.dateInterval(of: .weekOfYear, for: referenceDate) else { return nil }
+
+        let priorStart = calendar.date(byAdding: .weekOfYear, value: -1, to: weekInterval.start) ?? weekInterval.start
+        let priorEnd = weekInterval.start
+
+        func sessionsEnding(in range: Range<Date>) -> [WorkoutSession] {
+            completedSessions.filter { session in
+                guard let end = session.endTime else { return false }
+                return end >= range.lowerBound && end < range.upperBound
+            }
+        }
+
+        func aggregateVolumeAndSets(_ sessions: [WorkoutSession]) -> (volume: Double, sets: Int) {
+            var vol = 0.0
+            var setCount = 0
+            for s in sessions {
+                for log in s.exerciseLogs {
+                    for st in log.loggedSets {
+                        vol += st.totalVolumeLoad
+                        setCount += 1
+                    }
+                }
+            }
+            return (vol, setCount)
+        }
+
+        let thisWeekSessions = sessionsEnding(in: weekInterval.start..<weekInterval.end)
+        let priorWeekSessions = sessionsEnding(in: priorStart..<priorEnd)
+
+        let thisAgg = aggregateVolumeAndSets(thisWeekSessions)
+        let priorAgg = aggregateVolumeAndSets(priorWeekSessions)
+
+        let goal: Int? = trainingProgram.cycleEntries.isEmpty
+            ? nil
+            : min(max(1, trainingProgram.sessionsPerWeek), 7)
+
+        return WeeklyRecapSummary(
+            isoWeekKey: weekKey,
+            sessionsThisWeek: thisWeekSessions.count,
+            sessionsPriorWeek: priorWeekSessions.count,
+            volumeThisWeekLbRep: thisAgg.volume,
+            volumePriorWeekLbRep: priorAgg.volume,
+            setsThisWeek: thisAgg.sets,
+            weeklyGoal: goal
+        )
+    }
+
     // MARK: - Exercise CRUD on workouts
 
     func deleteExercise(from workout: Workout, exerciseId: UUID) {
@@ -1291,5 +1370,44 @@ final class DataManager: ObservableObject {
         saveExerciseLocalDisplayNames()
         reconcileSkippedCycleTrainingDays()
         publishWidgetSnapshot()
+    }
+
+    // MARK: - Body metrics & progress photos
+
+    private func reloadBodyAndPhotosFromDisk() {
+        bodyMetricEntries = bodyMetricsStore.loadMetrics()
+        progressPhotoRecords = bodyMetricsStore.loadPhotoRecords()
+    }
+
+    func upsertBodyMetric(_ entry: BodyMetricEntry) {
+        var list = bodyMetricEntries.filter { $0.id != entry.id }
+        list.append(entry)
+        bodyMetricEntries = list.sorted { $0.date > $1.date }
+        bodyMetricsStore.saveMetrics(bodyMetricEntries)
+    }
+
+    func deleteBodyMetric(id: UUID) {
+        bodyMetricEntries.removeAll { $0.id == id }
+        bodyMetricsStore.saveMetrics(bodyMetricEntries)
+    }
+
+    func addProgressPhoto(imageData: Data, capturedAt: Date) throws {
+        let id = UUID()
+        let fileName = try bodyMetricsStore.savePhotoFile(id: id, imageData: imageData)
+        var rec = progressPhotoRecords
+        rec.append(ProgressPhotoRecord(id: id, capturedAt: capturedAt, fileName: fileName))
+        progressPhotoRecords = rec.sorted { $0.capturedAt > $1.capturedAt }
+        bodyMetricsStore.savePhotoRecords(progressPhotoRecords)
+    }
+
+    func deleteProgressPhoto(id: UUID) {
+        guard let idx = progressPhotoRecords.firstIndex(where: { $0.id == id }) else { return }
+        bodyMetricsStore.deletePhotoFile(fileName: progressPhotoRecords[idx].fileName)
+        progressPhotoRecords.remove(at: idx)
+        bodyMetricsStore.savePhotoRecords(progressPhotoRecords)
+    }
+
+    func progressPhotoImageData(fileName: String) -> Data? {
+        try? Data(contentsOf: bodyMetricsStore.photoFileURL(fileName: fileName))
     }
 }

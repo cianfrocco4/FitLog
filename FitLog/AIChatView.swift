@@ -166,7 +166,7 @@ struct AIChatView: View {
             }
             .fitlogWorkoutBarContentInset()
             .navigationTitle("Coach")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()

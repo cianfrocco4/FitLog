@@ -200,6 +200,7 @@ private func startAgainFromCompletedSession(
 struct HistoryView: View {
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
     @State private var pendingStartAgainReplace: PendingWorkoutReplace?
     @State private var dayRange: HistoryDayRange = .d7
@@ -240,6 +241,13 @@ struct HistoryView: View {
 
     private var filteredSessions: [WorkoutSession] {
         sessionsInDateRange.filter { sessionOriginFilter.includes($0, dataVM: dataVM) }
+    }
+
+    /// Completed sessions matching the session-source filter (no date window), newest first.
+    private var originFilteredAllSessionsSorted: [WorkoutSession] {
+        dataVM.completedSessions
+            .filter { sessionOriginFilter.includes($0, dataVM: dataVM) }
+            .sorted { ($0.endTime ?? .distantPast) > ($1.endTime ?? .distantPast) }
     }
 
     private var priorFilteredSessions: [WorkoutSession] {
@@ -308,6 +316,7 @@ struct HistoryView: View {
             }
             .fitlogWorkoutBarContentInset()
             .navigationTitle("History & Analytics")
+            .navigationBarTitleDisplayMode(.large)
             .searchable(text: $exploreSearch, prompt: "Search workouts & exercises")
             .onAppear {
                 dataVM.refreshCompletedSessions()
@@ -1175,7 +1184,13 @@ struct HistoryView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(stats.sorted(by: { $0.sessions > $1.sessions }), id: \.id) { stat in
-                    NavigationLink(destination: ExerciseHistoryDetailView(exerciseId: stat.id, sessions: filteredSessions).environmentObject(dataVM)) {
+                    NavigationLink(destination: ExerciseHistoryDetailView(
+                        exerciseId: stat.id,
+                        rangeSessions: filteredSessions,
+                        originFilteredAllSessions: originFilteredAllSessionsSorted
+                    )
+                        .environmentObject(dataVM)
+                        .environmentObject(userPreferences)) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(dataVM.resolvedDisplayName(for: stat.sampleExercise))
                                 .font(.headline)
@@ -1183,7 +1198,10 @@ struct HistoryView: View {
                                 Label("\(stat.sessions) session\(stat.sessions == 1 ? "" : "s")", systemImage: "calendar")
                                 Label("\(stat.totalSets) sets", systemImage: "square.stack.3d.up")
                                 if stat.volume > 0 {
-                                    Label("\(Int(stat.volume)) lb·rep", systemImage: "scalemass")
+                                    Label(
+                                        WeightStoreConversion.formatVolumeLbRep(stat.volume, unit: userPreferences.weightDisplayUnit),
+                                        systemImage: "scalemass"
+                                    )
                                 }
                             }
                             .font(.caption)
@@ -1209,7 +1227,9 @@ struct HistoryView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(stats.sorted(by: { $0.sessions > $1.sessions }), id: \.name) { stat in
-                    NavigationLink(destination: MuscleGroupHistoryDetailView(muscleGroupName: stat.name, sessions: filteredSessions).environmentObject(dataVM)) {
+                    NavigationLink(destination: MuscleGroupHistoryDetailView(muscleGroupName: stat.name, sessions: filteredSessions)
+                        .environmentObject(dataVM)
+                        .environmentObject(userPreferences)) {
                         HStack {
                             Text(stat.name)
                                 .font(.headline)
@@ -1331,6 +1351,7 @@ private func historyRpeLabel(_ rpe: Double) -> String {
 private struct SessionDetailView: View {
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
     let session: WorkoutSession
@@ -1407,7 +1428,7 @@ private struct SessionDetailView: View {
                     ForEach(log.loggedSets) { set in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
-                                Text(set.weightRepsDisplaySummary())
+                                Text(set.weightRepsDisplaySummary(displayUnit: userPreferences.weightDisplayUnit))
                                 if set.isWarmup {
                                     Text("Warm-up")
                                         .font(.caption)
@@ -1650,14 +1671,44 @@ private struct ExerciseProgressionPoint: Identifiable {
     let estOneRM: Double
 }
 
+private struct ExerciseVolumePoint: Identifiable {
+    let id: UUID
+    let date: Date
+    let volumeLbRep: Double
+}
+
+private enum ExerciseHistoryDataScope: String, CaseIterable {
+    case selectedRange
+    case allTime
+
+    var label: String {
+        switch self {
+        case .selectedRange: return "Selected range"
+        case .allTime: return "All time"
+        }
+    }
+}
+
 // MARK: - Exercise history (each session where exercise was done + logged sets)
 private struct ExerciseHistoryDetailView: View {
     @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var userPreferences: UserPreferences
     let exerciseId: UUID
-    let sessions: [WorkoutSession]
+    let rangeSessions: [WorkoutSession]
+    let originFilteredAllSessions: [WorkoutSession]
+    @State private var dataScope: ExerciseHistoryDataScope = .selectedRange
+
+    private var effectiveSessions: [WorkoutSession] {
+        switch dataScope {
+        case .selectedRange:
+            return rangeSessions
+        case .allTime:
+            return originFilteredAllSessions
+        }
+    }
 
     private var sessionLogs: [(session: WorkoutSession, log: ExerciseLog)] {
-        sessions.compactMap { session in
+        effectiveSessions.compactMap { session in
             guard let log = session.exerciseLogs.first(where: { $0.workoutExercise.exerciseId == exerciseId }) else { return nil }
             return (session, log)
         }.sorted { ($0.session.endTime ?? $0.session.startTime) > ($1.session.endTime ?? $1.session.startTime) }
@@ -1699,14 +1750,55 @@ private struct ExerciseHistoryDetailView: View {
         return found ? best : nil
     }
 
+    private var progressionLoadAxisLabel: String { userPreferences.weightDisplayUnit.shortLabel }
+
+    private func progressionChartY(_ estStoredLb: Double) -> Double {
+        WeightStoreConversion.displayValue(storedPounds: estStoredLb, unit: userPreferences.weightDisplayUnit)
+    }
+
     private var progressionInsight: String? {
         guard let peak = progressionSeries.map(\.estOneRM).max(), peak > 0 else { return nil }
-        let rounded = peak == floor(peak) ? "\(Int(peak))" : String(format: "%.1f", peak)
-        return "Peak estimated 1RM in this range: \(rounded) lb (Epley, working sets only)."
+        let d = WeightStoreConversion.displayValue(storedPounds: peak, unit: userPreferences.weightDisplayUnit)
+        let rounded = d == floor(d) ? "\(Int(d))" : String(format: "%.1f", d)
+        let u = userPreferences.weightDisplayUnit.shortLabel
+        return "Peak estimated 1RM in this range: \(rounded) \(u) (Epley, working sets only)."
+    }
+
+    private var volumeSeries: [ExerciseVolumePoint] {
+        sessionLogs.map { item in
+            let vol = item.log.loggedSets.reduce(0.0) { $0 + $1.totalVolumeLoad }
+            let d = item.session.endTime ?? item.session.startTime
+            return ExerciseVolumePoint(id: item.session.id, date: d, volumeLbRep: vol)
+        }
+        .sorted { $0.date < $1.date }
+    }
+
+    private var volumeAxisLabel: String {
+        userPreferences.weightDisplayUnit == .pounds ? "lb·rep" : "kg·rep"
+    }
+
+    private func volumeChartY(_ lbRep: Double) -> Double {
+        WeightStoreConversion.volumeDisplayValue(lbRep: lbRep, unit: userPreferences.weightDisplayUnit)
     }
 
     var body: some View {
         List {
+            Section {
+                Picker("Scope", selection: $dataScope) {
+                    ForEach(ExerciseHistoryDataScope.allCases, id: \.rawValue) { scope in
+                        Text(scope.label).tag(scope)
+                    }
+                }
+                .pickerStyle(.segmented)
+            } footer: {
+                Text(
+                    dataScope == .selectedRange
+                        ? "Matches the time range on the History tab."
+                        : "Every session that included this exercise, using your session source filter (no date limit)."
+                )
+                .font(.caption2)
+            }
+
             if !progressionSeries.isEmpty {
                 Section {
                     if progressionSeries.count >= 2 {
@@ -1714,7 +1806,7 @@ private struct ExerciseHistoryDetailView: View {
                         Chart(progressionSeries) { pt in
                             AreaMark(
                                 x: .value("Session", pt.date),
-                                y: .value("lb", pt.estOneRM)
+                                y: .value(progressionLoadAxisLabel, progressionChartY(pt.estOneRM))
                             )
                             .foregroundStyle(
                                 LinearGradient(
@@ -1726,14 +1818,14 @@ private struct ExerciseHistoryDetailView: View {
                             .interpolationMethod(.catmullRom)
                             LineMark(
                                 x: .value("Session", pt.date),
-                                y: .value("lb", pt.estOneRM)
+                                y: .value(progressionLoadAxisLabel, progressionChartY(pt.estOneRM))
                             )
                             .foregroundStyle(.cyan)
                             .lineStyle(StrokeStyle(lineWidth: 2.5, lineJoin: .round))
                             .interpolationMethod(.catmullRom)
                             PointMark(
                                 x: .value("Session", pt.date),
-                                y: .value("lb", pt.estOneRM)
+                                y: .value(progressionLoadAxisLabel, progressionChartY(pt.estOneRM))
                             )
                             .foregroundStyle(.cyan)
                             .symbolSize(36)
@@ -1766,6 +1858,45 @@ private struct ExerciseHistoryDetailView: View {
                     Text("Progression")
                 }
             }
+
+            if volumeSeries.count >= 2 {
+                Section {
+                    HistoryChartCard(title: "Volume per session") {
+                        Chart(volumeSeries) { pt in
+                            BarMark(
+                                x: .value("Session", pt.date),
+                                y: .value(volumeAxisLabel, volumeChartY(pt.volumeLbRep))
+                            )
+                            .foregroundStyle(
+                                LinearGradient(colors: [.mint, .teal.opacity(0.85)], startPoint: .bottom, endPoint: .top)
+                            )
+                        }
+                        .chartXAxis {
+                            AxisMarks(values: .stride(by: .day, count: max(1, volumeSeries.count / 3))) { _ in
+                                AxisGridLine()
+                                AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                            }
+                        }
+                        .chartYAxis {
+                            AxisMarks { v in
+                                AxisGridLine()
+                                AxisValueLabel {
+                                    if let n = v.as(Double.self) {
+                                        Text(historyFormatCompact(n))
+                                    }
+                                }
+                            }
+                        }
+                        .frame(height: 188)
+                    }
+                } header: {
+                    Text("Volume trend")
+                } footer: {
+                    Text("Sum of load × reps for this exercise each session (including drop segments).")
+                        .font(.caption2)
+                }
+            }
+
             ForEach(sessionLogs, id: \.session.id) { item in
                 Section {
                     HStack {
@@ -1792,7 +1923,7 @@ private struct ExerciseHistoryDetailView: View {
                     ForEach(item.log.loggedSets) { set in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
-                                Text(set.weightRepsDisplaySummary())
+                                Text(set.weightRepsDisplaySummary(displayUnit: userPreferences.weightDisplayUnit))
                                 if set.isWarmup {
                                     Text("Warm-up")
                                         .font(.caption)
@@ -1824,6 +1955,7 @@ private struct ExerciseHistoryDetailView: View {
 // MARK: - Muscle group history (sessions + exercises that targeted this muscle + sets)
 private struct MuscleGroupHistoryDetailView: View {
     @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var userPreferences: UserPreferences
     let muscleGroupName: String
     let sessions: [WorkoutSession]
 
@@ -1907,7 +2039,7 @@ private struct MuscleGroupHistoryDetailView: View {
                             ForEach(log.loggedSets) { set in
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack {
-                                        Text(set.weightRepsDisplaySummary())
+                                        Text(set.weightRepsDisplaySummary(displayUnit: userPreferences.weightDisplayUnit))
                                         if set.isWarmup {
                                             Text("Warm-up")
                                                 .font(.caption)

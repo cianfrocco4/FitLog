@@ -160,5 +160,47 @@ final class HealthKitSyncService {
         guard authorizationState() == .authorized else { return }
         _ = try? await saveCompletedSession(session)
     }
+
+    /// Read access for body mass (separate from workout write permission).
+    func requestBodyMassReadAccess() async -> Bool {
+#if canImport(HealthKit)
+        guard HKHealthStore.isHealthDataAvailable() else { return false }
+        guard let bodyMass = HKQuantityType.quantityType(forIdentifier: .bodyMass) else { return false }
+        return await withCheckedContinuation { continuation in
+            healthStore.requestAuthorization(toShare: [], read: [bodyMass]) { success, _ in
+                continuation.resume(returning: success)
+            }
+        }
+#else
+        return false
+#endif
+    }
+
+    /// Most recent body mass sample in pounds, if read access allows.
+    func fetchLatestBodyMassLb() async -> Double? {
+#if canImport(HealthKit)
+        guard HKHealthStore.isHealthDataAvailable() else { return nil }
+        guard let bodyMass = HKQuantityType.quantityType(forIdentifier: .bodyMass) else { return nil }
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
+        return await withCheckedContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: bodyMass,
+                predicate: nil,
+                limit: 1,
+                sortDescriptors: [sort]
+            ) { _, samples, _ in
+                guard let sample = samples?.first as? HKQuantitySample else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                let lb = sample.quantity.doubleValue(for: HKUnit.pound())
+                continuation.resume(returning: lb)
+            }
+            healthStore.execute(query)
+        }
+#else
+        return nil
+#endif
+    }
 }
 

@@ -405,6 +405,7 @@ struct CurrentWorkoutPullUpSheet: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var aiService: AIService
+    @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.dismiss) var dismiss
     
     @State private var expandedExerciseIndex: Int? = nil
@@ -1159,7 +1160,7 @@ struct CurrentWorkoutPullUpSheet: View {
                                 .clipShape(Capsule())
                         }
                         Spacer()
-                        Text(prevSet.weightRepsDisplaySummary(unit: "lbs"))
+                        Text(prevSet.weightRepsDisplaySummary(displayUnit: userPreferences.weightDisplayUnit))
                             .font(.caption)
                         Text("• \(prevSet.restTime)s rest")
                             .font(.caption2)
@@ -1183,7 +1184,7 @@ struct CurrentWorkoutPullUpSheet: View {
     private func setRow(set: LoggedSet, workoutExercise: WorkoutExercise) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top) {
-                Text(set.weightRepsDisplaySummary(unit: "lbs"))
+                Text(set.weightRepsDisplaySummary(displayUnit: userPreferences.weightDisplayUnit))
                     .font(.body)
                     .fixedSize(horizontal: false, vertical: true)
                 if set.isWarmup {
