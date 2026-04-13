@@ -63,6 +63,7 @@ struct WorkoutPlanView: View {
     @State private var pendingWorkoutReplace: PendingWorkoutReplace?
     @State private var openSlotEditorNavigation: OpenSlotEditorNavigation?
     @State private var progressionSuggestions: [UUID: ProgressionSuggestion] = [:]
+    @State private var showAIExerciseSuggestSheet = false
 
     /// Active session started from this library workout (`sessionInstance` uses a different workout id).
     private var isThisLibrarySessionActive: Bool {
@@ -209,6 +210,14 @@ struct WorkoutPlanView: View {
         .task(id: progressionRefreshKey) {
             refreshProgressionSuggestions()
         }
+        .sheet(isPresented: $showAIExerciseSuggestSheet) {
+            AISuggestExercisesFillSheet(
+                workoutId: workout.id,
+                currentVM: currentVM
+            )
+            .environmentObject(dataVM)
+            .environmentObject(aiService)
+        }
     }
 
     private var progressionRefreshKey: String {
@@ -249,6 +258,8 @@ struct WorkoutPlanView: View {
 
     private var listFlat: some View {
         List {
+            workoutSummarySection
+            workoutInsightsBannerSection
             if displayOrder == .defaultOrder {
                 ForEach(displayedItems) { item in
                     exerciseRow(item: item)
@@ -270,13 +281,14 @@ struct WorkoutPlanView: View {
                     deleteExerciseRows(atOffsets: indexSet, items: displayedItems)
                 }
             }
-            suggestionsSection
-            addItemsSection
+            addMenuSection
         }
     }
     
     private var listWithSections: some View {
         List {
+            workoutSummarySection
+            workoutInsightsBannerSection
             ForEach(displayedSections, id: \.0) { sectionName, items in
                 Section(header: Text(sectionName)) {
                     ForEach(items) { item in
@@ -287,36 +299,92 @@ struct WorkoutPlanView: View {
                     }
                 }
             }
-            suggestionsSection
-            addItemsSection
+            addMenuSection
         }
     }
 
-    private var addItemsSection: some View {
+    private var workoutTotalRecommendedSets: Int {
+        workout.exercises.reduce(0) { $0 + $1.recommendedSets }
+    }
+
+    private var workoutPrimaryMuscleSummary: String {
+        var setsByMuscle: [MuscleGroup: Int] = [:]
+        for we in workout.exercises {
+            let primary: MuscleGroup
+            if let eid = we.exerciseId, let ex = dataVM.globalExercises.first(where: { $0.id == eid }) {
+                primary = ex.targetedMuscles.first ?? .other
+            } else if let snap = we.snapshot, let ex = dataVM.resolveExercise(for: snap) {
+                primary = ex.targetedMuscles.first ?? .other
+            } else if case .flexible(let b) = we.resolution, let first = b.targetedMuscles.first {
+                primary = first
+            } else {
+                primary = .other
+            }
+            setsByMuscle[primary, default: 0] += we.recommendedSets
+        }
+        let top = setsByMuscle.sorted { $0.value > $1.value }.prefix(4).map { $0.key.rawValue }
+        return top.isEmpty ? "—" : top.joined(separator: ", ")
+    }
+
+    private var currentWorkoutGapHints: [String] {
+        workoutStructureGapHints(for: workout, dataVM: dataVM)
+    }
+
+    private var workoutSummarySection: some View {
         Section {
-            Button("Add exercise") { addExercisePresentation = .quickAdd }
-            Button("Custom add exercise…") { addExercisePresentation = .fullAdd(prefillExerciseId: nil) }
-            Button("Add open slot") { addOpenSlot() }
+            LabeledContent("Exercises", value: "\(workout.exercises.count)")
+            LabeledContent("Planned sets (sum)", value: "\(workoutTotalRecommendedSets)")
+            LabeledContent("Top muscles (by sets)", value: workoutPrimaryMuscleSummary)
+            if workout.exercises.isEmpty {
+                Text("Add movements below, or use Add → Suggest exercises for starter ideas.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if !currentWorkoutGapHints.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Balance")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(currentWorkoutGapHints, id: \.self) { line in
+                        Text("• \(line)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                Text("Balance looks reasonable for the muscles you’ve included.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Overview")
         }
     }
 
-    private var suggestionsSection: some View {
-        Section("Suggestions") {
-            Button {
-                Task { await loadSuggestions() }
-            } label: {
-                Label("Get Suggestions", systemImage: "lightbulb")
-            }
-            .disabled(suggestionsLoading)
-            if suggestionsLoading {
+    private var workoutInsightsBannerSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    ProgressView()
-                    Text("Loading…")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    Image(systemName: "lightbulb.fill")
+                        .foregroundStyle(.yellow)
+                    Text("Tips & structure")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Button {
+                        Task { await loadSuggestions() }
+                    } label: {
+                        Text(suggestionsResult == nil ? "Get AI tips" : "Refresh")
+                    }
+                    .font(.caption.weight(.semibold))
+                    .disabled(suggestionsLoading)
                 }
-            }
-            if suggestionsResult != nil {
+                if suggestionsLoading {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Loading…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 DisclosureGroup(isExpanded: $suggestionsExpanded) {
                     if case .failure(let error) = suggestionsResult {
                         Text(error.localizedDescription)
@@ -329,8 +397,44 @@ struct WorkoutPlanView: View {
                             .foregroundStyle(.secondary)
                     }
                 } label: {
-                    Text("Suggestions")
+                    Text("Show coaching suggestions")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
+            }
+            .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
+        }
+    }
+
+    private var addMenuSection: some View {
+        Section {
+            Menu {
+                Button {
+                    addExercisePresentation = .quickAdd
+                } label: {
+                    Label("Exercise (quick add)", systemImage: "bolt.fill")
+                }
+                Button {
+                    addExercisePresentation = .fullAdd(prefillExerciseId: nil)
+                } label: {
+                    Label("Exercise (full options…)", systemImage: "slider.horizontal.3")
+                }
+                Button {
+                    addOpenSlot()
+                } label: {
+                    Label("Open slot (flexible)", systemImage: "square.dashed")
+                }
+                Divider()
+                Button {
+                    showAIExerciseSuggestSheet = true
+                } label: {
+                    Label(
+                        aiService.isConfigured ? "Suggest exercises (AI)…" : "Suggest exercises (offline)…",
+                        systemImage: aiService.isConfigured ? "sparkles" : "wand.and.stars"
+                    )
+                }
+            } label: {
+                Label("Add to workout", systemImage: "plus.circle.fill")
             }
         }
     }
@@ -382,6 +486,9 @@ struct WorkoutPlanView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                if let suggestion = progression {
+                    progressionBadge(suggestion)
+                }
                 Spacer()
                 Text("Rec: \(we.recommendedSets) sets x \(we.recommendedReps)")
                     .font(.caption)
@@ -390,7 +497,7 @@ struct WorkoutPlanView: View {
             if let suggestion = progression {
                 Text(suggestion.shortLine)
                     .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -401,6 +508,9 @@ struct WorkoutPlanView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(dataVM.displayName(for: we)).font(.headline)
+                if let suggestion = progression {
+                    progressionBadge(suggestion)
+                }
                 Spacer()
                 Text("Rec: \(we.recommendedSets) sets x \(we.recommendedReps)")
                     .font(.caption)
@@ -409,11 +519,26 @@ struct WorkoutPlanView: View {
             if let suggestion = progression {
                 Text(suggestion.shortLine)
                     .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+
+    @ViewBuilder
+    private func progressionBadge(_ suggestion: ProgressionSuggestion) -> some View {
+        let (symbol, color): (String, Color) = {
+            switch suggestion.direction {
+            case .increase: return ("arrow.up.circle.fill", .green)
+            case .hold: return ("equal.circle.fill", .orange)
+            case .decrease: return ("arrow.down.circle.fill", .red)
+            }
+        }()
+        Image(systemName: symbol)
+            .font(.title3)
+            .foregroundStyle(color)
+            .accessibilityLabel("Progression: \(suggestion.shortLine)")
     }
 
     private func addOpenSlot() {
@@ -495,12 +620,10 @@ struct WorkoutPlanView: View {
     }
 }
 
-// MARK: - Heuristic fallback suggestions
-private func heuristicImprovementSuggestions(for workout: Workout, dataVM: DataManager) -> [String] {
-    guard !workout.exercises.isEmpty else {
-        return ["Add 4–6 compound and accessory movements that cover all major muscle groups you want to train."]
-    }
-    var suggestions: [String] = []
+// MARK: - Structure / balance helpers
+private func workoutStructureGapHints(for workout: Workout, dataVM: DataManager) -> [String] {
+    guard !workout.exercises.isEmpty else { return [] }
+    var hints: [String] = []
     var setsByMuscle: [MuscleGroup: Int] = [:]
     for we in workout.exercises {
         let primary: MuscleGroup
@@ -518,20 +641,29 @@ private func heuristicImprovementSuggestions(for workout: Workout, dataVM: DataM
     let quadSets = (setsByMuscle[.quads] ?? 0)
     let hamSets = (setsByMuscle[.hamstrings] ?? 0)
     if quadSets > 0 && hamSets == 0 {
-        suggestions.append("You have quad work but no direct hamstring work; consider adding a hinge or leg curl variation.")
+        hints.append("You have quad work but no direct hamstring work; consider a hinge or leg curl.")
     }
     let pushSets = (setsByMuscle[.chest] ?? 0) + (setsByMuscle[.frontDelts] ?? 0) + (setsByMuscle[.triceps] ?? 0)
     let pullSets = (setsByMuscle[.lats] ?? 0) + (setsByMuscle[.upperBack] ?? 0) + (setsByMuscle[.biceps] ?? 0)
     if pushSets >= pullSets * 2 && pullSets > 0 {
-        suggestions.append("Push volume is much higher than pull; consider adding rowing or pulldown work to balance your upper body.")
+        hints.append("Push volume is much higher than pull; consider rowing or pulldown work.")
     }
     if workout.exercises.count > 8 {
-        suggestions.append("You have a lot of exercises in this workout; consider trimming to 4–6 key movements and adding sets instead.")
+        hints.append("Many exercises listed; consider focusing on 4–6 key lifts and adding sets.")
     }
-    if suggestions.isEmpty {
-        suggestions.append("Your workout looks reasonably balanced. Focus on adding small amounts of volume or load over time to progress.")
+    return hints
+}
+
+// MARK: - Heuristic fallback suggestions
+private func heuristicImprovementSuggestions(for workout: Workout, dataVM: DataManager) -> [String] {
+    guard !workout.exercises.isEmpty else {
+        return ["Add 4–6 compound and accessory movements that cover all major muscle groups you want to train."]
     }
-    return suggestions
+    let gaps = workoutStructureGapHints(for: workout, dataVM: dataVM)
+    if gaps.isEmpty {
+        return ["Your workout looks reasonably balanced. Add small amounts of volume or load over time to progress."]
+    }
+    return gaps
 }
 
 // MARK: - Exercise picker (search, favorites, recent, subgrouping, section index)
@@ -991,6 +1123,130 @@ struct AddExerciseSheet: View {
                 .environmentObject(dataVM)
                 .environmentObject(aiService)
             }
+        }
+    }
+}
+
+// MARK: - Suggest exercises (AI or offline)
+
+private struct AISuggestExercisesFillSheet: View {
+    let workoutId: UUID
+    let currentVM: CurrentWorkoutSessionViewModel
+    @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var aiService: AIService
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var suggestions: [(exercise: Exercise, sets: Int, reps: String)] = []
+    @State private var loading = true
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if loading {
+                    ProgressView("Finding exercises…")
+                } else if let err = errorMessage {
+                    ContentUnavailableView(
+                        "Couldn’t load suggestions",
+                        systemImage: "exclamationmark.triangle",
+                        description: Text(err)
+                    )
+                } else if suggestions.isEmpty {
+                    ContentUnavailableView(
+                        "No new suggestions",
+                        systemImage: "checkmark.circle",
+                        description: Text("Your workout may already cover typical movements, or try renaming it (e.g. “Push day”) for better offline matches.")
+                    )
+                } else {
+                    List {
+                        Section {
+                            Text(aiService.isConfigured
+                                 ? "Pick exercises to append to your plan. Sets and reps are starting points."
+                                 : "Based on your workout name and what’s already included. Tap to add.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(suggestions, id: \.exercise.id) { item in
+                            Button {
+                                addOne(item)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(dataVM.resolvedDisplayName(for: item.exercise))
+                                        .font(.headline)
+                                    Text("\(item.sets) sets × \(item.reps)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        Section {
+                            Button("Add all") {
+                                for item in suggestions {
+                                    addOne(item)
+                                }
+                                dismiss()
+                            }
+                            .fontWeight(.semibold)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Suggest exercises")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .task {
+                await load()
+            }
+        }
+    }
+
+    private func addOne(_ item: (exercise: Exercise, sets: Int, reps: String)) {
+        let sets = min(max(1, item.sets), 10)
+        let reps = item.reps.trimmingCharacters(in: .whitespacesAndNewlines)
+        let repsFinal = reps.isEmpty ? "8-12" : reps
+        guard let fresh = dataVM.workout(id: workoutId) else { return }
+        _ = dataVM.addExercise(
+            to: fresh,
+            exercise: item.exercise,
+            recommendedSets: sets,
+            recommendedReps: repsFinal,
+            configurationFields: [],
+            recommendedConfigBySet: Array(repeating: [:], count: sets)
+        )
+        if let updated = dataVM.workout(id: workoutId) {
+            currentVM.syncExercises(withUpdatedWorkout: updated)
+        }
+        suggestions.removeAll { $0.exercise.id == item.exercise.id }
+    }
+
+    private func load() async {
+        loading = true
+        errorMessage = nil
+        defer { loading = false }
+        guard let w = dataVM.workout(id: workoutId) else {
+            errorMessage = "Workout not found."
+            return
+        }
+        if aiService.isConfigured {
+            do {
+                let list = try await aiService.fetchExercisesToAddToWorkout(workout: w, globalExercises: dataVM.globalExercises)
+                let existing = Set(w.exercises.compactMap { $0.exerciseId })
+                suggestions = list.filter { !existing.contains($0.exercise.id) }
+                if suggestions.isEmpty {
+                    suggestions = WorkoutStarterResolution.heuristicExercisesToAdd(to: w, library: dataVM.globalExercises)
+                }
+            } catch {
+                suggestions = WorkoutStarterResolution.heuristicExercisesToAdd(to: w, library: dataVM.globalExercises)
+                if suggestions.isEmpty {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        } else {
+            suggestions = WorkoutStarterResolution.heuristicExercisesToAdd(to: w, library: dataVM.globalExercises)
         }
     }
 }

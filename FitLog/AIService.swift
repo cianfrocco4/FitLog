@@ -221,6 +221,70 @@ final class AIService: ObservableObject {
         return lines.joined(separator: "\n")
     }
 
+    // MARK: - Single-workout exercise fill (library names only)
+
+    private struct AIWorkoutFillEnvelope: Decodable {
+        struct Item: Decodable {
+            let name: String
+            let sets: Int?
+            let reps: String?
+        }
+
+        let items: [Item]
+    }
+
+    /// Suggests exercises from the library to add to this workout (JSON from the model; names resolved against `globalExercises`).
+    func fetchExercisesToAddToWorkout(
+        workout: Workout,
+        globalExercises: [Exercise]
+    ) async throws -> [(exercise: Exercise, sets: Int, reps: String)] {
+        if !isConfigured {
+            throw AIServiceError.notConfigured
+        }
+        let allowed = globalExercises.map(\.name).sorted()
+        let allowedData = try JSONEncoder().encode(allowed)
+        let allowedJSON = String(data: allowedData, encoding: .utf8) ?? "[]"
+        let summary = workoutSummary(workout, globalExercises: globalExercises)
+        let system = """
+        You return ONLY a JSON object with a single key "items" (array). Each element must have:
+        "name": string — MUST exactly match one entry from the allowed exercise names list (same spelling).
+        "sets": integer between 2 and 5 (optional; default 3).
+        "reps": string like "8-12" or "6-10" (optional; default "8-12").
+        Suggest 4–8 exercises that fit the workout title and complement what is already planned. Do not repeat movements already in the workout. Prefer compounds first, then accessories.
+        """
+        let user = """
+        Allowed exercise names (JSON array of strings, use these exact names only):
+        \(allowedJSON)
+
+        Current workout:
+        \(summary)
+
+        Add items that are NOT already in the workout above.
+        """
+        let raw = try await performRequest(system: system, user: user, maxTokens: 900, jsonObject: true)
+        guard let data = raw.data(using: .utf8) else { return [] }
+        let decoded: AIWorkoutFillEnvelope
+        do {
+            decoded = try JSONDecoder().decode(AIWorkoutFillEnvelope.self, from: data)
+        } catch {
+            return []
+        }
+        var out: [(Exercise, Int, String)] = []
+        var seen = Set<UUID>()
+        for item in decoded.items {
+            let trimmed = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            guard let res = ExerciseNameResolution.resolve(planName: trimmed, library: globalExercises),
+                  case .linked(let ex) = res else { continue }
+            if !seen.insert(ex.id).inserted { continue }
+            let sets = min(max(2, item.sets ?? 3), 5)
+            let repsRaw = (item.reps ?? "8-12").trimmingCharacters(in: .whitespacesAndNewlines)
+            let reps = repsRaw.isEmpty ? "8-12" : repsRaw
+            out.append((ex, sets, reps))
+        }
+        return out
+    }
+
     // MARK: - Workout split builder
 
     /// Proposes a training split using only exercise names from `allowedExerciseNames` (exact strings from the app library).

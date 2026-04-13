@@ -17,6 +17,11 @@ enum FitlogRootTab: Int, Hashable {
 }
 
 /// In-memory Coach tab routing (e.g. Plan tab opens AI split builder with plan context).
+extension Notification.Name {
+    /// Home / onboarding asks Plan to present the program builder sheet.
+    static let fitlogOpenProgramBuilder = Notification.Name("fitlogOpenProgramBuilder")
+}
+
 enum FitlogCoachDeepLink: Equatable {
     case idle
     /// Prefill is merged into the split builder “Additional notes” field.

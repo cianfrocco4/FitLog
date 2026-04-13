@@ -158,6 +158,7 @@ extension EditableDay {
 
 struct AISplitBuilderView: View {
     @EnvironmentObject private var dataVM: DataManager
+    @EnvironmentObject private var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject private var aiService: AIService
     @Environment(\.dismiss) private var dismiss
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
@@ -197,6 +198,11 @@ struct AISplitBuilderView: View {
     @State private var currentStep: WizardStep = .goals
     @State private var didLoadPersistedWizard = false
     @State private var didApplyCoachPrefill = false
+    @State private var fullEditorWorkoutNav: FullEditorWorkoutNav?
+
+    private struct FullEditorWorkoutNav: Identifiable, Hashable {
+        let id: UUID
+    }
 
     private enum LibraryPickContext: Identifiable {
         case slotDefault(dayId: UUID, slotId: UUID)
@@ -280,6 +286,18 @@ struct AISplitBuilderView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
+                }
+            }
+            .navigationDestination(item: $fullEditorWorkoutNav) { item in
+                if let binding = $dataVM.userWorkouts[item.id] {
+                    WorkoutPlanView(workout: binding)
+                        .environmentObject(dataVM)
+                        .environmentObject(currentVM)
+                        .environmentObject(aiService)
+                } else {
+                    Text("This workout is no longer in your library.")
+                        .foregroundStyle(.secondary)
+                        .navigationTitle("Workout")
                 }
             }
         }
@@ -985,6 +1003,69 @@ struct AISplitBuilderView: View {
             Label("Add slot", systemImage: "plus.circle")
                 .font(.subheadline)
         }
+
+        Button {
+            let newId = createLibraryWorkoutFromPreviewDay(day.wrappedValue)
+            fullEditorWorkoutNav = FullEditorWorkoutNav(id: newId)
+        } label: {
+            Label("Open in full workout editor", systemImage: "rectangle.and.pencil.and.ellipsis")
+        }
+        .font(.subheadline)
+        .padding(.top, 4)
+    }
+
+    /// Copies preview day into a new library workout for editing in `WorkoutPlanView` (does not apply the split).
+    private func createLibraryWorkoutFromPreviewDay(_ day: EditableDay) -> UUID {
+        let trimmed = day.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = trimmed.isEmpty ? "Workout" : trimmed
+        let name = dataVM.uniqueWorkoutName(base)
+        let workoutId = dataVM.createWorkout(name: name)
+        for slot in day.slots {
+            let muscles = ExerciseNameResolution.resolveMuscleGroups(from: slot.targetMuscleNames)
+            var ex: Exercise?
+            if let oid = slot.suggestedExerciseOverrideId {
+                ex = dataVM.globalExercises.first(where: { $0.id == oid })
+            }
+            if ex == nil {
+                let raw = (slot.suggestedExerciseName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if !raw.isEmpty, let r = ExerciseNameResolution.resolve(planName: raw, library: dataVM.globalExercises) {
+                    switch r {
+                    case .linked(let e):
+                        ex = e
+                    case .createCustom(let dn):
+                        let m = muscles.isEmpty ? [MuscleGroup.other] : muscles
+                        ex = dataVM.addNewExercise(name: dn, description: "", muscles: m)
+                    }
+                }
+            }
+            let sets = min(max(1, slot.sets), 10)
+            let reps = slot.reps.trimmingCharacters(in: .whitespacesAndNewlines)
+            let repsFinal = reps.isEmpty ? "8-12" : reps
+            if let ex, let w = dataVM.workout(id: workoutId) {
+                _ = dataVM.addExercise(
+                    to: w,
+                    exercise: ex,
+                    recommendedSets: sets,
+                    recommendedReps: repsFinal,
+                    configurationFields: [],
+                    recommendedConfigBySet: Array(repeating: [:], count: sets)
+                )
+            } else {
+                let label = slot.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Slot" : slot.label
+                let ts = TemplateSlot(
+                    label: label,
+                    targetedMuscles: muscles.isEmpty ? [.other] : muscles,
+                    exerciseRole: nil,
+                    movementPattern: nil,
+                    defaultExerciseId: nil,
+                    defaultRestTime: 90,
+                    recommendedSets: sets,
+                    recommendedReps: repsFinal
+                )
+                _ = dataVM.appendFlexibleSlot(toWorkoutId: workoutId, slot: ts)
+            }
+        }
+        return workoutId
     }
 
     private var regenerateTweaksSection: some View {

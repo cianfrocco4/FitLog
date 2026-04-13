@@ -19,6 +19,7 @@ struct HomeView: View {
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
 
     @State private var showNewWorkout = false
+    @State private var newWorkoutLaunchHint: NewWorkoutLaunchHint?
     @State private var showSplitBuilder = false
     @State private var workoutToRename: Workout?
     @State private var renameText = ""
@@ -40,7 +41,8 @@ struct HomeView: View {
     private var scheduleEngine: TrainingScheduleEngine { TrainingScheduleEngine(calendar: .current) }
 
     private var homeRefreshKey: String {
-        "\(dayMonitor.currentDayKey)-\(dataVM.completedSessions.count)-\(dataVM.trainingProgram.cycleEntries.count)-\(dataVM.trainingProgram.anchorDayKey)-\(dataVM.trainingProgram.dayOverrides.count)-\(dataVM.trainingProgram.weekOverrides.count)"
+        let cycleSig = dataVM.trainingProgram.cycleEntries.map(\.cacheKey).joined(separator: ",")
+        return "\(dayMonitor.currentDayKey)-\(dataVM.completedSessions.count)-\(cycleSig)-\(dataVM.trainingProgram.anchorDayKey)-\(dataVM.trainingProgram.dayOverrides.count)-\(dataVM.trainingProgram.weekOverrides.count)-\(userPreferences.dismissedProgramAssignmentBanner)"
     }
 
     private var workoutSearchTrimmed: String {
@@ -58,6 +60,12 @@ struct HomeView: View {
     private var homeWorkoutFullListThreshold: Int { 8 }
     private var homeWorkoutPreviewCount: Int { 6 }
 
+    private var shouldShowProgramAssignmentBanner: Bool {
+        !userPreferences.dismissedProgramAssignmentBanner
+            && !dataVM.userWorkouts.isEmpty
+            && dataVM.trainingProgram.cycleEntries.isEmpty
+    }
+
     private var homeShowsWorkoutPreviewOnly: Bool {
         dataVM.userWorkouts.count > homeWorkoutFullListThreshold && workoutSearchTrimmed.isEmpty
     }
@@ -68,6 +76,35 @@ struct HomeView: View {
 
     private var homeDashboardListInsets: EdgeInsets {
         EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
+    }
+
+    private var programAssignmentBannerCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Assign workouts to your week")
+                .font(.headline)
+            Text("You have saved workouts, but your Plan calendar needs a training lineup. Set how many days you train and order your sessions.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Button("Open Program builder") {
+                    if let tab = rootTabSelection {
+                        tab.wrappedValue = .plan
+                    }
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        NotificationCenter.default.post(name: .fitlogOpenProgramBuilder, object: nil)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                Button("Dismiss") {
+                    userPreferences.dismissedProgramAssignmentBanner = true
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
     }
 
     private var homeEmptyWorkoutsCallout: some View {
@@ -82,7 +119,10 @@ struct HomeView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             HStack(spacing: 12) {
-                Button("New workout") { showNewWorkout = true }
+                Button("New workout") {
+                    newWorkoutLaunchHint = nil
+                    showNewWorkout = true
+                }
                     .buttonStyle(.borderedProminent)
                 if let tab = rootTabSelection {
                     Button("Open Plan") { tab.wrappedValue = .plan }
@@ -208,6 +248,15 @@ struct HomeView: View {
                     }
                 }
 
+                if shouldShowProgramAssignmentBanner {
+                    Section {
+                        programAssignmentBannerCard
+                            .listRowInsets(homeDashboardListInsets)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
+                }
+
                 Section {
                     aiSplitProgramRow
                         .listRowInsets(homeDashboardListInsets)
@@ -317,6 +366,7 @@ struct HomeView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button("New workout", systemImage: "plus.rectangle.on.folder") {
+                            newWorkoutLaunchHint = nil
                             showNewWorkout = true
                         }
                         Button("Build split with AI", systemImage: "sparkles") {
@@ -331,15 +381,24 @@ struct HomeView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showNewWorkout) {
-                NewWorkoutSheet()
+            .sheet(isPresented: $showNewWorkout, onDismiss: { newWorkoutLaunchHint = nil }) {
+                NewWorkoutSheet(launchHint: newWorkoutLaunchHint)
                     .environmentObject(dataVM)
                     .environmentObject(currentVM)
                     .environmentObject(aiService)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .fitlogPresentNewWorkout)) { output in
+                if let hint = output.object as? NewWorkoutLaunchHint {
+                    newWorkoutLaunchHint = hint
+                } else {
+                    newWorkoutLaunchHint = nil
+                }
+                showNewWorkout = true
+            }
             .sheet(isPresented: $showSplitBuilder) {
                 AISplitBuilderView()
                     .environmentObject(dataVM)
+                    .environmentObject(currentVM)
                     .environmentObject(aiService)
             }
             .alert("Rename Workout", isPresented: Binding(

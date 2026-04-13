@@ -110,6 +110,7 @@ final class UserPreferences: ObservableObject {
         static let coachHome = "fitlog.coachMark.home.v1"
         static let coachPlan = "fitlog.coachMark.plan.v1"
         static let coachHistory = "fitlog.coachMark.history.v1"
+        static let dismissedProgramAssignmentBanner = "fitlog.dismissedProgramAssignmentBanner"
     }
 
     private let defaults: UserDefaults
@@ -134,6 +135,11 @@ final class UserPreferences: ObservableObject {
         didSet { defaults.set(coachMarkHistoryDismissed, forKey: Keys.coachHistory) }
     }
 
+    /// User hid the Home banner prompting them to assign workouts to the weekly program lineup.
+    @Published var dismissedProgramAssignmentBanner: Bool {
+        didSet { defaults.set(dismissedProgramAssignmentBanner, forKey: Keys.dismissedProgramAssignmentBanner) }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         if let raw = defaults.string(forKey: Keys.weightUnit),
@@ -146,6 +152,7 @@ final class UserPreferences: ObservableObject {
         _coachMarkHomeDismissed = Published(initialValue: defaults.bool(forKey: Keys.coachHome))
         _coachMarkPlanDismissed = Published(initialValue: defaults.bool(forKey: Keys.coachPlan))
         _coachMarkHistoryDismissed = Published(initialValue: defaults.bool(forKey: Keys.coachHistory))
+        _dismissedProgramAssignmentBanner = Published(initialValue: defaults.bool(forKey: Keys.dismissedProgramAssignmentBanner))
     }
 
     func markOnboardingComplete() {
@@ -158,5 +165,6 @@ final class UserPreferences: ObservableObject {
         coachMarkHomeDismissed = true
         coachMarkPlanDismissed = true
         coachMarkHistoryDismissed = true
+        dismissedProgramAssignmentBanner = true
     }
 }

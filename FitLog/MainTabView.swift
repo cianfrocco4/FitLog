@@ -105,10 +105,30 @@ struct MainTabView: View {
             .environmentObject(userPreferences)
         }
         .fullScreenCover(isPresented: $showOnboarding) {
-            OnboardingFlowView(isPresented: $showOnboarding)
-                .environmentObject(dataVM)
-                .environmentObject(userPreferences)
-                .interactiveDismissDisabled()
+            OnboardingFlowView(isPresented: $showOnboarding) { action in
+                switch action {
+                case .none:
+                    break
+                case .coachAISplit:
+                    rootTab = .coach
+                    coachDeepLink = .openAISplitBuilder(prefill: nil)
+                case .homeNewWorkoutTemplates:
+                    rootTab = .home
+                    NotificationCenter.default.post(
+                        name: .fitlogPresentNewWorkout,
+                        object: NewWorkoutLaunchHint.templatesFirst
+                    )
+                case .homeNewWorkoutScratch:
+                    rootTab = .home
+                    NotificationCenter.default.post(
+                        name: .fitlogPresentNewWorkout,
+                        object: NewWorkoutLaunchHint.buildOwnFirst
+                    )
+                }
+            }
+            .environmentObject(dataVM)
+            .environmentObject(userPreferences)
+            .interactiveDismissDisabled()
         }
         .onChange(of: currentVM.isInProgress) { _, inProgress in
             if !inProgress {
