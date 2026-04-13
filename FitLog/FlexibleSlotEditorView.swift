@@ -238,9 +238,11 @@ private struct DefaultExercisePickerSheet: View {
 
     private var filteredExercises: [Exercise] {
         let sorted = dataVM.globalExercises.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        guard !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return sorted }
         let q = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        return sorted.filter { $0.name.localizedCaseInsensitiveContains(q) }
+        guard !q.isEmpty else { return sorted }
+        return sorted.filter {
+            $0.matchesExerciseSearch(query: q, resolvedDisplayName: dataVM.resolvedDisplayName(for: $0))
+        }
     }
 
     var body: some View {

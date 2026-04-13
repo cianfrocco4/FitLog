@@ -95,6 +95,15 @@ struct MainTabView: View {
                 .environmentObject(aiService)
                 .environmentObject(userPreferences)
         }
+        .sheet(item: Binding(
+            get: { currentVM.pendingWorkoutCompletionSummary },
+            set: { currentVM.pendingWorkoutCompletionSummary = $0 }
+        )) { summary in
+            WorkoutCompletionSummaryView(summary: summary) {
+                currentVM.pendingWorkoutCompletionSummary = nil
+            }
+            .environmentObject(userPreferences)
+        }
         .fullScreenCover(isPresented: $showOnboarding) {
             OnboardingFlowView(isPresented: $showOnboarding)
                 .environmentObject(dataVM)

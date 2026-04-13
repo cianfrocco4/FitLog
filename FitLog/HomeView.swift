@@ -334,6 +334,8 @@ struct HomeView: View {
             .sheet(isPresented: $showNewWorkout) {
                 NewWorkoutSheet()
                     .environmentObject(dataVM)
+                    .environmentObject(currentVM)
+                    .environmentObject(aiService)
             }
             .sheet(isPresented: $showSplitBuilder) {
                 AISplitBuilderView()

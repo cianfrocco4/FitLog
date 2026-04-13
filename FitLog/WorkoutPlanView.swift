@@ -19,6 +19,18 @@ private struct OpenSlotEditorNavigation: Identifiable, Hashable {
     let id: UUID
 }
 
+private enum AddExerciseSheetMode: Identifiable {
+    case quickAdd
+    case fullAdd(prefillExerciseId: UUID?)
+
+    var id: String {
+        switch self {
+        case .quickAdd: return "quickAdd"
+        case .fullAdd(let uuid): return "fullAdd-\(uuid?.uuidString ?? "none")"
+        }
+    }
+}
+
 /// Wraps a workout exercise with its index in the persisted array (for tap/delete/move).
 private struct ExerciseDisplayItem: Identifiable {
     let id: UUID
@@ -34,12 +46,14 @@ private struct ExerciseDisplayItem: Identifiable {
 
 struct WorkoutPlanView: View {
     @Binding var workout: Workout
+    /// When set (e.g. new-workout flow), shows a Done button that calls this to dismiss the enclosing sheet.
+    var creationFlowOnDone: (() -> Void)? = nil
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var aiService: AIService
     @Environment(\.openPullUpToExerciseLogIndex) private var openPullUpToExerciseLogIndex
     @Environment(\.undoManager) private var undoManager
-    @State private var showAddExercise = false
+    @State private var addExercisePresentation: AddExerciseSheetMode?
     @State private var showRenameAlert = false
     @State private var newWorkoutName = ""
     @State private var displayOrder: ExerciseDisplayOrder = .defaultOrder
@@ -118,6 +132,12 @@ struct WorkoutPlanView: View {
         }
         .navigationTitle(workout.name)
         .toolbar {
+            ToolbarItemGroup(placement: .topBarLeading) {
+                if let onDone = creationFlowOnDone {
+                    Button("Done", action: onDone)
+                }
+                EditButton()
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button(isThisLibrarySessionActive ? "Stop" : "Start") {
                     if isThisLibrarySessionActive {
@@ -152,12 +172,22 @@ struct WorkoutPlanView: View {
                     Label("View", systemImage: "line.3.horizontal.decrease.circle")
                 }
             }
-            ToolbarItem(placement: .topBarLeading) {
-                EditButton()
-            }
         }
-        .sheet(isPresented: $showAddExercise) {
-            AddExerciseSheet(workout: workout, currentVM: currentVM)
+        .sheet(item: $addExercisePresentation) { mode in
+            switch mode {
+            case .quickAdd:
+                PlanQuickAddExerciseSheet(
+                    workoutId: workout.id,
+                    currentVM: currentVM,
+                    presentation: $addExercisePresentation
+                )
+                .environmentObject(dataVM)
+                .environmentObject(aiService)
+            case .fullAdd(let prefillId):
+                AddExerciseSheet(workout: workout, currentVM: currentVM, presetExerciseId: prefillId)
+                    .environmentObject(dataVM)
+                    .environmentObject(aiService)
+            }
         }
         .alert("Rename Workout", isPresented: $showRenameAlert) {
             TextField("New name", text: $newWorkoutName)
@@ -264,7 +294,8 @@ struct WorkoutPlanView: View {
 
     private var addItemsSection: some View {
         Section {
-            Button("Add slot with exercise") { showAddExercise = true }
+            Button("Add exercise") { addExercisePresentation = .quickAdd }
+            Button("Custom add exercise…") { addExercisePresentation = .fullAdd(prefillExerciseId: nil) }
             Button("Add open slot") { addOpenSlot() }
         }
     }
@@ -388,11 +419,12 @@ struct WorkoutPlanView: View {
     private func addOpenSlot() {
         let slots = dataVM.flexibleSlots(from: workout)
         let n = slots.count + 1
+        let inferred = inferredOpenSlotDefaults()
         let slot = TemplateSlot(
             label: "Slot \(n)",
-            targetedMuscles: [.chest],
-            exerciseRole: .compound,
-            movementPattern: .horizontalPush,
+            targetedMuscles: inferred.muscles,
+            exerciseRole: inferred.role,
+            movementPattern: inferred.pattern,
             defaultExerciseId: nil,
             defaultRestTime: 90,
             recommendedSets: 3,
@@ -403,6 +435,47 @@ struct WorkoutPlanView: View {
             workout = updated
         }
         openSlotEditorNavigation = OpenSlotEditorNavigation(id: newSlotId)
+    }
+
+    /// Primary muscle distribution in the workout → defaults for a new open slot (avoids always defaulting to chest).
+    private func inferredOpenSlotDefaults() -> (muscles: [MuscleGroup], role: ExerciseRole, pattern: MovementPattern) {
+        var counts: [MuscleGroup: Int] = [:]
+        for we in workout.exercises {
+            let primary: MuscleGroup
+            if let eid = we.exerciseId, let ex = dataVM.globalExercises.first(where: { $0.id == eid }) {
+                primary = ex.targetedMuscles.first ?? .other
+            } else if let snap = we.snapshot, let ex = dataVM.resolveExercise(for: snap) {
+                primary = ex.targetedMuscles.first ?? .other
+            } else if case .flexible(let b) = we.resolution {
+                primary = b.targetedMuscles.first ?? .other
+            } else {
+                primary = .other
+            }
+            counts[primary, default: 0] += max(1, we.recommendedSets)
+        }
+        let nonOther = counts.filter { $0.key != .other }
+        let pool = nonOther.isEmpty ? counts : nonOther
+        guard let best = pool.max(by: { $0.value < $1.value }), best.value > 0 else {
+            return ([.other], .accessory, .other)
+        }
+        return ([best.key], .compound, movementPatternHeuristic(for: best.key))
+    }
+
+    private func movementPatternHeuristic(for muscle: MuscleGroup) -> MovementPattern {
+        switch muscle {
+        case .chest, .upperChest, .lowerChest, .serratusAnterior: return .horizontalPush
+        case .lats, .upperBack, .midBack, .rhomboids, .traps: return .verticalPull
+        case .lowerBack, .posteriorChain: return .hinge
+        case .quads, .hipFlexors: return .squat
+        case .hamstrings, .glutes: return .hinge
+        case .adductors, .abductors: return .lunge
+        case .biceps, .triceps, .brachialis, .forearms, .rotatorCuff: return .isolation
+        case .frontDelts, .sideDelts, .rearDelts: return .verticalPush
+        case .calves, .soleus: return .isolation
+        case .abs, .lowerAbs, .obliques, .core: return .rotation
+        case .neck: return .isolation
+        case .other: return .other
+        }
     }
 
     private func loadSuggestions() async {
@@ -465,20 +538,20 @@ private func heuristicImprovementSuggestions(for workout: Workout, dataVM: DataM
 private struct ExercisePickerView: View {
     let exercises: [Exercise]
     @Binding var selection: Exercise?
+    /// When set, choosing a row invokes this instead of updating `selection` (e.g. one-tap add flow).
+    var onExerciseChosen: ((Exercise) -> Void)? = nil
+    var navigationTitleText: String = "Select Exercise"
     @EnvironmentObject var dataVM: DataManager
     @Environment(\.dismiss) var dismiss
     @State private var searchText = ""
     @State private var favoriteIds: Set<UUID> = []
     @State private var recentIds: [UUID] = []
 
-    /// Search by exercise name or primary muscle name.
     private var filtered: [Exercise] {
         let q = searchText.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return exercises }
         return exercises.filter { ex in
-            dataVM.resolvedDisplayName(for: ex).localizedCaseInsensitiveContains(q)
-            || ex.name.localizedCaseInsensitiveContains(q)
-            || (ex.targetedMuscles.first ?? .other).rawValue.localizedCaseInsensitiveContains(q)
+            ex.matchesExerciseSearch(query: q, resolvedDisplayName: dataVM.resolvedDisplayName(for: ex))
         }
     }
 
@@ -541,7 +614,7 @@ private struct ExercisePickerView: View {
                 }
             }
             .searchable(text: $searchText, prompt: "Search by name or muscle")
-            .navigationTitle("Select Exercise")
+            .navigationTitle(navigationTitleText)
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .trailing, spacing: 0) {
                 if sectionIds.count > 1 {
@@ -559,8 +632,12 @@ private struct ExercisePickerView: View {
     private func exerciseRows(_ list: [Exercise], showFavorite: Bool) -> some View {
         ForEach(list) { ex in
             Button {
-                selection = ex
-                dismiss()
+                if let onExerciseChosen {
+                    onExerciseChosen(ex)
+                } else {
+                    selection = ex
+                    dismiss()
+                }
             } label: {
                 HStack {
                     Text(dataVM.resolvedDisplayName(for: ex))
@@ -594,11 +671,157 @@ private struct ExercisePickerView: View {
     }
 }
 
+// MARK: - Quick add to plan (one tap + toast)
+
+private struct PlanQuickAddExerciseToast: Equatable {
+    let workoutExerciseId: UUID
+    let exerciseId: UUID
+    let exerciseName: String
+}
+
+private struct PlanQuickAddExerciseSheet: View {
+    let workoutId: UUID
+    let currentVM: CurrentWorkoutSessionViewModel
+    @Binding var presentation: AddExerciseSheetMode?
+    @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var aiService: AIService
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var exerciseList: [Exercise] = []
+    @State private var toast: PlanQuickAddExerciseToast?
+    @State private var showCreateCustomExercise = false
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            NavigationStack {
+                ExercisePickerView(
+                    exercises: exerciseList,
+                    selection: .constant(nil),
+                    onExerciseChosen: { ex in
+                        addExerciseQuick(ex)
+                    },
+                    navigationTitleText: "Add exercise"
+                )
+                .environmentObject(dataVM)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Close") {
+                            presentation = nil
+                            dismiss()
+                        }
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        Menu {
+                            Button {
+                                presentation = .fullAdd(prefillExerciseId: nil)
+                            } label: {
+                                Label("Custom add exercise…", systemImage: "slider.horizontal.3")
+                            }
+                            Button {
+                                showCreateCustomExercise = true
+                            } label: {
+                                Label("New custom exercise", systemImage: "plus.square.on.square")
+                            }
+                        } label: {
+                            Label("More", systemImage: "ellipsis.circle")
+                        }
+                    }
+                }
+                .sheet(isPresented: $showCreateCustomExercise) {
+                    NewExerciseSheet(onCreated: { created in
+                        exerciseList = dataVM.globalExercises
+                        addExerciseQuick(created)
+                    })
+                    .environmentObject(dataVM)
+                    .environmentObject(aiService)
+                }
+            }
+            if let t = toast {
+                quickAddToastBar(t)
+                    .padding()
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.88), value: toast != nil)
+        .onAppear {
+            exerciseList = dataVM.globalExercises
+        }
+    }
+
+    private func syncLibraryIfNeeded() {
+        guard let updated = dataVM.workout(id: workoutId) else { return }
+        currentVM.syncExercises(withUpdatedWorkout: updated)
+    }
+
+    private func addExerciseQuick(_ ex: Exercise) {
+        let def = ExercisePrescriptionMemory.rememberedSetsAndReps(for: ex.id) ?? (3, "8-12")
+        let config = Array(repeating: [String: String](), count: def.sets)
+        guard let lib = dataVM.workout(id: workoutId) else { return }
+        if let we = dataVM.addExercise(
+            to: lib,
+            exercise: ex,
+            recommendedSets: def.sets,
+            recommendedReps: def.reps,
+            configurationFields: [],
+            recommendedConfigBySet: config
+        ) {
+            ExercisePickerPersistence.recordRecent(exerciseId: ex.id)
+            syncLibraryIfNeeded()
+            toast = PlanQuickAddExerciseToast(
+                workoutExerciseId: we.id,
+                exerciseId: ex.id,
+                exerciseName: dataVM.resolvedDisplayName(for: ex)
+            )
+        }
+    }
+
+    private func quickAddToastBar(_ t: PlanQuickAddExerciseToast) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Added")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(t.exerciseName)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Button("Undo") {
+                undoToast(t)
+            }
+            .buttonStyle(.bordered)
+            Button("Customize") {
+                customizeFromToast(t)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+    }
+
+    private func undoToast(_ t: PlanQuickAddExerciseToast) {
+        guard let lib = dataVM.workout(id: workoutId) else { return }
+        dataVM.deleteExercise(from: lib, exerciseId: t.workoutExerciseId)
+        syncLibraryIfNeeded()
+        toast = nil
+    }
+
+    private func customizeFromToast(_ t: PlanQuickAddExerciseToast) {
+        guard let lib = dataVM.workout(id: workoutId) else { return }
+        dataVM.deleteExercise(from: lib, exerciseId: t.workoutExerciseId)
+        syncLibraryIfNeeded()
+        toast = nil
+        presentation = .fullAdd(prefillExerciseId: t.exerciseId)
+    }
+}
 
 struct AddExerciseSheet: View {
     let workout: Workout
     /// Passed in so the sheet doesn't observe it; avoids timer-driven re-renders that reset scroll position.
     let currentVM: CurrentWorkoutSessionViewModel
+    /// When non-nil, pre-selects this exercise (e.g. after “Customize” from quick add).
+    var presetExerciseId: UUID? = nil
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject private var aiService: AIService
     @Environment(\.dismiss) var dismiss
@@ -678,6 +901,15 @@ struct AddExerciseSheet: View {
             .navigationTitle("Add Exercise")
             .onAppear {
                 exerciseList = dataVM.globalExercises
+                if let pid = presetExerciseId {
+                    if selectedExercise == nil {
+                        selectedExercise = dataVM.globalExercises.first(where: { $0.id == pid })
+                    }
+                    if let mem = ExercisePrescriptionMemory.rememberedSetsAndReps(for: pid) {
+                        recommendedSets = mem.sets
+                        recommendedReps = mem.reps
+                    }
+                }
                 // Pause the workout while the sheet is open so timer-driven updates don't affect the parent.
                 if currentVM.isInProgress,
                    currentVM.currentSession?.workout.id == workout.id,
@@ -719,6 +951,11 @@ struct AddExerciseSheet: View {
                             }
 
                             ExercisePickerPersistence.recordRecent(exerciseId: ex.id)
+                            ExercisePrescriptionMemory.remember(
+                                exerciseId: ex.id,
+                                sets: recommendedSets,
+                                reps: recommendedReps
+                            )
                             if dataVM.userWorkouts.contains(where: { $0.id == workout.id }) {
                                 if let _ = dataVM.addExercise(to: workout,
                                                               exercise: ex,

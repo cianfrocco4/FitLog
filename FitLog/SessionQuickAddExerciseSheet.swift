@@ -210,10 +210,7 @@ struct SessionQuickAddExerciseSheet: View {
         let q = query
 
         func matchesSearch(_ ex: Exercise) -> Bool {
-            guard !q.isEmpty else { return true }
-            return dataVM.resolvedDisplayName(for: ex).localizedCaseInsensitiveContains(q)
-                || ex.name.localizedCaseInsensitiveContains(q)
-                || (ex.targetedMuscles.first ?? .other).rawValue.localizedCaseInsensitiveContains(q)
+            ex.matchesExerciseSearch(query: q, resolvedDisplayName: dataVM.resolvedDisplayName(for: ex))
         }
 
         func overlapScore(_ ex: Exercise) -> Int {
@@ -293,8 +290,9 @@ struct SessionQuickAddExerciseSheet: View {
 
     private func addExercise(_ ex: Exercise) {
         ExercisePickerPersistence.recordRecent(exerciseId: ex.id)
-        let recommendedSets = 3
-        let recommendedReps = "8-12"
+        let remembered = ExercisePrescriptionMemory.rememberedSetsAndReps(for: ex.id)
+        let recommendedSets = remembered?.sets ?? 3
+        let recommendedReps = remembered?.reps ?? "8-12"
         let recommendedConfigBySet: [[String: String]] = Array(repeating: [:], count: recommendedSets)
 
         if dataVM.userWorkouts.contains(where: { $0.id == workout.id }) {

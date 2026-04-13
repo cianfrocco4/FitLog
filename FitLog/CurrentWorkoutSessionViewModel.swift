@@ -39,6 +39,8 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     @Published var pendingPullUpFocus: PendingPullUpFocus?
     /// Set when a new personal record is detected while logging a set.
     @Published var recentPersonalRecordEvent: PersonalRecordEvent?
+    /// Populated when a workout is finished; consume to show the completion summary sheet.
+    @Published var pendingWorkoutCompletionSummary: WorkoutCompletionSummary?
     
     private var restTimer: Timer?
     private var workoutTimer: Timer?
@@ -99,10 +101,18 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         updateWorkoutElapsed()
     }
     
-    func stopWorkout() {
+    /// - Parameter showCompletionSummary: When true (e.g. user tapped Finish in the workout sheet), publishes `pendingWorkoutCompletionSummary` for the post-workout screen.
+    func stopWorkout(showCompletionSummary: Bool = false) {
         guard var session = currentSession else { return }
         
         session.endTime = Date()
+
+        let summary: WorkoutCompletionSummary? = showCompletionSummary
+            ? dataManager?.buildWorkoutCompletionSummary(
+                session: session,
+                activeElapsedSeconds: workoutElapsedSeconds
+            )
+            : nil
 
         if let dm = dataManager {
             dm.appendCompletedSession(session)
@@ -121,6 +131,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         workoutElapsedSeconds = 0
         clearInactivityReminder()
         clearPersistedActiveSession()
+        pendingWorkoutCompletionSummary = summary
     }
 
     /// Drops the in-progress workout without writing to history or HealthKit.
