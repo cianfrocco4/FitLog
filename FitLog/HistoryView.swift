@@ -202,6 +202,8 @@ struct HistoryView: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
+    @Environment(\.undoManager) private var undoManager
+    @Environment(\.fitlogRootTabSelection) private var rootTabSelection
     @State private var pendingStartAgainReplace: PendingWorkoutReplace?
     @State private var dayRange: HistoryDayRange = .d7
     @State private var sessionOriginFilter: HistorySessionOriginFilter = .all
@@ -211,6 +213,7 @@ struct HistoryView: View {
     @State private var selectedWorkoutsWeek: Date?
     @State private var selectedVolumeWeek: Date?
     @State private var selectedSetsWeek: Date?
+    @State private var historyOverviewSkeleton = true
 
     private var periodCutoff: Date {
         dayRange.cutoff(from: Date(), calendar: Calendar.current)
@@ -261,6 +264,10 @@ struct HistoryView: View {
     private var currentKPIs: HistoryKPIs { computeKPIs(filteredSessions) }
     private var priorKPIs: HistoryKPIs { computeKPIs(priorFilteredSessions) }
 
+    private func deleteSessionWithUndo(_ session: WorkoutSession) {
+        fitlogDeleteCompletedSessionWithUndo(session, dataVM: dataVM, undoManager: undoManager)
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -303,11 +310,19 @@ struct HistoryView: View {
 
                 switch mainTab {
                 case .overview:
-                    kpiSection
-                    consistencySection
-                    yearTrainingHeatmapSection
-                    trendsChartsSection
-                    muscleBalanceSection
+                    if historyOverviewSkeleton {
+                        Section {
+                            FitlogHistoryKPISkeleton()
+                                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                                .listRowBackground(Color.clear)
+                        }
+                    } else {
+                        kpiSection
+                        consistencySection
+                        yearTrainingHeatmapSection
+                        trendsChartsSection
+                        muscleBalanceSection
+                    }
                 case .sessions:
                     workoutsCompletedSection
                 case .explore:
@@ -320,6 +335,10 @@ struct HistoryView: View {
             .searchable(text: $exploreSearch, prompt: "Search workouts & exercises")
             .onAppear {
                 dataVM.refreshCompletedSessions()
+            }
+            .task {
+                try? await Task.sleep(nanoseconds: 280_000_000)
+                historyOverviewSkeleton = false
             }
             .onChange(of: mainTab) { _, newTab in
                 if newTab != .explore {
@@ -409,7 +428,7 @@ struct HistoryView: View {
     private func deltaLine(current: Int, prior: Int, invert: Bool) -> (String, Color) {
         if prior == 0 {
             if current == 0 { return ("No prior data", .secondary) }
-            return ("New vs prior", .green)
+            return ("New vs prior", FitlogPalette.success)
         }
         let p = Int(round(Double(current - prior) / Double(prior) * 100))
         let sign = p > 0 ? "+" : ""
@@ -419,8 +438,8 @@ struct HistoryView: View {
 
     private func kpiDeltaColor(percent: Int, invert: Bool) -> Color {
         let p = invert ? -percent : percent
-        if p > 0 { return .green }
-        if p < 0 { return .orange }
+        if p > 0 { return FitlogPalette.success }
+        if p < 0 { return FitlogPalette.caution }
         return .secondary
     }
 
@@ -452,8 +471,27 @@ struct HistoryView: View {
     @ViewBuilder
     private var emptyOverviewMessage: some View {
         if sessionsInDateRange.isEmpty {
-            Text("Complete workouts to see trends")
-                .foregroundStyle(.secondary)
+            VStack(spacing: 14) {
+                Image(systemName: "chart.bar.doc.horizontal")
+                    .font(.system(size: 40))
+                    .foregroundStyle(.secondary)
+                Text("Nothing in this range yet")
+                    .font(.headline)
+                Text("Finish a workout from Home or follow your Plan to populate History.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                if let tab = rootTabSelection {
+                    HStack(spacing: 12) {
+                        Button("Home") { tab.wrappedValue = .home }
+                            .buttonStyle(.borderedProminent)
+                        Button("Plan") { tab.wrappedValue = .plan }
+                            .buttonStyle(.bordered)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
         } else {
             VStack(alignment: .leading, spacing: 10) {
                 Text("No sessions match this source filter")
@@ -571,9 +609,9 @@ struct HistoryView: View {
     private func yearHeatmapCellColor(count: Int) -> Color {
         switch count {
         case 0: return Color.primary.opacity(0.07)
-        case 1: return Color.green.opacity(0.38)
-        case 2: return Color.green.opacity(0.58)
-        default: return Color.green.opacity(0.82)
+        case 1: return FitlogPalette.success.opacity(0.38)
+        case 2: return FitlogPalette.success.opacity(0.58)
+        default: return FitlogPalette.success.opacity(0.82)
         }
     }
 
@@ -746,7 +784,7 @@ struct HistoryView: View {
             .chartForegroundStyleScale([
                 "No open slots": Color.blue,
                 "Has open slots": Color.purple,
-                "Plan": Color.indigo,
+                "Plan": FitlogPalette.chartPrimary,
                 "Older": Color.secondary
             ])
             .chartLegend(.visible)
@@ -783,7 +821,7 @@ struct HistoryView: View {
                     )
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [.orange.opacity(0.35), .orange.opacity(0.06)],
+                            colors: [FitlogPalette.caution.opacity(0.35), FitlogPalette.caution.opacity(0.06)],
                             startPoint: .top,
                             endPoint: .bottom
                         )
@@ -793,7 +831,7 @@ struct HistoryView: View {
                         x: .value("Week", row.weekStart),
                         y: .value("Volume", row.volume)
                     )
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(FitlogPalette.caution)
                     .lineStyle(StrokeStyle(lineWidth: 2.5, lineJoin: .round))
                     .interpolationMethod(.catmullRom)
                 }
@@ -845,7 +883,7 @@ struct HistoryView: View {
                     )
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [.green.opacity(0.32), .green.opacity(0.06)],
+                            colors: [FitlogPalette.success.opacity(0.32), FitlogPalette.success.opacity(0.06)],
                             startPoint: .top,
                             endPoint: .bottom
                         )
@@ -855,7 +893,7 @@ struct HistoryView: View {
                         x: .value("Week", row.weekStart),
                         y: .value("Sets", row.count)
                     )
-                    .foregroundStyle(.green)
+                    .foregroundStyle(FitlogPalette.success)
                     .lineStyle(StrokeStyle(lineWidth: 2.5, lineJoin: .round))
                     .interpolationMethod(.catmullRom)
                 }
@@ -1115,12 +1153,12 @@ struct HistoryView: View {
                             } label: {
                                 Label("Continue", systemImage: "arrow.clockwise.circle.fill")
                             }
-                            .tint(.green)
+                            .tint(FitlogPalette.success)
                         }
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         Button("Delete", role: .destructive) {
-                            dataVM.deleteCompletedSession(id: session.id)
+                            deleteSessionWithUndo(session)
                         }
                     }
                 }
@@ -1347,6 +1385,21 @@ private func historyRpeLabel(_ rpe: Double) -> String {
     return String(format: "RPE %.1f", rpe)
 }
 
+fileprivate func fitlogDeleteCompletedSessionWithUndo(
+    _ session: WorkoutSession,
+    dataVM: DataManager,
+    undoManager: UndoManager?
+) {
+    let snapshot = session
+    guard dataVM.deleteCompletedSession(id: session.id) else { return }
+    guard let um = undoManager else { return }
+    let dm = dataVM
+    um.registerUndo(withTarget: um) { _ in
+        _ = dm.restoreCompletedSession(snapshot)
+    }
+    um.setActionName("Delete Workout")
+}
+
 // MARK: - Session detail (single workout session: exercises + logged sets)
 private struct SessionDetailView: View {
     @EnvironmentObject var dataVM: DataManager
@@ -1354,6 +1407,7 @@ private struct SessionDetailView: View {
     @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
+    @Environment(\.undoManager) private var undoManager
     let session: WorkoutSession
 
     @State private var confirmDeleteSession = false
@@ -1449,10 +1503,10 @@ private struct SessionDetailView: View {
                                     ForEach(kinds, id: \.self) { k in
                                         Text(sessionDetailPRBadgeLabel(k))
                                             .font(.caption2.weight(.bold))
-                                            .foregroundStyle(.orange)
+                                            .foregroundStyle(FitlogPalette.highlight)
                                             .padding(.horizontal, 6)
                                             .padding(.vertical, 2)
-                                            .background(Color.orange.opacity(0.15), in: Capsule())
+                                            .background(FitlogPalette.highlight.opacity(0.15), in: Capsule())
                                     }
                                 }
                                 Spacer()
@@ -1492,12 +1546,12 @@ private struct SessionDetailView: View {
             }
         }
         .confirmationDialog(
-            "Remove this workout from your history? This cannot be undone.",
+            "Remove this workout from your history? You can undo from the navigation bar.",
             isPresented: $confirmDeleteSession,
             titleVisibility: .visible
         ) {
             Button("Delete from history", role: .destructive) {
-                dataVM.deleteCompletedSession(id: session.id)
+                fitlogDeleteCompletedSessionWithUndo(session, dataVM: dataVM, undoManager: undoManager)
                 dismiss()
             }
             Button("Cancel", role: .cancel) {}
@@ -1539,6 +1593,7 @@ private struct WorkoutHistoryDetailView: View {
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
+    @Environment(\.undoManager) private var undoManager
     @State private var pendingStartAgainReplace: PendingWorkoutReplace?
     let workoutId: UUID
     let workoutName: String
@@ -1574,7 +1629,7 @@ private struct WorkoutHistoryDetailView: View {
                             )
                             .foregroundStyle(
                                 LinearGradient(
-                                    colors: [.indigo.opacity(0.3), .indigo.opacity(0.05)],
+                                    colors: [FitlogPalette.chartPrimary.opacity(0.3), FitlogPalette.chartPrimary.opacity(0.05)],
                                     startPoint: .top,
                                     endPoint: .bottom
                                 )
@@ -1584,7 +1639,7 @@ private struct WorkoutHistoryDetailView: View {
                                 x: .value("Date", pt.date),
                                 y: .value("Minutes", pt.minutes)
                             )
-                            .foregroundStyle(.indigo)
+                            .foregroundStyle(FitlogPalette.chartPrimary)
                             .lineStyle(StrokeStyle(lineWidth: 2, lineJoin: .round))
                             .interpolationMethod(.catmullRom)
                         }
@@ -1639,12 +1694,12 @@ private struct WorkoutHistoryDetailView: View {
                         } label: {
                             Label("Continue", systemImage: "arrow.clockwise.circle.fill")
                         }
-                        .tint(.green)
+                        .tint(FitlogPalette.success)
                     }
                 }
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     Button("Delete", role: .destructive) {
-                        dataVM.deleteCompletedSession(id: session.id)
+                        fitlogDeleteCompletedSessionWithUndo(session, dataVM: dataVM, undoManager: undoManager)
                     }
                 }
             }
@@ -1810,7 +1865,7 @@ private struct ExerciseHistoryDetailView: View {
                             )
                             .foregroundStyle(
                                 LinearGradient(
-                                    colors: [.cyan.opacity(0.28), .cyan.opacity(0.06)],
+                                    colors: [FitlogPalette.chartSecondary.opacity(0.28), FitlogPalette.chartSecondary.opacity(0.06)],
                                     startPoint: .top,
                                     endPoint: .bottom
                                 )
@@ -1820,14 +1875,14 @@ private struct ExerciseHistoryDetailView: View {
                                 x: .value("Session", pt.date),
                                 y: .value(progressionLoadAxisLabel, progressionChartY(pt.estOneRM))
                             )
-                            .foregroundStyle(.cyan)
+                            .foregroundStyle(FitlogPalette.chartSecondary)
                             .lineStyle(StrokeStyle(lineWidth: 2.5, lineJoin: .round))
                             .interpolationMethod(.catmullRom)
                             PointMark(
                                 x: .value("Session", pt.date),
                                 y: .value(progressionLoadAxisLabel, progressionChartY(pt.estOneRM))
                             )
-                            .foregroundStyle(.cyan)
+                            .foregroundStyle(FitlogPalette.chartSecondary)
                             .symbolSize(36)
                         }
                         .chartXAxis {

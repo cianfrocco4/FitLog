@@ -407,6 +407,7 @@ struct CurrentWorkoutPullUpSheet: View {
     @EnvironmentObject var aiService: AIService
     @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.dismiss) var dismiss
+    @Environment(\.undoManager) private var undoManager
     
     @State private var expandedExerciseIndex: Int? = nil
     @State private var logSetSheetSelection: LogSetSheetSelection?
@@ -885,7 +886,7 @@ struct CurrentWorkoutPullUpSheet: View {
             logSetSheetSelection = LogSetSheetSelection(exerciseIndex: sel.exerciseIndex - 1)
         }
 
-        currentVM.removeExerciseFromSession(exerciseLogIndex: index)
+        currentVM.removeExerciseFromSession(exerciseLogIndex: index, undoManager: undoManager)
 
         if expandedExerciseIndex == index {
             expandedExerciseIndex = nil

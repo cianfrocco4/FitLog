@@ -18,6 +18,14 @@ private let unifiedSlotsMigrationLog = Logger(
     category: "UnifiedSlotsMigration"
 )
 
+/// Captures a removed library row for Undo restore.
+struct WorkoutExerciseDeletionSnapshot: Equatable {
+    let workoutId: UUID
+    let insertionIndex: Int
+    let workoutExercise: WorkoutExercise
+    let templateSlotId: UUID?
+}
+
 final class DataManager: ObservableObject {
     @Published var userWorkouts: [Workout] = []
     @Published var globalExercises: [Exercise] = []
@@ -932,6 +940,24 @@ final class DataManager: ObservableObject {
         return true
     }
 
+    /// Re-inserts a session removed by `deleteCompletedSession` (e.g. Undo).
+    @discardableResult
+    func restoreCompletedSession(_ session: WorkoutSession) -> Bool {
+        guard !completedSessions.contains(where: { $0.id == session.id }) else { return true }
+        var next = completedSessions
+        next.append(session)
+        next.sort { ($0.endTime ?? .distantPast) > ($1.endTime ?? .distantPast) }
+        let previous = completedSessions
+        completedSessions = next
+        guard sessionStore.saveSessions(completedSessions) else {
+            completedSessions = previous
+            return false
+        }
+        reconcileSkippedCycleTrainingDays()
+        publishWidgetSnapshot()
+        return true
+    }
+
     @discardableResult
     func saveSessions() -> Bool {
         let ok = sessionStore.saveSessions(completedSessions)
@@ -1077,11 +1103,39 @@ final class DataManager: ObservableObject {
 
     // MARK: - Exercise CRUD on workouts
 
-    func deleteExercise(from workout: Workout, exerciseId: UUID) {
-        guard let wIndex = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
-        userWorkouts[wIndex].exercises.removeAll { $0.id == exerciseId }
+    /// Removes a row and returns a snapshot for Undo. Returns `nil` if nothing was removed.
+    @discardableResult
+    func deleteExerciseReturningSnapshot(from workout: Workout, exerciseId: UUID) -> WorkoutExerciseDeletionSnapshot? {
+        guard let wIndex = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return nil }
+        guard let exIndex = userWorkouts[wIndex].exercises.firstIndex(where: { $0.id == exerciseId }) else { return nil }
+        let we = userWorkouts[wIndex].exercises[exIndex]
+        let tid = userWorkouts[wIndex].templateSlotIdByWorkoutExerciseId[exerciseId]
+        userWorkouts[wIndex].exercises.remove(at: exIndex)
         userWorkouts[wIndex].templateSlotIdByWorkoutExerciseId.removeValue(forKey: exerciseId)
         saveWorkouts()
+        return WorkoutExerciseDeletionSnapshot(
+            workoutId: workout.id,
+            insertionIndex: exIndex,
+            workoutExercise: we,
+            templateSlotId: tid
+        )
+    }
+
+    func restoreWorkoutExercise(_ snapshot: WorkoutExerciseDeletionSnapshot) {
+        guard let wIndex = userWorkouts.firstIndex(where: { $0.id == snapshot.workoutId }) else { return }
+        var w = userWorkouts[wIndex]
+        guard !w.exercises.contains(where: { $0.id == snapshot.workoutExercise.id }) else { return }
+        let i = min(snapshot.insertionIndex, w.exercises.count)
+        w.exercises.insert(snapshot.workoutExercise, at: i)
+        if let tid = snapshot.templateSlotId {
+            w.templateSlotIdByWorkoutExerciseId[snapshot.workoutExercise.id] = tid
+        }
+        userWorkouts[wIndex] = w
+        saveWorkouts()
+    }
+
+    func deleteExercise(from workout: Workout, exerciseId: UUID) {
+        _ = deleteExerciseReturningSnapshot(from: workout, exerciseId: exerciseId)
     }
 
     func moveExercise(in workout: Workout, from source: IndexSet, to destination: Int) {

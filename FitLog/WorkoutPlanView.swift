@@ -38,6 +38,7 @@ struct WorkoutPlanView: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var aiService: AIService
     @Environment(\.openPullUpToExerciseLogIndex) private var openPullUpToExerciseLogIndex
+    @Environment(\.undoManager) private var undoManager
     @State private var showAddExercise = false
     @State private var showRenameAlert = false
     @State private var newWorkoutName = ""
@@ -193,7 +194,29 @@ struct WorkoutPlanView: View {
         }
         progressionSuggestions = next
     }
-    
+
+    private func deleteExerciseRows(atOffsets indexSet: IndexSet, items: [ExerciseDisplayItem]) {
+        let ids = indexSet.map { items[$0].workoutExercise.id }
+        let dm = dataVM
+        let vm = currentVM
+        for weId in ids {
+            guard let lib = dm.userWorkouts.first(where: { $0.id == workout.id }) else { continue }
+            guard let snap = dm.deleteExerciseReturningSnapshot(from: lib, exerciseId: weId) else { continue }
+            if let um = undoManager {
+                um.registerUndo(withTarget: um) { _ in
+                    dm.restoreWorkoutExercise(snap)
+                    if let w = dm.userWorkouts.first(where: { $0.id == snap.workoutId }) {
+                        vm.syncExercises(withUpdatedWorkout: w)
+                    }
+                }
+                um.setActionName("Delete Exercise")
+            }
+        }
+        if let updated = dm.userWorkouts.first(where: { $0.id == workout.id }) {
+            vm.syncExercises(withUpdatedWorkout: updated)
+        }
+    }
+
     private var listFlat: some View {
         List {
             if displayOrder == .defaultOrder {
@@ -201,7 +224,7 @@ struct WorkoutPlanView: View {
                     exerciseRow(item: item)
                 }
                 .onDelete { indexSet in
-                    indexSet.map { displayedItems[$0] }.forEach { dataVM.deleteExercise(from: workout, exerciseId: $0.workoutExercise.id) }
+                    deleteExerciseRows(atOffsets: indexSet, items: displayedItems)
                 }
                 .onMove { from, to in
                     dataVM.moveExercise(in: workout, from: from, to: to)
@@ -214,7 +237,7 @@ struct WorkoutPlanView: View {
                     exerciseRow(item: item)
                 }
                 .onDelete { indexSet in
-                    indexSet.map { displayedItems[$0] }.forEach { dataVM.deleteExercise(from: workout, exerciseId: $0.workoutExercise.id) }
+                    deleteExerciseRows(atOffsets: indexSet, items: displayedItems)
                 }
             }
             suggestionsSection
@@ -230,7 +253,7 @@ struct WorkoutPlanView: View {
                         exerciseRow(item: item)
                     }
                     .onDelete { indexSet in
-                        indexSet.map { items[$0] }.forEach { dataVM.deleteExercise(from: workout, exerciseId: $0.workoutExercise.id) }
+                        deleteExerciseRows(atOffsets: indexSet, items: items)
                     }
                 }
             }

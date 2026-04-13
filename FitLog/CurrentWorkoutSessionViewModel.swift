@@ -340,7 +340,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     }
 
     /// Removes the exercise row at the given log index from the session (and from the saved workout when this session uses a `userWorkouts` definition).
-    func removeExerciseFromSession(exerciseLogIndex: Int) {
+    func removeExerciseFromSession(exerciseLogIndex: Int, undoManager: UndoManager? = nil) {
         guard var session = currentSession,
               exerciseLogIndex >= 0,
               exerciseLogIndex < session.exerciseLogs.count else { return }
@@ -348,11 +348,22 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         let workout = session.workout
 
         if let dm = dataManager, dm.userWorkouts.contains(where: { $0.id == workout.id }) {
-            dm.deleteExercise(from: workout, exerciseId: rowId)
+            guard let snap = dm.deleteExerciseReturningSnapshot(from: workout, exerciseId: rowId) else { return }
             if let updated = dm.userWorkouts.first(where: { $0.id == workout.id }) {
                 syncExercises(withUpdatedWorkout: updated)
             }
             recordWorkoutActivity()
+            if let um = undoManager {
+                um.registerUndo(withTarget: um) { [weak self, weak dm] _ in
+                    guard let self, let dm else { return }
+                    dm.restoreWorkoutExercise(snap)
+                    if let w = dm.userWorkouts.first(where: { $0.id == snap.workoutId }) {
+                        self.syncExercises(withUpdatedWorkout: w)
+                    }
+                    self.recordWorkoutActivity()
+                }
+                um.setActionName("Remove Exercise")
+            }
             return
         }
 

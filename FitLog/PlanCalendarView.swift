@@ -80,6 +80,21 @@ struct PlanCalendarView: View {
                     calendarGridContent
                     legend
                 }
+                .contentShape(Rectangle())
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 45)
+                        .onEnded { value in
+                            let dx = value.translation.width
+                            let dy = value.translation.height
+                            guard abs(dx) > 52, abs(dx) > abs(dy) * 1.2 else { return }
+                            FitlogHaptics.lightImpact()
+                            if dx < 0 {
+                                advanceVisibleMonth(by: 1)
+                            } else {
+                                advanceVisibleMonth(by: -1)
+                            }
+                        }
+                )
             }
             .refreshable {
                 await MainActor.run {
@@ -164,6 +179,10 @@ struct PlanCalendarView: View {
         let today = Date()
         visibleMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: today)) ?? today
         weekStripWeekOffset = 0
+    }
+
+    private func advanceVisibleMonth(by months: Int) {
+        visibleMonth = calendar.date(byAdding: .month, value: months, to: visibleMonth) ?? visibleMonth
     }
 
     private func openCoachSplitBuilderWithPlanContext() {
@@ -325,11 +344,11 @@ struct PlanCalendarView: View {
         case .logged:
             Image(systemName: "checkmark.circle.fill")
                 .font(.caption2)
-                .foregroundStyle(.green)
+                .foregroundStyle(FitlogPalette.success)
         case .missedWorkout:
             Image(systemName: "exclamationmark.circle.fill")
                 .font(.caption2)
-                .foregroundStyle(.orange)
+                .foregroundStyle(FitlogPalette.caution)
         case .rest:
             Image(systemName: "moon.zzz.fill")
                 .font(.caption2)
@@ -492,10 +511,10 @@ struct PlanCalendarView: View {
             HStack(spacing: 12) {
                 Label("Logged", systemImage: "checkmark.circle.fill")
                     .font(.caption2)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(FitlogPalette.success)
                 Label("Missed", systemImage: "exclamationmark.circle.fill")
                     .font(.caption2)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(FitlogPalette.caution)
                 Label("Rest", systemImage: "moon.zzz.fill")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -503,7 +522,7 @@ struct PlanCalendarView: View {
                     .font(.caption2)
                     .foregroundStyle(Color.accentColor)
             }
-            Text("Tip: pull to refresh plan data. Tap a day to swap or mark rest. Long-press (or context menu) to edit the whole week. Missed planned workouts advance the rotation so upcoming days stay in sync.")
+            Text("Tip: swipe left or right on the calendar to change months. Pull to refresh plan data. Tap a day to swap or mark rest. Long-press (or context menu) to edit the whole week. Missed planned workouts advance the rotation so upcoming days stay in sync.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -922,7 +941,7 @@ struct SplitEditorSheet: View {
                             } label: {
                                 Label("Duplicate", systemImage: "plus.square.on.square")
                             }
-                            .tint(.indigo)
+                            .tint(FitlogPalette.chartPrimary)
                         }
                     }
                     .onDelete { indexSet in
@@ -1069,7 +1088,7 @@ struct SplitEditorSheet: View {
             case .workout(let wid):
                 if dataVM.workout(id: wid) == nil {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(FitlogPalette.caution)
                 }
             }
         }

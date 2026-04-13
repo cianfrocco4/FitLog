@@ -16,6 +16,7 @@ struct HomeView: View {
     @EnvironmentObject var aiService: AIService
     @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
+    @Environment(\.fitlogRootTabSelection) private var rootTabSelection
 
     @State private var showNewWorkout = false
     @State private var showSplitBuilder = false
@@ -34,6 +35,7 @@ struct HomeView: View {
     @State private var cachedWeeklyRecap: DataManager.WeeklyRecapSummary?
     @State private var weekGlanceExpanded = true
     @State private var workoutSearchText = ""
+    @State private var homeFirstPaintSkeleton = true
 
     private var scheduleEngine: TrainingScheduleEngine { TrainingScheduleEngine(calendar: .current) }
 
@@ -66,6 +68,31 @@ struct HomeView: View {
 
     private var homeDashboardListInsets: EdgeInsets {
         EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
+    }
+
+    private var homeEmptyWorkoutsCallout: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "rectangle.stack.badge.plus")
+                .font(.system(size: 44))
+                .foregroundStyle(.secondary)
+            Text("No workouts yet")
+                .font(.headline)
+            Text("Create your first workout or set up your split in Plan.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            HStack(spacing: 12) {
+                Button("New workout") { showNewWorkout = true }
+                    .buttonStyle(.borderedProminent)
+                if let tab = rootTabSelection {
+                    Button("Open Plan") { tab.wrappedValue = .plan }
+                        .buttonStyle(.bordered)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
+        .padding(.horizontal, 8)
     }
 
     private static let homeDateFormatter: DateFormatter = {
@@ -154,23 +181,30 @@ struct HomeView: View {
                             .listRowBackground(Color.clear)
                     }
 
-                    todayDashboardBlock
-                        .listRowInsets(homeDashboardListInsets)
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-
-                    if let progress = cachedProgressSummary {
-                        progressSummaryCard(progress)
+                    if homeFirstPaintSkeleton {
+                        FitlogSkeletonCardBlock()
                             .listRowInsets(homeDashboardListInsets)
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
-                    }
-
-                    if let recap = cachedWeeklyRecap, recap.shouldShowRecapCard {
-                        weeklyRecapCard(recap)
+                    } else {
+                        todayDashboardBlock
                             .listRowInsets(homeDashboardListInsets)
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
+
+                        if let progress = cachedProgressSummary {
+                            progressSummaryCard(progress)
+                                .listRowInsets(homeDashboardListInsets)
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                        }
+
+                        if let recap = cachedWeeklyRecap, recap.shouldShowRecapCard {
+                            weeklyRecapCard(recap)
+                                .listRowInsets(homeDashboardListInsets)
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                        }
                     }
                 }
 
@@ -192,7 +226,12 @@ struct HomeView: View {
                 }
 
                 Section {
-                    if homeShowsWorkoutPreviewOnly {
+                    if dataVM.userWorkouts.isEmpty {
+                        homeEmptyWorkoutsCallout
+                            .listRowInsets(homeDashboardListInsets)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    } else if homeShowsWorkoutPreviewOnly {
                         ForEach(homePreviewWorkouts) { workout in
                             HomeWorkoutListRow(
                                 workout: workout,
@@ -253,9 +292,11 @@ struct HomeView: View {
                         .textCase(nil)
                 } footer: {
                     Text(
-                        homeShowsWorkoutPreviewOnly
-                            ? "Showing the first \(homeWorkoutPreviewCount) in your list order. Open All workouts for the full library."
-                            : "Swipe right on a row to start quickly."
+                        dataVM.userWorkouts.isEmpty
+                            ? "Workouts you create appear here and in Plan."
+                            : homeShowsWorkoutPreviewOnly
+                                ? "Showing the first \(homeWorkoutPreviewCount) in your list order. Open All workouts for the full library."
+                                : "Swipe right on a row to start quickly."
                     )
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
@@ -271,7 +312,7 @@ struct HomeView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     EditButton()
-                        .disabled(!workoutSearchTrimmed.isEmpty || homeShowsWorkoutPreviewOnly)
+                        .disabled(!workoutSearchTrimmed.isEmpty || homeShowsWorkoutPreviewOnly || dataVM.userWorkouts.isEmpty)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -328,6 +369,10 @@ struct HomeView: View {
             .task(id: homeRefreshKey) {
                 refreshCachedHomeData()
             }
+            .task {
+                try? await Task.sleep(nanoseconds: 280_000_000)
+                homeFirstPaintSkeleton = false
+            }
             .workoutReplaceConflictConfirmation(
                 currentVM: currentVM,
                 pending: $pendingWorkoutReplace,
@@ -351,11 +396,11 @@ struct HomeView: View {
             HStack(spacing: 12) {
                 Image(systemName: "figure.strengthtraining.traditional")
                     .font(.title2)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(FitlogPalette.success)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Circle()
-                            .fill(Color.green)
+                            .fill(FitlogPalette.success)
                             .frame(width: 8, height: 8)
                         Text("Workout in progress")
                             .font(.caption.weight(.semibold))
@@ -370,7 +415,7 @@ struct HomeView: View {
                         if currentVM.isWorkoutPaused {
                             Text("Paused")
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(FitlogPalette.caution)
                         }
                     }
                 }
@@ -384,7 +429,7 @@ struct HomeView: View {
             .background(.ultraThinMaterial)
             .overlay(
                 RoundedRectangle(cornerRadius: 20)
-                    .strokeBorder(Color.green.opacity(0.4), lineWidth: 1.5)
+                    .strokeBorder(FitlogPalette.success.opacity(0.4), lineWidth: 1.5)
             )
             .clipShape(RoundedRectangle(cornerRadius: 20))
         }
@@ -436,7 +481,7 @@ struct HomeView: View {
                 if recap.metWeeklyGoal {
                     Text("Goal met")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(FitlogPalette.success)
                 }
             }
             Text("\(recap.sessionsThisWeek) workout\(recap.sessionsThisWeek == 1 ? "" : "s") · \(recap.setsThisWeek) sets")
@@ -554,7 +599,7 @@ struct HomeView: View {
                     )
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [.indigo.opacity(0.35), .indigo.opacity(0.06)],
+                            colors: [FitlogPalette.chartPrimary.opacity(0.35), FitlogPalette.chartPrimary.opacity(0.06)],
                             startPoint: .top,
                             endPoint: .bottom
                         )
@@ -564,7 +609,7 @@ struct HomeView: View {
                         y: .value("Score", pt.score)
                     )
                     .interpolationMethod(.catmullRom)
-                    .foregroundStyle(.indigo)
+                    .foregroundStyle(FitlogPalette.chartPrimary)
                 }
                 .chartXAxis {
                     AxisMarks(values: .automatic(desiredCount: 4)) { _ in
@@ -720,7 +765,7 @@ struct HomeView: View {
                 if hasWorkout {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 18))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(FitlogPalette.success)
                 } else {
                     Circle()
                         .stroke(Color.secondary.opacity(0.4), lineWidth: 1.5)
@@ -799,7 +844,7 @@ private struct HomeWorkoutListRow: View {
             } label: {
                 Label("Start", systemImage: "play.fill")
             }
-            .tint(.green)
+            .tint(FitlogPalette.success)
         }
         .swipeActions(edge: .trailing) {
             Button("Delete", role: .destructive) {
@@ -923,14 +968,14 @@ private struct TodayWorkoutCard: View {
             if isThisPlanActive {
                 Label("In progress", systemImage: "figure.run")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(FitlogPalette.success)
                 Text("Continue from the bar below or open the full workout.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 primaryDetailRow(
                     primaryTitle: "Open workout",
                     primarySystemImage: "arrow.up.circle",
-                    primaryTint: .green,
+                    primaryTint: FitlogPalette.success,
                     primaryAction: openActiveWorkout
                 )
             } else if isAnotherWorkoutActive {
@@ -946,7 +991,7 @@ private struct TodayWorkoutCard: View {
             } else if isCompleted {
                 Label("Done today", systemImage: "checkmark.circle.fill")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(FitlogPalette.success)
                 Text("Pick up where you left off—including logged sets—or start fresh below.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
