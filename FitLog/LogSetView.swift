@@ -34,6 +34,9 @@ struct LogSetView: View {
     @Environment(\.dismiss) var dismiss
 
     let exerciseIndex: Int
+    /// When opening from inline quick-entry, seed weight/reps after normal prefill.
+    var prefillDisplayWeight: Double? = nil
+    var prefillReps: Int? = nil
 
     @State private var weight: Double = 0.0
     @State private var reps: Int = 0
@@ -295,6 +298,12 @@ struct LogSetView: View {
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 prefillFromRecentSet()
+                if let w = prefillDisplayWeight {
+                    weight = clampDisplay(w)
+                }
+                if let r = prefillReps {
+                    reps = min(50, max(0, r))
+                }
             }
             
             .onChange(of: dropSetEnabled) { _, on in

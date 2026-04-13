@@ -549,6 +549,18 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         }
     }
 
+    /// Updates weight/reps on an existing logged set (inline edit). Does not re-run PR detection or rest timer.
+    func updateSet(exerciseIndex: Int, setIndex: Int, weight: Double, reps: Int) {
+        guard var session = currentSession,
+              exerciseIndex < session.exerciseLogs.count,
+              setIndex < session.exerciseLogs[exerciseIndex].loggedSets.count
+        else { return }
+        session.exerciseLogs[exerciseIndex].loggedSets[setIndex].weight = weight
+        session.exerciseLogs[exerciseIndex].loggedSets[setIndex].reps = reps
+        currentSession = session
+        recordWorkoutActivity()
+    }
+
     private func prioritizedPREvent(from events: [PersonalRecordEvent]) -> PersonalRecordEvent? {
         guard !events.isEmpty else { return nil }
         func rank(_ kind: PersonalRecordEvent.Kind) -> Int {

@@ -13,6 +13,12 @@ struct SessionQuickAddExerciseSheet: View {
     let workout: Workout
     let currentVM: CurrentWorkoutSessionViewModel
     let dataVM: DataManager
+    /// When true, shows “Add template slot” for flexible library sessions.
+    var isFlexibleLibrarySession: Bool = false
+    /// Dismiss quick-add first; parent should present full add (e.g. `AddExerciseSheet`).
+    var onRequestCustomSetsAndFields: (() -> Void)? = nil
+    /// Appends a flexible slot to the in-progress session / library.
+    var onAddTemplateSlot: (() -> Void)? = nil
     @EnvironmentObject var aiService: AIService
     @Environment(\.dismiss) private var dismiss
 
@@ -98,6 +104,36 @@ struct SessionQuickAddExerciseSheet: View {
                             Text("No exercises match your search.")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                if onRequestCustomSetsAndFields != nil || (isFlexibleLibrarySession && onAddTemplateSlot != nil) {
+                    Section {
+                        if onRequestCustomSetsAndFields != nil {
+                            Button {
+                                dismiss()
+                                DispatchQueue.main.async {
+                                    onRequestCustomSetsAndFields?()
+                                }
+                            } label: {
+                                Label("Custom sets & fields…", systemImage: "slider.horizontal.3")
+                            }
+                        }
+                        if isFlexibleLibrarySession, onAddTemplateSlot != nil {
+                            Button {
+                                onAddTemplateSlot?()
+                                dismiss()
+                            } label: {
+                                Label("Add template slot", systemImage: "square.dashed")
+                            }
+                        }
+                    } header: {
+                        Text("More options")
+                    } footer: {
+                        if onRequestCustomSetsAndFields != nil {
+                            Text("Use custom add when you need specific set counts, rep strings, or per-set configuration fields.")
+                                .font(.caption)
                         }
                     }
                 }
