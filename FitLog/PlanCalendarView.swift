@@ -673,9 +673,8 @@ struct DayPlanSheet: View {
                     if let wid = planWorkoutIdForLink {
                         NavigationLink("Open workout") {
                             if let binding = $dataVM.userWorkouts[wid] {
-                                WorkoutPlanView(workout: binding)
+                                WorkoutPlanView(workout: binding, currentVM: currentVM)
                                     .environmentObject(dataVM)
-                                    .environmentObject(currentVM)
                                     .environmentObject(aiService)
                             } else {
                                 Text("This workout was removed from your library.")
@@ -1102,9 +1101,8 @@ struct ProgramBuilderSheet: View {
         switch entry {
         case .workout(let id):
             if let binding = $dataVM.userWorkouts[id] {
-                WorkoutPlanView(workout: binding)
+                WorkoutPlanView(workout: binding, currentVM: currentVM)
                     .environmentObject(dataVM)
-                    .environmentObject(currentVM)
                     .environmentObject(aiService)
             } else {
                 Text("This workout is missing from your library.")

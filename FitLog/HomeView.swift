@@ -36,6 +36,7 @@ struct HomeView: View {
     @State private var cachedWeeklyRecap: DataManager.WeeklyRecapSummary?
     @State private var weekGlanceExpanded = true
     @State private var workoutSearchText = ""
+    @State private var showNewExercise = false
     @State private var homeFirstPaintSkeleton = true
 
     private var scheduleEngine: TrainingScheduleEngine { TrainingScheduleEngine(calendar: .current) }
@@ -357,7 +358,11 @@ struct HomeView: View {
             .fitlogWorkoutBarContentInset()
             .navigationTitle("Home")
             .navigationBarTitleDisplayMode(.large)
-            .searchable(text: $workoutSearchText, prompt: homeShowsWorkoutPreviewOnly ? "Search all workouts" : "Search workouts")
+            .modifier(HomeWorkoutSearchModifier(
+                isEnabled: !homeShowsWorkoutPreviewOnly,
+                text: $workoutSearchText,
+                prompt: "Search workouts"
+            ))
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     EditButton()
@@ -371,6 +376,15 @@ struct HomeView: View {
                         }
                         Button("Build split with AI", systemImage: "sparkles") {
                             showSplitBuilder = true
+                        }
+                        NavigationLink {
+                            ExercisesLibraryView()
+                                .environmentObject(dataVM)
+                        } label: {
+                            Label("Exercise library", systemImage: "books.vertical")
+                        }
+                        Button("New exercise", systemImage: "dumbbell") {
+                            showNewExercise = true
                         }
                         Divider()
                         Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
@@ -401,6 +415,11 @@ struct HomeView: View {
                     .environmentObject(currentVM)
                     .environmentObject(aiService)
             }
+            .sheet(isPresented: $showNewExercise) {
+                NewExerciseSheet()
+                    .environmentObject(dataVM)
+                    .environmentObject(aiService)
+            }
             .alert("Rename Workout", isPresented: Binding(
                 get: { workoutToRename != nil },
                 set: { if !$0 { workoutToRename = nil } }
@@ -417,9 +436,8 @@ struct HomeView: View {
                 switch route {
                 case .plannedWorkout(let id):
                     if let binding = $dataVM.userWorkouts[id] {
-                        WorkoutPlanView(workout: binding)
+                        WorkoutPlanView(workout: binding, currentVM: currentVM)
                             .environmentObject(dataVM)
-                            .environmentObject(currentVM)
                             .environmentObject(aiService)
                     } else {
                         Text("Workout not found")
@@ -874,9 +892,8 @@ private struct HomeWorkoutListRow: View {
         Group {
             NavigationLink {
                 if let binding = $dataVM.userWorkouts[workout.id] {
-                    WorkoutPlanView(workout: binding)
+                    WorkoutPlanView(workout: binding, currentVM: currentVM)
                         .environmentObject(dataVM)
-                        .environmentObject(currentVM)
                         .environmentObject(aiService)
                 } else {
                     Text("Workout not found")
@@ -1119,5 +1136,20 @@ private struct TodayWorkoutCard: View {
                 .font(.subheadline.weight(.medium))
         }
         .buttonStyle(.bordered)
+    }
+}
+
+/// Applies `.searchable` only when enabled (SwiftUI has no built-in conditional searchable).
+private struct HomeWorkoutSearchModifier: ViewModifier {
+    let isEnabled: Bool
+    @Binding var text: String
+    let prompt: String
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.searchable(text: $text, prompt: prompt)
+        } else {
+            content
+        }
     }
 }

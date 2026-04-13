@@ -205,7 +205,7 @@ struct HistoryView: View {
     @Environment(\.undoManager) private var undoManager
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
     @State private var pendingStartAgainReplace: PendingWorkoutReplace?
-    @State private var dayRange: HistoryDayRange = .d7
+    @State private var dayRange: HistoryDayRange = .d90
     @State private var sessionOriginFilter: HistorySessionOriginFilter = .all
     @State private var mainTab: HistoryMainTab = .overview
     @State private var comparePriorPeriod = false
@@ -1323,13 +1323,25 @@ struct HistoryView: View {
         let totalSets: Int
         let volume: Double
     }
+
+    /// Resolves a library exercise for analytics when snapshot and/or exercise id is present (legacy sessions may lack snapshot).
+    private func resolvedExerciseForHistoryAnalytics(log: ExerciseLog) -> Exercise? {
+        if let snap = log.workoutExercise.snapshot,
+           let ex = dataVM.resolveExercise(for: snap) {
+            return ex
+        }
+        if let eid = log.workoutExercise.exerciseId,
+           let ex = dataVM.globalExercises.first(where: { $0.id == eid }) {
+            return ex
+        }
+        return nil
+    }
     
     private func exerciseStats(in sessions: [WorkoutSession]) -> [ExerciseStat] {
         var byId: [UUID: (sample: Exercise, sessions: Set<UUID>, sets: Int, volume: Double)] = [:]
         for session in sessions {
             for log in session.exerciseLogs {
-                guard let snap = log.workoutExercise.snapshot,
-                      let ex = dataVM.resolveExercise(for: snap) else { continue }
+                guard let ex = resolvedExerciseForHistoryAnalytics(log: log) else { continue }
                 var entry = byId[ex.id] ?? (sample: ex, sessions: [], sets: 0, volume: 0)
                 entry.sessions.insert(session.id)
                 entry.sets += log.loggedSets.count
@@ -1352,8 +1364,7 @@ struct HistoryView: View {
         var byGroup: [String: (sessions: Set<UUID>, exercises: Set<UUID>)] = [:]
         for session in sessions {
             for log in session.exerciseLogs {
-                guard let snap = log.workoutExercise.snapshot,
-                      let ex = dataVM.resolveExercise(for: snap) else { continue }
+                guard let ex = resolvedExerciseForHistoryAnalytics(log: log) else { continue }
                 let muscles = ex.targetedMuscles
                 if muscles.isEmpty {
                     let g = MuscleGroup.other.rawValue
@@ -1764,7 +1775,10 @@ private struct ExerciseHistoryDetailView: View {
 
     private var sessionLogs: [(session: WorkoutSession, log: ExerciseLog)] {
         effectiveSessions.compactMap { session in
-            guard let log = session.exerciseLogs.first(where: { $0.workoutExercise.exerciseId == exerciseId }) else { return nil }
+            guard let log = session.exerciseLogs.first(where: {
+                $0.workoutExercise.exerciseId == exerciseId
+                    || $0.workoutExercise.snapshot?.exerciseId == exerciseId
+            }) else { return nil }
             return (session, log)
         }.sorted { ($0.session.endTime ?? $0.session.startTime) > ($1.session.endTime ?? $1.session.startTime) }
     }

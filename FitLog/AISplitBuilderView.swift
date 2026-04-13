@@ -290,9 +290,8 @@ struct AISplitBuilderView: View {
             }
             .navigationDestination(item: $fullEditorWorkoutNav) { item in
                 if let binding = $dataVM.userWorkouts[item.id] {
-                    WorkoutPlanView(workout: binding)
+                    WorkoutPlanView(workout: binding, currentVM: currentVM)
                         .environmentObject(dataVM)
-                        .environmentObject(currentVM)
                         .environmentObject(aiService)
                 } else {
                     Text("This workout is no longer in your library.")

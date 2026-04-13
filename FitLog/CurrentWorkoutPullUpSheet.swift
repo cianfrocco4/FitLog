@@ -403,6 +403,13 @@ private enum TemplateSwapExerciseSimilarity {
     }
 }
 
+private enum PullUpNumericFieldFocus: Hashable {
+    case inlineWeight(UUID)
+    case inlineReps(UUID)
+    case editWeight
+    case editReps
+}
+
 struct CurrentWorkoutPullUpSheet: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var dataVM: DataManager
@@ -410,6 +417,8 @@ struct CurrentWorkoutPullUpSheet: View {
     @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.dismiss) var dismiss
     @Environment(\.undoManager) private var undoManager
+
+    @FocusState private var numericFieldFocus: PullUpNumericFieldFocus?
     
     @State private var expandedExerciseIndex: Int? = nil
     @State private var logSetSheetSelection: LogSetSheetSelection?
@@ -745,6 +754,7 @@ struct CurrentWorkoutPullUpSheet: View {
                     }
                     .environment(\.editMode, $exerciseListEditMode)
                     .listStyle(.plain)
+                    .scrollDismissesKeyboard(.interactively)
                     .onChange(of: expandedExerciseIndex) { _, newValue in
                         initializeInlineDraftIfNeeded(forExpandedIndex: newValue)
                         guard let idx = newValue,
@@ -1045,10 +1055,13 @@ struct CurrentWorkoutPullUpSheet: View {
             let w = WeightStoreConversion.displayValue(storedPounds: last.weight, unit: unit)
             return (clampDisplayWeightForUser(w), last.reps)
         }
-        guard let targetExerciseId = exerciseLog.workoutExercise.exerciseId else { return (0, 0) }
+        guard let targetExerciseId = exerciseLog.workoutExercise.exerciseId
+            ?? exerciseLog.workoutExercise.snapshot?.exerciseId else { return (0, 0) }
         var latestSet: LoggedSet?
         for pastSession in dataVM.completedSessions {
-            for log in pastSession.exerciseLogs where log.workoutExercise.exerciseId == targetExerciseId {
+            for log in pastSession.exerciseLogs
+                where log.workoutExercise.exerciseId == targetExerciseId
+                || log.workoutExercise.snapshot?.exerciseId == targetExerciseId {
                 for set in log.loggedSets {
                     if let existing = latestSet {
                         if set.timestamp > existing.timestamp { latestSet = set }
@@ -1069,10 +1082,13 @@ struct CurrentWorkoutPullUpSheet: View {
         if let last = exerciseLog.loggedSets.last {
             return last.restTime
         }
-        guard let targetExerciseId = exerciseLog.workoutExercise.exerciseId else { return exerciseLog.workoutExercise.defaultRestTime }
+        guard let targetExerciseId = exerciseLog.workoutExercise.exerciseId
+            ?? exerciseLog.workoutExercise.snapshot?.exerciseId else { return exerciseLog.workoutExercise.defaultRestTime }
         var latestSet: LoggedSet?
         for pastSession in dataVM.completedSessions {
-            for log in pastSession.exerciseLogs where log.workoutExercise.exerciseId == targetExerciseId {
+            for log in pastSession.exerciseLogs
+                where log.workoutExercise.exerciseId == targetExerciseId
+                || log.workoutExercise.snapshot?.exerciseId == targetExerciseId {
                 for set in log.loggedSets {
                     if let existing = latestSet {
                         if set.timestamp > existing.timestamp { latestSet = set }
@@ -1244,16 +1260,18 @@ struct CurrentWorkoutPullUpSheet: View {
             get: { inlineRepsByLogId[logId] ?? 0 },
             set: { inlineRepsByLogId[logId] = min(50, max(0, $0)) }
         )
+        let fieldPadding = EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12)
 
         VStack(alignment: .leading, spacing: 8) {
             Text("Log next set")
                 .font(.subheadline.weight(.semibold))
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 TextField("0", value: weightBinding, format: .number.precision(.fractionLength(0...2)))
                     .keyboardType(.decimalPad)
+                    .focused($numericFieldFocus, equals: .inlineWeight(logId))
                     .multilineTextAlignment(.trailing)
-                    .frame(minWidth: 44)
-                    .padding(8)
+                    .frame(minWidth: 60, minHeight: 44)
+                    .padding(fieldPadding)
                     .background(Color(.systemGray6))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 Text(unitLabel)
@@ -1263,17 +1281,22 @@ struct CurrentWorkoutPullUpSheet: View {
                     .foregroundStyle(.secondary)
                 TextField("0", value: repsBinding, format: .number)
                     .keyboardType(.numberPad)
+                    .focused($numericFieldFocus, equals: .inlineReps(logId))
                     .multilineTextAlignment(.center)
-                    .frame(minWidth: 40)
-                    .padding(8)
+                    .frame(minWidth: 52, minHeight: 44)
+                    .padding(fieldPadding)
                     .background(Color(.systemGray6))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            HStack(spacing: 10) {
                 Button("Log") {
+                    numericFieldFocus = nil
                     inlineQuickLog(exerciseIndex: exerciseIndex, logId: logId)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled((inlineRepsByLogId[logId] ?? 0) <= 0)
                 Button {
+                    numericFieldFocus = nil
                     logSetSheetSelection = LogSetSheetSelection(
                         exerciseIndex: exerciseIndex,
                         prefillDisplayWeight: inlineWeightByLogId[logId],
@@ -1287,6 +1310,7 @@ struct CurrentWorkoutPullUpSheet: View {
                 }
                 .buttonStyle(.bordered)
                 .accessibilityLabel("Open advanced log for RPE, drops, and more")
+                Spacer(minLength: 0)
             }
             Button {
                 if inlineRpeExpandedLogIds.contains(logId) {
@@ -1340,6 +1364,17 @@ struct CurrentWorkoutPullUpSheet: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            switch numericFieldFocus {
+            case .inlineWeight(let id) where id == logId:
+                numericFieldFocus = nil
+            case .inlineReps(let id) where id == logId:
+                numericFieldFocus = nil
+            default:
+                break
+            }
+        }
         .background(Color(.systemBackground))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
@@ -1360,19 +1395,21 @@ struct CurrentWorkoutPullUpSheet: View {
         if editingSetId == set.id,
            editingSetExerciseIndex == exerciseIndex,
            editingSetIndex == setIndex {
+            let fieldPadding = EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12)
             VStack(alignment: .leading, spacing: 8) {
                 Text("Edit set \(chronologicalSetNumber)")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                HStack(spacing: 8) {
+                HStack(spacing: 10) {
                     TextField("0", value: Binding(
                         get: { editWeightDisplay },
                         set: { editWeightDisplay = clampDisplayWeightForUser($0) }
                     ), format: .number.precision(.fractionLength(0...2)))
                     .keyboardType(.decimalPad)
+                    .focused($numericFieldFocus, equals: .editWeight)
                     .multilineTextAlignment(.trailing)
-                    .frame(minWidth: 44)
-                    .padding(8)
+                    .frame(minWidth: 60, minHeight: 44)
+                    .padding(fieldPadding)
                     .background(Color(.systemGray5))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     Text(userPreferences.weightDisplayUnit.shortLabel)
@@ -1381,12 +1418,16 @@ struct CurrentWorkoutPullUpSheet: View {
                     Text("×")
                     TextField("0", value: $editReps, format: .number)
                         .keyboardType(.numberPad)
+                        .focused($numericFieldFocus, equals: .editReps)
                         .multilineTextAlignment(.center)
-                        .frame(minWidth: 36)
-                        .padding(8)
+                        .frame(minWidth: 48, minHeight: 44)
+                        .padding(fieldPadding)
                         .background(Color(.systemGray5))
                         .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                HStack(spacing: 10) {
                     Button {
+                        numericFieldFocus = nil
                         confirmEditingSet()
                     } label: {
                         Image(systemName: "checkmark.circle.fill")
@@ -1396,12 +1437,23 @@ struct CurrentWorkoutPullUpSheet: View {
                     .buttonStyle(.plain)
                     .disabled(editReps <= 0)
                     Button("Cancel") {
+                        numericFieldFocus = nil
                         clearEditingSet()
                     }
                     .font(.caption)
+                    Spacer(minLength: 0)
                 }
             }
             .padding(10)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                switch numericFieldFocus {
+                case .editWeight, .editReps:
+                    numericFieldFocus = nil
+                default:
+                    break
+                }
+            }
             .background(Color(.systemGray6))
             .clipShape(RoundedRectangle(cornerRadius: 10))
         } else {
@@ -1755,13 +1807,25 @@ struct CurrentWorkoutPullUpSheet: View {
         }
         let allSessions = dataVM.completedSessions
 
-        guard let exerciseId = currentLog.workoutExercise.exerciseId else { return nil }
+        let matchIds: Set<UUID> = {
+            var s = Set<UUID>()
+            if let eid = currentLog.workoutExercise.exerciseId { s.insert(eid) }
+            if let sid = currentLog.workoutExercise.snapshot?.exerciseId { s.insert(sid) }
+            return s
+        }()
+        guard !matchIds.isEmpty else { return nil }
 
-        func latestLog(in sessions: [WorkoutSession], for exerciseId: UUID) -> ExerciseLog? {
+        func logMatchesPastEntry(_ log: ExerciseLog) -> Bool {
+            if let eid = log.workoutExercise.exerciseId, matchIds.contains(eid) { return true }
+            if let sid = log.workoutExercise.snapshot?.exerciseId, matchIds.contains(sid) { return true }
+            return false
+        }
+
+        func latestLog(in sessions: [WorkoutSession]) -> ExerciseLog? {
             var latest: (ExerciseLog, Date)?
 
             for session in sessions {
-                for log in session.exerciseLogs where log.workoutExercise.exerciseId == exerciseId {
+                for log in session.exerciseLogs where logMatchesPastEntry(log) {
                     // Only consider logs that actually have sets logged.
                     guard let lastSetTime = log.loggedSets.max(by: { $0.timestamp < $1.timestamp })?.timestamp else {
                         continue
@@ -1782,12 +1846,12 @@ struct CurrentWorkoutPullUpSheet: View {
 
         // 1. Prefer sessions from the same workout template.
         let sameWorkoutSessions = allSessions.filter { $0.workout.id == currentWorkoutId }
-        if let log = latestLog(in: sameWorkoutSessions, for: exerciseId) {
+        if let log = latestLog(in: sameWorkoutSessions) {
             return log
         }
 
         // 2. Fall back to any workout that includes this exercise.
-        return latestLog(in: allSessions, for: exerciseId)
+        return latestLog(in: allSessions)
     }
     
     private func previousSessionSummaryRow(previousLog: ExerciseLog) -> some View {

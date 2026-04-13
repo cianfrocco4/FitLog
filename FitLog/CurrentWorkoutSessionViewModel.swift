@@ -104,7 +104,9 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     /// - Parameter showCompletionSummary: When true (e.g. user tapped Finish in the workout sheet), publishes `pendingWorkoutCompletionSummary` for the post-workout screen.
     func stopWorkout(showCompletionSummary: Bool = false) {
         guard var session = currentSession else { return }
-        
+
+        normalizeConcreteSnapshotsOnExerciseLogs(&session.exerciseLogs)
+
         session.endTime = Date()
 
         let summary: WorkoutCompletionSummary? = showCompletionSummary
@@ -132,6 +134,21 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         clearInactivityReminder()
         clearPersistedActiveSession()
         pendingWorkoutCompletionSummary = summary
+    }
+
+    /// Ensures each concrete exercise row has an `ExerciseSnapshot` so history and analytics can resolve it after save.
+    private func normalizeConcreteSnapshotsOnExerciseLogs(_ logs: inout [ExerciseLog]) {
+        guard let dm = dataManager else { return }
+        for i in logs.indices {
+            var we = logs[i].workoutExercise
+            guard !we.isSlotPlaceholder else { continue }
+            if we.snapshot != nil { continue }
+            guard let eid = we.exerciseId,
+                  let ex = dm.globalExercises.first(where: { $0.id == eid })
+            else { continue }
+            we.resolution = .concrete(ExerciseSnapshot(from: ex))
+            logs[i].workoutExercise = we
+        }
     }
 
     /// Drops the in-progress workout without writing to history or HealthKit.
