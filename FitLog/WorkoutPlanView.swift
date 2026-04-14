@@ -48,8 +48,9 @@ struct WorkoutPlanView: View {
     @Binding var workout: Workout
     /// When set (e.g. new-workout flow), shows a Done button that calls this to dismiss the enclosing sheet.
     var creationFlowOnDone: (() -> Void)? = nil
+    /// Passed in so this view does not observe timer-driven `@Published` updates from the session VM (avoids flicker in static content like muscle summaries).
+    let currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var dataVM: DataManager
-    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var aiService: AIService
     @Environment(\.openPullUpToExerciseLogIndex) private var openPullUpToExerciseLogIndex
     @Environment(\.undoManager) private var undoManager

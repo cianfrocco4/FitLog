@@ -42,9 +42,8 @@ struct NewWorkoutSheet: View {
         NavigationStack {
             Group {
                 if let id = createdWorkoutId, let binding = $dataVM.userWorkouts[id] {
-                    WorkoutPlanView(workout: binding, creationFlowOnDone: { dismiss() })
+                    WorkoutPlanView(workout: binding, creationFlowOnDone: { dismiss() }, currentVM: currentVM)
                         .environmentObject(dataVM)
-                        .environmentObject(currentVM)
                         .environmentObject(aiService)
                 } else if let pending = pendingStarterReview {
                     starterReviewView(pending)
