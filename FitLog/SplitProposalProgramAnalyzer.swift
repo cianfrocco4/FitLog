@@ -37,6 +37,20 @@ struct SplitProposalProgramWarning: Equatable, Identifiable {
 
 enum SplitProposalProgramAnalyzer {
 
+    struct Context: Equatable {
+        var primaryGoal: String?
+        var experienceLevel: String?
+        var sessionDurationMinutes: Int?
+        var priorityNotes: String?
+
+        static let none = Context(
+            primaryGoal: nil,
+            experienceLevel: nil,
+            sessionDurationMinutes: nil,
+            priorityNotes: nil
+        )
+    }
+
     /// Slot-like input for preview (matches editable split builder rows).
     struct SlotInput: Equatable {
         var label: String
@@ -92,7 +106,11 @@ enum SplitProposalProgramAnalyzer {
         )
     }
 
-    static func warnings(stats: SplitProposalProgramStats, days: [DayInput]) -> [SplitProposalProgramWarning] {
+    static func warnings(
+        stats: SplitProposalProgramStats,
+        days: [DayInput],
+        context: Context = .none
+    ) -> [SplitProposalProgramWarning] {
         var out: [SplitProposalProgramWarning] = []
 
         let dayTallies = pushPullDominantDayTallies(days: days)
@@ -147,6 +165,53 @@ enum SplitProposalProgramAnalyzer {
                 severity: .caution,
                 message: "Weekly set count is very high (\(stats.totalHardSetsPerWeek)). Advanced users may tolerate this; others should trim accessories or add rest."
             ))
+        }
+
+        if let experience = context.experienceLevel?.lowercased(),
+           experience.contains("beginner"),
+           stats.totalHardSetsPerWeek > 75 {
+            out.append(SplitProposalProgramWarning(
+                severity: .caution,
+                message: "For a beginner, weekly volume looks high (\(stats.totalHardSetsPerWeek) sets). Consider fewer accessory slots or 2–3 sets on smaller movements."
+            ))
+        }
+
+        if let goal = context.primaryGoal?.lowercased(),
+           goal.contains("strength"),
+           stats.pushOrientedSets + stats.pullOrientedSets + stats.legOrientedSets > 0,
+           stats.distinctMuscleGroupsTouched > 10 {
+            out.append(SplitProposalProgramWarning(
+                severity: .note,
+                message: "Strength-focused plans often work best with fewer priorities per block. Make sure the main lifts are early and accessory volume does not crowd recovery."
+            ))
+        }
+
+        if let minutes = context.sessionDurationMinutes, minutes <= 45 {
+            let crowded = days.first { d in
+                d.slots.count >= 6 || d.slots.reduce(0) { $0 + max(0, $1.sets) } > 20
+            }
+            if let d = crowded {
+                out.append(SplitProposalProgramWarning(
+                    severity: .caution,
+                    message: "“\(d.name)” may be too crowded for ~\(minutes) minutes. Trim slots or lower sets so the plan is realistic."
+                ))
+            }
+        }
+
+        if let priority = context.priorityNotes?.lowercased(),
+           !priority.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let touched = days.flatMap(\.slots).flatMap(\.targetMuscleNames).joined(separator: " ").lowercased()
+            let priorityTokens = priority
+                .split { !$0.isLetter && !$0.isNumber }
+                .map(String.init)
+                .filter { $0.count >= 4 }
+            if !priorityTokens.isEmpty,
+               priorityTokens.allSatisfy({ !touched.contains($0) }) {
+                out.append(SplitProposalProgramWarning(
+                    severity: .note,
+                    message: "Your priority notes do not appear to map clearly onto the proposed muscle tags. Check that the plan includes your stated focus."
+                ))
+            }
         }
 
         if stats.totalHardSetsPerWeek > 0, stats.totalHardSetsPerWeek < 45 {

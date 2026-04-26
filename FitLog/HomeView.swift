@@ -374,7 +374,7 @@ struct HomeView: View {
                             newWorkoutLaunchHint = nil
                             showNewWorkout = true
                         }
-                        Button("Build split with AI", systemImage: "sparkles") {
+                        Button("Build split", systemImage: "rectangle.stack.badge.plus") {
                             showSplitBuilder = true
                         }
                         NavigationLink {
@@ -410,7 +410,7 @@ struct HomeView: View {
                 showNewWorkout = true
             }
             .sheet(isPresented: $showSplitBuilder) {
-                AISplitBuilderView()
+                SplitBuilderView()
                     .environmentObject(dataVM)
                     .environmentObject(currentVM)
                     .environmentObject(aiService)
@@ -527,10 +527,10 @@ struct HomeView: View {
                     .font(.title2)
                     .foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Build split with AI")
+                    Text("Build a workout split")
                         .font(.headline)
                         .foregroundStyle(.primary)
-                    Text("Goals, schedule, and exercises from your library")
+                    Text("Use AI or build manually with balance checks")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.leading)
@@ -546,7 +546,7 @@ struct HomeView: View {
             .clipShape(RoundedRectangle(cornerRadius: 20))
         }
         .buttonStyle(.plain)
-        .accessibilityHint("Opens the AI split builder")
+        .accessibilityHint("Opens the split builder")
     }
 
     private func weeklyRecapCard(_ recap: DataManager.WeeklyRecapSummary) -> some View {

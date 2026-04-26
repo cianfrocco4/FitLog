@@ -106,6 +106,7 @@ struct AIChatView: View {
     @EnvironmentObject private var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject private var aiService: AIService
     @Environment(\.fitlogCoachDeepLink) private var coachDeepLink
+    @Environment(\.fitlogRootTabSelection) private var rootTabSelection
 
     @StateObject private var chat = CoachChatController()
     @FocusState private var isComposerFocused: Bool
@@ -182,7 +183,7 @@ struct AIChatView: View {
                             splitBuilderPrefill = nil
                             showSplitBuilder = true
                         } label: {
-                            Label("AI split builder", systemImage: "sparkles")
+                            Label("Split builder", systemImage: "sparkles")
                         }
                         Button("Clear") {
                             dismissCoachKeyboard()
@@ -193,10 +194,11 @@ struct AIChatView: View {
                 }
             }
             .sheet(isPresented: $showSplitBuilder) {
-                AISplitBuilderView()
+                SplitBuilderView()
                     .environmentObject(dataVM)
                     .environmentObject(currentVM)
                     .environmentObject(aiService)
+                    .environment(\.fitlogRootTabSelection, rootTabSelection)
                     .environment(\.fitlogAISplitCoachPrefill, splitBuilderPrefill)
             }
             .onChange(of: coachDeepLink.wrappedValue) { _, new in

@@ -107,52 +107,8 @@ private enum DeloadPick: String, CaseIterable, Identifiable {
 
 // MARK: - Editable proposal models
 
-private struct EditableSlot: Identifiable {
-    let id = UUID()
-    var label: String
-    var targetMuscleNames: [String]
-    var sets: Int
-    var reps: String
-    var suggestedExerciseName: String?
-    var suggestedExerciseOverrideId: UUID? = nil
-}
-
-private struct EditableDay: Identifiable {
-    let id = UUID()
-    var name: String
-    var focus: String
-    var slots: [EditableSlot]
-}
-
-extension EditableDay {
-    init(from day: WorkoutSplitProposalDay) {
-        self.name = day.name
-        self.focus = day.focus ?? ""
-        if !day.slots.isEmpty {
-            self.slots = day.slots.map {
-                EditableSlot(
-                    label: $0.label,
-                    targetMuscleNames: $0.targetMuscleNames,
-                    sets: $0.sets,
-                    reps: $0.reps,
-                    suggestedExerciseName: $0.suggestedExerciseName,
-                    suggestedExerciseOverrideId: $0.suggestedExerciseOverrideId
-                )
-            }
-        } else {
-            self.slots = day.exercises.map { ex in
-                EditableSlot(
-                    label: ex.name,
-                    targetMuscleNames: ["Other"],
-                    sets: ex.sets,
-                    reps: ex.reps,
-                    suggestedExerciseName: ex.name,
-                    suggestedExerciseOverrideId: ex.libraryExerciseOverrideId
-                )
-            }
-        }
-    }
-}
+private typealias EditableSlot = SplitBuilderEditableSlot
+private typealias EditableDay = SplitBuilderEditableDay
 
 // MARK: - View
 
@@ -269,7 +225,16 @@ struct AISplitBuilderView: View {
     }
 
     private var programWarnings: [SplitProposalProgramWarning] {
-        SplitProposalProgramAnalyzer.warnings(stats: programStats, days: analyzerDays)
+        SplitProposalProgramAnalyzer.warnings(
+            stats: programStats,
+            days: analyzerDays,
+            context: SplitProposalProgramAnalyzer.Context(
+                primaryGoal: primaryGoal.rawValue,
+                experienceLevel: experience.rawValue,
+                sessionDurationMinutes: sessionDuration.minutes,
+                priorityNotes: priorityMusclesNotes
+            )
+        )
     }
 
     var body: some View {
@@ -281,7 +246,7 @@ struct AISplitBuilderView: View {
                     wizardContent
                 }
             }
-            .navigationTitle(proposal == nil ? "AI split builder" : "Preview split")
+            .navigationTitle(proposal == nil ? "AI-assisted split" : "Preview split")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -588,24 +553,9 @@ struct AISplitBuilderView: View {
             } footer: {
                 Text("Pick preferred training days, or leave none selected for the default Mon\u{2013}Fri pool. Sessions per week cannot exceed the number of days you select.")
             }
-
-            if !selectedWeekdays.isEmpty && sessionsPerWeek > selectedWeekdays.count {
-                Section {
-                    Label(
-                        "You have more sessions than selected days. Reduce sessions or add days.",
-                        systemImage: "exclamationmark.triangle"
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    Button("Match sessions to \(selectedWeekdays.count) day\(selectedWeekdays.count == 1 ? "" : "s")") {
-                        sessionsPerWeek = selectedWeekdays.count
-                    }
-                    .font(.caption)
-                }
+            .onChange(of: selectedWeekdays) { _, _ in
+                sessionsPerWeek = min(sessionsPerWeek, maxSessionsAllowed)
             }
-        }
-        .onChange(of: selectedWeekdays) { _, _ in
-            sessionsPerWeek = min(sessionsPerWeek, maxSessionsAllowed)
         }
     }
 
@@ -765,38 +715,11 @@ struct AISplitBuilderView: View {
     }
 
     private func slotMuscleOutcomeLine(_ slot: EditableSlot) -> String {
-        let parsed = ExerciseNameResolution.resolveMuscleGroups(from: slot.targetMuscleNames)
-        if !parsed.isEmpty {
-            return "Targets: \(parsed.map(\.rawValue).joined(separator: ", "))."
-        }
-        let tokens = slot.targetMuscleNames.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        if tokens.isEmpty {
-            return "Tap “Muscles” to pick target groups, or Other is used."
-        }
-        return "Some muscle labels didn’t match known groups; Other is used where needed."
+        SplitBuilderSupportText.slotMuscleOutcomeLine(slot)
     }
 
     private func slotSuggestedExerciseLine(_ slot: EditableSlot) -> String {
-        if let oid = slot.suggestedExerciseOverrideId,
-           let ex = dataVM.globalExercises.first(where: { $0.id == oid }) {
-            return "Default exercise: \(ex.name) (your pick)."
-        }
-        let raw = (slot.suggestedExerciseName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if raw.isEmpty {
-            return "Open slot — you’ll choose an exercise in this category each time you start the workout."
-        }
-        guard let r = ExerciseNameResolution.resolve(planName: raw, library: dataVM.globalExercises) else {
-            return ""
-        }
-        switch r {
-        case .linked(let ex):
-            if ExerciseNameResolution.normalizationKey(raw) != ExerciseNameResolution.normalizationKey(ex.name) {
-                return "Default exercise: \(ex.name) (matched from your text)."
-            }
-            return "Default exercise: \(ex.name)."
-        case .createCustom(let name):
-            return "Adds “\(name)” as a custom exercise and uses it as the default."
-        }
+        SplitBuilderSupportText.slotSuggestedExerciseLine(slot, library: dataVM.globalExercises)
     }
 
     private func compareProgramSummaryLines() -> [String] {
@@ -895,8 +818,8 @@ struct AISplitBuilderView: View {
     }
 
     private var previewEditableDaysSection: some View {
-        ForEach(editableDays) { day in
-            Section {
+        Section {
+            ForEach(editableDays) { day in
                 DisclosureGroup(isExpanded: Binding(
                     get: { expandedDayIds.contains(day.id) },
                     set: { on in
@@ -914,8 +837,9 @@ struct AISplitBuilderView: View {
                     }
                 }
             }
+        } header: {
+            Text("Training days")
         }
-        .onMove { from, to in editableDays.move(fromOffsets: from, toOffset: to) }
     }
 
     private func bindingForEditableDay(id: UUID) -> Binding<EditableDay> {
@@ -961,6 +885,7 @@ struct AISplitBuilderView: View {
             if let orig = originalProposal {
                 Button("Undo all edits", role: .destructive) {
                     editableDays = orig.workouts.map { EditableDay(from: $0) }
+                    expandedDayIds = Set(editableDays.map(\.id))
                 }
             }
         }
@@ -978,24 +903,23 @@ struct AISplitBuilderView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
 
-        ForEach(day.slots) { $slot in
-            editableSlotRow(dayId: day.wrappedValue.id, slot: $slot)
-        }
-        .onDelete { indices in
-            var d = day.wrappedValue
-            d.slots.remove(atOffsets: indices)
-            day.wrappedValue = d
-        }
-        .onMove { from, to in
-            var d = day.wrappedValue
-            d.slots.move(fromOffsets: from, toOffset: to)
-            day.wrappedValue = d
+        ForEach(day.wrappedValue.slots) { slotValue in
+            editableSlotRow(
+                dayId: day.wrappedValue.id,
+                slot: bindingForSlot(day: day, slotId: slotValue.id)
+            )
         }
 
         Button {
             var d = day.wrappedValue
             d.slots.append(
-                EditableSlot(label: "New slot", targetMuscleNames: [MuscleGroup.other.rawValue], sets: 3, reps: "8-12", suggestedExerciseName: nil)
+                EditableSlot(
+                    label: "New slot",
+                    targetMuscleNames: [MuscleGroup.other.rawValue],
+                    sets: 3,
+                    reps: "8-12",
+                    suggestedExerciseName: nil
+                )
             )
             day.wrappedValue = d
         } label: {
@@ -1011,6 +935,26 @@ struct AISplitBuilderView: View {
         }
         .font(.subheadline)
         .padding(.top, 4)
+    }
+
+    private func bindingForSlot(day: Binding<EditableDay>, slotId: UUID) -> Binding<EditableSlot> {
+        Binding(
+            get: {
+                day.wrappedValue.slots.first(where: { $0.id == slotId })
+                    ?? EditableSlot(
+                        label: "Slot",
+                        targetMuscleNames: [MuscleGroup.other.rawValue],
+                        sets: 3,
+                        reps: "8-12"
+                    )
+            },
+            set: { new in
+                var d = day.wrappedValue
+                guard let i = d.slots.firstIndex(where: { $0.id == slotId }) else { return }
+                d.slots[i] = new
+                day.wrappedValue = d
+            }
+        )
     }
 
     /// Copies preview day into a new library workout for editing in `WorkoutPlanView` (does not apply the split).
@@ -1087,13 +1031,28 @@ struct AISplitBuilderView: View {
             } label: {
                 Label("Less volume", systemImage: "minus.circle")
             }
+            Button {
+                regenerate(with: RegenerateTweak.morePriority)
+            } label: {
+                Label("More priority focus", systemImage: "scope")
+            }
+            Button {
+                regenerate(with: RegenerateTweak.moreBeginnerFriendly)
+            } label: {
+                Label("More beginner-friendly", systemImage: "figure.walk")
+            }
+            Button {
+                regenerate(with: RegenerateTweak.equipmentStrict)
+            } label: {
+                Label("Match equipment tightly", systemImage: "dumbbell")
+            }
         } header: {
             Text("Try another version")
         }
     }
 
     private enum RegenerateTweak {
-        case shorter, moreCompounds, lessVolume
+        case shorter, moreCompounds, lessVolume, morePriority, moreBeginnerFriendly, equipmentStrict
 
         var instruction: String {
             switch self {
@@ -1103,6 +1062,12 @@ struct AISplitBuilderView: View {
                 return "Regenerate with more emphasis on big compound movements early each day; trim isolation accessories where possible."
             case .lessVolume:
                 return "Regenerate with roughly 15–25% less weekly volume (fewer sets or fewer slots) while keeping the same structure intent."
+            case .morePriority:
+                return "Regenerate with more direct work for the user’s priority muscles or lifts, while keeping weekly recovery realistic and preserving the same schedule."
+            case .moreBeginnerFriendly:
+                return "Regenerate as a more beginner-friendly plan: fewer technical lifts, simpler exercise selection, clearer rep ranges, and moderate volume."
+            case .equipmentStrict:
+                return "Regenerate with stricter equipment matching: only use movements that clearly fit the user's available equipment, substituting bodyweight or dumbbell options where needed."
             }
         }
     }
@@ -1123,8 +1088,6 @@ struct AISplitBuilderView: View {
         VStack(alignment: .leading, spacing: 6) {
             TextField("Slot label", text: slot.label)
                 .font(.body)
-
-            muscleSummaryRow(dayId: dayId, slot: slot)
 
             Text(slotMuscleOutcomeLine(slot.wrappedValue))
                 .font(.caption2)
@@ -1158,9 +1121,12 @@ struct AISplitBuilderView: View {
             HStack(alignment: .firstTextBaseline) {
                 TextField("Default exercise (optional)", text: Binding(
                     get: { slot.wrappedValue.suggestedExerciseName ?? "" },
-                    set: {
-                        slot.wrappedValue.suggestedExerciseName = $0.isEmpty ? nil : $0
-                        if $0.isEmpty { slot.wrappedValue.suggestedExerciseOverrideId = nil }
+                    set: { raw in
+                        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                        var next = slot.wrappedValue
+                        next.suggestedExerciseName = trimmed.isEmpty ? nil : trimmed
+                        next.suggestedExerciseOverrideId = nil
+                        slot.wrappedValue = next
                     }
                 ))
                 .font(.caption2)
@@ -1185,7 +1151,10 @@ struct AISplitBuilderView: View {
                 .font(.caption)
                 if slot.wrappedValue.suggestedExerciseOverrideId != nil {
                     Button("Clear pick") {
-                        slot.suggestedExerciseOverrideId.wrappedValue = nil
+                        var next = slot.wrappedValue
+                        next.suggestedExerciseOverrideId = nil
+                        next.suggestedExerciseName = nil
+                        slot.wrappedValue = next
                     }
                     .font(.caption)
                 }
@@ -1194,10 +1163,8 @@ struct AISplitBuilderView: View {
     }
 
     private func muscleSummaryRow(dayId: UUID, slot: Binding<EditableSlot>) -> some View {
-        let names = ExerciseNameResolution.resolveMuscleGroups(from: slot.wrappedValue.targetMuscleNames).map(\.rawValue)
-        let summary = names.isEmpty ? "No muscles selected" : names.joined(separator: ", ")
-        return HStack {
-            Text(summary)
+        HStack {
+            Text(SplitBuilderSupportText.slotMuscleOutcomeLine(slot.wrappedValue))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
@@ -1267,7 +1234,11 @@ struct AISplitBuilderView: View {
             ForEach(days, id: \.0) { wd, label in
                 let on = selectedWeekdays.contains(wd)
                 Button {
-                    if on { selectedWeekdays.remove(wd) } else { selectedWeekdays.insert(wd) }
+                    if on {
+                        selectedWeekdays.remove(wd)
+                    } else if selectedWeekdays.count < sessionsPerWeek {
+                        selectedWeekdays.insert(wd)
+                    }
                 } label: {
                     Text(label)
                         .font(.caption.weight(.semibold))
@@ -1339,29 +1310,11 @@ struct AISplitBuilderView: View {
     }
 
     private func buildProposalFromEdits() -> WorkoutSplitProposal {
-        let days = editableDays.map { day -> WorkoutSplitProposalDay in
-            let slots = day.slots.map {
-                WorkoutSplitProposalSlotItem(
-                    label: $0.label,
-                    targetMuscleNames: $0.targetMuscleNames,
-                    sets: $0.sets,
-                    reps: $0.reps,
-                    suggestedExerciseName: $0.suggestedExerciseName,
-                    suggestedExerciseOverrideId: $0.suggestedExerciseOverrideId
-                )
-            }
-            return WorkoutSplitProposalDay(
-                name: day.name,
-                focus: day.focus.isEmpty ? nil : day.focus,
-                exercises: [],
-                slots: slots
-            )
-        }
-        return WorkoutSplitProposal(
+        SplitBuilderApplyService.proposal(
+            from: editableDays,
             rationale: proposal?.rationale ?? "",
             sessionsPerWeek: proposal?.sessionsPerWeek ?? sessionsPerWeek,
-            preferredWeekdays: proposal?.preferredWeekdays ?? Array(selectedWeekdays).sorted(),
-            workouts: days
+            preferredWeekdays: proposal?.preferredWeekdays ?? Array(selectedWeekdays).sorted()
         )
     }
 
@@ -1370,9 +1323,13 @@ struct AISplitBuilderView: View {
         isApplying = true
         defer { isApplying = false }
 
-        dataVM.applyWorkoutSplitProposal(
-            p,
+        _ = SplitBuilderApplyService.apply(
+            days: editableDays,
+            dataVM: dataVM,
+            sessionsPerWeek: p.sessionsPerWeek,
+            preferredWeekdays: p.preferredWeekdays,
             updateTrainingProgram: updateTrainingProgram,
+            rationale: p.rationale,
             anchorDate: Date()
         )
 
@@ -1382,146 +1339,6 @@ struct AISplitBuilderView: View {
             : "Your Plan calendar was not changed; new templates are in your workout list."
         applySuccessMessage = "Created \(templates) workout template\(templates == 1 ? "" : "s"). \(planLine)"
         showApplySuccess = true
-    }
-}
-
-// MARK: - Muscle picker
-
-private struct SplitMuscleMultiPickerView: View {
-    let initial: [MuscleGroup]
-    let onDone: ([MuscleGroup]) -> Void
-    let onCancel: () -> Void
-
-    @State private var selected: Set<MuscleGroup> = []
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        List {
-            Section {
-                Text("Choose 1–3 groups for this slot (first = primary emphasis in the app).")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            ForEach(MuscleGroup.displayOrder, id: \.self) { m in
-                let on = selected.contains(m)
-                Button {
-                    if on {
-                        selected.remove(m)
-                    } else if selected.count < 3 {
-                        selected.insert(m)
-                    }
-                } label: {
-                    HStack {
-                        Text(m.rawValue)
-                        Spacer()
-                        if on { Image(systemName: "checkmark.circle.fill").foregroundStyle(.tint) }
-                    }
-                }
-                .foregroundStyle(.primary)
-            }
-        }
-        .navigationTitle("Target muscles")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    onCancel()
-                    dismiss()
-                }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Done") {
-                    let arr = MuscleGroup.displayOrder.filter { selected.contains($0) }
-                    onDone(arr.isEmpty ? [.other] : arr)
-                    dismiss()
-                }
-            }
-        }
-        .onAppear {
-            selected = Set(initial.isEmpty ? [.other] : initial)
-        }
-    }
-}
-
-// MARK: - Exercise search sheet
-
-private struct SplitExerciseSuggestSheet: View {
-    let exercises: [Exercise]
-    let initialQuery: String
-    let onPick: (Exercise) -> Void
-    let onCancel: () -> Void
-
-    @State private var searchText = ""
-    @Environment(\.dismiss) private var dismiss
-
-    private var sorted: [Exercise] {
-        exercises.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    private var filtered: [Exercise] {
-        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if q.isEmpty { return Array(sorted.prefix(80)) }
-        return sorted.filter { $0.name.localizedCaseInsensitiveContains(q) }.prefix(80).map { $0 }
-    }
-
-    var body: some View {
-        List(filtered) { ex in
-            Button {
-                onPick(ex)
-                dismiss()
-            } label: {
-                Text(ex.name)
-            }
-        }
-        .searchable(text: $searchText, prompt: "Search exercises")
-        .navigationTitle("Default exercise")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    onCancel()
-                    dismiss()
-                }
-            }
-        }
-        .onAppear {
-            searchText = initialQuery
-        }
-    }
-}
-
-private struct SplitLibraryPickerView: View {
-    let exercises: [Exercise]
-    let onSelect: (Exercise) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var searchText = ""
-
-    private var filtered: [Exercise] {
-        let sorted = exercises.sorted {
-            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-        }
-        let q = searchText.trimmingCharacters(in: .whitespaces)
-        guard !q.isEmpty else { return sorted }
-        return sorted.filter { $0.name.localizedCaseInsensitiveContains(q) }
-    }
-
-    var body: some View {
-        List(filtered) { ex in
-            Button {
-                onSelect(ex)
-                dismiss()
-            } label: {
-                Text(ex.name)
-            }
-        }
-        .searchable(text: $searchText, prompt: "Search exercises")
-        .navigationTitle("Link exercise")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
-            }
-        }
     }
 }
 

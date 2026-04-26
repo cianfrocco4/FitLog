@@ -118,7 +118,7 @@ struct OnboardingFlowView: View {
                 Button {
                     finishWithAction(.coachAISplit)
                 } label: {
-                    Label("Build with AI", systemImage: "sparkles")
+                    Label("Build a split", systemImage: "sparkles")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)

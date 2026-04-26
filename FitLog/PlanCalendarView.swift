@@ -131,9 +131,9 @@ struct PlanCalendarView: View {
                     Button {
                         openCoachSplitBuilderWithPlanContext()
                     } label: {
-                        Label("AI split", systemImage: "sparkles")
+                        Label("Split", systemImage: "sparkles")
                     }
-                    .accessibilityHint("Opens Coach with your current plan in the AI split builder")
+                    .accessibilityHint("Opens Coach with your current plan in the split builder")
                     Button {
                         jumpToTodayMonth()
                     } label: {
@@ -160,7 +160,7 @@ struct PlanCalendarView: View {
             }
             .sheet(isPresented: $showProgramBuilder) {
                 ProgramBuilderSheet(
-                    onBuildWithAI: {
+                    onBuildSplit: {
                         showProgramBuilder = false
                         openCoachSplitBuilderWithPlanContext()
                     }
@@ -882,7 +882,7 @@ private struct WeekdayRow: View {
 // MARK: - Program builder (schedule + training order)
 
 struct ProgramBuilderSheet: View {
-    var onBuildWithAI: () -> Void
+    var onBuildSplit: () -> Void
 
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
@@ -939,9 +939,9 @@ struct ProgramBuilderSheet: View {
                 Section {
                     Button {
                         dismiss()
-                        onBuildWithAI()
+                        onBuildSplit()
                     } label: {
-                        Label("Build split with AI", systemImage: "sparkles")
+                        Label("Build split", systemImage: "sparkles")
                     }
                 } header: {
                     Text("Quick actions")

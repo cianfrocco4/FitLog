@@ -2,7 +2,7 @@
 //  FitlogTabRouting.swift
 //  FitLog
 //
-//  Lets deep-linked flows (e.g. AI split builder success) switch the root TabView.
+//  Lets deep-linked flows (e.g. split builder success) switch the root TabView.
 //  No persisted schema — in-memory routing only.
 //
 
@@ -16,7 +16,7 @@ enum FitlogRootTab: Int, Hashable {
     case more = 4
 }
 
-/// In-memory Coach tab routing (e.g. Plan tab opens AI split builder with plan context).
+/// In-memory Coach tab routing (e.g. Plan tab opens the split builder with plan context).
 extension Notification.Name {
     /// Home / onboarding asks Plan to present the program builder sheet.
     static let fitlogOpenProgramBuilder = Notification.Name("fitlogOpenProgramBuilder")
@@ -24,7 +24,7 @@ extension Notification.Name {
 
 enum FitlogCoachDeepLink: Equatable {
     case idle
-    /// Prefill is merged into the split builder “Additional notes” field.
+    /// Prefill is merged into the AI path’s “Additional notes” field.
     case openAISplitBuilder(prefill: String?)
 }
 
@@ -47,13 +47,13 @@ extension EnvironmentValues {
         set { self[FitlogRootTabSelectionKey.self] = newValue }
     }
 
-    /// Switch Coach tab and optionally present the AI split builder with prefilled plan context.
+    /// Switch Coach tab and optionally present the split builder with prefilled plan context.
     var fitlogCoachDeepLink: Binding<FitlogCoachDeepLink> {
         get { self[FitlogCoachDeepLinkKey.self] }
         set { self[FitlogCoachDeepLinkKey.self] = newValue }
     }
 
-    /// Merged into AI split builder “Additional notes” once when non-nil (Plan / Coach deep link).
+    /// Merged into the AI path’s “Additional notes” once when non-nil (Plan / Coach deep link).
     var fitlogAISplitCoachPrefill: String? {
         get { self[FitlogAISplitCoachPrefillKey.self] }
         set { self[FitlogAISplitCoachPrefillKey.self] = newValue }
