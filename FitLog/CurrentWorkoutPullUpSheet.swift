@@ -636,13 +636,16 @@ struct CurrentWorkoutPullUpSheet: View {
                                     }
                                     if isExpanded && !log.workoutExercise.isSlotPlaceholder {
                                         setProgressIndicatorStrip(log: log)
+                                            .moveDisabled(true)
                                             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
 
                                         inlineSetEntryRow(exerciseIndex: index, log: log)
+                                            .moveDisabled(true)
                                             .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
 
                                         if log.loggedSets.isEmpty {
                                             Text("No sets logged yet")
+                                                .moveDisabled(true)
                                                 .foregroundStyle(.secondary)
                                                 .italic()
                                                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
@@ -656,6 +659,7 @@ struct CurrentWorkoutPullUpSheet: View {
                                                     workoutExercise: log.workoutExercise,
                                                     isHighlighted: set.id == highlightedLoggedSetId
                                                 )
+                                                .moveDisabled(true)
                                                 .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                                                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                                     Button("Delete", role: .destructive) {
@@ -737,6 +741,7 @@ struct CurrentWorkoutPullUpSheet: View {
                                             Label("History, notes, and actions", systemImage: "text.alignleft")
                                                 .font(.subheadline.weight(.medium))
                                         }
+                                        .moveDisabled(true)
                                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
                                     }
                                 }
