@@ -25,11 +25,12 @@ struct VersionedPayload<T: Codable>: Codable {
 ///   1 – initial SwiftData migration (ExerciseSnapshot, SlotResolution, WorkoutPlanRef cycle entries)
 ///   2 – unified workout library (SlotBlueprint, single WorkoutPlanRef.workout, backups omit templates)
 ///   3 – library workouts use slot blueprints only (concrete rows migrated to flexible + defaultExerciseId)
+///   4 – `SDWorkoutSession.sessionNotes` added as a native column (workout-level notes persist after save)
 ///
 /// **AI split builder wizard defaults** use a separate, versioned UserDefaults envelope
 /// (`SplitBuilderPreferencesStore`) — not `VersionedPayload` / SwiftData — so workout and program
 /// data are unaffected if wizard prefs are reset or migrated independently.
-let currentSchemaVersion = 3
+let currentSchemaVersion = 4
 
 /// Encode a value wrapped in a VersionedPayload.
 func versionedEncode<T: Codable>(_ value: T) -> Data {
@@ -228,10 +229,22 @@ final class SDWorkoutSession {
     var activeExerciseIdsData: Data = Data()
     var completedExerciseIdsData: Data = Data()
     var sessionPlanOriginData: Data?
+    /// Whole-workout notes (mirrors `WorkoutSession.sessionNotes`).
+    var sessionNotes: String = ""
 
     init() {}
 
-    init(sessionId: UUID, workoutData: Data, startTime: Date, endTime: Date?, exerciseLogsData: Data, activeExerciseIdsData: Data, completedExerciseIdsData: Data, sessionPlanOriginData: Data?) {
+    init(
+        sessionId: UUID,
+        workoutData: Data,
+        startTime: Date,
+        endTime: Date?,
+        exerciseLogsData: Data,
+        activeExerciseIdsData: Data,
+        completedExerciseIdsData: Data,
+        sessionPlanOriginData: Data?,
+        sessionNotes: String = ""
+    ) {
         self.sessionId = sessionId
         self.workoutData = workoutData
         self.startTime = startTime
@@ -240,6 +253,7 @@ final class SDWorkoutSession {
         self.activeExerciseIdsData = activeExerciseIdsData
         self.completedExerciseIdsData = completedExerciseIdsData
         self.sessionPlanOriginData = sessionPlanOriginData
+        self.sessionNotes = sessionNotes
     }
 
     func toStruct() -> WorkoutSession? {
@@ -253,7 +267,8 @@ final class SDWorkoutSession {
         return WorkoutSession(
             id: sessionId, workout: workout, startTime: startTime, endTime: endTime,
             exerciseLogs: logs, activeExerciseIds: activeIds,
-            completedExerciseIds: completedIds, sessionPlanOrigin: origin
+            completedExerciseIds: completedIds, sessionPlanOrigin: origin,
+            sessionNotes: sessionNotes
         )
     }
 
@@ -266,7 +281,8 @@ final class SDWorkoutSession {
         return SDWorkoutSession(
             sessionId: s.id, workoutData: wData, startTime: s.startTime, endTime: s.endTime,
             exerciseLogsData: logsData, activeExerciseIdsData: activeData,
-            completedExerciseIdsData: completedData, sessionPlanOriginData: originData
+            completedExerciseIdsData: completedData, sessionPlanOriginData: originData,
+            sessionNotes: s.sessionNotes
         )
     }
 }

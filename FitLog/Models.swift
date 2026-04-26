@@ -837,13 +837,23 @@ struct DropSetSegment: Codable, Equatable, Hashable {
     var reps: Int
 }
 
+/// Classification for a logged set (extends legacy warm-up flag).
+enum ExerciseSetType: String, Codable, CaseIterable, Equatable, Hashable {
+    case working
+    case warmup
+    case dropSet
+    case failure
+    case timed
+}
+
 struct LoggedSet: Identifiable, Codable {
     let id: UUID
     var weight: Double
     var reps: Int
     var restTime: Int
     var timestamp: Date
-    var isWarmup: Bool = false
+    /// Primary set classification; `isWarmup` mirrors `.warmup` for compatibility.
+    var setType: ExerciseSetType = .working
     /// Option id (uuidString) -> chosen value. Only present when exercise has configuration options.
     var configuration: [String: String]
     /// Lighter loads after `weight` × `reps`, in order (optional).
@@ -851,16 +861,53 @@ struct LoggedSet: Identifiable, Codable {
     /// Rate of perceived exertion (optional), typically ~6–10.
     var rpe: Double?
 
-    init(id: UUID, weight: Double, reps: Int, restTime: Int, timestamp: Date, isWarmup: Bool = false, configuration: [String: String] = [:], dropSegments: [DropSetSegment] = [], rpe: Double? = nil) {
+    /// Legacy warm-up flag; encoded for older payloads and toggles in the full log sheet.
+    var isWarmup: Bool {
+        get { setType == .warmup }
+        set {
+            if newValue {
+                setType = .warmup
+            } else if setType == .warmup {
+                setType = .working
+            }
+        }
+    }
+
+    init(
+        id: UUID,
+        weight: Double,
+        reps: Int,
+        restTime: Int,
+        timestamp: Date,
+        setType: ExerciseSetType = .working,
+        configuration: [String: String] = [:],
+        dropSegments: [DropSetSegment] = [],
+        rpe: Double? = nil
+    ) {
         self.id = id
         self.weight = weight
         self.reps = reps
         self.restTime = restTime
         self.timestamp = timestamp
-        self.isWarmup = isWarmup
+        self.setType = setType
         self.configuration = configuration
         self.dropSegments = dropSegments
         self.rpe = rpe
+    }
+
+    /// Convenience initializer matching the legacy `isWarmup` parameter.
+    init(id: UUID, weight: Double, reps: Int, restTime: Int, timestamp: Date, isWarmup: Bool = false, configuration: [String: String] = [:], dropSegments: [DropSetSegment] = [], rpe: Double? = nil) {
+        self.init(
+            id: id,
+            weight: weight,
+            reps: reps,
+            restTime: restTime,
+            timestamp: timestamp,
+            setType: isWarmup ? .warmup : .working,
+            configuration: configuration,
+            dropSegments: dropSegments,
+            rpe: rpe
+        )
     }
 
     init(from decoder: Decoder) throws {
@@ -870,10 +917,19 @@ struct LoggedSet: Identifiable, Codable {
         reps = try c.decode(Int.self, forKey: .reps)
         restTime = try c.decode(Int.self, forKey: .restTime)
         timestamp = try c.decode(Date.self, forKey: .timestamp)
-        isWarmup = (try? c.decode(Bool.self, forKey: .isWarmup)) ?? false
         configuration = (try? c.decode([String: String].self, forKey: .configuration)) ?? [:]
         dropSegments = (try? c.decode([DropSetSegment].self, forKey: .dropSegments)) ?? []
         rpe = try c.decodeIfPresent(Double.self, forKey: .rpe)
+
+        if let decoded = try c.decodeIfPresent(ExerciseSetType.self, forKey: .setType) {
+            setType = decoded
+        } else {
+            let legacyWarm = (try? c.decode(Bool.self, forKey: .isWarmup)) ?? false
+            setType = legacyWarm ? .warmup : .working
+        }
+        if setType == .working, !dropSegments.isEmpty {
+            setType = .dropSet
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -883,6 +939,7 @@ struct LoggedSet: Identifiable, Codable {
         try c.encode(reps, forKey: .reps)
         try c.encode(restTime, forKey: .restTime)
         try c.encode(timestamp, forKey: .timestamp)
+        try c.encode(setType, forKey: .setType)
         try c.encode(isWarmup, forKey: .isWarmup)
         if !configuration.isEmpty { try c.encode(configuration, forKey: .configuration) }
         if !dropSegments.isEmpty { try c.encode(dropSegments, forKey: .dropSegments) }
@@ -890,7 +947,7 @@ struct LoggedSet: Identifiable, Codable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, weight, reps, restTime, timestamp, isWarmup, configuration, dropSegments, rpe
+        case id, weight, reps, restTime, timestamp, isWarmup, setType, configuration, dropSegments, rpe
     }
 }
 
@@ -1007,7 +1064,7 @@ struct WorkoutSession: Identifiable, Codable {
                     reps: s.reps,
                     restTime: s.restTime,
                     timestamp: s.timestamp,
-                    isWarmup: s.isWarmup,
+                    setType: s.setType,
                     configuration: s.configuration,
                     dropSegments: s.dropSegments,
                     rpe: s.rpe

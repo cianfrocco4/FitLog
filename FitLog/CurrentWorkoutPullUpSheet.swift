@@ -410,6 +410,11 @@ private enum PullUpNumericFieldFocus: Hashable {
     case editReps
 }
 
+private struct PlateCalculatorInlinePick: Identifiable {
+    let logId: UUID
+    var id: UUID { logId }
+}
+
 struct CurrentWorkoutPullUpSheet: View {
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var dataVM: DataManager
@@ -428,6 +433,8 @@ struct CurrentWorkoutPullUpSheet: View {
     @State private var showQuickAddExercise = false
     @State private var showFullAddExercise = false
     @State private var showPRBanner = false
+    @State private var showExerciseReorderSheet = false
+    @State private var plateCalculatorInlinePick: PlateCalculatorInlinePick?
 
     /// Inline quick-log draft per exercise log (stable across reorder).
     @State private var inlineWeightByLogId: [UUID: Double] = [:]
@@ -476,6 +483,18 @@ struct CurrentWorkoutPullUpSheet: View {
                         Text("\(currentVM.remainingRestTime)s")
                             .font(.title3.weight(.bold).monospacedDigit())
                             .foregroundStyle(.orange)
+                        Button("−15") {
+                            currentVM.adjustRestCountdown(by: -15)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.orange)
+                        .font(.caption.weight(.semibold))
+                        Button("+15") {
+                            currentVM.adjustRestCountdown(by: 15)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.orange)
+                        .font(.caption.weight(.semibold))
                         Spacer()
                         Button("Skip") {
                             currentVM.cancelRestTimer()
@@ -523,6 +542,8 @@ struct CurrentWorkoutPullUpSheet: View {
                     }
                     .padding(.top, currentVM.remainingRestTime > 0 ? 0 : 16)
                     .padding(.horizontal)
+
+                    sessionRunningStatsStrip(session: session)
 
                     TextField("Workout notes (optional)", text: Binding(
                         get: { currentVM.currentSession?.sessionNotes ?? "" },
@@ -613,6 +634,14 @@ struct CurrentWorkoutPullUpSheet: View {
                                             .buttonStyle(.plain)
                                             .foregroundStyle(.primary)
                                             .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                                if let exId = log.workoutExercise.exerciseId, !isExerciseCompleted(log) {
+                                                    Button {
+                                                        currentVM.markExerciseCompleted(exerciseId: exId)
+                                                    } label: {
+                                                        Label("Mark done", systemImage: "checkmark.circle.fill")
+                                                    }
+                                                    .tint(.green)
+                                                }
                                                 if let slotId = currentVM.currentSession?.workout.templateSlotId(forWorkoutExerciseRow: log.workoutExercise.id),
                                                    log.workoutExercise.exerciseId != nil {
                                                     Button {
@@ -628,6 +657,14 @@ struct CurrentWorkoutPullUpSheet: View {
                                                 }
                                             }
                                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                                if let exId = log.workoutExercise.exerciseId, isExerciseCompleted(log) {
+                                                    Button {
+                                                        currentVM.markExerciseNotCompleted(exerciseId: exId)
+                                                    } label: {
+                                                        Label("Undo done", systemImage: "arrow.uturn.backward")
+                                                    }
+                                                    .tint(.orange)
+                                                }
                                                 Button("Remove", role: .destructive) {
                                                     removeExerciseAtListIndex(index, rowId: log.workoutExercise.id)
                                                 }
@@ -637,6 +674,48 @@ struct CurrentWorkoutPullUpSheet: View {
                                             setProgressIndicatorStrip(log: log)
                                                 .moveDisabled(true)
                                                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+
+                                            if let previousLog = lastCompletedLog(for: log) {
+                                                VStack(alignment: .leading, spacing: 8) {
+                                                    matchOrBeatPreviousRow(
+                                                        log: log,
+                                                        exerciseIndex: index,
+                                                        previousLog: previousLog,
+                                                        includeListRowInsets: false
+                                                    )
+                                                    previousSessionSummaryRow(previousLog: previousLog, includeListRowInsets: false)
+                                                }
+                                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                                            }
+
+                                            if let exId = log.workoutExercise.exerciseId {
+                                                if isExerciseCompleted(log) {
+                                                    Button {
+                                                        currentVM.markExerciseNotCompleted(exerciseId: exId)
+                                                    } label: {
+                                                        Label("Undo mark done — keep logging", systemImage: "arrow.uturn.backward.circle")
+                                                    }
+                                                    .buttonStyle(.bordered)
+                                                    .tint(.orange)
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                                                } else {
+                                                    VStack(alignment: .leading, spacing: 4) {
+                                                        Button {
+                                                            currentVM.markExerciseCompleted(exerciseId: exId)
+                                                        } label: {
+                                                            Label("Mark exercise done", systemImage: "checkmark.circle.fill")
+                                                        }
+                                                        .buttonStyle(.borderedProminent)
+                                                        .tint(.green)
+                                                        Text("Optional if you finished early or are skipping remaining sets.")
+                                                            .font(.caption2)
+                                                            .foregroundStyle(.secondary)
+                                                    }
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 6, trailing: 16))
+                                                }
+                                            }
 
                                             inlineSetEntryRow(exerciseIndex: index, log: log)
                                                 .moveDisabled(true)
@@ -674,16 +753,6 @@ struct CurrentWorkoutPullUpSheet: View {
                                                 set: { exerciseDetailMoreExpandedLogId = $0 ? log.id : nil }
                                             )) {
                                                 VStack(alignment: .leading, spacing: 12) {
-                                                    if let previousLog = lastCompletedLog(for: log) {
-                                                        matchOrBeatPreviousRow(
-                                                            log: log,
-                                                            exerciseIndex: index,
-                                                            previousLog: previousLog,
-                                                            includeListRowInsets: false
-                                                        )
-                                                        previousSessionSummaryRow(previousLog: previousLog, includeListRowInsets: false)
-                                                    }
-
                                                     if !log.workoutExercise.configurationFields.isEmpty {
                                                         recommendedConfigurationRow(for: log.workoutExercise, includeListRowInsets: false)
                                                     }
@@ -747,7 +816,7 @@ struct CurrentWorkoutPullUpSheet: View {
                                                 }
                                                 .padding(.vertical, 4)
                                             } label: {
-                                                Label("History, notes, and actions", systemImage: "text.alignleft")
+                                                Label("Config, notes, and actions", systemImage: "text.alignleft")
                                                     .font(.subheadline.weight(.medium))
                                             }
                                             .moveDisabled(true)
@@ -790,6 +859,14 @@ struct CurrentWorkoutPullUpSheet: View {
                         showDiscardWorkoutConfirmation = true
                     }
                     .foregroundStyle(.red)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showExerciseReorderSheet = true
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                    }
+                    .accessibilityLabel("Reorder exercises")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Finish") {
@@ -847,6 +924,23 @@ struct CurrentWorkoutPullUpSheet: View {
                         .environmentObject(dataVM)
                         .environmentObject(aiService)
                 }
+            }
+            .sheet(isPresented: $showExerciseReorderSheet) {
+                ExerciseReorderSheet()
+                    .environmentObject(currentVM)
+                    .environmentObject(dataVM)
+            }
+            .sheet(item: $plateCalculatorInlinePick) { pick in
+                PlateCalculatorSheet(
+                    displayUnit: userPreferences.weightDisplayUnit,
+                    suggestedTargetDisplay: {
+                        let w = inlineWeightByLogId[pick.logId] ?? 0
+                        return w > 0 ? w : nil
+                    }(),
+                    onApplyDisplayWeight: { w in
+                        inlineWeightByLogId[pick.logId] = clampDisplayWeightForUser(w)
+                    }
+                )
             }
             .alert("Finish workout?", isPresented: $showFinishConfirmation) {
                 Button("Cancel", role: .cancel) {}
@@ -1253,6 +1347,62 @@ struct CurrentWorkoutPullUpSheet: View {
     }
 
     @ViewBuilder
+    private func sessionRunningStatsStrip(session: WorkoutSession) -> some View {
+        let allSets = session.exerciseLogs.flatMap(\.loggedSets)
+        let workingSets = allSets.filter { $0.setType != .warmup && $0.reps > 0 }
+        let setCount = workingSets.count
+        let volLb = workingSets.reduce(0.0) { $0 + $1.totalVolumeLoad }
+        let volDisplay = WeightStoreConversion.displayValue(storedPounds: volLb, unit: userPreferences.weightDisplayUnit)
+        let unit = userPreferences.weightDisplayUnit.shortLabel
+
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Sets")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text("\(setCount)")
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+            }
+            .frame(maxWidth: .infinity)
+
+            Divider()
+                .frame(height: 28)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Volume")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(volDisplay == floor(volDisplay) ? "\(Int(volDisplay)) \(unit)" : String(format: "%.1f %@", volDisplay, unit))
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .frame(maxWidth: .infinity)
+
+            Divider()
+                .frame(height: 28)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Elapsed")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(currentVM.workoutElapsedFormatted)
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .background(Color.secondary.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .padding(.horizontal)
+        .padding(.top, 6)
+    }
+
+    @ViewBuilder
     private func inlineSetEntryRow(exerciseIndex: Int, log: ExerciseLog) -> some View {
         let logId = log.id
         let unit = userPreferences.weightDisplayUnit
@@ -1269,9 +1419,15 @@ struct CurrentWorkoutPullUpSheet: View {
         let fieldPadding = EdgeInsets(top: 7, leading: 9, bottom: 7, trailing: 9)
 
         VStack(alignment: .leading, spacing: 6) {
-            Text("Next set")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+            HStack {
+                Text("Next set")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Text("Tap ✓ to log, or edit first")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
             HStack(alignment: .center, spacing: 6) {
                 TextField("Wt", value: weightBinding, format: .number.precision(.fractionLength(0...2)))
                     .keyboardType(.decimalPad)
@@ -1296,14 +1452,18 @@ struct CurrentWorkoutPullUpSheet: View {
                     .padding(fieldPadding)
                     .background(Color(.systemGray6))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
-                Button("Log") {
+                Button {
                     fitlogDismissKeyboard()
                     numericFieldFocus = nil
                     inlineQuickLog(exerciseIndex: exerciseIndex, logId: logId)
+                } label: {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 34))
+                        .foregroundStyle(.green)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+                .buttonStyle(.plain)
                 .disabled((inlineRepsByLogId[logId] ?? 0) <= 0)
+                .accessibilityLabel("Log set")
                 Menu {
                     Button("Full log (RPE, drops…)", systemImage: "slider.horizontal.3") {
                         fitlogDismissKeyboard()
@@ -1313,6 +1473,11 @@ struct CurrentWorkoutPullUpSheet: View {
                             prefillDisplayWeight: inlineWeightByLogId[logId],
                             prefillReps: inlineRepsByLogId[logId]
                         )
+                    }
+                    Button("Plate calculator", systemImage: "scalemass") {
+                        fitlogDismissKeyboard()
+                        numericFieldFocus = nil
+                        plateCalculatorInlinePick = PlateCalculatorInlinePick(logId: logId)
                     }
                     if inlineRpeExpandedLogIds.contains(logId) {
                         Button("Hide quick RPE", systemImage: "gauge.with.dots.needle.67percent") {

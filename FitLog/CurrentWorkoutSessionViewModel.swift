@@ -536,7 +536,22 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         guard var session = currentSession, exerciseIndex < session.exerciseLogs.count else { return }
         guard let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exerciseId else { return }
 
-        let set = LoggedSet(id: UUID(), weight: weight, reps: reps, restTime: restTime, timestamp: Date(), isWarmup: isWarmup, configuration: configuration, dropSegments: dropSegments, rpe: rpe)
+        let resolvedSetType: ExerciseSetType = {
+            if isWarmup { return .warmup }
+            if !dropSegments.isEmpty { return .dropSet }
+            return .working
+        }()
+        let set = LoggedSet(
+            id: UUID(),
+            weight: weight,
+            reps: reps,
+            restTime: restTime,
+            timestamp: Date(),
+            setType: resolvedSetType,
+            configuration: configuration,
+            dropSegments: dropSegments,
+            rpe: rpe
+        )
         let priorCurrentSets = session.exerciseLogs[exerciseIndex].loggedSets
         let priorHistoricalSets: [LoggedSet] = (dataManager?.completedSessions ?? [])
             .flatMap(\.exerciseLogs)
@@ -670,6 +685,27 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         clearRestCompletionNotification()
         Task { @MainActor in
             RestTimerLiveActivityCoordinator.shared.endRestActivity()
+        }
+    }
+
+    /// Nudge the active rest countdown (e.g. +15 / −15) without restarting the timer tick loop.
+    func adjustRestCountdown(by delta: Int) {
+        guard delta != 0 else { return }
+        guard remainingRestTime > 0 || restTimer != nil else { return }
+        let capped = min(600, max(0, remainingRestTime + delta))
+        if capped == 0 {
+            cancelRestTimer()
+            return
+        }
+        remainingRestTime = capped
+        clearRestCompletionNotification()
+        scheduleRestNotification(seconds: capped)
+        let title = currentSession?.workout.name ?? "Workout"
+        Task { @MainActor in
+            RestTimerLiveActivityCoordinator.shared.syncRestCountdown(
+                remainingSeconds: capped,
+                workoutName: title
+            )
         }
     }
 
@@ -833,6 +869,14 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         }
         // Once completed, it's no longer active unless user reactivates via logging or toggle.
         session.activeExerciseIds.removeAll { $0 == exerciseId }
+        currentSession = session
+        recordWorkoutActivity()
+    }
+
+    /// Undo an explicit early completion so the exercise shows as in-progress again.
+    func markExerciseNotCompleted(exerciseId: UUID) {
+        guard var session = currentSession else { return }
+        session.completedExerciseIds.removeAll { $0 == exerciseId }
         currentSession = session
         recordWorkoutActivity()
     }
