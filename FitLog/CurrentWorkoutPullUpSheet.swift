@@ -1306,7 +1306,7 @@ struct CurrentWorkoutPullUpSheet: View {
                     .background(Color(.systemGray6))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 Button("Log") {
-                    View.fitlogDismissKeyboard()
+                    fitlogDismissKeyboard()
                     numericFieldFocus = nil
                     inlineQuickLog(exerciseIndex: exerciseIndex, logId: logId)
                 }
@@ -1315,7 +1315,7 @@ struct CurrentWorkoutPullUpSheet: View {
                 .disabled((inlineRepsByLogId[logId] ?? 0) <= 0)
                 Menu {
                     Button("Full log (RPE, drops…)", systemImage: "slider.horizontal.3") {
-                        View.fitlogDismissKeyboard()
+                        fitlogDismissKeyboard()
                         numericFieldFocus = nil
                         logSetSheetSelection = LogSetSheetSelection(
                             exerciseIndex: exerciseIndex,
@@ -1383,10 +1383,10 @@ struct CurrentWorkoutPullUpSheet: View {
         .onTapGesture {
             switch numericFieldFocus {
             case .inlineWeight(let id) where id == logId:
-                View.fitlogDismissKeyboard()
+                fitlogDismissKeyboard()
                 numericFieldFocus = nil
             case .inlineReps(let id) where id == logId:
-                View.fitlogDismissKeyboard()
+                fitlogDismissKeyboard()
                 numericFieldFocus = nil
             default:
                 break
@@ -1444,7 +1444,7 @@ struct CurrentWorkoutPullUpSheet: View {
                         .background(Color(.systemGray5))
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                     Button {
-                        View.fitlogDismissKeyboard()
+                        fitlogDismissKeyboard()
                         numericFieldFocus = nil
                         confirmEditingSet()
                     } label: {
@@ -1455,7 +1455,7 @@ struct CurrentWorkoutPullUpSheet: View {
                     .buttonStyle(.plain)
                     .disabled(editReps <= 0)
                     Button("Cancel") {
-                        View.fitlogDismissKeyboard()
+                        fitlogDismissKeyboard()
                         numericFieldFocus = nil
                         clearEditingSet()
                     }
@@ -1467,7 +1467,7 @@ struct CurrentWorkoutPullUpSheet: View {
             .onTapGesture {
                 switch numericFieldFocus {
                 case .editWeight, .editReps:
-                    View.fitlogDismissKeyboard()
+                    fitlogDismissKeyboard()
                     numericFieldFocus = nil
                 default:
                     break
