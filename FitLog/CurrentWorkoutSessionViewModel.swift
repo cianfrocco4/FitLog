@@ -420,16 +420,28 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     /// Reorders exercises for the active session. Library-backed workouts update `userWorkouts` and resync logs; ad-hoc sessions reorder the in-memory workout snapshot and logs together.
     func moveExerciseLogs(fromOffsets source: IndexSet, toOffset destination: Int) {
         guard var session = currentSession else { return }
+        let rowCount = session.exerciseLogs.count
+        guard rowCount > 0 else { return }
+
+        let safeSource = IndexSet(source.filter { $0 >= 0 && $0 < rowCount })
+        guard !safeSource.isEmpty else { return }
+        let safeDestination = min(max(0, destination), rowCount)
+
         let workoutId = session.workout.id
         if let dm = dataManager, dm.userWorkouts.contains(where: { $0.id == workoutId }) {
-            dm.moveExercise(in: session.workout, from: source, to: destination)
+            dm.moveExercise(in: session.workout, from: safeSource, to: safeDestination)
             if let updated = dm.userWorkouts.first(where: { $0.id == workoutId }) {
                 syncExercises(withUpdatedWorkout: updated)
             }
             recordWorkoutActivity()
         } else {
-            session.workout.exercises.move(fromOffsets: source, toOffset: destination)
-            session.exerciseLogs.move(fromOffsets: source, toOffset: destination)
+            guard session.workout.exercises.count == rowCount else {
+                // Session rows drifted out of sync; avoid index traps and rebuild from workout snapshot.
+                syncExercises(withUpdatedWorkout: session.workout)
+                return
+            }
+            session.workout.exercises.move(fromOffsets: safeSource, toOffset: safeDestination)
+            session.exerciseLogs.move(fromOffsets: safeSource, toOffset: safeDestination)
             currentSession = session
             recordWorkoutActivity()
             saveActiveSession()

@@ -262,24 +262,33 @@ struct WorkoutPlanView: View {
             workoutSummarySection
             workoutInsightsBannerSection
             if displayOrder == .defaultOrder {
-                ForEach(displayedItems) { item in
-                    exerciseRow(item: item)
-                }
-                .onDelete { indexSet in
-                    deleteExerciseRows(atOffsets: indexSet, items: displayedItems)
-                }
-                .onMove { from, to in
-                    dataVM.moveExercise(in: workout, from: from, to: to)
-                    if let updatedWorkout = dataVM.userWorkouts.first(where: { $0.id == workout.id }) {
-                        currentVM.syncExercises(withUpdatedWorkout: updatedWorkout)
+                Section("Exercises") {
+                    ForEach(displayedItems) { item in
+                        exerciseRow(item: item)
+                    }
+                    .onDelete { indexSet in
+                        deleteExerciseRows(atOffsets: indexSet, items: displayedItems)
+                    }
+                    .onMove { from, to in
+                        let count = displayedItems.count
+                        guard count > 0 else { return }
+                        let safeFrom = IndexSet(from.filter { $0 >= 0 && $0 < count })
+                        guard !safeFrom.isEmpty else { return }
+                        let safeTo = min(max(0, to), count)
+                        dataVM.moveExercise(in: workout, from: safeFrom, to: safeTo)
+                        if let updatedWorkout = dataVM.userWorkouts.first(where: { $0.id == workout.id }) {
+                            currentVM.syncExercises(withUpdatedWorkout: updatedWorkout)
+                        }
                     }
                 }
             } else {
-                ForEach(displayedItems) { item in
-                    exerciseRow(item: item)
-                }
-                .onDelete { indexSet in
-                    deleteExerciseRows(atOffsets: indexSet, items: displayedItems)
+                Section("Exercises") {
+                    ForEach(displayedItems) { item in
+                        exerciseRow(item: item)
+                    }
+                    .onDelete { indexSet in
+                        deleteExerciseRows(atOffsets: indexSet, items: displayedItems)
+                    }
                 }
             }
             addMenuSection
