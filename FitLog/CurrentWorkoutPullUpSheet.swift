@@ -428,7 +428,6 @@ struct CurrentWorkoutPullUpSheet: View {
     @State private var showQuickAddExercise = false
     @State private var showFullAddExercise = false
     @State private var showPRBanner = false
-    @State private var exerciseListEditMode = EditMode.inactive
 
     /// Inline quick-log draft per exercise log (stable across reorder).
     @State private var inlineWeightByLogId: [UUID: Double] = [:]
@@ -464,10 +463,6 @@ struct CurrentWorkoutPullUpSheet: View {
         return lib.hasFlexibleSlots
     }
 
-    private var isReorderModeActive: Bool {
-        exerciseListEditMode == .active
-    }
-    
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -574,23 +569,10 @@ struct CurrentWorkoutPullUpSheet: View {
                         }
 
                         if let exerciseLogs = currentVM.currentSession?.exerciseLogs, !exerciseLogs.isEmpty {
-                            if isReorderModeActive {
-                                Section {
-                                    Text("Reorder is temporarily disabled in Current Workout to avoid a runtime crash. You can reorder safely from the workout plan screen.")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                        .padding(.vertical, 6)
-                                }
-                                ForEach(Array(exerciseLogs.enumerated()), id: \.element.id) { _, log in
-                                    exerciseCollapsedHeader(log: log, isExpanded: false)
-                                        .id(log.id)
-                                }
-                                .moveDisabled(true)
-                            } else {
-                                ForEach(Array(exerciseLogs.enumerated()), id: \.element.id) { index, log in
-                                    let isExpanded = expandedExerciseIndex == index
+                            ForEach(Array(exerciseLogs.enumerated()), id: \.element.id) { index, log in
+                                let isExpanded = expandedExerciseIndex == index
 
-                                    Section {
+                                Section {
                                         if log.workoutExercise.isSlotPlaceholder {
                                             Button {
                                                 resolveSlotSelection = ResolveSlotWE(workoutExerciseId: log.workoutExercise.id, templateSlotId: log.workoutExercise.templateSlotId)
@@ -771,10 +753,8 @@ struct CurrentWorkoutPullUpSheet: View {
                                             .moveDisabled(true)
                                             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
                                         }
-                                    }
-                                    .id(log.id)
                                 }
-                                .onMove(perform: handleExerciseReorder)
+                                .id(log.id)
                             }
                         } else {
                             Section {
@@ -784,7 +764,6 @@ struct CurrentWorkoutPullUpSheet: View {
                             }
                         }
                     }
-                    .environment(\.editMode, $exerciseListEditMode)
                     .listStyle(.plain)
                     .scrollDismissesKeyboard(.interactively)
                     .keyboardDismissToolbar()
@@ -801,12 +780,6 @@ struct CurrentWorkoutPullUpSheet: View {
                             }
                         }
                     }
-                    .onChange(of: exerciseListEditMode) { _, mode in
-                        guard mode == .active else { return }
-                        expandedExerciseIndex = nil
-                        exerciseDetailMoreExpandedLogId = nil
-                        logSetSheetSelection = nil
-                    }
                 }
             }
             .navigationTitle("Current Workout")
@@ -817,21 +790,6 @@ struct CurrentWorkoutPullUpSheet: View {
                         showDiscardWorkoutConfirmation = true
                     }
                     .foregroundStyle(.red)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(exerciseListEditMode == .active ? "Done" : "Reorder") {
-                        withAnimation {
-                            if exerciseListEditMode != .active {
-                                expandedExerciseIndex = nil
-                                logSetSheetSelection = nil
-                                exerciseDetailMoreExpandedLogId = nil
-                                fitlogDismissKeyboard()
-                                numericFieldFocus = nil
-                            }
-                            exerciseListEditMode = exerciseListEditMode == .active ? .inactive : .active
-                        }
-                    }
-                    .disabled(true)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Finish") {
@@ -985,28 +943,6 @@ struct CurrentWorkoutPullUpSheet: View {
             expandedExerciseIndex = nil
         } else if let e = expandedExerciseIndex, e > index {
             expandedExerciseIndex = e - 1
-        }
-    }
-
-    private func handleExerciseReorder(source: IndexSet, destination: Int) {
-        let logs = currentVM.currentSession?.exerciseLogs ?? []
-        guard !logs.isEmpty else { return }
-        let safeSource = IndexSet(source.filter { $0 >= 0 && $0 < logs.count })
-        guard !safeSource.isEmpty else { return }
-        let safeDestination = min(max(0, destination), logs.count)
-        let expandedId = expandedExerciseIndex.flatMap { logs.indices.contains($0) ? logs[$0].id : nil }
-        let logSheetId = logSetSheetSelection.flatMap { sel in
-            logs.indices.contains(sel.exerciseIndex) ? logs[sel.exerciseIndex].id : nil
-        }
-        DispatchQueue.main.async {
-            currentVM.moveExerciseLogs(fromOffsets: safeSource, toOffset: safeDestination)
-            guard let newLogs = currentVM.currentSession?.exerciseLogs else { return }
-            if let eid = expandedId, let ni = newLogs.firstIndex(where: { $0.id == eid }) {
-                expandedExerciseIndex = ni
-            }
-            if let lid = logSheetId, let ni = newLogs.firstIndex(where: { $0.id == lid }) {
-                logSetSheetSelection = LogSetSheetSelection(exerciseIndex: ni)
-            }
         }
     }
 
