@@ -445,7 +445,7 @@ struct CurrentWorkoutPullUpSheet: View {
     @State private var inlineRepsByLogId: [UUID: Int] = [:]
     @State private var inlineInitializedLogIds: Set<UUID> = []
     /// Reps-first logging: optional added load minus assisted (display units); persisted as signed net stored weight.
-    @State private var inlineBodyweightModeLogIds: Set<UUID> = [:]
+    @State private var inlineBodyweightModeLogIds: Set<UUID> = []
     @State private var inlineBodyweightAddedByLogId: [UUID: Double] = [:]
     @State private var inlineBodyweightAssistedByLogId: [UUID: Double] = [:]
 
