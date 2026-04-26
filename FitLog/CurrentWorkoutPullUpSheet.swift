@@ -463,6 +463,10 @@ struct CurrentWorkoutPullUpSheet: View {
               let lib = dataVM.workout(id: libraryId) else { return false }
         return lib.hasFlexibleSlots
     }
+
+    private var isReorderModeActive: Bool {
+        exerciseListEditMode == .active
+    }
     
     var body: some View {
         NavigationStack {
@@ -605,6 +609,7 @@ struct CurrentWorkoutPullUpSheet: View {
                                         }
                                     } else {
                                         Button {
+                                            guard !isReorderModeActive else { return }
                                             withAnimation(.easeInOut(duration: 0.2)) {
                                                 expandedExerciseIndex = isExpanded ? nil : index
                                             }
@@ -634,7 +639,7 @@ struct CurrentWorkoutPullUpSheet: View {
                                             }
                                         }
                                     }
-                                    if isExpanded && !log.workoutExercise.isSlotPlaceholder {
+                                    if isExpanded && !log.workoutExercise.isSlotPlaceholder && !isReorderModeActive {
                                         setProgressIndicatorStrip(log: log)
                                             .moveDisabled(true)
                                             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
@@ -803,6 +808,12 @@ struct CurrentWorkoutPullUpSheet: View {
                             }
                         }
                     }
+                    .onChange(of: exerciseListEditMode) { _, mode in
+                        guard mode == .active else { return }
+                        expandedExerciseIndex = nil
+                        exerciseDetailMoreExpandedLogId = nil
+                        logSetSheetSelection = nil
+                    }
                 }
             }
             .navigationTitle("Current Workout")
@@ -817,6 +828,13 @@ struct CurrentWorkoutPullUpSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(exerciseListEditMode == .active ? "Done" : "Reorder") {
                         withAnimation {
+                            if exerciseListEditMode != .active {
+                                expandedExerciseIndex = nil
+                                logSetSheetSelection = nil
+                                exerciseDetailMoreExpandedLogId = nil
+                                fitlogDismissKeyboard()
+                                numericFieldFocus = nil
+                            }
                             exerciseListEditMode = exerciseListEditMode == .active ? .inactive : .active
                         }
                     }
