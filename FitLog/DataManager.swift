@@ -1145,7 +1145,14 @@ final class DataManager: ObservableObject {
 
         let safeSource = IndexSet(source.filter { $0 >= 0 && $0 < count })
         guard !safeSource.isEmpty else { return }
+        // SwiftUI `onMove` destinations can be unstable at boundaries (especially top insert).
+        // Normalize to a legal insertion target and avoid no-op move traps.
         let safeDestination = min(max(0, destination), count)
+        if safeSource.count == 1,
+           let from = safeSource.first,
+           (from == safeDestination || from + 1 == safeDestination) {
+            return
+        }
 
         userWorkouts[wIndex].exercises.move(fromOffsets: safeSource, toOffset: safeDestination)
         saveWorkouts()
