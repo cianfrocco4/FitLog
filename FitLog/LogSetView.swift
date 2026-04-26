@@ -634,6 +634,10 @@ struct LogSetView: View {
             return recent.restTime
         }
 
+        if let override = currentLog.sessionRestOverrideSeconds {
+            return override
+        }
+
         return currentLog.workoutExercise.defaultRestTime
     }
 

@@ -783,6 +783,8 @@ struct CurrentWorkoutPullUpSheet: View {
                                                     .textFieldStyle(.roundedBorder)
                                                     .font(.subheadline)
 
+                                                    sessionRestOverrideEditor(exerciseIndex: index, log: log)
+
                                                     HStack(spacing: 12) {
                                                         Button("Repeat last") {
                                                             currentVM.repeatLastSet(exerciseIndex: index)
@@ -1264,6 +1266,9 @@ struct CurrentWorkoutPullUpSheet: View {
         if let recent = latestSet {
             return recent.restTime
         }
+        if let override = exerciseLog.sessionRestOverrideSeconds {
+            return override
+        }
         return exerciseLog.workoutExercise.defaultRestTime
     }
 
@@ -1419,6 +1424,57 @@ struct CurrentWorkoutPullUpSheet: View {
         if isExerciseActive(log) { return .blue }
         if !log.loggedSets.isEmpty { return .orange }
         return .secondary
+    }
+
+    @ViewBuilder
+    private func sessionRestOverrideEditor(exerciseIndex: Int, log: ExerciseLog) -> some View {
+        let planDefault = log.workoutExercise.defaultRestTime
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Default rest (this session)")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Stepper(
+                value: Binding(
+                    get: {
+                        guard let logs = currentVM.currentSession?.exerciseLogs,
+                              logs.indices.contains(exerciseIndex)
+                        else { return planDefault }
+                        return logs[exerciseIndex].sessionRestOverrideSeconds ?? planDefault
+                    },
+                    set: { currentVM.setExerciseLogSessionRestOverride(at: exerciseIndex, seconds: $0) }
+                ),
+                in: 0...300,
+                step: 15
+            ) {
+                let shown: Int = {
+                    guard let logs = currentVM.currentSession?.exerciseLogs,
+                          logs.indices.contains(exerciseIndex)
+                    else { return planDefault }
+                    return logs[exerciseIndex].sessionRestOverrideSeconds ?? planDefault
+                }()
+                Text("Next set rest: \(shown)s")
+                    .font(.subheadline)
+                Text("Plan default: \(planDefault)s")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            if log.sessionRestOverrideSeconds != nil {
+                Button("Reset to plan default") {
+                    currentVM.clearExerciseLogSessionRestOverride(at: exerciseIndex)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .font(.caption)
+            }
+            Text(
+                log.loggedSets.isEmpty
+                    ? "Used for your first set and inline quick-log until you log a set."
+                    : "After the first set, rest follows each logged set. Change rest in full log for new sets."
+            )
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder

@@ -464,6 +464,25 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         saveActiveSession()
     }
 
+    /// Session-only default rest for the next set when this exercise has no logged sets yet (does not change the library workout).
+    func setExerciseLogSessionRestOverride(at index: Int, seconds: Int) {
+        guard var session = currentSession, session.exerciseLogs.indices.contains(index) else { return }
+        let clamped = min(300, max(0, seconds))
+        let planDefault = session.exerciseLogs[index].workoutExercise.defaultRestTime
+        session.exerciseLogs[index].sessionRestOverrideSeconds = (clamped == planDefault) ? nil : clamped
+        currentSession = session
+        recordWorkoutActivity()
+        saveActiveSession()
+    }
+
+    func clearExerciseLogSessionRestOverride(at index: Int) {
+        guard var session = currentSession, session.exerciseLogs.indices.contains(index) else { return }
+        session.exerciseLogs[index].sessionRestOverrideSeconds = nil
+        currentSession = session
+        recordWorkoutActivity()
+        saveActiveSession()
+    }
+
     /// Replace a template slot placeholder with a real exercise while preserving `WorkoutExercise.id` (stable for logs).
     /// Swapping an already-resolved exercise clears its logged sets.
     func resolveSlotPlaceholder(workoutExerciseId: UUID, exercise: Exercise) {

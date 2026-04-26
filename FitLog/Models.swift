@@ -957,12 +957,21 @@ struct ExerciseLog: Identifiable, Codable {
     var loggedSets: [LoggedSet]
     /// Freeform notes for this exercise during the session.
     var notes: String
+    /// When set, inline / full log rest prefill uses this instead of history or `WorkoutExercise.defaultRestTime`. Session-only (not written back to the library workout).
+    var sessionRestOverrideSeconds: Int?
 
-    init(id: UUID, workoutExercise: WorkoutExercise, loggedSets: [LoggedSet], notes: String = "") {
+    init(
+        id: UUID,
+        workoutExercise: WorkoutExercise,
+        loggedSets: [LoggedSet],
+        notes: String = "",
+        sessionRestOverrideSeconds: Int? = nil
+    ) {
         self.id = id
         self.workoutExercise = workoutExercise
         self.loggedSets = loggedSets
         self.notes = notes
+        self.sessionRestOverrideSeconds = sessionRestOverrideSeconds
     }
 
     init(from decoder: Decoder) throws {
@@ -971,6 +980,7 @@ struct ExerciseLog: Identifiable, Codable {
         workoutExercise = try c.decode(WorkoutExercise.self, forKey: .workoutExercise)
         loggedSets = try c.decode([LoggedSet].self, forKey: .loggedSets)
         notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        sessionRestOverrideSeconds = try c.decodeIfPresent(Int.self, forKey: .sessionRestOverrideSeconds)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -979,10 +989,11 @@ struct ExerciseLog: Identifiable, Codable {
         try c.encode(workoutExercise, forKey: .workoutExercise)
         try c.encode(loggedSets, forKey: .loggedSets)
         if !notes.isEmpty { try c.encode(notes, forKey: .notes) }
+        if let sessionRestOverrideSeconds { try c.encode(sessionRestOverrideSeconds, forKey: .sessionRestOverrideSeconds) }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, workoutExercise, loggedSets, notes
+        case id, workoutExercise, loggedSets, notes, sessionRestOverrideSeconds
     }
 }
 
@@ -1070,7 +1081,13 @@ struct WorkoutSession: Identifiable, Codable {
                     rpe: s.rpe
                 )
             }
-            return ExerciseLog(id: UUID(), workoutExercise: log.workoutExercise, loggedSets: newSets, notes: log.notes)
+            return ExerciseLog(
+                id: UUID(),
+                workoutExercise: log.workoutExercise,
+                loggedSets: newSets,
+                notes: log.notes,
+                sessionRestOverrideSeconds: log.sessionRestOverrideSeconds
+            )
         }
         var active = completed.activeExerciseIds
         if active.isEmpty {
