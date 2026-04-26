@@ -749,11 +749,15 @@ struct CurrentWorkoutPullUpSheet: View {
                             }
                             .onMove { source, destination in
                                 let logs = currentVM.currentSession?.exerciseLogs ?? []
+                                guard !logs.isEmpty else { return }
+                                let safeSource = IndexSet(source.filter { $0 >= 0 && $0 < logs.count })
+                                guard !safeSource.isEmpty else { return }
+                                let safeDestination = min(max(0, destination), logs.count)
                                 let expandedId = expandedExerciseIndex.flatMap { logs.indices.contains($0) ? logs[$0].id : nil }
                                 let logSheetId = logSetSheetSelection.flatMap { sel in
                                     logs.indices.contains(sel.exerciseIndex) ? logs[sel.exerciseIndex].id : nil
                                 }
-                                currentVM.moveExerciseLogs(fromOffsets: source, toOffset: destination)
+                                currentVM.moveExerciseLogs(fromOffsets: safeSource, toOffset: safeDestination)
                                 guard let newLogs = currentVM.currentSession?.exerciseLogs else { return }
                                 if let eid = expandedId, let ni = newLogs.firstIndex(where: { $0.id == eid }) {
                                     expandedExerciseIndex = ni

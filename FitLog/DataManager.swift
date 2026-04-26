@@ -1140,7 +1140,14 @@ final class DataManager: ObservableObject {
 
     func moveExercise(in workout: Workout, from source: IndexSet, to destination: Int) {
         guard let wIndex = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
-        userWorkouts[wIndex].exercises.move(fromOffsets: source, toOffset: destination)
+        let count = userWorkouts[wIndex].exercises.count
+        guard count > 0 else { return }
+
+        let safeSource = IndexSet(source.filter { $0 >= 0 && $0 < count })
+        guard !safeSource.isEmpty else { return }
+        let safeDestination = min(max(0, destination), count)
+
+        userWorkouts[wIndex].exercises.move(fromOffsets: safeSource, toOffset: safeDestination)
         saveWorkouts()
     }
 
