@@ -690,8 +690,18 @@ struct CurrentWorkoutPullUpSheet: View {
                                                 }
 
                                                 TextField("Notes for this exercise", text: Binding(
-                                                    get: { currentVM.currentSession?.exerciseLogs[index].notes ?? "" },
-                                                    set: { currentVM.setExerciseLogNotes(at: index, notes: $0) }
+                                                    get: {
+                                                        guard let logs = currentVM.currentSession?.exerciseLogs,
+                                                              logs.indices.contains(index)
+                                                        else { return "" }
+                                                        return logs[index].notes
+                                                    },
+                                                    set: { newText in
+                                                        guard let logs = currentVM.currentSession?.exerciseLogs,
+                                                              logs.indices.contains(index)
+                                                        else { return }
+                                                        currentVM.setExerciseLogNotes(at: index, notes: newText)
+                                                    }
                                                 ), axis: .vertical)
                                                 .lineLimit(2...4)
                                                 .textFieldStyle(.roundedBorder)
@@ -757,13 +767,15 @@ struct CurrentWorkoutPullUpSheet: View {
                                 let logSheetId = logSetSheetSelection.flatMap { sel in
                                     logs.indices.contains(sel.exerciseIndex) ? logs[sel.exerciseIndex].id : nil
                                 }
-                                currentVM.moveExerciseLogs(fromOffsets: safeSource, toOffset: safeDestination)
-                                guard let newLogs = currentVM.currentSession?.exerciseLogs else { return }
-                                if let eid = expandedId, let ni = newLogs.firstIndex(where: { $0.id == eid }) {
-                                    expandedExerciseIndex = ni
-                                }
-                                if let lid = logSheetId, let ni = newLogs.firstIndex(where: { $0.id == lid }) {
-                                    logSetSheetSelection = LogSetSheetSelection(exerciseIndex: ni)
+                                DispatchQueue.main.async {
+                                    currentVM.moveExerciseLogs(fromOffsets: safeSource, toOffset: safeDestination)
+                                    guard let newLogs = currentVM.currentSession?.exerciseLogs else { return }
+                                    if let eid = expandedId, let ni = newLogs.firstIndex(where: { $0.id == eid }) {
+                                        expandedExerciseIndex = ni
+                                    }
+                                    if let lid = logSheetId, let ni = newLogs.firstIndex(where: { $0.id == lid }) {
+                                        logSetSheetSelection = LogSetSheetSelection(exerciseIndex: ni)
+                                    }
                                 }
                             }
                         } else {
