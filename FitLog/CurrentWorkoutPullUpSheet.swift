@@ -574,214 +574,208 @@ struct CurrentWorkoutPullUpSheet: View {
                         }
 
                         if let exerciseLogs = currentVM.currentSession?.exerciseLogs, !exerciseLogs.isEmpty {
-                            ForEach(Array(exerciseLogs.enumerated()), id: \.element.id) { index, log in
-                                let isExpanded = expandedExerciseIndex == index
+                            if isReorderModeActive {
+                                ForEach(Array(exerciseLogs.enumerated()), id: \.element.id) { index, log in
+                                    Button {
+                                        // No-op in reorder mode; rows are drag handles only.
+                                    } label: {
+                                        exerciseCollapsedHeader(log: log, isExpanded: false)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .foregroundStyle(.primary)
+                                    .moveDisabled(false)
+                                    .id(log.id)
+                                }
+                                .onMove(perform: handleExerciseReorder)
+                            } else {
+                                ForEach(Array(exerciseLogs.enumerated()), id: \.element.id) { index, log in
+                                    let isExpanded = expandedExerciseIndex == index
 
-                                Section {
-                                    if log.workoutExercise.isSlotPlaceholder {
-                                        Button {
-                                            resolveSlotSelection = ResolveSlotWE(workoutExerciseId: log.workoutExercise.id, templateSlotId: log.workoutExercise.templateSlotId)
-                                        } label: {
-                                            HStack {
-                                                Image(systemName: "square.dashed")
-                                                    .font(.title3)
-                                                    .foregroundStyle(.orange)
-                                                VStack(alignment: .leading, spacing: 2) {
-                                                    Text(log.workoutExercise.slotLabel.isEmpty ? "Choose exercise" : log.workoutExercise.slotLabel)
-                                                        .font(.headline)
-                                                    Text("Tap to pick an exercise")
-                                                        .font(.caption)
+                                    Section {
+                                        if log.workoutExercise.isSlotPlaceholder {
+                                            Button {
+                                                resolveSlotSelection = ResolveSlotWE(workoutExerciseId: log.workoutExercise.id, templateSlotId: log.workoutExercise.templateSlotId)
+                                            } label: {
+                                                HStack {
+                                                    Image(systemName: "square.dashed")
+                                                        .font(.title3)
+                                                        .foregroundStyle(.orange)
+                                                    VStack(alignment: .leading, spacing: 2) {
+                                                        Text(log.workoutExercise.slotLabel.isEmpty ? "Choose exercise" : log.workoutExercise.slotLabel)
+                                                            .font(.headline)
+                                                        Text("Tap to pick an exercise")
+                                                            .font(.caption)
+                                                            .foregroundStyle(.orange)
+                                                    }
+                                                    Spacer()
+                                                    Image(systemName: "chevron.right")
                                                         .foregroundStyle(.orange)
                                                 }
-                                                Spacer()
-                                                Image(systemName: "chevron.right")
-                                                    .foregroundStyle(.orange)
+                                                .padding(.vertical, 4)
+                                                .contentShape(Rectangle())
                                             }
-                                            .padding(.vertical, 4)
-                                            .contentShape(Rectangle())
-                                        }
-                                        .buttonStyle(.plain)
-                                        .listRowBackground(Color.orange.opacity(0.08))
-                                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                            Button("Remove", role: .destructive) {
-                                                removeExerciseAtListIndex(index, rowId: log.workoutExercise.id)
-                                            }
-                                        }
-                                    } else {
-                                        Button {
-                                            guard !isReorderModeActive else { return }
-                                            withAnimation(.easeInOut(duration: 0.2)) {
-                                                expandedExerciseIndex = isExpanded ? nil : index
-                                            }
-                                        } label: {
-                                            exerciseCollapsedHeader(log: log, isExpanded: isExpanded)
-                                        }
-                                        .buttonStyle(.plain)
-                                        .foregroundStyle(.primary)
-                                        .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                                            if let slotId = currentVM.currentSession?.workout.templateSlotId(forWorkoutExerciseRow: log.workoutExercise.id),
-                                               log.workoutExercise.exerciseId != nil {
-                                                Button {
-                                                    resolveSlotSelection = ResolveSlotWE(
-                                                        workoutExerciseId: log.workoutExercise.id,
-                                                        templateSlotId: slotId,
-                                                        isSwapExercise: true
-                                                    )
-                                                } label: {
-                                                    Label("Swap", systemImage: "arrow.triangle.2.circlepath")
+                                            .buttonStyle(.plain)
+                                            .listRowBackground(Color.orange.opacity(0.08))
+                                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                                Button("Remove", role: .destructive) {
+                                                    removeExerciseAtListIndex(index, rowId: log.workoutExercise.id)
                                                 }
-                                                .tint(.indigo)
                                             }
-                                        }
-                                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                            Button("Remove", role: .destructive) {
-                                                removeExerciseAtListIndex(index, rowId: log.workoutExercise.id)
-                                            }
-                                        }
-                                    }
-                                    if isExpanded && !log.workoutExercise.isSlotPlaceholder && !isReorderModeActive {
-                                        setProgressIndicatorStrip(log: log)
-                                            .moveDisabled(true)
-                                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-
-                                        inlineSetEntryRow(exerciseIndex: index, log: log)
-                                            .moveDisabled(true)
-                                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-
-                                        if log.loggedSets.isEmpty {
-                                            Text("No sets logged yet")
-                                                .moveDisabled(true)
-                                                .foregroundStyle(.secondary)
-                                                .italic()
-                                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                                         } else {
-                                            ForEach(Array(log.loggedSets.enumerated()), id: \.element.id) { setIndex, set in
-                                                interactiveLoggedSetRow(
-                                                    exerciseIndex: index,
-                                                    setIndex: setIndex,
-                                                    chronologicalSetNumber: setIndex + 1,
-                                                    set: set,
-                                                    workoutExercise: log.workoutExercise,
-                                                    isHighlighted: set.id == highlightedLoggedSetId
-                                                )
+                                            Button {
+                                                withAnimation(.easeInOut(duration: 0.2)) {
+                                                    expandedExerciseIndex = isExpanded ? nil : index
+                                                }
+                                            } label: {
+                                                exerciseCollapsedHeader(log: log, isExpanded: isExpanded)
+                                            }
+                                            .buttonStyle(.plain)
+                                            .foregroundStyle(.primary)
+                                            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                                if let slotId = currentVM.currentSession?.workout.templateSlotId(forWorkoutExerciseRow: log.workoutExercise.id),
+                                                   log.workoutExercise.exerciseId != nil {
+                                                    Button {
+                                                        resolveSlotSelection = ResolveSlotWE(
+                                                            workoutExerciseId: log.workoutExercise.id,
+                                                            templateSlotId: slotId,
+                                                            isSwapExercise: true
+                                                        )
+                                                    } label: {
+                                                        Label("Swap", systemImage: "arrow.triangle.2.circlepath")
+                                                    }
+                                                    .tint(.indigo)
+                                                }
+                                            }
+                                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                                Button("Remove", role: .destructive) {
+                                                    removeExerciseAtListIndex(index, rowId: log.workoutExercise.id)
+                                                }
+                                            }
+                                        }
+                                        if isExpanded && !log.workoutExercise.isSlotPlaceholder {
+                                            setProgressIndicatorStrip(log: log)
+                                                .moveDisabled(true)
+                                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+
+                                            inlineSetEntryRow(exerciseIndex: index, log: log)
                                                 .moveDisabled(true)
                                                 .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                                    Button("Delete", role: .destructive) {
-                                                        clearEditingSetIfNeeded(setId: set.id)
-                                                        currentVM.deleteSet(exerciseIndex: index, setIndex: setIndex)
+
+                                            if log.loggedSets.isEmpty {
+                                                Text("No sets logged yet")
+                                                    .moveDisabled(true)
+                                                    .foregroundStyle(.secondary)
+                                                    .italic()
+                                                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                                            } else {
+                                                ForEach(Array(log.loggedSets.enumerated()), id: \.element.id) { setIndex, set in
+                                                    interactiveLoggedSetRow(
+                                                        exerciseIndex: index,
+                                                        setIndex: setIndex,
+                                                        chronologicalSetNumber: setIndex + 1,
+                                                        set: set,
+                                                        workoutExercise: log.workoutExercise,
+                                                        isHighlighted: set.id == highlightedLoggedSetId
+                                                    )
+                                                    .moveDisabled(true)
+                                                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                                        Button("Delete", role: .destructive) {
+                                                            clearEditingSetIfNeeded(setId: set.id)
+                                                            currentVM.deleteSet(exerciseIndex: index, setIndex: setIndex)
+                                                        }
                                                     }
                                                 }
                                             }
-                                        }
 
-                                        DisclosureGroup(isExpanded: Binding(
-                                            get: { exerciseDetailMoreExpandedLogId == log.id },
-                                            set: { exerciseDetailMoreExpandedLogId = $0 ? log.id : nil }
-                                        )) {
-                                            VStack(alignment: .leading, spacing: 12) {
-                                                if let previousLog = lastCompletedLog(for: log) {
-                                                    matchOrBeatPreviousRow(
-                                                        log: log,
-                                                        exerciseIndex: index,
-                                                        previousLog: previousLog,
-                                                        includeListRowInsets: false
-                                                    )
-                                                    previousSessionSummaryRow(previousLog: previousLog, includeListRowInsets: false)
-                                                }
-
-                                                if !log.workoutExercise.configurationFields.isEmpty {
-                                                    recommendedConfigurationRow(for: log.workoutExercise, includeListRowInsets: false)
-                                                }
-
-                                                TextField("Notes for this exercise", text: Binding(
-                                                    get: {
-                                                        guard let logs = currentVM.currentSession?.exerciseLogs,
-                                                              logs.indices.contains(index)
-                                                        else { return "" }
-                                                        return logs[index].notes
-                                                    },
-                                                    set: { newText in
-                                                        guard let logs = currentVM.currentSession?.exerciseLogs,
-                                                              logs.indices.contains(index)
-                                                        else { return }
-                                                        currentVM.setExerciseLogNotes(at: index, notes: newText)
+                                            DisclosureGroup(isExpanded: Binding(
+                                                get: { exerciseDetailMoreExpandedLogId == log.id },
+                                                set: { exerciseDetailMoreExpandedLogId = $0 ? log.id : nil }
+                                            )) {
+                                                VStack(alignment: .leading, spacing: 12) {
+                                                    if let previousLog = lastCompletedLog(for: log) {
+                                                        matchOrBeatPreviousRow(
+                                                            log: log,
+                                                            exerciseIndex: index,
+                                                            previousLog: previousLog,
+                                                            includeListRowInsets: false
+                                                        )
+                                                        previousSessionSummaryRow(previousLog: previousLog, includeListRowInsets: false)
                                                     }
-                                                ), axis: .vertical)
-                                                .lineLimit(2...4)
-                                                .textFieldStyle(.roundedBorder)
-                                                .font(.subheadline)
 
-                                                HStack(spacing: 12) {
-                                                    Button("Repeat last") {
-                                                        currentVM.repeatLastSet(exerciseIndex: index)
-                                                        syncInlineDraftAfterLog(for: log.id, exerciseIndex: index)
-                                                        triggerHighlightForLastSet(exerciseIndex: index)
+                                                    if !log.workoutExercise.configurationFields.isEmpty {
+                                                        recommendedConfigurationRow(for: log.workoutExercise, includeListRowInsets: false)
                                                     }
-                                                    .buttonStyle(.bordered)
-                                                    .disabled(log.loggedSets.isEmpty)
 
-                                                    Menu {
-                                                        if let exId = log.workoutExercise.exerciseId {
-                                                            if let slotId = currentVM.currentSession?.workout.templateSlotId(forWorkoutExerciseRow: log.workoutExercise.id) {
-                                                                Button("Swap exercise") {
-                                                                    resolveSlotSelection = ResolveSlotWE(
-                                                                        workoutExerciseId: log.workoutExercise.id,
-                                                                        templateSlotId: slotId,
-                                                                        isSwapExercise: true
-                                                                    )
+                                                    TextField("Notes for this exercise", text: Binding(
+                                                        get: {
+                                                            guard let logs = currentVM.currentSession?.exerciseLogs,
+                                                                  logs.indices.contains(index)
+                                                            else { return "" }
+                                                            return logs[index].notes
+                                                        },
+                                                        set: { newText in
+                                                            guard let logs = currentVM.currentSession?.exerciseLogs,
+                                                                  logs.indices.contains(index)
+                                                            else { return }
+                                                            currentVM.setExerciseLogNotes(at: index, notes: newText)
+                                                        }
+                                                    ), axis: .vertical)
+                                                    .lineLimit(2...4)
+                                                    .textFieldStyle(.roundedBorder)
+                                                    .font(.subheadline)
+
+                                                    HStack(spacing: 12) {
+                                                        Button("Repeat last") {
+                                                            currentVM.repeatLastSet(exerciseIndex: index)
+                                                            syncInlineDraftAfterLog(for: log.id, exerciseIndex: index)
+                                                            triggerHighlightForLastSet(exerciseIndex: index)
+                                                        }
+                                                        .buttonStyle(.bordered)
+                                                        .disabled(log.loggedSets.isEmpty)
+
+                                                        Menu {
+                                                            if let exId = log.workoutExercise.exerciseId {
+                                                                if let slotId = currentVM.currentSession?.workout.templateSlotId(forWorkoutExerciseRow: log.workoutExercise.id) {
+                                                                    Button("Swap exercise") {
+                                                                        resolveSlotSelection = ResolveSlotWE(
+                                                                            workoutExerciseId: log.workoutExercise.id,
+                                                                            templateSlotId: slotId,
+                                                                            isSwapExercise: true
+                                                                        )
+                                                                    }
+                                                                }
+                                                                Button("Set as current") {
+                                                                    currentVM.setPrimaryExercise(exerciseId: exId)
+                                                                }
+                                                                Button(statusSupersetToggleTitle(for: log)) {
+                                                                    currentVM.toggleSupersetExercise(exerciseId: exId)
+                                                                }
+                                                                Button("Mark completed") {
+                                                                    currentVM.markExerciseCompleted(exerciseId: exId)
                                                                 }
                                                             }
-                                                            Button("Set as current") {
-                                                                currentVM.setPrimaryExercise(exerciseId: exId)
+                                                            Button("Remove from workout", role: .destructive) {
+                                                                removeExerciseAtListIndex(index, rowId: log.workoutExercise.id)
                                                             }
-                                                            Button(statusSupersetToggleTitle(for: log)) {
-                                                                currentVM.toggleSupersetExercise(exerciseId: exId)
-                                                            }
-                                                            Button("Mark completed") {
-                                                                currentVM.markExerciseCompleted(exerciseId: exId)
-                                                            }
+                                                        } label: {
+                                                            Label("More", systemImage: "ellipsis.circle")
                                                         }
-                                                        Button("Remove from workout", role: .destructive) {
-                                                            removeExerciseAtListIndex(index, rowId: log.workoutExercise.id)
-                                                        }
-                                                    } label: {
-                                                        Label("More", systemImage: "ellipsis.circle")
                                                     }
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
                                                 }
-                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                                .padding(.vertical, 4)
+                                            } label: {
+                                                Label("History, notes, and actions", systemImage: "text.alignleft")
+                                                    .font(.subheadline.weight(.medium))
                                             }
-                                            .padding(.vertical, 4)
-                                        } label: {
-                                            Label("History, notes, and actions", systemImage: "text.alignleft")
-                                                .font(.subheadline.weight(.medium))
+                                            .moveDisabled(true)
+                                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
                                         }
-                                        .moveDisabled(true)
-                                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
                                     }
+                                    .id(log.id)
                                 }
-                                .id(log.id)
-                            }
-                            .onMove { source, destination in
-                                let logs = currentVM.currentSession?.exerciseLogs ?? []
-                                guard !logs.isEmpty else { return }
-                                let safeSource = IndexSet(source.filter { $0 >= 0 && $0 < logs.count })
-                                guard !safeSource.isEmpty else { return }
-                                let safeDestination = min(max(0, destination), logs.count)
-                                let expandedId = expandedExerciseIndex.flatMap { logs.indices.contains($0) ? logs[$0].id : nil }
-                                let logSheetId = logSetSheetSelection.flatMap { sel in
-                                    logs.indices.contains(sel.exerciseIndex) ? logs[sel.exerciseIndex].id : nil
-                                }
-                                DispatchQueue.main.async {
-                                    currentVM.moveExerciseLogs(fromOffsets: safeSource, toOffset: safeDestination)
-                                    guard let newLogs = currentVM.currentSession?.exerciseLogs else { return }
-                                    if let eid = expandedId, let ni = newLogs.firstIndex(where: { $0.id == eid }) {
-                                        expandedExerciseIndex = ni
-                                    }
-                                    if let lid = logSheetId, let ni = newLogs.firstIndex(where: { $0.id == lid }) {
-                                        logSetSheetSelection = LogSetSheetSelection(exerciseIndex: ni)
-                                    }
-                                }
+                                .onMove(perform: handleExerciseReorder)
                             }
                         } else {
                             Section {
@@ -991,6 +985,28 @@ struct CurrentWorkoutPullUpSheet: View {
             expandedExerciseIndex = nil
         } else if let e = expandedExerciseIndex, e > index {
             expandedExerciseIndex = e - 1
+        }
+    }
+
+    private func handleExerciseReorder(source: IndexSet, destination: Int) {
+        let logs = currentVM.currentSession?.exerciseLogs ?? []
+        guard !logs.isEmpty else { return }
+        let safeSource = IndexSet(source.filter { $0 >= 0 && $0 < logs.count })
+        guard !safeSource.isEmpty else { return }
+        let safeDestination = min(max(0, destination), logs.count)
+        let expandedId = expandedExerciseIndex.flatMap { logs.indices.contains($0) ? logs[$0].id : nil }
+        let logSheetId = logSetSheetSelection.flatMap { sel in
+            logs.indices.contains(sel.exerciseIndex) ? logs[sel.exerciseIndex].id : nil
+        }
+        DispatchQueue.main.async {
+            currentVM.moveExerciseLogs(fromOffsets: safeSource, toOffset: safeDestination)
+            guard let newLogs = currentVM.currentSession?.exerciseLogs else { return }
+            if let eid = expandedId, let ni = newLogs.firstIndex(where: { $0.id == eid }) {
+                expandedExerciseIndex = ni
+            }
+            if let lid = logSheetId, let ni = newLogs.firstIndex(where: { $0.id == lid }) {
+                logSetSheetSelection = LogSetSheetSelection(exerciseIndex: ni)
+            }
         }
     }
 
