@@ -1754,7 +1754,6 @@ struct CurrentWorkoutPullUpSheet: View {
                 .accessibilityLabel("More logging options")
                 }
             }
-            }
             if inlineRpeExpandedLogIds.contains(logId) {
                 HStack(spacing: 6) {
                     Button("Clear RPE") {
