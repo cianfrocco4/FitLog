@@ -14,6 +14,8 @@ private struct LogSetSheetSelection: Identifiable {
     let exerciseIndex: Int
     var prefillDisplayWeight: Double? = nil
     var prefillReps: Int? = nil
+    /// When true, `LogSetView` opens in reps-first bodyweight layout (added / assisted optional).
+    var prefillBodyweightMode: Bool = false
 }
 
 private struct ResolveSlotWE: Identifiable {
@@ -405,6 +407,8 @@ private enum TemplateSwapExerciseSimilarity {
 
 private enum PullUpNumericFieldFocus: Hashable {
     case inlineWeight(UUID)
+    case inlineAdded(UUID)
+    case inlineAssisted(UUID)
     case inlineReps(UUID)
     case editWeight
     case editReps
@@ -440,6 +444,10 @@ struct CurrentWorkoutPullUpSheet: View {
     @State private var inlineWeightByLogId: [UUID: Double] = [:]
     @State private var inlineRepsByLogId: [UUID: Int] = [:]
     @State private var inlineInitializedLogIds: Set<UUID> = []
+    /// Reps-first logging: optional added load minus assisted (display units); persisted as signed net stored weight.
+    @State private var inlineBodyweightModeLogIds: Set<UUID> = [:]
+    @State private var inlineBodyweightAddedByLogId: [UUID: Double] = [:]
+    @State private var inlineBodyweightAssistedByLogId: [UUID: Double] = [:]
 
     /// Inline edit for an existing set (array indices; stable until list mutates).
     @State private var editingSetExerciseIndex: Int?
@@ -885,7 +893,8 @@ struct CurrentWorkoutPullUpSheet: View {
                     sessionVM: currentVM,
                     exerciseIndex: selection.exerciseIndex,
                     prefillDisplayWeight: selection.prefillDisplayWeight,
-                    prefillReps: selection.prefillReps
+                    prefillReps: selection.prefillReps,
+                    prefillBodyweightMode: selection.prefillBodyweightMode
                 )
                 .environmentObject(dataVM)
                 .environmentObject(userPreferences)
@@ -931,14 +940,22 @@ struct CurrentWorkoutPullUpSheet: View {
                     .environmentObject(dataVM)
             }
             .sheet(item: $plateCalculatorInlinePick) { pick in
+                let suggest = {
+                    let w = inlineNetDisplayWeight(for: pick.logId)
+                    return w > 0 ? w : nil
+                }()
                 PlateCalculatorSheet(
                     displayUnit: userPreferences.weightDisplayUnit,
-                    suggestedTargetDisplay: {
-                        let w = inlineWeightByLogId[pick.logId] ?? 0
-                        return w > 0 ? w : nil
-                    }(),
+                    suggestedTargetDisplay: suggest,
                     onApplyDisplayWeight: { w in
-                        inlineWeightByLogId[pick.logId] = clampDisplayWeightForUser(w)
+                        let unit = userPreferences.weightDisplayUnit
+                        let clamped = WeightStoreConversion.clampNonNegativeDisplay(w, unit: unit)
+                        if inlineBodyweightModeLogIds.contains(pick.logId) {
+                            inlineBodyweightAddedByLogId[pick.logId] = clamped
+                            inlineBodyweightAssistedByLogId[pick.logId] = 0
+                        } else {
+                            inlineWeightByLogId[pick.logId] = clamped
+                        }
                     }
                 )
             }
@@ -1137,15 +1154,62 @@ struct CurrentWorkoutPullUpSheet: View {
         let lid = log.id
         guard !inlineInitializedLogIds.contains(lid) else { return }
         let (w, r) = prefillInlineWeightReps(for: log)
-        inlineWeightByLogId[lid] = w
         inlineRepsByLogId[lid] = r
+        let unit = userPreferences.weightDisplayUnit
+        if let last = log.loggedSets.last {
+            let net = WeightStoreConversion.displayValue(storedPounds: last.weight, unit: unit)
+            let netClamped = clampSignedNetDisplayForUser(net)
+            if netClamped <= 0 {
+                inlineBodyweightModeLogIds.insert(lid)
+                inlineBodyweightAddedByLogId[lid] = 0
+                inlineBodyweightAssistedByLogId[lid] = netClamped < 0
+                    ? WeightStoreConversion.clampNonNegativeDisplay(-netClamped, unit: unit)
+                    : 0
+                inlineWeightByLogId[lid] = 0
+            } else {
+                inlineWeightByLogId[lid] = WeightStoreConversion.clampNonNegativeDisplay(netClamped, unit: unit)
+            }
+        } else {
+            inlineWeightByLogId[lid] = w
+            if w == 0 {
+                inlineBodyweightModeLogIds.insert(lid)
+                inlineBodyweightAddedByLogId[lid] = 0
+                inlineBodyweightAssistedByLogId[lid] = 0
+            }
+        }
         inlineInitializedLogIds.insert(lid)
     }
 
     private func clampDisplayWeightForUser(_ w: Double) -> Double {
-        let r = WeightStoreConversion.displayRange(unit: userPreferences.weightDisplayUnit)
-        guard w.isFinite else { return 0 }
-        return min(r.upperBound, max(r.lowerBound, w))
+        WeightStoreConversion.clampNonNegativeDisplay(w, unit: userPreferences.weightDisplayUnit)
+    }
+
+    private func clampSignedNetDisplayForUser(_ w: Double) -> Double {
+        WeightStoreConversion.clampSignedNetDisplay(w, unit: userPreferences.weightDisplayUnit)
+    }
+
+    private func inlineNetDisplayWeight(for logId: UUID) -> Double {
+        if inlineBodyweightModeLogIds.contains(logId) {
+            let added = WeightStoreConversion.clampNonNegativeDisplay(
+                inlineBodyweightAddedByLogId[logId] ?? 0,
+                unit: userPreferences.weightDisplayUnit
+            )
+            let assisted = WeightStoreConversion.clampNonNegativeDisplay(
+                inlineBodyweightAssistedByLogId[logId] ?? 0,
+                unit: userPreferences.weightDisplayUnit
+            )
+            return clampSignedNetDisplayForUser(added - assisted)
+        }
+        return clampDisplayWeightForUser(inlineWeightByLogId[logId] ?? 0)
+    }
+
+    private func inlineBodyweightNetCaption(logId: UUID, unitLabel: String) -> String? {
+        let net = inlineNetDisplayWeight(for: logId)
+        guard net != 0 else { return nil }
+        if net > 0 {
+            return "Net: +\(WeightStoreConversion.formatDisplay(net)) \(unitLabel)"
+        }
+        return "Net: −\(WeightStoreConversion.formatDisplay(-net)) \(unitLabel) (assisted)"
     }
 
     private func prefillInlineWeightReps(for exerciseLog: ExerciseLog) -> (weight: Double, reps: Int) {
@@ -1237,9 +1301,9 @@ struct CurrentWorkoutPullUpSheet: View {
         let effectiveRest = supersetRestAppliesAfterThisSet(exerciseIndex: exerciseIndex) ? restBase : 0
 
         let unit = userPreferences.weightDisplayUnit
-        let wDisplay = inlineWeightByLogId[logId] ?? 0
+        let wDisplay = inlineNetDisplayWeight(for: logId)
         let stored = WeightStoreConversion.storedPounds(
-            displayValue: clampDisplayWeightForUser(wDisplay),
+            displayValue: wDisplay,
             unit: unit
         )
         let rpeVal: Double? = inlineRpeByLogId[logId]
@@ -1265,9 +1329,20 @@ struct CurrentWorkoutPullUpSheet: View {
               let last = logs[exerciseIndex].loggedSets.last
         else { return }
         let unit = userPreferences.weightDisplayUnit
-        inlineWeightByLogId[logId] = clampDisplayWeightForUser(
-            WeightStoreConversion.displayValue(storedPounds: last.weight, unit: unit)
-        )
+        let netDisplay = WeightStoreConversion.displayValue(storedPounds: last.weight, unit: unit)
+        if inlineBodyweightModeLogIds.contains(logId) {
+            let clampedNet = clampSignedNetDisplayForUser(netDisplay)
+            if clampedNet >= 0 {
+                inlineBodyweightAddedByLogId[logId] = WeightStoreConversion.clampNonNegativeDisplay(clampedNet, unit: unit)
+                inlineBodyweightAssistedByLogId[logId] = 0
+            } else {
+                inlineBodyweightAddedByLogId[logId] = 0
+                inlineBodyweightAssistedByLogId[logId] = WeightStoreConversion.clampNonNegativeDisplay(-clampedNet, unit: unit)
+            }
+            inlineWeightByLogId[logId] = WeightStoreConversion.clampNonNegativeDisplay(max(0, clampedNet), unit: unit)
+        } else {
+            inlineWeightByLogId[logId] = clampDisplayWeightForUser(netDisplay)
+        }
         inlineRepsByLogId[logId] = last.reps
     }
 
@@ -1351,7 +1426,7 @@ struct CurrentWorkoutPullUpSheet: View {
         let allSets = session.exerciseLogs.flatMap(\.loggedSets)
         let workingSets = allSets.filter { $0.setType != .warmup && $0.reps > 0 }
         let setCount = workingSets.count
-        let volLb = workingSets.reduce(0.0) { $0 + $1.totalVolumeLoad }
+        let volLb = workingSets.reduce(0.0) { $0 + max(0, $1.totalVolumeLoad) }
         let volDisplay = WeightStoreConversion.displayValue(storedPounds: volLb, unit: userPreferences.weightDisplayUnit)
         let unit = userPreferences.weightDisplayUnit.shortLabel
 
@@ -1407,9 +1482,18 @@ struct CurrentWorkoutPullUpSheet: View {
         let logId = log.id
         let unit = userPreferences.weightDisplayUnit
         let unitLabel = unit.shortLabel
+        let bwMode = inlineBodyweightModeLogIds.contains(logId)
         let weightBinding = Binding<Double>(
             get: { inlineWeightByLogId[logId] ?? 0 },
             set: { inlineWeightByLogId[logId] = clampDisplayWeightForUser($0) }
+        )
+        let addedBinding = Binding<Double>(
+            get: { inlineBodyweightAddedByLogId[logId] ?? 0 },
+            set: { inlineBodyweightAddedByLogId[logId] = WeightStoreConversion.clampNonNegativeDisplay($0, unit: unit) }
+        )
+        let assistedBinding = Binding<Double>(
+            get: { inlineBodyweightAssistedByLogId[logId] ?? 0 },
+            set: { inlineBodyweightAssistedByLogId[logId] = WeightStoreConversion.clampNonNegativeDisplay($0, unit: unit) }
         )
         let repsBinding = Binding<Int>(
             get: { inlineRepsByLogId[logId] ?? 0 },
@@ -1424,12 +1508,126 @@ struct CurrentWorkoutPullUpSheet: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
-                Text("Tap ✓ to log, or edit first")
+                Text(bwMode ? "Reps first — optional +/− load" : "Tap ✓ to log, or edit first")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
-            HStack(alignment: .center, spacing: 6) {
-                TextField("Wt", value: weightBinding, format: .number.precision(.fractionLength(0...2)))
+            Toggle("Bodyweight mode", isOn: Binding(
+                get: { inlineBodyweightModeLogIds.contains(logId) },
+                set: { on in
+                    if on {
+                        inlineBodyweightModeLogIds.insert(logId)
+                        let w = inlineWeightByLogId[logId] ?? 0
+                        inlineBodyweightAddedByLogId[logId] = w
+                        inlineBodyweightAssistedByLogId[logId] = 0
+                        inlineWeightByLogId[logId] = 0
+                    } else {
+                        inlineBodyweightModeLogIds.remove(logId)
+                        let added = inlineBodyweightAddedByLogId[logId] ?? 0
+                        let assisted = inlineBodyweightAssistedByLogId[logId] ?? 0
+                        inlineWeightByLogId[logId] = clampDisplayWeightForUser(max(0, added - assisted))
+                        inlineBodyweightAddedByLogId.removeValue(forKey: logId)
+                        inlineBodyweightAssistedByLogId.removeValue(forKey: logId)
+                    }
+                }
+            ))
+            .font(.caption)
+            .tint(.secondary)
+            if bwMode {
+                HStack(alignment: .center, spacing: 6) {
+                    TextField("Reps", value: repsBinding, format: .number)
+                        .keyboardType(.numberPad)
+                        .focused($numericFieldFocus, equals: .inlineReps(logId))
+                        .multilineTextAlignment(.center)
+                        .frame(minWidth: 52, minHeight: 36)
+                        .padding(fieldPadding)
+                        .background(Color(.systemGray6))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    Text("reps")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 4)
+                    Button {
+                        fitlogDismissKeyboard()
+                        numericFieldFocus = nil
+                        inlineQuickLog(exerciseIndex: exerciseIndex, logId: logId)
+                    } label: {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 34))
+                            .foregroundStyle(.green)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled((inlineRepsByLogId[logId] ?? 0) <= 0)
+                    .accessibilityLabel("Log set")
+                    Menu {
+                        Button("Full log (RPE, drops…)", systemImage: "slider.horizontal.3") {
+                            fitlogDismissKeyboard()
+                            numericFieldFocus = nil
+                            logSetSheetSelection = LogSetSheetSelection(
+                                exerciseIndex: exerciseIndex,
+                                prefillDisplayWeight: inlineNetDisplayWeight(for: logId),
+                                prefillReps: inlineRepsByLogId[logId],
+                                prefillBodyweightMode: true
+                            )
+                        }
+                        Button("Plate calculator", systemImage: "scalemass") {
+                            fitlogDismissKeyboard()
+                            numericFieldFocus = nil
+                            plateCalculatorInlinePick = PlateCalculatorInlinePick(logId: logId)
+                        }
+                        if inlineRpeExpandedLogIds.contains(logId) {
+                            Button("Hide quick RPE", systemImage: "gauge.with.dots.needle.67percent") {
+                                inlineRpeExpandedLogIds.remove(logId)
+                            }
+                        } else {
+                            Button("Quick RPE (6–10)", systemImage: "gauge.with.dots.needle.67percent") {
+                                inlineRpeExpandedLogIds.insert(logId)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .frame(minWidth: 36, minHeight: 36)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("More logging options")
+                }
+                HStack(alignment: .center, spacing: 6) {
+                    Text("+")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    TextField("Added", value: addedBinding, format: .number.precision(.fractionLength(0...2)))
+                        .keyboardType(.decimalPad)
+                        .focused($numericFieldFocus, equals: .inlineAdded(logId))
+                        .multilineTextAlignment(.trailing)
+                        .frame(minWidth: 48, minHeight: 32)
+                        .padding(EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8))
+                        .background(Color(.systemGray6))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    Text("−")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    TextField("Assist", value: assistedBinding, format: .number.precision(.fractionLength(0...2)))
+                        .keyboardType(.decimalPad)
+                        .focused($numericFieldFocus, equals: .inlineAssisted(logId))
+                        .multilineTextAlignment(.trailing)
+                        .frame(minWidth: 48, minHeight: 32)
+                        .padding(EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8))
+                        .background(Color(.systemGray6))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    Text(unitLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                if let netCaption = inlineBodyweightNetCaption(logId: logId, unitLabel: unitLabel) {
+                    Text(netCaption)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                HStack(alignment: .center, spacing: 6) {
+                    TextField("Wt", value: weightBinding, format: .number.precision(.fractionLength(0...2)))
                     .keyboardType(.decimalPad)
                     .focused($numericFieldFocus, equals: .inlineWeight(logId))
                     .multilineTextAlignment(.trailing)
@@ -1471,7 +1669,8 @@ struct CurrentWorkoutPullUpSheet: View {
                         logSetSheetSelection = LogSetSheetSelection(
                             exerciseIndex: exerciseIndex,
                             prefillDisplayWeight: inlineWeightByLogId[logId],
-                            prefillReps: inlineRepsByLogId[logId]
+                            prefillReps: inlineRepsByLogId[logId],
+                            prefillBodyweightMode: false
                         )
                     }
                     Button("Plate calculator", systemImage: "scalemass") {
@@ -1496,6 +1695,8 @@ struct CurrentWorkoutPullUpSheet: View {
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel("More logging options")
+                }
+            }
             }
             if inlineRpeExpandedLogIds.contains(logId) {
                 HStack(spacing: 6) {
@@ -1538,10 +1739,10 @@ struct CurrentWorkoutPullUpSheet: View {
         .contentShape(Rectangle())
         .onTapGesture {
             switch numericFieldFocus {
-            case .inlineWeight(let id) where id == logId:
-                fitlogDismissKeyboard()
-                numericFieldFocus = nil
-            case .inlineReps(let id) where id == logId:
+            case .inlineWeight(let id) where id == logId,
+                 .inlineAdded(let id) where id == logId,
+                 .inlineAssisted(let id) where id == logId,
+                 .inlineReps(let id) where id == logId:
                 fitlogDismissKeyboard()
                 numericFieldFocus = nil
             default:
@@ -1663,7 +1864,7 @@ struct CurrentWorkoutPullUpSheet: View {
         editingSetIndex = setIndex
         editingSetId = set.id
         let unit = userPreferences.weightDisplayUnit
-        editWeightDisplay = clampDisplayWeightForUser(
+        editWeightDisplay = clampSignedNetDisplayForUser(
             WeightStoreConversion.displayValue(storedPounds: set.weight, unit: unit)
         )
         editReps = set.reps
@@ -1674,7 +1875,7 @@ struct CurrentWorkoutPullUpSheet: View {
         guard editReps > 0 else { return }
         let unit = userPreferences.weightDisplayUnit
         let stored = WeightStoreConversion.storedPounds(
-            displayValue: clampDisplayWeightForUser(editWeightDisplay),
+            displayValue: clampSignedNetDisplayForUser(editWeightDisplay),
             unit: unit
         )
         currentVM.updateSet(exerciseIndex: exIdx, setIndex: sIdx, weight: stored, reps: editReps)
@@ -1940,9 +2141,22 @@ struct CurrentWorkoutPullUpSheet: View {
         }()
         guard let t = target else { return }
         let unit = userPreferences.weightDisplayUnit
-        inlineWeightByLogId[lid] = clampDisplayWeightForUser(
+        let netDisplay = clampSignedNetDisplayForUser(
             WeightStoreConversion.displayValue(storedPounds: t.weight, unit: unit)
         )
+        if netDisplay <= 0 {
+            inlineBodyweightModeLogIds.insert(lid)
+            inlineBodyweightAddedByLogId[lid] = 0
+            inlineBodyweightAssistedByLogId[lid] = netDisplay < 0
+                ? WeightStoreConversion.clampNonNegativeDisplay(-netDisplay, unit: unit)
+                : 0
+            inlineWeightByLogId[lid] = 0
+        } else {
+            inlineBodyweightModeLogIds.remove(lid)
+            inlineBodyweightAddedByLogId.removeValue(forKey: lid)
+            inlineBodyweightAssistedByLogId.removeValue(forKey: lid)
+            inlineWeightByLogId[lid] = WeightStoreConversion.clampNonNegativeDisplay(netDisplay, unit: unit)
+        }
         inlineRepsByLogId[lid] = t.reps
         inlineInitializedLogIds.insert(lid)
     }
@@ -1951,9 +2165,22 @@ struct CurrentWorkoutPullUpSheet: View {
         let lid = log.id
         let unit = userPreferences.weightDisplayUnit
         if let w = suggestion.suggestedWeight {
-            inlineWeightByLogId[lid] = clampDisplayWeightForUser(
+            let netDisplay = clampSignedNetDisplayForUser(
                 WeightStoreConversion.displayValue(storedPounds: w, unit: unit)
             )
+            if netDisplay <= 0 {
+                inlineBodyweightModeLogIds.insert(lid)
+                inlineBodyweightAddedByLogId[lid] = 0
+                inlineBodyweightAssistedByLogId[lid] = netDisplay < 0
+                    ? WeightStoreConversion.clampNonNegativeDisplay(-netDisplay, unit: unit)
+                    : 0
+                inlineWeightByLogId[lid] = 0
+            } else {
+                inlineBodyweightModeLogIds.remove(lid)
+                inlineBodyweightAddedByLogId.removeValue(forKey: lid)
+                inlineBodyweightAssistedByLogId.removeValue(forKey: lid)
+                inlineWeightByLogId[lid] = WeightStoreConversion.clampNonNegativeDisplay(netDisplay, unit: unit)
+            }
         }
         let reps = parseRepsTarget(suggestion.targetReps)
         if reps > 0 {

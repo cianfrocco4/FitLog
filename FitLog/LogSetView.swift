@@ -37,6 +37,8 @@ struct LogSetView: View {
     /// When opening from inline quick-entry, seed weight/reps after normal prefill.
     var prefillDisplayWeight: Double? = nil
     var prefillReps: Int? = nil
+    /// Reps-first layout with optional added vs assisted load (net stored as signed weight).
+    var prefillBodyweightMode: Bool = false
 
     @State private var weight: Double = 0.0
     @State private var reps: Int = 0
@@ -51,6 +53,9 @@ struct LogSetView: View {
     /// Optional RPE 6–10; `nil` means not recorded.
     @State private var rpeChoice: Int? = nil
     @State private var showPlateCalculator = false
+    @State private var bodyweightMode = false
+    @State private var bwAddedDisplay: Double = 0
+    @State private var bwAssistedDisplay: Double = 0
 
     private var displayUnit: WeightDisplayUnit { userPreferences.weightDisplayUnit }
 
@@ -107,9 +112,26 @@ struct LogSetView: View {
     }
 
     private func clampDisplay(_ w: Double) -> Double {
-        guard w.isFinite else { return 0 }
-        let r = displayWeightRange
-        return min(r.upperBound, max(r.lowerBound, w))
+        WeightStoreConversion.clampNonNegativeDisplay(w, unit: displayUnit)
+    }
+
+    private func clampSignedNet(_ w: Double) -> Double {
+        WeightStoreConversion.clampSignedNetDisplay(w, unit: displayUnit)
+    }
+
+    private var displayNetLoad: Double {
+        clampSignedNet(bwAddedDisplay - bwAssistedDisplay)
+    }
+
+    private func syncBodyweightFieldsFromNet(_ net: Double) {
+        let n = clampSignedNet(net)
+        if n >= 0 {
+            bwAddedDisplay = clampDisplay(n)
+            bwAssistedDisplay = 0
+        } else {
+            bwAddedDisplay = 0
+            bwAssistedDisplay = clampDisplay(-n)
+        }
     }
 
     /// Drop rows with at least one rep; weights converted to stored pounds for persistence.
@@ -162,31 +184,95 @@ struct LogSetView: View {
         NavigationStack {
             Form {
                 Section("Log Set") {
-                    LabeledContent("Weight") {
-                        HStack(spacing: 10) {
-                            TextField("0", value: clampedWeightBinding, format: .number.precision(.fractionLength(0...2)))
+                    Toggle("Bodyweight mode (reps first)", isOn: $bodyweightMode)
+                        .onChange(of: bodyweightMode) { _, on in
+                            if on {
+                                if dropSetEnabled {
+                                    dropSetEnabled = false
+                                    dropRows = []
+                                }
+                                syncBodyweightFieldsFromNet(weight)
+                                weight = 0
+                            } else {
+                                weight = clampDisplay(max(0, displayNetLoad))
+                                bwAddedDisplay = 0
+                                bwAssistedDisplay = 0
+                            }
+                        }
+
+                    if bodyweightMode {
+                        Stepper(
+                            "Reps: \(reps)",
+                            value: $reps,
+                            in: 0...50,
+                            step: 1
+                        )
+                        LabeledContent("+ Added") {
+                            HStack(spacing: 10) {
+                                TextField("0", value: Binding(
+                                    get: { bwAddedDisplay },
+                                    set: { bwAddedDisplay = clampDisplay($0) }
+                                ), format: .number.precision(.fractionLength(0...2)))
                                 .keyboardType(.decimalPad)
                                 .multilineTextAlignment(.trailing)
                                 .frame(minWidth: 56)
-                            Text(unitShortLabel)
-                                .foregroundStyle(.secondary)
-                            Stepper("", value: clampedWeightBinding, in: displayWeightRange, step: weightStep)
-                                .labelsHidden()
-                                .accessibilityLabel("Adjust weight by \(Int(weightStep)) \(unitShortLabel)")
+                                Text(unitShortLabel)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
-                    }
-                    if weight == 0 {
-                        Text("0 \(unitShortLabel) = body weight only")
+                        LabeledContent("− Assisted") {
+                            HStack(spacing: 10) {
+                                TextField("0", value: Binding(
+                                    get: { bwAssistedDisplay },
+                                    set: { bwAssistedDisplay = clampDisplay($0) }
+                                ), format: .number.precision(.fractionLength(0...2)))
+                                .keyboardType(.decimalPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(minWidth: 56)
+                                Text(unitShortLabel)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        if displayNetLoad != 0 {
+                            Text(
+                                displayNetLoad > 0
+                                    ? "Net load: +\(WeightStoreConversion.formatDisplay(displayNetLoad)) \(unitShortLabel)"
+                                    : "Net load: −\(WeightStoreConversion.formatDisplay(-displayNetLoad)) \(unitShortLabel) (assisted)"
+                            )
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                    }
+                        } else {
+                            Text("Net \(unitShortLabel) is saved as 0 (body weight only).")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        LabeledContent("Weight") {
+                            HStack(spacing: 10) {
+                                TextField("0", value: clampedWeightBinding, format: .number.precision(.fractionLength(0...2)))
+                                    .keyboardType(.decimalPad)
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(minWidth: 56)
+                                Text(unitShortLabel)
+                                    .foregroundStyle(.secondary)
+                                Stepper("", value: clampedWeightBinding, in: displayWeightRange, step: weightStep)
+                                    .labelsHidden()
+                                    .accessibilityLabel("Adjust weight by \(Int(weightStep)) \(unitShortLabel)")
+                            }
+                        }
+                        if weight == 0 {
+                            Text("0 \(unitShortLabel) = body weight only")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
 
-                    Stepper(
-                        "Reps: \(reps)",
-                        value: $reps,
-                        in: 0...50,
-                        step: 1
-                    )
+                        Stepper(
+                            "Reps: \(reps)",
+                            value: $reps,
+                            in: 0...50,
+                            step: 1
+                        )
+                    }
 
                     if let pos = supersetPosition {
                         HStack {
@@ -264,6 +350,7 @@ struct LogSetView: View {
 
                 Section {
                     Toggle("Drop set", isOn: $dropSetEnabled)
+                        .disabled(bodyweightMode)
                     if dropSetEnabled {
                         Text("After your top weight, log each lighter load and reps with no rest in between. Rest below starts when the whole sequence is done.")
                             .font(.caption)
@@ -298,15 +385,36 @@ struct LogSetView: View {
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 prefillFromRecentSet()
-                if let w = prefillDisplayWeight {
+                if prefillBodyweightMode {
+                    bodyweightMode = true
+                    if dropSetEnabled {
+                        dropSetEnabled = false
+                        dropRows = []
+                    }
+                    let netSeed: Double
+                    if let w = prefillDisplayWeight {
+                        netSeed = clampSignedNet(w)
+                    } else if let session = sessionVM.currentSession,
+                              exerciseIndex < session.exerciseLogs.count,
+                              let last = session.exerciseLogs[exerciseIndex].loggedSets.last {
+                        netSeed = clampSignedNet(
+                            WeightStoreConversion.displayValue(storedPounds: last.weight, unit: displayUnit)
+                        )
+                    } else {
+                        netSeed = 0
+                    }
+                    syncBodyweightFieldsFromNet(netSeed)
+                    weight = 0
+                } else if let w = prefillDisplayWeight {
                     weight = clampDisplay(w)
                 }
                 if let r = prefillReps {
                     reps = min(50, max(0, r))
                 }
             }
-            
+
             .onChange(of: dropSetEnabled) { _, on in
+                guard !bodyweightMode else { return }
                 if on, dropRows.isEmpty {
                     dropRows = [EditableDropRow()]
                 }
@@ -329,8 +437,9 @@ struct LogSetView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         let effectiveRest = (isSupersetContext && !effectiveRestAfterSet) ? 0 : restTime
+                        let displayForStore = bodyweightMode ? displayNetLoad : weight
                         let storedWeight = WeightStoreConversion.storedPounds(
-                            displayValue: clampDisplay(weight),
+                            displayValue: bodyweightMode ? clampSignedNet(displayForStore) : clampDisplay(displayForStore),
                             unit: displayUnit
                         )
                         sessionVM.logSet(
@@ -340,7 +449,7 @@ struct LogSetView: View {
                             restTime: effectiveRest,
                             isWarmup: isWarmup,
                             configuration: configValues,
-                            dropSegments: dropSetEnabled ? segmentsForSave : [],
+                            dropSegments: (!bodyweightMode && dropSetEnabled) ? segmentsForSave : [],
                             rpe: rpeChoice.map { Double($0) }
                         )
 
@@ -349,16 +458,29 @@ struct LogSetView: View {
                         }
                     }
                     .fontWeight(.semibold)
-                    .disabled(reps <= 0 || !dropSetEntryIsValid)
+                    .disabled(reps <= 0 || (!bodyweightMode && !dropSetEntryIsValid))
                 }
             }
             .keyboardDismissToolbar()
             .sheet(isPresented: $showPlateCalculator) {
+                let suggest: Double? = {
+                    if bodyweightMode {
+                        let n = displayNetLoad
+                        return n > 0 ? n : nil
+                    }
+                    return weight > 0 ? weight : nil
+                }()
                 PlateCalculatorSheet(
                     displayUnit: displayUnit,
-                    suggestedTargetDisplay: weight > 0 ? weight : nil,
+                    suggestedTargetDisplay: suggest,
                     onApplyDisplayWeight: { w in
-                        weight = clampDisplay(w)
+                        let c = clampDisplay(w)
+                        if bodyweightMode {
+                            bwAddedDisplay = c
+                            bwAssistedDisplay = 0
+                        } else {
+                            weight = c
+                        }
                     }
                 )
             }

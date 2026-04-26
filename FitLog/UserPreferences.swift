@@ -47,6 +47,24 @@ enum WeightStoreConversion {
         }
     }
 
+    /// Same magnitude as `displayRange` but allows negative values (net load: added minus assisted).
+    static func signedNetDisplayRange(unit: WeightDisplayUnit) -> ClosedRange<Double> {
+        let u = displayRange(unit: unit).upperBound
+        return -u...u
+    }
+
+    static func clampNonNegativeDisplay(_ w: Double, unit: WeightDisplayUnit) -> Double {
+        guard w.isFinite else { return 0 }
+        let r = displayRange(unit: unit)
+        return min(r.upperBound, max(r.lowerBound, w))
+    }
+
+    static func clampSignedNetDisplay(_ w: Double, unit: WeightDisplayUnit) -> Double {
+        guard w.isFinite else { return 0 }
+        let r = signedNetDisplayRange(unit: unit)
+        return min(r.upperBound, max(r.lowerBound, w))
+    }
+
     static func stepperStep(unit: WeightDisplayUnit) -> Double {
         switch unit {
         case .pounds: return 5
