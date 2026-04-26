@@ -112,6 +112,14 @@ extension LoggedSet {
             let rw = r == 1 ? "rep" : "reps"
             return "\(wStr(storedLb)) \(unitLabel) × \(r) \(rw)"
         }
+        if setType == .timed {
+            let sec = max(0, reps)
+            let m = sec / 60
+            let s = sec % 60
+            let timeStr = m > 0 ? String(format: "%d:%02d hold", m, s) : "\(s)s hold"
+            let load = wStr(weight)
+            return load == "0" ? timeStr : "\(load) \(unitLabel) · \(timeStr)"
+        }
         var parts = [seg(weight, reps)]
         for d in dropSegments {
             parts.append("→ " + seg(d.weight, d.reps))

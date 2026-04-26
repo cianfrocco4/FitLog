@@ -43,7 +43,7 @@ struct LogSetView: View {
     @State private var weight: Double = 0.0
     @State private var reps: Int = 0
     @State private var restTime: Int = 90
-    @State private var isWarmup: Bool = false
+    @State private var setTypeChoice: ExerciseSetType = .working
     /// Field name -> value for this set.
     @State private var configValues: [String: String] = [:]
     @State private var dropSetEnabled = false
@@ -338,7 +338,23 @@ struct LogSetView: View {
                         )
                     }
 
-                    Toggle("Mark as warm-up set", isOn: $isWarmup)
+                    if dropSetEnabled {
+                        Text("Set type: working (top of drop sequence)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Picker("Set type", selection: $setTypeChoice) {
+                            Text(ExerciseSetType.working.logPickerLabel).tag(ExerciseSetType.working)
+                            Text(ExerciseSetType.warmup.logPickerLabel).tag(ExerciseSetType.warmup)
+                            Text(ExerciseSetType.failure.logPickerLabel).tag(ExerciseSetType.failure)
+                            Text(ExerciseSetType.timed.logPickerLabel).tag(ExerciseSetType.timed)
+                        }
+                        if setTypeChoice == .timed {
+                            Text("Use Reps as hold duration in seconds (e.g. 45). Optional load above is added weight during the hold.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
 
                     Picker("RPE (optional)", selection: $rpeChoice) {
                         Text("None").tag(nil as Int?)
@@ -415,8 +431,11 @@ struct LogSetView: View {
 
             .onChange(of: dropSetEnabled) { _, on in
                 guard !bodyweightMode else { return }
-                if on, dropRows.isEmpty {
-                    dropRows = [EditableDropRow()]
+                if on {
+                    setTypeChoice = .working
+                    if dropRows.isEmpty {
+                        dropRows = [EditableDropRow()]
+                    }
                 }
                 if !on {
                     dropRows = []
@@ -447,7 +466,7 @@ struct LogSetView: View {
                             weight: storedWeight,
                             reps: reps,
                             restTime: effectiveRest,
-                            isWarmup: isWarmup,
+                            setType: dropSetEnabled ? .working : setTypeChoice,
                             configuration: configValues,
                             dropSegments: (!bodyweightMode && dropSetEnabled) ? segmentsForSave : [],
                             rpe: rpeChoice.map { Double($0) }
@@ -494,6 +513,7 @@ struct LogSetView: View {
         else { return }
 
         let currentLog = session.exerciseLogs[exerciseIndex]
+        setTypeChoice = .working
 
         // Prefer the most recent set from the current session for this exercise.
         if let lastInSession = currentLog.loggedSets.last {
@@ -502,8 +522,12 @@ struct LogSetView: View {
             )
             reps = lastInSession.reps
             restTime = lastInSession.restTime
-            // Do not carry warm-up forward: the next set defaults to a normal (working) set.
-            isWarmup = false
+            switch lastInSession.setType {
+            case .warmup, .dropSet:
+                setTypeChoice = .working
+            default:
+                setTypeChoice = lastInSession.setType
+            }
             if !lastInSession.configuration.isEmpty {
                 configValues = lastInSession.configuration
             }
@@ -558,7 +582,12 @@ struct LogSetView: View {
             )
             reps = recent.reps
             restTime = recent.restTime
-            isWarmup = false
+            switch recent.setType {
+            case .warmup, .dropSet:
+                setTypeChoice = .working
+            default:
+                setTypeChoice = recent.setType
+            }
             if !recent.configuration.isEmpty { configValues = recent.configuration }
             if !recent.dropSegments.isEmpty {
                 dropSetEnabled = true

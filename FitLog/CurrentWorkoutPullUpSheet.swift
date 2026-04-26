@@ -455,6 +455,7 @@ struct CurrentWorkoutPullUpSheet: View {
     @State private var editingSetId: UUID?
     @State private var editWeightDisplay: Double = 0
     @State private var editReps: Int = 0
+    @State private var editSetType: ExerciseSetType = .working
 
     /// Shown briefly after auto-advance when rest completes.
     @State private var restCompleteBannerMessage: String?
@@ -1318,7 +1319,7 @@ struct CurrentWorkoutPullUpSheet: View {
             weight: stored,
             reps: r,
             restTime: effectiveRest,
-            isWarmup: false,
+            setType: .working,
             configuration: inlineConfiguration(for: exerciseLog),
             dropSegments: [],
             rpe: rpeVal
@@ -1480,7 +1481,7 @@ struct CurrentWorkoutPullUpSheet: View {
     @ViewBuilder
     private func sessionRunningStatsStrip(session: WorkoutSession) -> some View {
         let allSets = session.exerciseLogs.flatMap(\.loggedSets)
-        let workingSets = allSets.filter { $0.setType != .warmup && $0.reps > 0 }
+        let workingSets = allSets.filter { $0.countsTowardVolumeTotals }
         let setCount = workingSets.count
         let volLb = workingSets.reduce(0.0) { $0 + max(0, $1.totalVolumeLoad) }
         let volDisplay = WeightStoreConversion.displayValue(storedPounds: volLb, unit: userPreferences.weightDisplayUnit)
@@ -1830,6 +1831,24 @@ struct CurrentWorkoutPullUpSheet: View {
                 Text("Edit set \(chronologicalSetNumber)")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
+                if set.dropSegments.isEmpty {
+                    Picker("Type", selection: $editSetType) {
+                        Text(ExerciseSetType.working.logPickerLabel).tag(ExerciseSetType.working)
+                        Text(ExerciseSetType.warmup.logPickerLabel).tag(ExerciseSetType.warmup)
+                        Text(ExerciseSetType.failure.logPickerLabel).tag(ExerciseSetType.failure)
+                        Text(ExerciseSetType.timed.logPickerLabel).tag(ExerciseSetType.timed)
+                    }
+                    .pickerStyle(.segmented)
+                    if editSetType == .timed {
+                        Text("Reps = hold seconds. Weight = optional added load (display units).")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("Drop set — type stays Drop; edit loads in full log if needed.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
                 HStack(spacing: 8) {
                     TextField("Wt", value: Binding(
                         get: { editWeightDisplay },
@@ -1924,6 +1943,11 @@ struct CurrentWorkoutPullUpSheet: View {
             WeightStoreConversion.displayValue(storedPounds: set.weight, unit: unit)
         )
         editReps = set.reps
+        if set.dropSegments.isEmpty {
+            editSetType = set.setType == .dropSet ? .working : set.setType
+        } else {
+            editSetType = .working
+        }
     }
 
     private func confirmEditingSet() {
@@ -1934,7 +1958,14 @@ struct CurrentWorkoutPullUpSheet: View {
             displayValue: clampSignedNetDisplayForUser(editWeightDisplay),
             unit: unit
         )
-        currentVM.updateSet(exerciseIndex: exIdx, setIndex: sIdx, weight: stored, reps: editReps)
+        let typeArg: ExerciseSetType? = {
+            guard let session = currentVM.currentSession,
+                  exIdx < session.exerciseLogs.count,
+                  sIdx < session.exerciseLogs[exIdx].loggedSets.count
+            else { return nil }
+            return session.exerciseLogs[exIdx].loggedSets[sIdx].dropSegments.isEmpty ? editSetType : nil
+        }()
+        currentVM.updateSet(exerciseIndex: exIdx, setIndex: sIdx, weight: stored, reps: editReps, setType: typeArg)
         clearEditingSet()
     }
 
@@ -2188,7 +2219,7 @@ struct CurrentWorkoutPullUpSheet: View {
     private func applyMatchPrevious(log: ExerciseLog, exerciseIndex: Int, previousLog: ExerciseLog) {
         let lid = log.id
         let workingSets = previousLog.loggedSets
-            .filter { !$0.isWarmup && $0.reps > 0 }
+            .filter { $0.countsTowardLoadPRMetrics }
             .sorted { $0.timestamp < $1.timestamp }
         let nextIdx = currentVM.currentSession?.exerciseLogs[exerciseIndex].loggedSets.count ?? 0
         let target: LoggedSet? = {
@@ -2337,13 +2368,13 @@ struct CurrentWorkoutPullUpSheet: View {
                         Text("Set \(prevIndex + 1)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        if prevSet.isWarmup {
-                            Text("Warm-up")
+                        if let badge = prevSet.setTypeBadgeLabel {
+                            Text(badge)
                                 .font(.caption2)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Color.orange.opacity(0.15))
-                                .foregroundStyle(.orange)
+                                .background(chipColor(for: prevSet.setType).opacity(0.18))
+                                .foregroundStyle(chipColor(for: prevSet.setType))
                                 .clipShape(Capsule())
                         }
                         Spacer()
@@ -2381,13 +2412,13 @@ struct CurrentWorkoutPullUpSheet: View {
                 Text(set.weightRepsDisplaySummary(displayUnit: userPreferences.weightDisplayUnit))
                     .font(.body)
                     .fixedSize(horizontal: false, vertical: true)
-                if set.isWarmup {
-                    Text("Warm-up")
+                if let badge = set.setTypeBadgeLabel {
+                    Text(badge)
                         .font(.caption2)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Color.orange.opacity(0.15))
-                        .foregroundStyle(.orange)
+                        .background(chipColor(for: set.setType).opacity(0.18))
+                        .foregroundStyle(chipColor(for: set.setType))
                         .clipShape(Capsule())
                 }
                 Spacer()
@@ -2506,6 +2537,16 @@ struct CurrentWorkoutPullUpSheet: View {
         return Circle()
             .fill(color)
             .frame(width: 8, height: 8)
+    }
+
+    private func chipColor(for setType: ExerciseSetType) -> Color {
+        switch setType {
+        case .warmup: return .orange
+        case .dropSet: return .purple
+        case .failure: return .red
+        case .timed: return .cyan
+        case .working: return .secondary
+        }
     }
 
     private func statusSupersetToggleTitle(for log: ExerciseLog) -> String {

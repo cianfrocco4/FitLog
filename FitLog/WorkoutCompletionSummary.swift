@@ -144,7 +144,7 @@ extension DataManager {
             guard !log.workoutExercise.isSlotPlaceholder, !log.loggedSets.isEmpty else { continue }
 
             let name = displayName(for: log.workoutExercise)
-            let workingSets = log.loggedSets.filter { $0.setType != .warmup && $0.reps > 0 }
+            let workingSets = log.loggedSets.filter { $0.countsTowardVolumeTotals }
             let volumeLb = workingSets.reduce(0.0) { $0 + max(0, $1.totalVolumeLoad) }
 
             guard let exId = log.workoutExercise.exerciseId else {
@@ -203,7 +203,7 @@ extension DataManager {
         let totalResolved = resolvedLogs.count
         let withSets = resolvedLogs.filter { !$0.loggedSets.isEmpty }.count
 
-        let workingSetsAll = session.exerciseLogs.flatMap(\.loggedSets).filter { $0.setType != .warmup && $0.reps > 0 }
+        let workingSetsAll = session.exerciseLogs.flatMap(\.loggedSets).filter { $0.countsTowardVolumeTotals }
         let totalSets = workingSetsAll.count
         let volume = workingSetsAll.reduce(0.0) { $0 + max(0, $1.totalVolumeLoad) }
 

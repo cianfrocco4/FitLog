@@ -844,6 +844,17 @@ enum ExerciseSetType: String, Codable, CaseIterable, Equatable, Hashable {
     case dropSet
     case failure
     case timed
+
+    /// Short label for pickers and chips.
+    var logPickerLabel: String {
+        switch self {
+        case .working: return "Working"
+        case .warmup: return "Warm-up"
+        case .dropSet: return "Drop set"
+        case .failure: return "Failure"
+        case .timed: return "Timed hold"
+        }
+    }
 }
 
 struct LoggedSet: Identifiable, Codable {
@@ -1111,6 +1122,16 @@ struct WorkoutSession: Identifiable, Codable {
 }
 
 extension LoggedSet {
+    /// Non–warm-up sets with reps (includes failure). Excludes timed holds from volume-style totals.
+    var countsTowardVolumeTotals: Bool {
+        reps > 0 && setType != .warmup && setType != .timed
+    }
+
+    /// Sets that can establish load / est. 1RM / volume PRs (excludes warm-up, timed, and failure sets).
+    var countsTowardLoadPRMetrics: Bool {
+        reps > 0 && setType != .warmup && setType != .timed && setType != .failure
+    }
+
     /// Human-readable summary of configuration (e.g. "Grip: Narrow, Seat: 2") using field names from the workout exercise.
     func configurationSummary(fieldNames: [String]) -> String {
         guard !configuration.isEmpty else { return "" }
@@ -1124,6 +1145,17 @@ extension LoggedSet {
     /// Volume for analytics (top set + all drops).
     var totalVolumeLoad: Double {
         weight * Double(reps) + dropSegments.reduce(0) { $0 + $1.weight * Double($1.reps) }
+    }
+
+    /// Non-working set badge for session/history rows (nil when `.working`).
+    var setTypeBadgeLabel: String? {
+        switch setType {
+        case .working: return nil
+        case .warmup: return "Warm-up"
+        case .dropSet: return "Drop"
+        case .failure: return "Failure"
+        case .timed: return "Timed"
+        }
     }
 
     /// Single-line summary for history / workout UI, e.g. `225 lb × 8 reps → 185 lb × 6 reps`.

@@ -544,21 +544,34 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             weight: last.weight,
             reps: last.reps,
             restTime: last.restTime,
-            isWarmup: last.isWarmup,
+            setType: last.setType,
             configuration: last.configuration,
             dropSegments: last.dropSegments,
             rpe: last.rpe
         )
     }
     
-    func logSet(exerciseIndex: Int, weight: Double, reps: Int, restTime: Int, isWarmup: Bool = false, configuration: [String: String] = [:], dropSegments: [DropSetSegment] = [], rpe: Double? = nil) {
+    func logSet(
+        exerciseIndex: Int,
+        weight: Double,
+        reps: Int,
+        restTime: Int,
+        setType: ExerciseSetType = .working,
+        configuration: [String: String] = [:],
+        dropSegments: [DropSetSegment] = [],
+        rpe: Double? = nil
+    ) {
         guard var session = currentSession, exerciseIndex < session.exerciseLogs.count else { return }
         guard let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exerciseId else { return }
 
         let resolvedSetType: ExerciseSetType = {
-            if isWarmup { return .warmup }
             if !dropSegments.isEmpty { return .dropSet }
-            return .working
+            switch setType {
+            case .dropSet:
+                return .working
+            default:
+                return setType
+            }
         }()
         let set = LoggedSet(
             id: UUID(),
@@ -623,14 +636,20 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         }
     }
 
-    /// Updates weight/reps on an existing logged set (inline edit). Does not re-run PR detection or rest timer.
-    func updateSet(exerciseIndex: Int, setIndex: Int, weight: Double, reps: Int) {
+    /// Updates weight/reps (and optional type) on an existing logged set (inline edit). Does not re-run PR detection or rest timer.
+    func updateSet(exerciseIndex: Int, setIndex: Int, weight: Double, reps: Int, setType: ExerciseSetType? = nil) {
         guard var session = currentSession,
               exerciseIndex < session.exerciseLogs.count,
               setIndex < session.exerciseLogs[exerciseIndex].loggedSets.count
         else { return }
         session.exerciseLogs[exerciseIndex].loggedSets[setIndex].weight = weight
         session.exerciseLogs[exerciseIndex].loggedSets[setIndex].reps = reps
+        if !session.exerciseLogs[exerciseIndex].loggedSets[setIndex].dropSegments.isEmpty {
+            session.exerciseLogs[exerciseIndex].loggedSets[setIndex].setType = .dropSet
+        } else if let setType {
+            session.exerciseLogs[exerciseIndex].loggedSets[setIndex].setType =
+                setType == .dropSet ? .working : setType
+        }
         currentSession = session
         recordWorkoutActivity()
     }

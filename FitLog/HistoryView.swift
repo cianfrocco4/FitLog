@@ -1494,8 +1494,8 @@ private struct SessionDetailView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
                                 Text(set.weightRepsDisplaySummary(displayUnit: userPreferences.weightDisplayUnit))
-                                if set.isWarmup {
-                                    Text("Warm-up")
+                                if let badge = set.setTypeBadgeLabel {
+                                    Text(badge)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                         .padding(.horizontal, 6)
@@ -1805,7 +1805,7 @@ private struct ExerciseHistoryDetailView: View {
     private static func bestWorkingEst1RM(for log: ExerciseLog) -> Double? {
         var best = 0.0
         var found = false
-        for set in log.loggedSets where !set.isWarmup && set.reps > 0 {
+        for set in log.loggedSets where set.countsTowardLoadPRMetrics {
             var candidate = historyEpleyEst1RM(weight: set.weight, reps: set.reps)
             for d in set.dropSegments where d.reps > 0 {
                 let e = historyEpleyEst1RM(weight: d.weight, reps: d.reps)
@@ -1993,8 +1993,8 @@ private struct ExerciseHistoryDetailView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
                                 Text(set.weightRepsDisplaySummary(displayUnit: userPreferences.weightDisplayUnit))
-                                if set.isWarmup {
-                                    Text("Warm-up")
+                                if let badge = set.setTypeBadgeLabel {
+                                    Text(badge)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                         .padding(.horizontal, 6)
@@ -2109,8 +2109,8 @@ private struct MuscleGroupHistoryDetailView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack {
                                         Text(set.weightRepsDisplaySummary(displayUnit: userPreferences.weightDisplayUnit))
-                                        if set.isWarmup {
-                                            Text("Warm-up")
+                                        if let badge = set.setTypeBadgeLabel {
+                                            Text(badge)
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)
                                                 .padding(.horizontal, 6)

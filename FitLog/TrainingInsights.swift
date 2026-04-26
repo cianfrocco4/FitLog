@@ -193,11 +193,12 @@ enum PersonalRecordDetector {
         exerciseName: String,
         timestamp: Date = Date()
     ) -> [PersonalRecordEvent] {
-        guard newSet.reps > 0, !newSet.isWarmup else { return [] }
+        guard newSet.countsTowardLoadPRMetrics else { return [] }
 
-        let previousMaxWeight = priorSets.map(\.weight).max()
-        let previousMax1RM = priorSets.map { epley(weight: $0.weight, reps: $0.reps) }.max()
-        let previousMaxVolume = priorSets.map(\.totalVolumeLoad).max()
+        let priorRelevant = priorSets.filter { $0.countsTowardLoadPRMetrics }
+        let previousMaxWeight = priorRelevant.map(\.weight).max()
+        let previousMax1RM = priorRelevant.map { epley(weight: $0.weight, reps: $0.reps) }.max()
+        let previousMaxVolume = priorRelevant.map(\.totalVolumeLoad).max()
 
         let newWeight = newSet.weight
         let new1RM = epley(weight: newSet.weight, reps: newSet.reps)
@@ -285,7 +286,7 @@ extension DataManager {
             for log in session.exerciseLogs {
                 guard let exerciseId = log.workoutExercise.exerciseId else { continue }
                 let orderedSets = log.loggedSets.sorted { $0.timestamp < $1.timestamp }
-                for set in orderedSets where set.reps > 0 && !set.isWarmup {
+                for set in orderedSets where set.countsTowardLoadPRMetrics {
                     let oneRM = PersonalRecordDetector.epley(weight: set.weight, reps: set.reps)
                     let setVolume = set.totalVolumeLoad
                     var maxima = maximaByExercise[exerciseId] ?? Maxima()
@@ -408,7 +409,7 @@ extension DataManager {
 
         guard let last = recentLogs.first else { return nil }
         let workingSets = last.1.loggedSets
-            .filter { !$0.isWarmup && $0.reps > 0 }
+            .filter { $0.countsTowardLoadPRMetrics }
             .sorted { $0.timestamp < $1.timestamp }
         guard !workingSets.isEmpty else { return nil }
 
@@ -522,7 +523,7 @@ extension DataManager {
                 guard let snap = log.workoutExercise.snapshot else { continue }
                 let exercise = resolveExercise(for: snap)
                 let bucket = bucket(for: exercise)
-                for set in log.loggedSets where !set.isWarmup && set.reps > 0 {
+                for set in log.loggedSets where set.countsTowardVolumeTotals {
                     let est = PersonalRecordDetector.epley(weight: set.weight, reps: set.reps)
                     maxByBucket[bucket] = max(maxByBucket[bucket] ?? 0, est)
                 }
@@ -592,7 +593,7 @@ extension DataManager {
                 guard let exerciseId = log.workoutExercise.exerciseId else { continue }
                 let name = displayName(for: log.workoutExercise)
                 let ordered = log.loggedSets.sorted { $0.timestamp < $1.timestamp }
-                for set in ordered where set.reps > 0 && !set.isWarmup {
+                for set in ordered where set.countsTowardLoadPRMetrics {
                     var m = maximaByExercise[exerciseId] ?? PRScanMaxima()
                     let oneRM = PersonalRecordDetector.epley(weight: set.weight, reps: set.reps)
                     let vol = set.totalVolumeLoad
@@ -673,7 +674,7 @@ extension DataManager {
             for log in s.exerciseLogs {
                 guard log.workoutExercise.exerciseId == exerciseId else { continue }
                 for ls in log.loggedSets {
-                    guard ls.reps > 0, !ls.isWarmup else { continue }
+                    guard ls.countsTowardLoadPRMetrics else { continue }
                     if isHistoricalSetStrictlyBefore(sessionA: s, setA: ls, sessionB: beforeSession, setB: beforeSet) {
                         out.append(ls)
                     }
@@ -689,7 +690,7 @@ extension DataManager {
         session: WorkoutSession
     ) -> [PersonalRecordEvent.Kind] {
         guard let exerciseId = log.workoutExercise.exerciseId,
-              set.reps > 0, !set.isWarmup,
+              set.countsTowardLoadPRMetrics,
               session.isCompleted
         else { return [] }
         let prior = priorSetsForPersonalRecordDetection(
