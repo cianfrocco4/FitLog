@@ -575,18 +575,17 @@ struct CurrentWorkoutPullUpSheet: View {
 
                         if let exerciseLogs = currentVM.currentSession?.exerciseLogs, !exerciseLogs.isEmpty {
                             if isReorderModeActive {
-                                ForEach(Array(exerciseLogs.enumerated()), id: \.element.id) { index, log in
-                                    Button {
-                                        // No-op in reorder mode; rows are drag handles only.
-                                    } label: {
-                                        exerciseCollapsedHeader(log: log, isExpanded: false)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .foregroundStyle(.primary)
-                                    .moveDisabled(false)
-                                    .id(log.id)
+                                Section {
+                                    Text("Reorder is temporarily disabled in Current Workout to avoid a runtime crash. You can reorder safely from the workout plan screen.")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.vertical, 6)
                                 }
-                                .onMove(perform: handleExerciseReorder)
+                                ForEach(Array(exerciseLogs.enumerated()), id: \.element.id) { _, log in
+                                    exerciseCollapsedHeader(log: log, isExpanded: false)
+                                        .id(log.id)
+                                }
+                                .moveDisabled(true)
                             } else {
                                 ForEach(Array(exerciseLogs.enumerated()), id: \.element.id) { index, log in
                                     let isExpanded = expandedExerciseIndex == index
@@ -832,6 +831,7 @@ struct CurrentWorkoutPullUpSheet: View {
                             exerciseListEditMode = exerciseListEditMode == .active ? .inactive : .active
                         }
                     }
+                    .disabled(true)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Finish") {
