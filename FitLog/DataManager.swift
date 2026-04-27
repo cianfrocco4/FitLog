@@ -350,6 +350,8 @@ final class DataManager: ObservableObject {
                 )
             }
         }
+        reorderWorkoutsPlacingIdsFirst(newIds)
+        saveWorkouts()
         if updateTrainingProgram, !newIds.isEmpty {
             applyTrainingProgramSuggestion(
                 cycleEntries: newIds.map { .workout($0) },
@@ -455,6 +457,27 @@ final class DataManager: ObservableObject {
         return id
     }
 
+    /// After applying a split, new workouts are created by appending. Home (and similar UIs) show a
+    /// prefix of the library when the list is long, so users only saw older workouts. Move new ids
+    /// to the front in proposal order, then persist.
+    private func reorderWorkoutsPlacingIdsFirst(_ orderedLibraryIds: [UUID]) {
+        guard !orderedLibraryIds.isEmpty else { return }
+        let idSet = Set(orderedLibraryIds)
+        var byId: [UUID: Workout] = [:]
+        byId.reserveCapacity(userWorkouts.count)
+        for w in userWorkouts { byId[w.id] = w }
+        var head: [Workout] = []
+        head.reserveCapacity(orderedLibraryIds.count)
+        var placed = Set<UUID>()
+        for id in orderedLibraryIds {
+            guard !placed.contains(id), let w = byId[id] else { continue }
+            placed.insert(id)
+            head.append(w)
+        }
+        let tail = userWorkouts.filter { !idSet.contains($0.id) }
+        userWorkouts = head + tail
+    }
+
     func applyWorkoutSplitProposal(
         _ proposal: WorkoutSplitProposal,
         updateTrainingProgram: Bool,
@@ -551,6 +574,8 @@ final class DataManager: ObservableObject {
             let id = createWorkoutWithFlexibleSlots(name: name, slots: templateSlots)
             entries.append(.workout(id))
         }
+        reorderWorkoutsPlacingIdsFirst(entries.map(\.libraryWorkoutId))
+        saveWorkouts()
         if updateTrainingProgram, !entries.isEmpty {
             applyTrainingProgramSuggestion(
                 cycleEntries: entries,
