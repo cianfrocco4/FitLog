@@ -172,7 +172,7 @@ struct ManualSplitBuilderView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Weekdays are optional. If you leave them blank, FitLog will spread the cycle across the week.")
                     if !selectedWeekdays.isEmpty {
-                        Text("Sessions per week is capped by selected days.")
+                        Text("Sessions per week is capped by selected days. Add more days first if you want more sessions.")
                     }
                 }
                 .font(.caption)
@@ -508,7 +508,7 @@ struct ManualSplitBuilderView: View {
                 Button {
                     if on {
                         selectedWeekdays.remove(wd)
-                    } else if selectedWeekdays.count < sessionsPerWeek {
+                    } else {
                         selectedWeekdays.insert(wd)
                     }
                 } label: {

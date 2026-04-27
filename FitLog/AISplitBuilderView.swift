@@ -626,7 +626,7 @@ struct AISplitBuilderView: View {
             } header: {
                 Text("Availability")
             } footer: {
-                Text("Pick preferred training days, or leave none selected for the default Mon\u{2013}Fri pool. Sessions per week cannot exceed the number of days you select.")
+                Text("Pick preferred training days, or leave none selected for the default Mon\u{2013}Fri pool. Selecting fewer days than sessions/week will lower the session count to match.")
             }
             .onChange(of: selectedWeekdays) { _, _ in
                 sessionsPerWeek = min(sessionsPerWeek, maxSessionsAllowed)
@@ -1371,7 +1371,7 @@ struct AISplitBuilderView: View {
                 Button {
                     if on {
                         selectedWeekdays.remove(wd)
-                    } else if selectedWeekdays.count < sessionsPerWeek {
+                    } else {
                         selectedWeekdays.insert(wd)
                     }
                 } label: {
