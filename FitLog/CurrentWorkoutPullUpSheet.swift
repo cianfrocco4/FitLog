@@ -443,11 +443,15 @@ struct CurrentWorkoutPullUpSheet: View {
     /// Inline quick-log draft per exercise log (stable across reorder).
     @State private var inlineWeightByLogId: [UUID: Double] = [:]
     @State private var inlineRepsByLogId: [UUID: Int] = [:]
+    @State private var inlineWeightTextByLogId: [UUID: String] = [:]
+    @State private var inlineRepsTextByLogId: [UUID: String] = [:]
     @State private var inlineInitializedLogIds: Set<UUID> = []
     /// Reps-first logging: optional added load minus assisted (display units); persisted as signed net stored weight.
     @State private var inlineBodyweightModeLogIds: Set<UUID> = []
     @State private var inlineBodyweightAddedByLogId: [UUID: Double] = [:]
     @State private var inlineBodyweightAssistedByLogId: [UUID: Double] = [:]
+    @State private var inlineBodyweightAddedTextByLogId: [UUID: String] = [:]
+    @State private var inlineBodyweightAssistedTextByLogId: [UUID: String] = [:]
 
     /// Inline edit for an existing set (array indices; stable until list mutates).
     @State private var editingSetExerciseIndex: Int?
@@ -518,37 +522,42 @@ struct CurrentWorkoutPullUpSheet: View {
                     .padding(.vertical, 8)
                 }
                 
-                // Workout name + timer + pause/play
+                // Compact workout header: name, elapsed, and pause/resume in one row.
                 if let session = currentVM.currentSession {
-                    VStack(spacing: 10) {
-                        Text(session.workout.name)
-                            .font(.title2.bold())
-                        HStack(spacing: 16) {
-                            HStack(spacing: 6) {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(session.workout.name)
+                                .font(.headline.weight(.semibold))
+                                .lineLimit(1)
+                            HStack(spacing: 5) {
                                 Image(systemName: "timer")
-                                    .font(.subheadline)
+                                    .font(.caption)
                                     .foregroundStyle(.secondary)
                                 Text(currentVM.workoutElapsedFormatted)
-                                    .font(.system(.title3, design: .monospaced))
-                                    .fontWeight(.medium)
+                                    .font(.subheadline.monospacedDigit())
+                                    .foregroundStyle(.secondary)
                             }
-                            Button {
-                                if currentVM.isWorkoutPaused {
-                                    currentVM.resumeWorkout()
-                                } else {
-                                    currentVM.pauseWorkout()
-                                }
-                            } label: {
-                                Label(currentVM.isWorkoutPaused ? "Resume" : "Pause", systemImage: currentVM.isWorkoutPaused ? "play.fill" : "pause.fill")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(currentVM.isWorkoutPaused ? .green : .orange)
                         }
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 12)
-                        .background(Color(.systemGray6))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        Spacer(minLength: 8)
+                        Button {
+                            if currentVM.isWorkoutPaused {
+                                currentVM.resumeWorkout()
+                            } else {
+                                currentVM.pauseWorkout()
+                            }
+                        } label: {
+                            Label(currentVM.isWorkoutPaused ? "Resume" : "Pause", systemImage: currentVM.isWorkoutPaused ? "play.fill" : "pause.fill")
+                                .labelStyle(.iconOnly)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .tint(currentVM.isWorkoutPaused ? .green : .orange)
+                        .accessibilityLabel(currentVM.isWorkoutPaused ? "Resume workout" : "Pause workout")
                     }
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 12)
+                    .background(Color(.systemGray6))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
                     .padding(.top, currentVM.remainingRestTime > 0 ? 0 : 16)
                     .padding(.horizontal)
 
@@ -680,82 +689,21 @@ struct CurrentWorkoutPullUpSheet: View {
                                             }
                                         }
                                         if isExpanded && !log.workoutExercise.isSlotPlaceholder {
-                                            setProgressIndicatorStrip(log: log)
+                                            planAndCompletionRow(log: log)
                                                 .moveDisabled(true)
                                                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-
-                                            if let previousLog = lastCompletedLog(for: log) {
-                                                VStack(alignment: .leading, spacing: 8) {
-                                                    matchOrBeatPreviousRow(
-                                                        log: log,
-                                                        exerciseIndex: index,
-                                                        previousLog: previousLog,
-                                                        includeListRowInsets: false
-                                                    )
-                                                    previousSessionSummaryRow(previousLog: previousLog, includeListRowInsets: false)
-                                                }
-                                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                                            }
-
-                                            if let exId = log.workoutExercise.exerciseId {
-                                                if isExerciseCompleted(log) {
-                                                    Button {
-                                                        currentVM.markExerciseNotCompleted(exerciseId: exId)
-                                                    } label: {
-                                                        Label("Undo mark done — keep logging", systemImage: "arrow.uturn.backward.circle")
-                                                    }
-                                                    .buttonStyle(.bordered)
-                                                    .tint(.orange)
-                                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                                                } else {
-                                                    VStack(alignment: .leading, spacing: 4) {
-                                                        Button {
-                                                            currentVM.markExerciseCompleted(exerciseId: exId)
-                                                        } label: {
-                                                            Label("Mark exercise done", systemImage: "checkmark.circle.fill")
-                                                        }
-                                                        .buttonStyle(.borderedProminent)
-                                                        .tint(.green)
-                                                        Text("Optional if you finished early or are skipping remaining sets.")
-                                                            .font(.caption2)
-                                                            .foregroundStyle(.secondary)
-                                                    }
-                                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 6, trailing: 16))
-                                                }
-                                            }
 
                                             inlineSetEntryRow(exerciseIndex: index, log: log)
                                                 .moveDisabled(true)
                                                 .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
 
-                                            if log.loggedSets.isEmpty {
-                                                Text("No sets logged yet")
-                                                    .moveDisabled(true)
-                                                    .foregroundStyle(.secondary)
-                                                    .italic()
-                                                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                                            } else {
-                                                ForEach(Array(log.loggedSets.enumerated()), id: \.element.id) { setIndex, set in
-                                                    interactiveLoggedSetRow(
-                                                        exerciseIndex: index,
-                                                        setIndex: setIndex,
-                                                        chronologicalSetNumber: setIndex + 1,
-                                                        set: set,
-                                                        workoutExercise: log.workoutExercise,
-                                                        isHighlighted: set.id == highlightedLoggedSetId
-                                                    )
-                                                    .moveDisabled(true)
-                                                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                                        Button("Delete", role: .destructive) {
-                                                            clearEditingSetIfNeeded(setId: set.id)
-                                                            currentVM.deleteSet(exerciseIndex: index, setIndex: setIndex)
-                                                        }
-                                                    }
-                                                }
-                                            }
+                                            currentAndPreviousSetsSection(
+                                                exerciseIndex: index,
+                                                log: log,
+                                                previousLog: lastCompletedLog(for: log)
+                                            )
+                                            .moveDisabled(true)
+                                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 6, trailing: 16))
 
                                             DisclosureGroup(isExpanded: Binding(
                                                 get: { exerciseDetailMoreExpandedLogId == log.id },
@@ -956,8 +904,11 @@ struct CurrentWorkoutPullUpSheet: View {
                         if inlineBodyweightModeLogIds.contains(pick.logId) {
                             inlineBodyweightAddedByLogId[pick.logId] = clamped
                             inlineBodyweightAssistedByLogId[pick.logId] = 0
+                            inlineBodyweightAddedTextByLogId[pick.logId] = formattedInlineWeight(clamped)
+                            inlineBodyweightAssistedTextByLogId[pick.logId] = ""
                         } else {
                             inlineWeightByLogId[pick.logId] = clamped
+                            inlineWeightTextByLogId[pick.logId] = formattedInlineWeight(clamped)
                         }
                     }
                 )
@@ -1034,9 +985,7 @@ struct CurrentWorkoutPullUpSheet: View {
     private func removeExerciseAtListIndex(_ index: Int, rowId: UUID) {
         if let session = currentVM.currentSession, session.exerciseLogs.indices.contains(index) {
             let lid = session.exerciseLogs[index].id
-            inlineWeightByLogId.removeValue(forKey: lid)
-            inlineRepsByLogId.removeValue(forKey: lid)
-            inlineInitializedLogIds.remove(lid)
+            clearInlineDraft(for: lid)
         }
         clearEditingSet()
 
@@ -1058,6 +1007,21 @@ struct CurrentWorkoutPullUpSheet: View {
         } else if let e = expandedExerciseIndex, e > index {
             expandedExerciseIndex = e - 1
         }
+    }
+
+    private func clearInlineDraft(for logId: UUID) {
+        inlineWeightByLogId.removeValue(forKey: logId)
+        inlineRepsByLogId.removeValue(forKey: logId)
+        inlineWeightTextByLogId.removeValue(forKey: logId)
+        inlineRepsTextByLogId.removeValue(forKey: logId)
+        inlineInitializedLogIds.remove(logId)
+        inlineRpeByLogId.removeValue(forKey: logId)
+        inlineRpeExpandedLogIds.remove(logId)
+        inlineBodyweightModeLogIds.remove(logId)
+        inlineBodyweightAddedByLogId.removeValue(forKey: logId)
+        inlineBodyweightAssistedByLogId.removeValue(forKey: logId)
+        inlineBodyweightAddedTextByLogId.removeValue(forKey: logId)
+        inlineBodyweightAssistedTextByLogId.removeValue(forKey: logId)
     }
 
     /// Returns whether a pending focus was applied (so caller skips default auto-expand).
@@ -1180,6 +1144,7 @@ struct CurrentWorkoutPullUpSheet: View {
                 inlineBodyweightAssistedByLogId[lid] = 0
             }
         }
+        seedInlineText(for: lid)
         inlineInitializedLogIds.insert(lid)
     }
 
@@ -1213,6 +1178,89 @@ struct CurrentWorkoutPullUpSheet: View {
             return "Net: +\(WeightStoreConversion.formatDisplay(net)) \(unitLabel)"
         }
         return "Net: −\(WeightStoreConversion.formatDisplay(-net)) \(unitLabel) (assisted)"
+    }
+
+    private func formattedInlineWeight(_ value: Double) -> String {
+        value == 0 ? "" : WeightStoreConversion.formatDisplay(value)
+    }
+
+    private func formattedInlineReps(_ value: Int) -> String {
+        value == 0 ? "" : "\(value)"
+    }
+
+    private func parseInlineDouble(_ raw: String) -> Double? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return Double(trimmed)
+    }
+
+    private func parseInlineInt(_ raw: String) -> Int? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return Int(trimmed)
+    }
+
+    private func seedInlineText(for logId: UUID) {
+        inlineWeightTextByLogId[logId] = formattedInlineWeight(inlineWeightByLogId[logId] ?? 0)
+        inlineRepsTextByLogId[logId] = formattedInlineReps(inlineRepsByLogId[logId] ?? 0)
+        inlineBodyweightAddedTextByLogId[logId] = formattedInlineWeight(inlineBodyweightAddedByLogId[logId] ?? 0)
+        inlineBodyweightAssistedTextByLogId[logId] = formattedInlineWeight(inlineBodyweightAssistedByLogId[logId] ?? 0)
+    }
+
+    private func inlineWeightTextBinding(logId: UUID) -> Binding<String> {
+        Binding(
+            get: { inlineWeightTextByLogId[logId] ?? "" },
+            set: { raw in
+                inlineWeightTextByLogId[logId] = raw
+                if let value = parseInlineDouble(raw) {
+                    inlineWeightByLogId[logId] = clampDisplayWeightForUser(value)
+                } else if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    inlineWeightByLogId[logId] = 0
+                }
+            }
+        )
+    }
+
+    private func inlineRepsTextBinding(logId: UUID) -> Binding<String> {
+        Binding(
+            get: { inlineRepsTextByLogId[logId] ?? "" },
+            set: { raw in
+                inlineRepsTextByLogId[logId] = raw
+                if let value = parseInlineInt(raw) {
+                    inlineRepsByLogId[logId] = min(50, max(0, value))
+                } else if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    inlineRepsByLogId[logId] = 0
+                }
+            }
+        )
+    }
+
+    private func inlineBodyweightAddedTextBinding(logId: UUID, unit: WeightDisplayUnit) -> Binding<String> {
+        Binding(
+            get: { inlineBodyweightAddedTextByLogId[logId] ?? "" },
+            set: { raw in
+                inlineBodyweightAddedTextByLogId[logId] = raw
+                if let value = parseInlineDouble(raw) {
+                    inlineBodyweightAddedByLogId[logId] = WeightStoreConversion.clampNonNegativeDisplay(value, unit: unit)
+                } else if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    inlineBodyweightAddedByLogId[logId] = 0
+                }
+            }
+        )
+    }
+
+    private func inlineBodyweightAssistedTextBinding(logId: UUID, unit: WeightDisplayUnit) -> Binding<String> {
+        Binding(
+            get: { inlineBodyweightAssistedTextByLogId[logId] ?? "" },
+            set: { raw in
+                inlineBodyweightAssistedTextByLogId[logId] = raw
+                if let value = parseInlineDouble(raw) {
+                    inlineBodyweightAssistedByLogId[logId] = WeightStoreConversion.clampNonNegativeDisplay(value, unit: unit)
+                } else if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    inlineBodyweightAssistedByLogId[logId] = 0
+                }
+            }
+        )
     }
 
     private func prefillInlineWeightReps(for exerciseLog: ExerciseLog) -> (weight: Double, reps: Int) {
@@ -1483,9 +1531,11 @@ struct CurrentWorkoutPullUpSheet: View {
         let allSets = session.exerciseLogs.flatMap(\.loggedSets)
         let workingSets = allSets.filter { $0.countsTowardVolumeTotals }
         let setCount = workingSets.count
-        let volLb = workingSets.reduce(0.0) { $0 + max(0, $1.totalVolumeLoad) }
+        let volLb = workingSets.reduce(0.0) { total, set in
+            total + max(0, set.weight) * Double(set.reps)
+        }
         let volDisplay = WeightStoreConversion.displayValue(storedPounds: volLb, unit: userPreferences.weightDisplayUnit)
-        let unit = userPreferences.weightDisplayUnit.shortLabel
+        let volumeUnit = userPreferences.weightDisplayUnit == .kilograms ? "kg·rep" : "lb·rep"
 
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
@@ -1502,27 +1552,14 @@ struct CurrentWorkoutPullUpSheet: View {
                 .frame(height: 28)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Volume")
+                Text("Vol")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                Text(volDisplay == floor(volDisplay) ? "\(Int(volDisplay)) \(unit)" : String(format: "%.1f %@", volDisplay, unit))
+                Text(volDisplay == floor(volDisplay) ? "\(Int(volDisplay)) \(volumeUnit)" : String(format: "%.1f %@", volDisplay, volumeUnit))
                     .font(.subheadline.weight(.semibold))
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
-            }
-            .frame(maxWidth: .infinity)
-
-            Divider()
-                .frame(height: 28)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Elapsed")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Text(currentVM.workoutElapsedFormatted)
-                    .font(.subheadline.weight(.semibold))
-                    .monospacedDigit()
             }
             .frame(maxWidth: .infinity)
         }
@@ -1540,22 +1577,10 @@ struct CurrentWorkoutPullUpSheet: View {
         let unit = userPreferences.weightDisplayUnit
         let unitLabel = unit.shortLabel
         let bwMode = inlineBodyweightModeLogIds.contains(logId)
-        let weightBinding = Binding<Double>(
-            get: { inlineWeightByLogId[logId] ?? 0 },
-            set: { inlineWeightByLogId[logId] = clampDisplayWeightForUser($0) }
-        )
-        let addedBinding = Binding<Double>(
-            get: { inlineBodyweightAddedByLogId[logId] ?? 0 },
-            set: { inlineBodyweightAddedByLogId[logId] = WeightStoreConversion.clampNonNegativeDisplay($0, unit: unit) }
-        )
-        let assistedBinding = Binding<Double>(
-            get: { inlineBodyweightAssistedByLogId[logId] ?? 0 },
-            set: { inlineBodyweightAssistedByLogId[logId] = WeightStoreConversion.clampNonNegativeDisplay($0, unit: unit) }
-        )
-        let repsBinding = Binding<Int>(
-            get: { inlineRepsByLogId[logId] ?? 0 },
-            set: { inlineRepsByLogId[logId] = min(50, max(0, $0)) }
-        )
+        let weightTextBinding = inlineWeightTextBinding(logId: logId)
+        let addedTextBinding = inlineBodyweightAddedTextBinding(logId: logId, unit: unit)
+        let assistedTextBinding = inlineBodyweightAssistedTextBinding(logId: logId, unit: unit)
+        let repsTextBinding = inlineRepsTextBinding(logId: logId)
         /// Single compact row: ~44pt tall fields without stacking actions underneath.
         let fieldPadding = EdgeInsets(top: 7, leading: 9, bottom: 7, trailing: 9)
 
@@ -1578,6 +1603,9 @@ struct CurrentWorkoutPullUpSheet: View {
                         inlineBodyweightAddedByLogId[logId] = w
                         inlineBodyweightAssistedByLogId[logId] = 0
                         inlineWeightByLogId[logId] = 0
+                        inlineBodyweightAddedTextByLogId[logId] = formattedInlineWeight(w)
+                        inlineBodyweightAssistedTextByLogId[logId] = ""
+                        inlineWeightTextByLogId[logId] = ""
                     } else {
                         inlineBodyweightModeLogIds.remove(logId)
                         let added = inlineBodyweightAddedByLogId[logId] ?? 0
@@ -1585,6 +1613,9 @@ struct CurrentWorkoutPullUpSheet: View {
                         inlineWeightByLogId[logId] = clampDisplayWeightForUser(max(0, added - assisted))
                         inlineBodyweightAddedByLogId.removeValue(forKey: logId)
                         inlineBodyweightAssistedByLogId.removeValue(forKey: logId)
+                        inlineWeightTextByLogId[logId] = formattedInlineWeight(inlineWeightByLogId[logId] ?? 0)
+                        inlineBodyweightAddedTextByLogId.removeValue(forKey: logId)
+                        inlineBodyweightAssistedTextByLogId.removeValue(forKey: logId)
                     }
                 }
             ))
@@ -1592,7 +1623,7 @@ struct CurrentWorkoutPullUpSheet: View {
             .tint(.secondary)
             if bwMode {
                 HStack(alignment: .center, spacing: 6) {
-                    TextField("Reps", value: repsBinding, format: .number)
+                    TextField("Reps", text: repsTextBinding)
                         .keyboardType(.numberPad)
                         .focused($numericFieldFocus, equals: .inlineReps(logId))
                         .multilineTextAlignment(.center)
@@ -1654,7 +1685,7 @@ struct CurrentWorkoutPullUpSheet: View {
                     Text("+")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    TextField("Added", value: addedBinding, format: .number.precision(.fractionLength(0...2)))
+                    TextField("Added", text: addedTextBinding)
                         .keyboardType(.decimalPad)
                         .focused($numericFieldFocus, equals: .inlineAdded(logId))
                         .multilineTextAlignment(.trailing)
@@ -1665,7 +1696,7 @@ struct CurrentWorkoutPullUpSheet: View {
                     Text("−")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    TextField("Assist", value: assistedBinding, format: .number.precision(.fractionLength(0...2)))
+                    TextField("Assist", text: assistedTextBinding)
                         .keyboardType(.decimalPad)
                         .focused($numericFieldFocus, equals: .inlineAssisted(logId))
                         .multilineTextAlignment(.trailing)
@@ -1684,74 +1715,74 @@ struct CurrentWorkoutPullUpSheet: View {
                 }
             } else {
                 HStack(alignment: .center, spacing: 6) {
-                    TextField("Wt", value: weightBinding, format: .number.precision(.fractionLength(0...2)))
-                    .keyboardType(.decimalPad)
-                    .focused($numericFieldFocus, equals: .inlineWeight(logId))
-                    .multilineTextAlignment(.trailing)
-                    .frame(minWidth: 52, minHeight: 36)
-                    .padding(fieldPadding)
-                    .background(Color(.systemGray6))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                Text(unitLabel)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-                Text("×")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                TextField("Reps", value: repsBinding, format: .number)
-                    .keyboardType(.numberPad)
-                    .focused($numericFieldFocus, equals: .inlineReps(logId))
-                    .multilineTextAlignment(.center)
-                    .frame(minWidth: 44, minHeight: 36)
-                    .padding(fieldPadding)
-                    .background(Color(.systemGray6))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                Button {
-                    fitlogDismissKeyboard()
-                    numericFieldFocus = nil
-                    inlineQuickLog(exerciseIndex: exerciseIndex, logId: logId)
-                } label: {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 34))
-                        .foregroundStyle(.green)
-                }
-                .buttonStyle(.plain)
-                .disabled((inlineRepsByLogId[logId] ?? 0) <= 0)
-                .accessibilityLabel("Log set")
-                Menu {
-                    Button("Full log (RPE, drops…)", systemImage: "slider.horizontal.3") {
-                        fitlogDismissKeyboard()
-                        numericFieldFocus = nil
-                        logSetSheetSelection = LogSetSheetSelection(
-                            exerciseIndex: exerciseIndex,
-                            prefillDisplayWeight: inlineWeightByLogId[logId],
-                            prefillReps: inlineRepsByLogId[logId],
-                            prefillBodyweightMode: false
-                        )
-                    }
-                    Button("Plate calculator", systemImage: "scalemass") {
-                        fitlogDismissKeyboard()
-                        numericFieldFocus = nil
-                        plateCalculatorInlinePick = PlateCalculatorInlinePick(logId: logId)
-                    }
-                    if inlineRpeExpandedLogIds.contains(logId) {
-                        Button("Hide quick RPE", systemImage: "gauge.with.dots.needle.67percent") {
-                            inlineRpeExpandedLogIds.remove(logId)
-                        }
-                    } else {
-                        Button("Quick RPE (6–10)", systemImage: "gauge.with.dots.needle.67percent") {
-                            inlineRpeExpandedLogIds.insert(logId)
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.body.weight(.medium))
+                    TextField("Wt", text: weightTextBinding)
+                        .keyboardType(.decimalPad)
+                        .focused($numericFieldFocus, equals: .inlineWeight(logId))
+                        .multilineTextAlignment(.trailing)
+                        .frame(minWidth: 52, minHeight: 36)
+                        .padding(fieldPadding)
+                        .background(Color(.systemGray6))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    Text(unitLabel)
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
-                        .frame(minWidth: 36, minHeight: 36)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("More logging options")
+                        .fixedSize()
+                    Text("×")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                    TextField("Reps", text: repsTextBinding)
+                        .keyboardType(.numberPad)
+                        .focused($numericFieldFocus, equals: .inlineReps(logId))
+                        .multilineTextAlignment(.center)
+                        .frame(minWidth: 44, minHeight: 36)
+                        .padding(fieldPadding)
+                        .background(Color(.systemGray6))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    Button {
+                        fitlogDismissKeyboard()
+                        numericFieldFocus = nil
+                        inlineQuickLog(exerciseIndex: exerciseIndex, logId: logId)
+                    } label: {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 34))
+                            .foregroundStyle(.green)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled((inlineRepsByLogId[logId] ?? 0) <= 0)
+                    .accessibilityLabel("Log set")
+                    Menu {
+                        Button("Full log (RPE, drops…)", systemImage: "slider.horizontal.3") {
+                            fitlogDismissKeyboard()
+                            numericFieldFocus = nil
+                            logSetSheetSelection = LogSetSheetSelection(
+                                exerciseIndex: exerciseIndex,
+                                prefillDisplayWeight: inlineWeightByLogId[logId],
+                                prefillReps: inlineRepsByLogId[logId],
+                                prefillBodyweightMode: false
+                            )
+                        }
+                        Button("Plate calculator", systemImage: "scalemass") {
+                            fitlogDismissKeyboard()
+                            numericFieldFocus = nil
+                            plateCalculatorInlinePick = PlateCalculatorInlinePick(logId: logId)
+                        }
+                        if inlineRpeExpandedLogIds.contains(logId) {
+                            Button("Hide quick RPE", systemImage: "gauge.with.dots.needle.67percent") {
+                                inlineRpeExpandedLogIds.remove(logId)
+                            }
+                        } else {
+                            Button("Quick RPE (6–10)", systemImage: "gauge.with.dots.needle.67percent") {
+                                inlineRpeExpandedLogIds.insert(logId)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .frame(minWidth: 36, minHeight: 36)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("More logging options")
                 }
             }
             if inlineRpeExpandedLogIds.contains(logId) {
@@ -1851,7 +1882,7 @@ struct CurrentWorkoutPullUpSheet: View {
                 HStack(spacing: 8) {
                     TextField("Wt", value: Binding(
                         get: { editWeightDisplay },
-                        set: { editWeightDisplay = clampDisplayWeightForUser($0) }
+                        set: { editWeightDisplay = clampSignedNetDisplayForUser($0) }
                     ), format: .number.precision(.fractionLength(0...2)))
                     .keyboardType(.decimalPad)
                     .focused($numericFieldFocus, equals: .editWeight)
@@ -2186,6 +2217,94 @@ struct CurrentWorkoutPullUpSheet: View {
         }
     }
 
+    @ViewBuilder
+    private func planAndCompletionRow(log: ExerciseLog) -> some View {
+        HStack(spacing: 12) {
+            setProgressIndicatorStrip(log: log)
+            Spacer(minLength: 8)
+            if let exId = log.workoutExercise.exerciseId {
+                if isExerciseCompleted(log) {
+                    Button {
+                        currentVM.markExerciseNotCompleted(exerciseId: exId)
+                    } label: {
+                        Label("Undo done", systemImage: "arrow.uturn.backward.circle")
+                            .labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(.orange)
+                } else {
+                    Button {
+                        currentVM.markExerciseCompleted(exerciseId: exId)
+                    } label: {
+                        Label("Done", systemImage: "checkmark.circle.fill")
+                            .labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .tint(.green)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func currentAndPreviousSetsSection(
+        exerciseIndex: Int,
+        log: ExerciseLog,
+        previousLog: ExerciseLog?
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Sets")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                if let previousLog {
+                    matchOrBeatPreviousRow(
+                        log: log,
+                        exerciseIndex: exerciseIndex,
+                        previousLog: previousLog,
+                        includeListRowInsets: false
+                    )
+                }
+            }
+
+            currentLoggedSetsList(exerciseIndex: exerciseIndex, log: log)
+
+            if let previousLog {
+                previousSessionSummaryRow(previousLog: previousLog, includeListRowInsets: false)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func currentLoggedSetsList(exerciseIndex: Int, log: ExerciseLog) -> some View {
+        if log.loggedSets.isEmpty {
+            Text("No sets logged yet")
+                .foregroundStyle(.secondary)
+                .italic()
+        } else {
+            VStack(spacing: 6) {
+                ForEach(Array(log.loggedSets.enumerated()), id: \.element.id) { setIndex, set in
+                    interactiveLoggedSetRow(
+                        exerciseIndex: exerciseIndex,
+                        setIndex: setIndex,
+                        chronologicalSetNumber: setIndex + 1,
+                        set: set,
+                        workoutExercise: log.workoutExercise,
+                        isHighlighted: set.id == highlightedLoggedSetId
+                    )
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button("Delete", role: .destructive) {
+                            clearEditingSetIfNeeded(setId: set.id)
+                            currentVM.deleteSet(exerciseIndex: exerciseIndex, setIndex: setIndex)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private func matchOrBeatPreviousRow(
         log: ExerciseLog,
         exerciseIndex: Int,
@@ -2244,6 +2363,7 @@ struct CurrentWorkoutPullUpSheet: View {
             inlineWeightByLogId[lid] = WeightStoreConversion.clampNonNegativeDisplay(netDisplay, unit: unit)
         }
         inlineRepsByLogId[lid] = t.reps
+        seedInlineText(for: lid)
         inlineInitializedLogIds.insert(lid)
     }
 
@@ -2272,6 +2392,7 @@ struct CurrentWorkoutPullUpSheet: View {
         if reps > 0 {
             inlineRepsByLogId[lid] = reps
         }
+        seedInlineText(for: lid)
         inlineInitializedLogIds.insert(lid)
     }
 
