@@ -110,6 +110,36 @@ private enum DeloadPick: String, CaseIterable, Identifiable {
 private typealias EditableSlot = SplitBuilderEditableSlot
 private typealias EditableDay = SplitBuilderEditableDay
 
+private enum LibraryPickContext: Identifiable {
+    case slotDefault(dayId: UUID, slotId: UUID)
+
+    var id: String {
+        switch self {
+        case .slotDefault(let d, let s): return "slot-\(d.uuidString)-\(s.uuidString)"
+        }
+    }
+}
+
+private enum MusclePickContext: Identifiable {
+    case slot(dayId: UUID, slotId: UUID)
+
+    var id: String {
+        switch self {
+        case .slot(let d, let s): return "muscle-\(d.uuidString)-\(s.uuidString)"
+        }
+    }
+}
+
+private enum ExerciseSuggestContext: Identifiable {
+    case slot(dayId: UUID, slotId: UUID)
+
+    var id: String {
+        switch self {
+        case .slot(let d, let s): return "exsug-\(d.uuidString)-\(s.uuidString)"
+        }
+    }
+}
+
 // MARK: - View
 
 struct AISplitBuilderView: View {
@@ -163,34 +193,25 @@ struct AISplitBuilderView: View {
         let id: UUID
     }
 
-    private enum LibraryPickContext: Identifiable {
-        case slotDefault(dayId: UUID, slotId: UUID)
-
-        var id: String {
-            switch self {
-            case .slotDefault(let d, let s): return "slot-\(d.uuidString)-\(s.uuidString)"
-            }
-        }
-    }
-
-    private enum MusclePickContext: Identifiable {
-        case slot(dayId: UUID, slotId: UUID)
-
-        var id: String {
-            switch self {
-            case .slot(let d, let s): return "muscle-\(d.uuidString)-\(s.uuidString)"
-            }
-        }
-    }
-
-    private enum ExerciseSuggestContext: Identifiable {
-        case slot(dayId: UUID, slotId: UUID)
-
-        var id: String {
-            switch self {
-            case .slot(let d, let s): return "exsug-\(d.uuidString)-\(s.uuidString)"
-            }
-        }
+    private struct PersistenceSignature: Equatable {
+        var primaryGoal: PrimaryTrainingGoal
+        var equipment: EquipmentAccess
+        var splitPreference: SplitStylePreference
+        var experience: ExperiencePick
+        var sessionDuration: SessionDurationPick
+        var intensityStyle: IntensityStylePick
+        var progressionStyle: ProgressionStylePick
+        var deloadPreference: DeloadPick
+        var variationMode: SplitBuilderVariationMode
+        var customRotationLength: Int
+        var sessionsPerWeek: Int
+        var selectedWeekdays: Set<Int>
+        var updateTrainingProgram: Bool
+        var limitationsNotes: String
+        var additionalNotes: String
+        var priorityMusclesNotes: String
+        var recoveryNotes: String
+        var variationNotes: String
     }
 
     private var calendar: Calendar { .current }
@@ -256,7 +277,58 @@ struct AISplitBuilderView: View {
         min(max(1, customRotationLength), 7)
     }
 
+    private var persistenceSignature: PersistenceSignature {
+        PersistenceSignature(
+            primaryGoal: primaryGoal,
+            equipment: equipment,
+            splitPreference: splitPreference,
+            experience: experience,
+            sessionDuration: sessionDuration,
+            intensityStyle: intensityStyle,
+            progressionStyle: progressionStyle,
+            deloadPreference: deloadPreference,
+            variationMode: variationMode,
+            customRotationLength: boundedCustomRotationLength,
+            sessionsPerWeek: sessionsPerWeek,
+            selectedWeekdays: selectedWeekdays,
+            updateTrainingProgram: updateTrainingProgram,
+            limitationsNotes: limitationsNotes,
+            additionalNotes: additionalNotes,
+            priorityMusclesNotes: priorityMusclesNotes,
+            recoveryNotes: recoveryNotes,
+            variationNotes: variationNotes
+        )
+    }
+
     var body: some View {
+        navigationRoot
+            .modifier(AISplitBuilderSheetModifier(
+                libraryPickContext: $libraryPickContext,
+                musclePickContext: $musclePickContext,
+                exerciseSuggestContext: $exerciseSuggestContext,
+                librarySheet: libraryPickerSheet,
+                muscleSheet: musclePickerSheet,
+                exerciseSheet: exerciseSuggestSheet
+            ))
+            .modifier(AISplitBuilderSuccessAlertModifier(
+                isPresented: $showApplySuccess,
+                message: applySuccessMessage,
+                onViewPlan: {
+                    rootTabSelection?.wrappedValue = .plan
+                    dismiss()
+                },
+                onDone: { dismiss() }
+            ))
+            .onAppear(perform: loadInitialBuilderStateIfNeeded)
+            .onChange(of: persistenceSignature) { _, _ in
+                if customRotationLength != boundedCustomRotationLength {
+                    customRotationLength = boundedCustomRotationLength
+                }
+                persistWizardState()
+            }
+    }
+
+    private var navigationRoot: some View {
         NavigationStack {
             Group {
                 if let p = proposal {
@@ -284,86 +356,58 @@ struct AISplitBuilderView: View {
                 }
             }
         }
-        .sheet(item: $libraryPickContext) { ctx in
-            NavigationStack {
-                SplitLibraryPickerView(exercises: dataVM.globalExercises) { ex in
-                    applyLibraryPick(context: ctx, exercise: ex)
-                    libraryPickContext = nil
-                }
+    }
+
+    private func libraryPickerSheet(_ ctx: LibraryPickContext) -> some View {
+        NavigationStack {
+            SplitLibraryPickerView(exercises: dataVM.globalExercises) { ex in
+                applyLibraryPick(context: ctx, exercise: ex)
+                libraryPickContext = nil
             }
         }
-        .sheet(item: $musclePickContext) { ctx in
-            NavigationStack {
-                SplitMuscleMultiPickerView(
-                    initial: musclesForContext(ctx),
-                    onDone: { picked in
-                        applyMusclePick(context: ctx, muscles: picked)
-                        musclePickContext = nil
-                    },
-                    onCancel: { musclePickContext = nil }
-                )
+    }
+
+    private func musclePickerSheet(_ ctx: MusclePickContext) -> some View {
+        NavigationStack {
+            SplitMuscleMultiPickerView(
+                initial: musclesForContext(ctx),
+                onDone: { picked in
+                    applyMusclePick(context: ctx, muscles: picked)
+                    musclePickContext = nil
+                },
+                onCancel: { musclePickContext = nil }
+            )
+        }
+    }
+
+    private func exerciseSuggestSheet(_ ctx: ExerciseSuggestContext) -> some View {
+        NavigationStack {
+            SplitExerciseSuggestSheet(
+                exercises: dataVM.globalExercises,
+                initialQuery: exerciseNameForContext(ctx) ?? "",
+                onPick: { ex in
+                    applyExerciseSuggest(context: ctx, exercise: ex)
+                    exerciseSuggestContext = nil
+                },
+                onCancel: { exerciseSuggestContext = nil }
+            )
+        }
+    }
+
+    private func loadInitialBuilderStateIfNeeded() {
+        guard !didLoadPersistedWizard else { return }
+        didLoadPersistedWizard = true
+        applyPersistedState(SplitBuilderPreferencesStore.load())
+        if let pre = coachPrefillFromEnvironment, !pre.isEmpty, !didApplyCoachPrefill {
+            didApplyCoachPrefill = true
+            let block = "[Plan context]\n\(pre)\n\n"
+            if additionalNotes.isEmpty {
+                additionalNotes = String(block.prefix(SplitBuilderLimits.maxOptionalFieldChars))
+            } else {
+                let merged = block + additionalNotes
+                additionalNotes = String(merged.prefix(SplitBuilderLimits.maxOptionalFieldChars))
             }
         }
-        .sheet(item: $exerciseSuggestContext) { ctx in
-            NavigationStack {
-                SplitExerciseSuggestSheet(
-                    exercises: dataVM.globalExercises,
-                    initialQuery: exerciseNameForContext(ctx) ?? "",
-                    onPick: { ex in
-                        applyExerciseSuggest(context: ctx, exercise: ex)
-                        exerciseSuggestContext = nil
-                    },
-                    onCancel: { exerciseSuggestContext = nil }
-                )
-            }
-        }
-        .alert("Split applied", isPresented: $showApplySuccess) {
-            Button("View Plan") {
-                rootTabSelection?.wrappedValue = .plan
-                dismiss()
-            }
-            Button("Done", role: .cancel) {
-                dismiss()
-            }
-        } message: {
-            Text(applySuccessMessage)
-        }
-        .onAppear {
-            guard !didLoadPersistedWizard else { return }
-            didLoadPersistedWizard = true
-            applyPersistedState(SplitBuilderPreferencesStore.load())
-            if let pre = coachPrefillFromEnvironment, !pre.isEmpty, !didApplyCoachPrefill {
-                didApplyCoachPrefill = true
-                let block = "[Plan context]\n\(pre)\n\n"
-                if additionalNotes.isEmpty {
-                    additionalNotes = String(block.prefix(SplitBuilderLimits.maxOptionalFieldChars))
-                } else {
-                    let merged = block + additionalNotes
-                    additionalNotes = String(merged.prefix(SplitBuilderLimits.maxOptionalFieldChars))
-                }
-            }
-        }
-        .onChange(of: primaryGoal) { _, _ in persistWizardState() }
-        .onChange(of: equipment) { _, _ in persistWizardState() }
-        .onChange(of: splitPreference) { _, _ in persistWizardState() }
-        .onChange(of: experience) { _, _ in persistWizardState() }
-        .onChange(of: sessionDuration) { _, _ in persistWizardState() }
-        .onChange(of: intensityStyle) { _, _ in persistWizardState() }
-        .onChange(of: progressionStyle) { _, _ in persistWizardState() }
-        .onChange(of: deloadPreference) { _, _ in persistWizardState() }
-        .onChange(of: variationMode) { _, _ in persistWizardState() }
-        .onChange(of: customRotationLength) { _, new in
-            customRotationLength = min(max(1, new), 7)
-            persistWizardState()
-        }
-        .onChange(of: variationNotes) { _, _ in persistWizardState() }
-        .onChange(of: sessionsPerWeek) { _, _ in persistWizardState() }
-        .onChange(of: selectedWeekdays) { _, _ in persistWizardState() }
-        .onChange(of: updateTrainingProgram) { _, _ in persistWizardState() }
-        .onChange(of: limitationsNotes) { _, _ in persistWizardState() }
-        .onChange(of: additionalNotes) { _, _ in persistWizardState() }
-        .onChange(of: priorityMusclesNotes) { _, _ in persistWizardState() }
-        .onChange(of: recoveryNotes) { _, _ in persistWizardState() }
     }
 
     // MARK: - Persisted wizard defaults
@@ -1433,6 +1477,43 @@ struct AISplitBuilderView: View {
             : "Your Plan calendar was not changed; new templates are in your workout list."
         applySuccessMessage = "Created \(templates) workout template\(templates == 1 ? "" : "s"). \(planLine)"
         showApplySuccess = true
+    }
+}
+
+private struct AISplitBuilderSheetModifier<
+    LibrarySheet: View,
+    MuscleSheet: View,
+    ExerciseSheet: View
+>: ViewModifier {
+    @Binding var libraryPickContext: LibraryPickContext?
+    @Binding var musclePickContext: MusclePickContext?
+    @Binding var exerciseSuggestContext: ExerciseSuggestContext?
+
+    let librarySheet: (LibraryPickContext) -> LibrarySheet
+    let muscleSheet: (MusclePickContext) -> MuscleSheet
+    let exerciseSheet: (ExerciseSuggestContext) -> ExerciseSheet
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(item: $libraryPickContext, content: librarySheet)
+            .sheet(item: $musclePickContext, content: muscleSheet)
+            .sheet(item: $exerciseSuggestContext, content: exerciseSheet)
+    }
+}
+
+private struct AISplitBuilderSuccessAlertModifier: ViewModifier {
+    @Binding var isPresented: Bool
+    let message: String
+    let onViewPlan: () -> Void
+    let onDone: () -> Void
+
+    func body(content: Content) -> some View {
+        content.alert("Split applied", isPresented: $isPresented) {
+            Button("View Plan", action: onViewPlan)
+            Button("Done", role: .cancel, action: onDone)
+        } message: {
+            Text(message)
+        }
     }
 }
 
