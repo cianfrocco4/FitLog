@@ -42,13 +42,32 @@ enum SplitProposalProgramAnalyzer {
         var experienceLevel: String?
         var sessionDurationMinutes: Int?
         var priorityNotes: String?
+        var variationMode: String?
+        var sessionsPerWeek: Int?
+        var desiredRotationLength: Int?
+        var splitPreference: String?
 
-        static let none = Context(
-            primaryGoal: nil,
-            experienceLevel: nil,
-            sessionDurationMinutes: nil,
-            priorityNotes: nil
-        )
+        init(
+            primaryGoal: String? = nil,
+            experienceLevel: String? = nil,
+            sessionDurationMinutes: Int? = nil,
+            priorityNotes: String? = nil,
+            variationMode: String? = nil,
+            sessionsPerWeek: Int? = nil,
+            desiredRotationLength: Int? = nil,
+            splitPreference: String? = nil
+        ) {
+            self.primaryGoal = primaryGoal
+            self.experienceLevel = experienceLevel
+            self.sessionDurationMinutes = sessionDurationMinutes
+            self.priorityNotes = priorityNotes
+            self.variationMode = variationMode
+            self.sessionsPerWeek = sessionsPerWeek
+            self.desiredRotationLength = desiredRotationLength
+            self.splitPreference = splitPreference
+        }
+
+        static let none = Context()
     }
 
     /// Slot-like input for preview (matches editable split builder rows).
@@ -232,7 +251,87 @@ enum SplitProposalProgramAnalyzer {
             ))
         }
 
+        out.append(contentsOf: variationWarnings(days: days, context: context))
+
         return out
+    }
+
+    private static func variationWarnings(days: [DayInput], context: Context) -> [SplitProposalProgramWarning] {
+        guard let modeRaw = context.variationMode?.lowercased(),
+              !modeRaw.contains("simple"),
+              !days.isEmpty else { return [] }
+        var out: [SplitProposalProgramWarning] = []
+        let names = days.map { $0.name.lowercased() }
+        let split = context.splitPreference?.lowercased() ?? ""
+
+        if let sessions = context.sessionsPerWeek,
+           let rotation = context.desiredRotationLength,
+           rotation > sessions + 2 {
+            out.append(SplitProposalProgramWarning(
+                severity: .note,
+                message: "This uses a \(rotation)-workout rotation for \(sessions) sessions/week. That adds variety, but each exact workout repeats less often."
+            ))
+        }
+
+        let wantsPPL = split.contains("ppl") || (split.contains("push") && split.contains("pull") && split.contains("leg"))
+        if wantsPPL {
+            let pushCount = names.filter { $0.contains("push") }.count
+            let pullCount = names.filter { $0.contains("pull") }.count
+            let legCount = names.filter { $0.contains("leg") || $0.contains("lower") }.count
+            if let rotation = context.desiredRotationLength, rotation >= 6,
+               min(pushCount, pullCount, legCount) < 2 {
+                out.append(SplitProposalProgramWarning(
+                    severity: .caution,
+                    message: "PPL variation requested, but the rotation does not clearly include at least two Push, Pull, and Legs/Lower templates."
+                ))
+            }
+        }
+
+        let grouped = Dictionary(grouping: days) { baseVariationName($0.name) }
+        for (base, variants) in grouped where variants.count >= 2 {
+            let signatures = Set(variants.map { daySignature($0) })
+            if signatures.count == 1, !signatures.isEmpty {
+                out.append(SplitProposalProgramWarning(
+                    severity: .note,
+                    message: "\(base) variants look very similar. Change angles, default exercises, or muscle emphasis so A/B days feel meaningfully different."
+                ))
+                break
+            }
+        }
+
+        if modeRaw.contains("high"),
+           context.experienceLevel?.lowercased().contains("beginner") == true {
+            out.append(SplitProposalProgramWarning(
+                severity: .note,
+                message: "High variety can slow skill practice for beginners. Keep key compounds consistent if progress stalls."
+            ))
+        }
+
+        return out
+    }
+
+    private static func baseVariationName(_ name: String) -> String {
+        var key = name.lowercased()
+        for suffix in [" a", " b", " c", " 1", " 2", " 3"] {
+            if key.hasSuffix(suffix) {
+                key.removeLast(suffix.count)
+                break
+            }
+        }
+        return key.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func daySignature(_ day: DayInput) -> String {
+        day.slots
+            .map { slot in
+                let muscles = ExerciseNameResolution.resolveMuscleGroups(from: slot.targetMuscleNames)
+                    .map(\.rawValue)
+                    .sorted()
+                    .joined(separator: ",")
+                let label = slot.label.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                return "\(label)|\(muscles)|\(slot.sets)"
+            }
+            .joined(separator: ";")
     }
 
     /// Per training day: compare slot volume whose muscles skew push vs pull (legs/core days often neutral).

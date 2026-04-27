@@ -40,6 +40,9 @@ enum SplitBuilderPreferencesStore {
         var priorityMusclesOrLiftsNotes: String?
         var recoveryContextNotes: String?
         var deloadPreferenceRaw: String?
+        var variationModeRaw: String?
+        var customRotationLength: Int?
+        var variationNotes: String?
 
         static let `default` = State(
             primaryGoalRaw: nil,
@@ -56,7 +59,10 @@ enum SplitBuilderPreferencesStore {
             progressionStyleRaw: nil,
             priorityMusclesOrLiftsNotes: nil,
             recoveryContextNotes: nil,
-            deloadPreferenceRaw: nil
+            deloadPreferenceRaw: nil,
+            variationModeRaw: nil,
+            customRotationLength: nil,
+            variationNotes: nil
         )
     }
 
@@ -77,6 +83,9 @@ enum SplitBuilderPreferencesStore {
         var priorityMusclesOrLiftsNotes: String?
         var recoveryContextNotes: String?
         var deloadPreferenceRaw: String?
+        var variationModeRaw: String?
+        var customRotationLength: Int?
+        var variationNotes: String?
     }
 
     static func load() -> State {
@@ -100,7 +109,10 @@ enum SplitBuilderPreferencesStore {
                 progressionStyleRaw: env.progressionStyleRaw,
                 priorityMusclesOrLiftsNotes: env.priorityMusclesOrLiftsNotes,
                 recoveryContextNotes: env.recoveryContextNotes,
-                deloadPreferenceRaw: env.deloadPreferenceRaw
+                deloadPreferenceRaw: env.deloadPreferenceRaw,
+                variationModeRaw: env.variationModeRaw,
+                customRotationLength: env.customRotationLength,
+                variationNotes: env.variationNotes
             )
         default:
             // Future: migrate from unknown version or legacy keys
@@ -125,7 +137,10 @@ enum SplitBuilderPreferencesStore {
             progressionStyleRaw: state.progressionStyleRaw,
             priorityMusclesOrLiftsNotes: state.priorityMusclesOrLiftsNotes,
             recoveryContextNotes: state.recoveryContextNotes,
-            deloadPreferenceRaw: state.deloadPreferenceRaw
+            deloadPreferenceRaw: state.deloadPreferenceRaw,
+            variationModeRaw: state.variationModeRaw,
+            customRotationLength: state.customRotationLength,
+            variationNotes: state.variationNotes
         )
         guard let data = try? JSONEncoder().encode(env) else { return }
         UserDefaults.standard.set(data, forKey: envelopeKey)

@@ -132,6 +132,9 @@ struct AISplitBuilderView: View {
     @State private var priorityMusclesNotes = ""
     @State private var recoveryNotes = ""
     @State private var deloadPreference: DeloadPick = .none
+    @State private var variationMode: SplitBuilderVariationMode = .balanced
+    @State private var customRotationLength = 6
+    @State private var variationNotes = ""
 
     @State private var sessionsPerWeek = 3
     @State private var selectedWeekdays: Set<Int> = []
@@ -232,9 +235,25 @@ struct AISplitBuilderView: View {
                 primaryGoal: primaryGoal.rawValue,
                 experienceLevel: experience.rawValue,
                 sessionDurationMinutes: sessionDuration.minutes,
-                priorityNotes: priorityMusclesNotes
+                priorityNotes: priorityMusclesNotes,
+                variationMode: variationMode.rawValue,
+                sessionsPerWeek: sessionsPerWeek,
+                desiredRotationLength: desiredRotationLength,
+                splitPreference: splitPreference.rawValue
             )
         )
+    }
+
+    private var desiredRotationLength: Int {
+        variationMode.targetRotationLength(
+            sessionsPerWeek: sessionsPerWeek,
+            splitPreferenceText: splitPreference.rawValue,
+            customCount: boundedCustomRotationLength
+        )
+    }
+
+    private var boundedCustomRotationLength: Int {
+        min(max(1, customRotationLength), 7)
     }
 
     var body: some View {
@@ -332,6 +351,12 @@ struct AISplitBuilderView: View {
         .onChange(of: intensityStyle) { _, _ in persistWizardState() }
         .onChange(of: progressionStyle) { _, _ in persistWizardState() }
         .onChange(of: deloadPreference) { _, _ in persistWizardState() }
+        .onChange(of: variationMode) { _, _ in persistWizardState() }
+        .onChange(of: customRotationLength) { _, new in
+            customRotationLength = min(max(1, new), 7)
+            persistWizardState()
+        }
+        .onChange(of: variationNotes) { _, _ in persistWizardState() }
         .onChange(of: sessionsPerWeek) { _, _ in persistWizardState() }
         .onChange(of: selectedWeekdays) { _, _ in persistWizardState() }
         .onChange(of: updateTrainingProgram) { _, _ in persistWizardState() }
@@ -365,6 +390,9 @@ struct AISplitBuilderView: View {
             recoveryNotes = String(t.prefix(SplitBuilderLimits.maxPriorityRecoveryChars))
         }
         if let r = s.deloadPreferenceRaw, let v = DeloadPick(rawValue: r) { deloadPreference = v }
+        if let r = s.variationModeRaw, let v = SplitBuilderVariationMode(rawValue: r) { variationMode = v }
+        if let n = s.customRotationLength { customRotationLength = min(max(1, n), 7) }
+        if let t = s.variationNotes { variationNotes = String(t.prefix(SplitBuilderLimits.maxOptionalFieldChars)) }
         sessionsPerWeek = min(sessionsPerWeek, maxSessionsAllowed)
     }
 
@@ -384,7 +412,10 @@ struct AISplitBuilderView: View {
             progressionStyleRaw: progressionStyle.rawValue,
             priorityMusclesOrLiftsNotes: priorityMusclesNotes,
             recoveryContextNotes: recoveryNotes,
-            deloadPreferenceRaw: deloadPreference.rawValue
+            deloadPreferenceRaw: deloadPreference.rawValue,
+            variationModeRaw: variationMode.rawValue,
+            customRotationLength: boundedCustomRotationLength,
+            variationNotes: variationNotes
         )
         SplitBuilderPreferencesStore.save(state)
     }
@@ -556,6 +587,44 @@ struct AISplitBuilderView: View {
             .onChange(of: selectedWeekdays) { _, _ in
                 sessionsPerWeek = min(sessionsPerWeek, maxSessionsAllowed)
             }
+
+            variationSection
+        }
+    }
+
+    private var variationSection: some View {
+        Section {
+            Picker("Variation", selection: $variationMode) {
+                ForEach(SplitBuilderVariationMode.allCases) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+
+            if variationMode == .custom {
+                Stepper(
+                    "Templates in rotation: \(boundedCustomRotationLength)",
+                    value: $customRotationLength,
+                    in: 1...7
+                )
+            }
+
+            Text(variationMode.subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(
+                variationMode.rotationSummary(
+                    sessionsPerWeek: sessionsPerWeek,
+                    splitPreferenceText: splitPreference.rawValue,
+                    customCount: boundedCustomRotationLength
+                )
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        } header: {
+            Text("Variety & rotation")
+        } footer: {
+            Text("Sessions per week is how often you train. Template rotation can be longer so A/B days cycle across multiple weeks.")
+                .font(.caption)
         }
     }
 
@@ -607,6 +676,21 @@ struct AISplitBuilderView: View {
             }
 
             Section {
+                TextField(
+                    "Variation notes",
+                    text: $variationNotes,
+                    prompt: Text("e.g. Push A chest-heavy, Push B shoulder-heavy"),
+                    axis: .vertical
+                )
+                .lineLimit(2...4)
+            } header: {
+                Text("Variation guidance")
+            } footer: {
+                Text("Optional. Use this when you want specific A/B emphasis, exercise rotation, or muscle-group coverage.")
+                    .font(.caption)
+            }
+
+            Section {
                 Toggle("Set as my training program", isOn: $updateTrainingProgram)
                 Text("When on, your Plan cycle and weekly schedule update to this split. When off, only new workout templates are created.")
                     .font(.caption)
@@ -639,6 +723,11 @@ struct AISplitBuilderView: View {
         .onChange(of: recoveryNotes) { _, new in
             if new.count > SplitBuilderLimits.maxPriorityRecoveryChars {
                 recoveryNotes = String(new.prefix(SplitBuilderLimits.maxPriorityRecoveryChars))
+            }
+        }
+        .onChange(of: variationNotes) { _, new in
+            if new.count > SplitBuilderLimits.maxOptionalFieldChars {
+                variationNotes = String(new.prefix(SplitBuilderLimits.maxOptionalFieldChars))
             }
         }
         .keyboardDismissToolbar()
@@ -779,6 +868,8 @@ struct AISplitBuilderView: View {
             LabeledContent("Weekly sets (all slots)", value: "\(programStats.totalHardSetsPerWeek)")
             LabeledContent("Split style", value: programStats.inferredSplitStyle)
             LabeledContent("Muscle tags used", value: "\(programStats.distinctMuscleGroupsTouched)")
+            LabeledContent("Rotation templates", value: "\(editableDays.count)")
+            LabeledContent("Training frequency", value: "\(sessionsPerWeek) / week")
             let rough = "\(programStats.pushOrientedSets) / \(programStats.pullOrientedSets) / \(programStats.legOrientedSets)"
             LabeledContent("Push / pull / leg emphasis (rough)", value: "\(rough) set·muscle hits")
             let legKneeHinge = "\(programStats.quadKneeOrientedSets) / \(programStats.hipPosteriorLegSets)"
@@ -1275,6 +1366,9 @@ struct AISplitBuilderView: View {
             priorityMusclesOrLiftsNotes: priorityMusclesNotes,
             recoveryContextNotes: recoveryNotes,
             deloadPreference: deloadPreference.rawValue,
+            variationMode: variationMode.rawValue,
+            desiredWorkoutRotationLength: desiredRotationLength,
+            variationNotes: variationNotes,
             adjustmentInstruction: adjustment
         )
     }

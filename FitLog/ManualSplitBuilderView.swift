@@ -20,6 +20,8 @@ struct ManualSplitBuilderView: View {
 
     @State private var preset: SplitBuilderManualPreset = .pushPullLegs
     @State private var sessionsPerWeek = 4
+    @State private var variationMode: SplitBuilderVariationMode = .balanced
+    @State private var customRotationLength = 6
     @State private var selectedWeekdays: Set<Int> = []
     @State private var updateTrainingProgram = true
     @State private var step: ManualSplitStep = .setup
@@ -53,6 +55,18 @@ struct ManualSplitBuilderView: View {
         SplitProposalProgramAnalyzer.stats(for: analyzerDays)
     }
 
+    private var desiredRotationLength: Int {
+        variationMode.targetRotationLength(
+            sessionsPerWeek: sessionsPerWeek,
+            splitPreferenceText: preset.rawValue,
+            customCount: boundedCustomRotationLength
+        )
+    }
+
+    private var boundedCustomRotationLength: Int {
+        min(max(1, customRotationLength), 7)
+    }
+
     private var warnings: [SplitProposalProgramWarning] {
         SplitProposalProgramAnalyzer.warnings(
             stats: stats,
@@ -61,7 +75,11 @@ struct ManualSplitBuilderView: View {
                 primaryGoal: "Manual split",
                 experienceLevel: "Intermediate",
                 sessionDurationMinutes: nil,
-                priorityNotes: ""
+                priorityNotes: "",
+                variationMode: variationMode.rawValue,
+                sessionsPerWeek: sessionsPerWeek,
+                desiredRotationLength: desiredRotationLength,
+                splitPreference: preset.rawValue
             )
         )
     }
@@ -100,6 +118,18 @@ struct ManualSplitBuilderView: View {
         } message: {
             Text(applySuccessMessage)
         }
+        .onAppear {
+            let saved = SplitBuilderPreferencesStore.load()
+            if let raw = saved.variationModeRaw,
+               let mode = SplitBuilderVariationMode(rawValue: raw) {
+                variationMode = mode
+            }
+            if let n = saved.customRotationLength {
+                customRotationLength = min(max(1, n), 7)
+            }
+        }
+        .onChange(of: variationMode) { _, _ in persistVariationDefaults() }
+        .onChange(of: customRotationLength) { _, _ in persistVariationDefaults() }
     }
 
     private var setupView: some View {
@@ -148,6 +178,8 @@ struct ManualSplitBuilderView: View {
                 .font(.caption)
             }
 
+            variationSection
+
             Section {
                 Button {
                     startEditing()
@@ -156,6 +188,40 @@ struct ManualSplitBuilderView: View {
                         .font(.headline)
                 }
             }
+        }
+    }
+
+    private var variationSection: some View {
+        Section {
+            Picker("Variation", selection: $variationMode) {
+                ForEach(SplitBuilderVariationMode.allCases) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            if variationMode == .custom {
+                Stepper(
+                    "Templates in rotation: \(boundedCustomRotationLength)",
+                    value: $customRotationLength,
+                    in: 1...7
+                )
+            }
+            Text(variationMode.subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(
+                variationMode.rotationSummary(
+                    sessionsPerWeek: sessionsPerWeek,
+                    splitPreferenceText: preset.rawValue,
+                    customCount: boundedCustomRotationLength
+                )
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        } header: {
+            Text("Variety & rotation")
+        } footer: {
+            Text("Rotation length can be longer than weekly sessions, so A/B days cycle across multiple weeks.")
+                .font(.caption)
         }
     }
 
@@ -180,12 +246,18 @@ struct ManualSplitBuilderView: View {
             LabeledContent("Weekly sets", value: "\(stats.totalHardSetsPerWeek)")
             LabeledContent("Split style", value: stats.inferredSplitStyle)
             LabeledContent("Muscle tags", value: "\(stats.distinctMuscleGroupsTouched)")
+            LabeledContent("Rotation templates", value: "\(editableDays.count)")
+            LabeledContent("Sessions / week", value: "\(sessionsPerWeek)")
             LabeledContent(
                 "Push / pull / legs",
                 value: "\(stats.pushOrientedSets) / \(stats.pullOrientedSets) / \(stats.legOrientedSets)"
             )
         } header: {
             Text("Program snapshot")
+        } footer: {
+            if editableDays.count != sessionsPerWeek {
+                Text("This rotation has more templates than weekly sessions, so exact workouts repeat across multiple weeks.")
+            }
         }
     }
 
@@ -396,6 +468,8 @@ struct ManualSplitBuilderView: View {
         editableDays = SplitBuilderSharedFactory.presetDays(
             preset: preset,
             count: sessionsPerWeek,
+            variationMode: variationMode,
+            customRotationLength: boundedCustomRotationLength,
             library: dataVM.globalExercises
         )
         expandedDayIds = Set(editableDays.map(\.id))
@@ -452,5 +526,12 @@ struct ManualSplitBuilderView: View {
 
     private func muscleSummary(_ slot: SplitBuilderEditableSlot) -> String {
         SplitBuilderSupportText.slotMuscleOutcomeLine(slot)
+    }
+
+    private func persistVariationDefaults() {
+        var saved = SplitBuilderPreferencesStore.load()
+        saved.variationModeRaw = variationMode.rawValue
+        saved.customRotationLength = boundedCustomRotationLength
+        SplitBuilderPreferencesStore.save(saved)
     }
 }

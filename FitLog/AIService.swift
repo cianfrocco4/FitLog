@@ -79,6 +79,12 @@ struct WorkoutSplitBuilderStructuredInput: Equatable {
     var priorityMusclesOrLiftsNotes: String
     var recoveryContextNotes: String
     var deloadPreference: String
+    /// How much day-to-day/template variation the user wants (simple, balanced, high, custom).
+    var variationMode: String = "Balanced variation"
+    /// Desired number of distinct workout templates in the rotation. May exceed sessionsPerWeek.
+    var desiredWorkoutRotationLength: Int? = nil
+    /// Freeform guidance for A/B emphasis, exercise rotation, or muscle coverage.
+    var variationNotes: String = ""
     /// When regenerating, extra line(s) for the model (e.g. “shorter sessions”).
     var adjustmentInstruction: String?
 }
@@ -297,6 +303,7 @@ final class AIService: ObservableObject {
             throw AIServiceError.notConfigured
         }
         let maxSessions = min(max(1, structured.sessionsPerWeek), 7)
+        let desiredRotationLength = structured.desiredWorkoutRotationLength.map { min(max(1, $0), 7) } ?? maxSessions
         let userDays = Set(structured.preferredWeekdays.filter { $0 >= 1 && $0 <= 7 })
         let daysSorted = userDays.sorted()
         let daysNote: String = {
@@ -322,6 +329,9 @@ final class AIService: ObservableObject {
             priorityMusclesOrLiftsNotes: String(structured.priorityMusclesOrLiftsNotes.prefix(400)),
             recoveryContextNotes: String(structured.recoveryContextNotes.prefix(400)),
             deloadPreference: structured.deloadPreference,
+            variationMode: structured.variationMode,
+            desiredWorkoutRotationLength: desiredRotationLength,
+            variationNotes: String(structured.variationNotes.prefix(400)),
             adjustmentInstruction: structured.adjustmentInstruction.map { String($0.prefix(500)) }
         )
         let payloadData = try JSONEncoder().encode(payload)
@@ -352,7 +362,8 @@ final class AIService: ObservableObject {
             - rationale: 1–3 short sentences on why this split fits the user JSON profile (goals, equipment, time, intensity, progression).
             - sessionsPerWeek: integer from 1 to \(maxSessions) inclusive (must not exceed \(maxSessions)).
             - preferredWeekdays: subset of the user's allowed weekday numbers (see user message). Use [] only if the user selected no specific days — then the app will use its default pool.
-            - workouts: ordered cycle. At least 1 and at most 6 objects. Use distinct workout day names; avoid duplicating names in the existing workout names list unless refreshing that program on purpose.
+            - workouts: ordered rotation cycle. At least 1 and at most 7 objects. Use distinct workout day names; avoid duplicating names in the existing workout names list unless refreshing that program on purpose.
+            - Distinguish sessionsPerWeek from workouts.length: sessionsPerWeek is how many workouts the user performs each week; workouts.length is the reusable rotation and MAY be larger when variation is requested.
 
             Programming quality:
             - Respect equipment: never imply machines or barbells the user cannot access (see JSON equipment).
@@ -375,6 +386,13 @@ final class AIService: ObservableObject {
             - Calves and single-joint accessories are fine; avoid a week of only squats/leg press with no hinge or hamstring emphasis.
             SESSION COUNT vs PATTERN:
             - If `sessionsPerWeek` does not divide evenly into the user’s stated split style (e.g. 4 days with a 3-day PPL flavor), do NOT duplicate the same movement category disproportionately; choose a different structure (e.g. upper/lower ×2, balanced upper, extra pull day, full body) and explain in rationale.
+            VARIATION:
+            - Variation means different emphasis, not random swaps. Change angle, movement pattern, equipment, rep range, or priority muscle while preserving the day's intent.
+            - If variationMode is "Balanced variation" or "High variety", prefer A/B templates for repeated patterns when desiredWorkoutRotationLength allows it.
+            - A 4 sessions/week PPL plan may validly use a 6-workout rotation: the user trains 4 times each week while cycling through Push A, Pull A, Legs A, Push B, Pull B, Legs B across multiple weeks.
+            - For PPL with balanced/high variation and desiredWorkoutRotationLength=6, return Push A, Pull A, Legs A, Push B, Pull B, Legs B.
+            - For Upper/Lower with desiredWorkoutRotationLength=4+, return Upper A, Lower A, Upper B, Lower B before adding extra variants.
+            - For Full Body with variation, return Full Body A/B/C with meaningfully different main patterns.
 
             Training safety: this is not medical advice. Favor balanced programming and avoid reckless volume; honor injuries/limitations in the JSON.
             """
@@ -382,7 +400,9 @@ final class AIService: ObservableObject {
 
         let balanceAddendum = Self.splitBuilderBalanceAddendum(
             sessionsPerWeek: maxSessions,
-            splitPreference: structured.splitPreference
+            splitPreference: structured.splitPreference,
+            desiredRotationLength: desiredRotationLength,
+            variationMode: structured.variationMode
         )
 
         let userPrompt = """
@@ -392,6 +412,8 @@ final class AIService: ObservableObject {
         Scheduling context:
         \(daysNote)
         Target sessions per week (hard cap \(maxSessions)): \(maxSessions)
+        Desired workout rotation length (can be greater than sessions/week): \(desiredRotationLength)
+        If possible, return exactly \(desiredRotationLength) workout objects in workouts unless safety, equipment, or session-length constraints make that inappropriate.
 
         \(balanceAddendum)
 
@@ -414,12 +436,18 @@ final class AIService: ObservableObject {
         return try parseWorkoutSplitProposal(
             jsonString: content,
             maxSessions: maxSessions,
+            maxWorkouts: desiredRotationLength,
             userPreferredWeekdays: daysSorted
         )
     }
 
     /// User-message emphasis: balance rules for the chosen split + session count (all split types).
-    private static func splitBuilderBalanceAddendum(sessionsPerWeek: Int, splitPreference: String) -> String {
+    private static func splitBuilderBalanceAddendum(
+        sessionsPerWeek: Int,
+        splitPreference: String,
+        desiredRotationLength: Int,
+        variationMode: String
+    ) -> String {
         let sp = splitPreference.lowercased()
         let mentionsPush = sp.contains("push")
         let mentionsPull = sp.contains("pull")
@@ -430,7 +458,7 @@ final class AIService: ObservableObject {
         let fullBody = sp.contains("full body")
 
         var lines: [String] = []
-        lines.append("BALANCE — apply to this program regardless of split style (user preference: “\(splitPreference)”, sessions/week=\(sessionsPerWeek)):")
+        lines.append("BALANCE — apply to this program regardless of split style (user preference: “\(splitPreference)”, sessions/week=\(sessionsPerWeek), desired rotation=\(desiredRotationLength), variation=\(variationMode)):")
         lines.append("• Upper: push-dominant day count ≤ pull-dominant day count; weekly push sets ≤ ~120% of pull sets unless the user asked otherwise.")
         lines.append("• Lower: include both quad/knee-dominant and hinge/hamstrings/glutes/posterior-chain emphasis across the week when legs are trained.")
         lines.append("• Name workouts honestly; do not hide extra pressing days as “upper” or “full body” without real pull volume.")
@@ -446,6 +474,9 @@ final class AIService: ObservableObject {
         }
         if pplFlavor {
             lines.append("• PPL-style: if sessions/week=\(sessionsPerWeek) is not divisible by 3, do not duplicate Push before Pull — use Upper/Lower×2, Push+Pull+Legs+(balanced upper, second pull, or full body), etc.")
+            if desiredRotationLength >= 6, !variationMode.lowercased().contains("simple") {
+                lines.append("• PPL variation requested with enough rotation slots: prefer Push A / Pull A / Legs A / Push B / Pull B / Legs B, with different emphasis within each A/B pair.")
+            }
             if sessionsPerWeek == 4 {
                 lines.append("• 4×/week PPL flavor: never [Push][Push][Pull][Legs]; match push and pull session counts or add a balanced/extra-pull day.")
             }
@@ -471,6 +502,9 @@ final class AIService: ObservableObject {
         let priorityMusclesOrLiftsNotes: String
         let recoveryContextNotes: String
         let deloadPreference: String
+        let variationMode: String
+        let desiredWorkoutRotationLength: Int
+        let variationNotes: String
         let adjustmentInstruction: String?
     }
 
@@ -555,6 +589,7 @@ final class AIService: ObservableObject {
     private func parseWorkoutSplitProposal(
         jsonString: String,
         maxSessions: Int,
+        maxWorkouts: Int,
         userPreferredWeekdays: [Int]
     ) throws -> WorkoutSplitProposal {
         let slice = Self.extractJSONObjectString(from: jsonString)
@@ -564,6 +599,7 @@ final class AIService: ObservableObject {
            let proposal = Self.buildSplitProposal(
             from: structured,
             maxSessions: maxSessions,
+            maxWorkouts: maxWorkouts,
             userPreferredWeekdays: userPreferredWeekdays
            ) {
             return proposal
@@ -573,6 +609,7 @@ final class AIService: ObservableObject {
               let proposal = Self.buildSplitProposal(
                 from: root,
                 maxSessions: maxSessions,
+                maxWorkouts: maxWorkouts,
                 userPreferredWeekdays: userPreferredWeekdays
               )
         else {
@@ -584,6 +621,7 @@ final class AIService: ObservableObject {
     private static func buildSplitProposal(
         from json: SplitProposalJSON,
         maxSessions: Int,
+        maxWorkouts: Int,
         userPreferredWeekdays: [Int]
     ) -> WorkoutSplitProposal? {
         let rawSessions = json.sessionsPerWeek ?? maxSessions
@@ -603,7 +641,7 @@ final class AIService: ObservableObject {
         }()
 
         var days: [WorkoutSplitProposalDay] = []
-        for w in (json.workouts ?? []).prefix(6) {
+        for w in (json.workouts ?? []).prefix(min(max(1, maxWorkouts), 7)) {
             guard let day = mapWorkoutJSON(w) else { continue }
             days.append(day)
         }
@@ -624,6 +662,7 @@ final class AIService: ObservableObject {
     private static func buildSplitProposal(
         from root: [String: Any],
         maxSessions: Int,
+        maxWorkouts: Int,
         userPreferredWeekdays: [Int]
     ) -> WorkoutSplitProposal? {
         let rawSessions = SplitDictionaryParsers.flexibleInt(root["sessionsPerWeek"] ?? root["sessions_per_week"]) ?? maxSessions
@@ -645,7 +684,7 @@ final class AIService: ObservableObject {
 
         let workoutDicts = SplitDictionaryParsers.workoutArrays(from: root)
         var days: [WorkoutSplitProposalDay] = []
-        for w in workoutDicts.prefix(6) {
+        for w in workoutDicts.prefix(min(max(1, maxWorkouts), 7)) {
             guard let day = mapWorkoutDictionary(w) else { continue }
             days.append(day)
         }
