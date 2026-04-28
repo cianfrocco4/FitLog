@@ -16,6 +16,7 @@ struct FitLogApp: App {
     @StateObject private var currentVM = CurrentWorkoutSessionViewModel()
     @StateObject private var aiService = AIService(apiKey: OpenAIConfig.apiKey, baseURL: OpenAIConfig.aiBaseURL, model: OpenAIConfig.aiModel)
     @StateObject private var dayMonitor = CalendarDayMonitor()
+    @StateObject private var userPreferences = UserPreferences()
 
     let modelContainer: ModelContainer
     @StateObject private var dataVM: DataManager
@@ -39,6 +40,7 @@ struct FitLogApp: App {
 
         let context = ModelContext(container)
         MigrationService.migrateIfNeeded(context: context)
+        WorkoutMigrationService.migrateIfNeeded(context: context)
 
         let dm = DataManager(modelContainer: container)
         _dataVM = StateObject(wrappedValue: dm)
@@ -53,9 +55,13 @@ struct FitLogApp: App {
                     .environmentObject(currentVM)
                     .environmentObject(aiService)
                     .environmentObject(dayMonitor)
+                    .environmentObject(userPreferences)
                     .onAppear {
                         currentVM.dataManager = dataVM
-                        aiService.wakeProxyHostIfNeeded()
+                        dataVM.healthSyncStatusMessage = dataVM.healthSyncService.statusMessage
+                        if !FitLogUITestLaunch.isActive {
+                            aiService.wakeProxyHostIfNeeded()
+                        }
                     }
             } else {
                 LoginView()
@@ -68,7 +74,7 @@ struct FitLogApp: App {
                 currentVM.appDidEnterBackground()
             case .active:
                 currentVM.appDidBecomeActive()
-                if authVM.isLoggedIn {
+                if authVM.isLoggedIn, !FitLogUITestLaunch.isActive {
                     aiService.wakeProxyHostIfNeeded()
                 }
             default:

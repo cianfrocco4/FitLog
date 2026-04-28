@@ -6,6 +6,9 @@
 //  inserts records into the ModelContext, verifies counts, then cleans up
 //  UserDefaults only on success.
 //
+//  Unrelated keys (e.g. `fitlog.splitBuilder.wizardEnvelope.v1` from SplitBuilderPreferencesStore)
+//  are intentionally not removed here — they are separate, versioned prefs, not legacy workout data.
+//
 
 import Foundation
 import SwiftData

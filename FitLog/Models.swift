@@ -88,22 +88,60 @@ enum MovementPattern: String, CaseIterable, Codable, Identifiable {
     var id: String { rawValue }
 }
 
-/// What the training plan scheduled for this day (concrete workout definition vs slot blueprint).
-enum WorkoutPlanRef: Equatable, Codable, Hashable {
-    case concreteWorkout(UUID)
-    case slotTemplate(UUID)
+/// What the training plan scheduled for this day (single library workout id).
+enum WorkoutPlanRef: Equatable, Hashable {
+    /// Library [`Workout`](Workout) id (fixed exercises and/or flexible slot rows).
+    case workout(UUID)
 
     var userFacingTypeLabel: String {
-        switch self {
-        case .concreteWorkout: return "Workout"
-        case .slotTemplate: return "Flexible template"
-        }
+        "Workout"
     }
 
     var cacheKey: String {
         switch self {
-        case .concreteWorkout(let id): return "cw-\(id.uuidString)"
-        case .slotTemplate(let id): return "st-\(id.uuidString)"
+        case .workout(let id): return "w-\(id.uuidString)"
+        }
+    }
+
+    /// The library workout id this reference points at.
+    var libraryWorkoutId: UUID {
+        switch self {
+        case .workout(let id): return id
+        }
+    }
+}
+
+extension WorkoutPlanRef: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case workout
+        case concreteWorkout
+        case slotTemplate
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let id = try c.decodeIfPresent(UUID.self, forKey: .workout) {
+            self = .workout(id)
+            return
+        }
+        if let id = try c.decodeIfPresent(UUID.self, forKey: .concreteWorkout) {
+            self = .workout(id)
+            return
+        }
+        if let id = try c.decodeIfPresent(UUID.self, forKey: .slotTemplate) {
+            self = .workout(id)
+            return
+        }
+        throw DecodingError.dataCorrupted(
+            DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "WorkoutPlanRef missing known keys")
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .workout(let id):
+            try c.encode(id, forKey: .workout)
         }
     }
 }
@@ -225,12 +263,180 @@ struct ExerciseSnapshot: Codable, Equatable, Hashable {
         self.exerciseId = exercise.id
         self.nameAtTimeOfLog = exercise.name
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case exerciseId
+        case nameAtTimeOfLog
+        case id
+        case name
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let eid = try c.decodeIfPresent(UUID.self, forKey: .exerciseId) {
+            exerciseId = eid
+        } else if let legacy = try c.decodeIfPresent(UUID.self, forKey: .id) {
+            exerciseId = legacy
+        } else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.exerciseId,
+                DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "ExerciseSnapshot requires exerciseId or id")
+            )
+        }
+        let ntLogRaw = try c.decodeIfPresent(String.self, forKey: .nameAtTimeOfLog)
+        let nameRaw = try c.decodeIfPresent(String.self, forKey: .name)
+        let ntLog = (ntLogRaw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let nm = (nameRaw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        nameAtTimeOfLog = !ntLog.isEmpty ? ntLog : nm
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(exerciseId, forKey: .exerciseId)
+        try c.encode(nameAtTimeOfLog, forKey: .nameAtTimeOfLog)
+    }
+}
+
+/// Criteria and defaults for a flexible row inside a library [`Workout`](Workout) (replaces standalone template slots on disk).
+struct SlotBlueprint: Identifiable, Codable, Equatable, Hashable {
+    let id: UUID
+    var label: String
+    var targetedMuscles: [MuscleGroup]
+    var exerciseRole: ExerciseRole?
+    var movementPattern: MovementPattern?
+    var defaultExerciseId: UUID?
+    var defaultRestTime: Int
+    var recommendedSets: Int
+    var recommendedReps: String
+
+    init(
+        id: UUID = UUID(),
+        label: String,
+        targetedMuscles: [MuscleGroup],
+        exerciseRole: ExerciseRole? = nil,
+        movementPattern: MovementPattern? = nil,
+        defaultExerciseId: UUID? = nil,
+        defaultRestTime: Int = 90,
+        recommendedSets: Int = 3,
+        recommendedReps: String = "8-12"
+    ) {
+        self.id = id
+        self.label = label
+        self.targetedMuscles = targetedMuscles
+        self.exerciseRole = exerciseRole
+        self.movementPattern = movementPattern
+        self.defaultExerciseId = defaultExerciseId
+        self.defaultRestTime = defaultRestTime
+        self.recommendedSets = recommendedSets
+        self.recommendedReps = recommendedReps
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        label = (try? c.decode(String.self, forKey: .label)) ?? ""
+        let muscleStrings = (try? c.decode([String].self, forKey: .targetedMuscles)) ?? []
+        targetedMuscles = muscleStrings.map { MuscleGroup(rawValue: $0) ?? .other }
+        if let raw = try? c.decode(String.self, forKey: .exerciseRole) {
+            exerciseRole = ExerciseRole(rawValue: raw)
+        } else {
+            exerciseRole = nil
+        }
+        if let raw = try? c.decode(String.self, forKey: .movementPattern) {
+            movementPattern = MovementPattern(rawValue: raw)
+        } else {
+            movementPattern = nil
+        }
+        defaultExerciseId = try? c.decode(UUID.self, forKey: .defaultExerciseId)
+        defaultRestTime = (try? c.decode(Int.self, forKey: .defaultRestTime)) ?? 90
+        recommendedSets = (try? c.decode(Int.self, forKey: .recommendedSets)) ?? 3
+        recommendedReps = (try? c.decode(String.self, forKey: .recommendedReps)) ?? "8-12"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(label, forKey: .label)
+        try c.encode(targetedMuscles.map(\.rawValue), forKey: .targetedMuscles)
+        if let exerciseRole { try c.encode(exerciseRole.rawValue, forKey: .exerciseRole) }
+        if let movementPattern { try c.encode(movementPattern.rawValue, forKey: .movementPattern) }
+        if let defaultExerciseId { try c.encode(defaultExerciseId, forKey: .defaultExerciseId) }
+        try c.encode(defaultRestTime, forKey: .defaultRestTime)
+        try c.encode(recommendedSets, forKey: .recommendedSets)
+        try c.encode(recommendedReps, forKey: .recommendedReps)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, label, targetedMuscles, exerciseRole, movementPattern, defaultExerciseId
+        case defaultRestTime, recommendedSets, recommendedReps
+    }
 }
 
 /// Whether a workout exercise row has a concrete exercise or is waiting for the user to pick one.
-enum SlotResolution: Codable, Equatable {
+enum SlotResolution: Equatable, Hashable {
     case concrete(ExerciseSnapshot)
-    case unresolved(slotLabel: String, templateSlotId: UUID)
+    case flexible(SlotBlueprint)
+}
+
+extension SlotResolution: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case concrete
+        case flexible
+        case unresolved
+    }
+
+    private struct LegacyUnresolved: Codable {
+        var slotLabel: String
+        var templateSlotId: UUID
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if c.contains(.flexible) {
+            self = .flexible(try c.decode(SlotBlueprint.self, forKey: .flexible))
+            return
+        }
+        if c.contains(.concrete) {
+            if let snap = try? c.decode(ExerciseSnapshot.self, forKey: .concrete) {
+                self = .concrete(snap)
+                return
+            }
+            // Legacy: full Exercise embedded under `concrete` before snapshots were used everywhere.
+            let ex = try c.decode(Exercise.self, forKey: .concrete)
+            self = .concrete(ExerciseSnapshot(from: ex))
+            return
+        }
+        if c.contains(.unresolved) {
+            let leg = try c.decode(LegacyUnresolved.self, forKey: .unresolved)
+            self = .flexible(
+                SlotBlueprint(
+                    id: leg.templateSlotId,
+                    label: leg.slotLabel,
+                    targetedMuscles: [],
+                    exerciseRole: nil,
+                    movementPattern: nil,
+                    defaultExerciseId: nil,
+                    defaultRestTime: 90,
+                    recommendedSets: 3,
+                    recommendedReps: "8-12"
+                )
+            )
+            return
+        }
+        throw DecodingError.dataCorrupted(
+            DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "SlotResolution: unknown payload")
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .concrete(let snap):
+            try c.encode(snap, forKey: .concrete)
+        case .flexible(let blueprint):
+            try c.encode(blueprint, forKey: .flexible)
+        }
+    }
 }
 
 struct WorkoutExercise: Identifiable, Codable, Equatable {
@@ -250,21 +456,35 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
         return nil
     }
 
-    /// The exercise ID for concrete rows; nil for unresolved slots.
-    var exerciseId: UUID? { snapshot?.exerciseId }
+    /// Resolved library exercise id: concrete snapshot, or flexible row default when set.
+    var exerciseId: UUID? {
+        if case .concrete(let s) = resolution { return s.exerciseId }
+        if case .flexible(let b) = resolution { return b.defaultExerciseId }
+        return nil
+    }
 
-    var isSlotPlaceholder: Bool {
-        if case .unresolved = resolution { return true }
+    /// Flexible row with no default exercise yet (user picks each time / must resolve in session).
+    var isOpenSlot: Bool {
+        if case .flexible(let b) = resolution { return b.defaultExerciseId == nil }
         return false
     }
 
+    /// Same as `isOpenSlot` (legacy name used across the app).
+    var isSlotPlaceholder: Bool { isOpenSlot }
+
     var slotLabel: String {
-        if case .unresolved(let label, _) = resolution { return label }
+        if case .flexible(let b) = resolution { return b.label }
         return ""
     }
 
     var templateSlotId: UUID? {
-        if case .unresolved(_, let id) = resolution { return id }
+        if case .flexible(let b) = resolution { return b.id }
+        return nil
+    }
+
+    /// Full slot criteria when this row is flexible; nil for concrete rows.
+    var slotBlueprint: SlotBlueprint? {
+        if case .flexible(let b) = resolution { return b }
         return nil
     }
 
@@ -296,7 +516,19 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
     ) {
         self.id = id
         if isSlotPlaceholder, let tid = templateSlotId {
-            self.resolution = .unresolved(slotLabel: slotLabel, templateSlotId: tid)
+            self.resolution = .flexible(
+                SlotBlueprint(
+                    id: tid,
+                    label: slotLabel,
+                    targetedMuscles: [],
+                    exerciseRole: nil,
+                    movementPattern: nil,
+                    defaultExerciseId: nil,
+                    defaultRestTime: defaultRestTime,
+                    recommendedSets: recommendedSets,
+                    recommendedReps: recommendedReps
+                )
+            )
         } else {
             self.resolution = .concrete(ExerciseSnapshot(from: exercise))
         }
@@ -324,12 +556,26 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
             let tid = try? c.decode(UUID.self, forKey: .templateSlotId)
             let label = (try? c.decode(String.self, forKey: .slotLabel)) ?? ""
             if placeholder, let tid {
-                resolution = .unresolved(slotLabel: label, templateSlotId: tid)
+                resolution = .flexible(
+                    SlotBlueprint(
+                        id: tid,
+                        label: label,
+                        targetedMuscles: [],
+                        exerciseRole: nil,
+                        movementPattern: nil,
+                        defaultExerciseId: nil,
+                        defaultRestTime: (try? c.decode(Int.self, forKey: .defaultRestTime)) ?? 90,
+                        recommendedSets: (try? c.decode(Int.self, forKey: .recommendedSets)) ?? 3,
+                        recommendedReps: (try? c.decode(String.self, forKey: .recommendedReps)) ?? "8-12"
+                    )
+                )
             } else {
                 resolution = .concrete(ExerciseSnapshot(from: fullExercise))
             }
         } else {
-            resolution = .unresolved(slotLabel: "", templateSlotId: UUID())
+            resolution = .flexible(
+                SlotBlueprint(id: UUID(), label: "", targetedMuscles: [], exerciseRole: nil, movementPattern: nil, defaultExerciseId: nil)
+            )
         }
 
         defaultRestTime = (try? c.decode(Int.self, forKey: .defaultRestTime)) ?? 90
@@ -441,39 +687,42 @@ struct TemplateSlot: Identifiable, Codable, Equatable, Hashable {
     }
 }
 
+extension TemplateSlot {
+    func asSlotBlueprint() -> SlotBlueprint {
+        SlotBlueprint(
+            id: id,
+            label: label,
+            targetedMuscles: targetedMuscles,
+            exerciseRole: exerciseRole,
+            movementPattern: movementPattern,
+            defaultExerciseId: defaultExerciseId,
+            defaultRestTime: defaultRestTime,
+            recommendedSets: recommendedSets,
+            recommendedReps: recommendedReps
+        )
+    }
+}
+
+extension SlotBlueprint {
+    func asTemplateSlot() -> TemplateSlot {
+        TemplateSlot(
+            id: id,
+            label: label,
+            targetedMuscles: targetedMuscles,
+            exerciseRole: exerciseRole,
+            movementPattern: movementPattern,
+            defaultExerciseId: defaultExerciseId,
+            defaultRestTime: defaultRestTime,
+            recommendedSets: recommendedSets,
+            recommendedReps: recommendedReps
+        )
+    }
+}
+
 struct WorkoutTemplate: Identifiable, Codable, Equatable, Hashable {
     let id: UUID
     var name: String
     var slots: [TemplateSlot]
-    /// Pinned templates appear first on Home / Library when using smart ordering.
-    var isPinned: Bool = false
-
-    init(id: UUID, name: String, slots: [TemplateSlot], isPinned: Bool = false) {
-        self.id = id
-        self.name = name
-        self.slots = slots
-        self.isPinned = isPinned
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(UUID.self, forKey: .id)
-        name = try c.decode(String.self, forKey: .name)
-        slots = try c.decode([TemplateSlot].self, forKey: .slots)
-        isPinned = (try? c.decode(Bool.self, forKey: .isPinned)) ?? false
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(id, forKey: .id)
-        try c.encode(name, forKey: .name)
-        try c.encode(slots, forKey: .slots)
-        if isPinned { try c.encode(true, forKey: .isPinned) }
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id, name, slots, isPinned
-    }
 }
 
 struct Workout: Identifiable, Codable, Equatable {
@@ -482,15 +731,12 @@ struct Workout: Identifiable, Codable, Equatable {
     var exercises: [WorkoutExercise]
     /// Workout exercise row id → template slot id (only for workouts built from a slot template).
     var templateSlotIdByWorkoutExerciseId: [UUID: UUID]
-    /// Pinned workouts appear first on Home / Library when using smart ordering.
-    var isPinned: Bool = false
 
-    init(id: UUID, name: String, exercises: [WorkoutExercise], templateSlotIdByWorkoutExerciseId: [UUID: UUID] = [:], isPinned: Bool = false) {
+    init(id: UUID, name: String, exercises: [WorkoutExercise], templateSlotIdByWorkoutExerciseId: [UUID: UUID] = [:]) {
         self.id = id
         self.name = name
         self.exercises = exercises
         self.templateSlotIdByWorkoutExerciseId = templateSlotIdByWorkoutExerciseId
-        self.isPinned = isPinned
     }
 
     init(from decoder: Decoder) throws {
@@ -499,7 +745,6 @@ struct Workout: Identifiable, Codable, Equatable {
         name = try c.decode(String.self, forKey: .name)
         exercises = try c.decode([WorkoutExercise].self, forKey: .exercises)
         templateSlotIdByWorkoutExerciseId = try c.decodeIfPresent([UUID: UUID].self, forKey: .templateSlotIdByWorkoutExerciseId) ?? [:]
-        isPinned = (try? c.decode(Bool.self, forKey: .isPinned)) ?? false
         normalizeTemplateSlotBindingsAfterDecoding()
     }
 
@@ -511,7 +756,6 @@ struct Workout: Identifiable, Codable, Equatable {
         if !templateSlotIdByWorkoutExerciseId.isEmpty {
             try c.encode(templateSlotIdByWorkoutExerciseId, forKey: .templateSlotIdByWorkoutExerciseId)
         }
-        if isPinned { try c.encode(true, forKey: .isPinned) }
     }
 
     /// Merges legacy per-row `originSlotId` / unresolved `templateSlotId` into the workout-level map, then clears row-level legacy fields.
@@ -533,8 +777,57 @@ struct Workout: Identifiable, Codable, Equatable {
         templateSlotIdByWorkoutExerciseId[rowId]
     }
 
+    /// True when the library workout uses slot blueprints (session copy resolves defaults / open picks).
+    var hasFlexibleSlots: Bool {
+        exercises.contains { we in
+            if case .flexible = we.resolution { return true }
+            return false
+        }
+    }
+
+    /// True when at least one slot has no default exercise (user picks each session).
+    var hasOpenSlots: Bool {
+        exercises.contains { $0.isOpenSlot }
+    }
+
+    /// Short summary for library lists, e.g. "4 slots" or "4 slots · 1 open".
+    var listDetailSubtitle: String {
+        if exercises.isEmpty { return "Empty workout" }
+        let n = exercises.count
+        let nOpen = exercises.filter(\.isOpenSlot).count
+        let slotWord = n == 1 ? "slot" : "slots"
+        if nOpen == 0 { return "\(n) \(slotWord)" }
+        return "\(n) \(slotWord) · \(nOpen) open"
+    }
+
+    /// Converts a legacy slot template into a single library workout (flexible blueprints, including `defaultExerciseId` when set).
+    static func fromLegacyTemplate(_ template: WorkoutTemplate) -> Workout {
+        var exercises: [WorkoutExercise] = []
+        var slotByRow: [UUID: UUID] = [:]
+        for slot in template.slots {
+            let weId = UUID()
+            let blueprint = slot.asSlotBlueprint()
+            slotByRow[weId] = blueprint.id
+            exercises.append(
+                WorkoutExercise(
+                    id: weId,
+                    resolution: .flexible(blueprint),
+                    defaultRestTime: slot.defaultRestTime,
+                    recommendedSets: slot.recommendedSets,
+                    recommendedReps: slot.recommendedReps
+                )
+            )
+        }
+        return Workout(
+            id: template.id,
+            name: template.name,
+            exercises: exercises,
+            templateSlotIdByWorkoutExerciseId: slotByRow
+        )
+    }
+
     private enum CodingKeys: String, CodingKey {
-        case id, name, exercises, templateSlotIdByWorkoutExerciseId, isPinned
+        case id, name, exercises, templateSlotIdByWorkoutExerciseId
     }
 }
 
@@ -544,27 +837,88 @@ struct DropSetSegment: Codable, Equatable, Hashable {
     var reps: Int
 }
 
+/// Classification for a logged set (extends legacy warm-up flag).
+enum ExerciseSetType: String, Codable, CaseIterable, Equatable, Hashable {
+    case working
+    case warmup
+    case dropSet
+    case failure
+    case timed
+
+    /// Short label for pickers and chips.
+    var logPickerLabel: String {
+        switch self {
+        case .working: return "Working"
+        case .warmup: return "Warm-up"
+        case .dropSet: return "Drop set"
+        case .failure: return "Failure"
+        case .timed: return "Timed hold"
+        }
+    }
+}
+
 struct LoggedSet: Identifiable, Codable {
     let id: UUID
     var weight: Double
     var reps: Int
     var restTime: Int
     var timestamp: Date
-    var isWarmup: Bool = false
+    /// Primary set classification; `isWarmup` mirrors `.warmup` for compatibility.
+    var setType: ExerciseSetType = .working
     /// Option id (uuidString) -> chosen value. Only present when exercise has configuration options.
     var configuration: [String: String]
     /// Lighter loads after `weight` × `reps`, in order (optional).
     var dropSegments: [DropSetSegment]
+    /// Rate of perceived exertion (optional), typically ~6–10.
+    var rpe: Double?
 
-    init(id: UUID, weight: Double, reps: Int, restTime: Int, timestamp: Date, isWarmup: Bool = false, configuration: [String: String] = [:], dropSegments: [DropSetSegment] = []) {
+    /// Legacy warm-up flag; encoded for older payloads and toggles in the full log sheet.
+    var isWarmup: Bool {
+        get { setType == .warmup }
+        set {
+            if newValue {
+                setType = .warmup
+            } else if setType == .warmup {
+                setType = .working
+            }
+        }
+    }
+
+    init(
+        id: UUID,
+        weight: Double,
+        reps: Int,
+        restTime: Int,
+        timestamp: Date,
+        setType: ExerciseSetType = .working,
+        configuration: [String: String] = [:],
+        dropSegments: [DropSetSegment] = [],
+        rpe: Double? = nil
+    ) {
         self.id = id
         self.weight = weight
         self.reps = reps
         self.restTime = restTime
         self.timestamp = timestamp
-        self.isWarmup = isWarmup
+        self.setType = setType
         self.configuration = configuration
         self.dropSegments = dropSegments
+        self.rpe = rpe
+    }
+
+    /// Convenience initializer matching the legacy `isWarmup` parameter.
+    init(id: UUID, weight: Double, reps: Int, restTime: Int, timestamp: Date, isWarmup: Bool = false, configuration: [String: String] = [:], dropSegments: [DropSetSegment] = [], rpe: Double? = nil) {
+        self.init(
+            id: id,
+            weight: weight,
+            reps: reps,
+            restTime: restTime,
+            timestamp: timestamp,
+            setType: isWarmup ? .warmup : .working,
+            configuration: configuration,
+            dropSegments: dropSegments,
+            rpe: rpe
+        )
     }
 
     init(from decoder: Decoder) throws {
@@ -574,9 +928,19 @@ struct LoggedSet: Identifiable, Codable {
         reps = try c.decode(Int.self, forKey: .reps)
         restTime = try c.decode(Int.self, forKey: .restTime)
         timestamp = try c.decode(Date.self, forKey: .timestamp)
-        isWarmup = (try? c.decode(Bool.self, forKey: .isWarmup)) ?? false
         configuration = (try? c.decode([String: String].self, forKey: .configuration)) ?? [:]
         dropSegments = (try? c.decode([DropSetSegment].self, forKey: .dropSegments)) ?? []
+        rpe = try c.decodeIfPresent(Double.self, forKey: .rpe)
+
+        if let decoded = try c.decodeIfPresent(ExerciseSetType.self, forKey: .setType) {
+            setType = decoded
+        } else {
+            let legacyWarm = (try? c.decode(Bool.self, forKey: .isWarmup)) ?? false
+            setType = legacyWarm ? .warmup : .working
+        }
+        if setType == .working, !dropSegments.isEmpty {
+            setType = .dropSet
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -586,13 +950,15 @@ struct LoggedSet: Identifiable, Codable {
         try c.encode(reps, forKey: .reps)
         try c.encode(restTime, forKey: .restTime)
         try c.encode(timestamp, forKey: .timestamp)
+        try c.encode(setType, forKey: .setType)
         try c.encode(isWarmup, forKey: .isWarmup)
         if !configuration.isEmpty { try c.encode(configuration, forKey: .configuration) }
         if !dropSegments.isEmpty { try c.encode(dropSegments, forKey: .dropSegments) }
+        if let rpe { try c.encode(rpe, forKey: .rpe) }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, weight, reps, restTime, timestamp, isWarmup, configuration, dropSegments
+        case id, weight, reps, restTime, timestamp, isWarmup, setType, configuration, dropSegments, rpe
     }
 }
 
@@ -600,6 +966,46 @@ struct ExerciseLog: Identifiable, Codable {
     let id: UUID
     var workoutExercise: WorkoutExercise
     var loggedSets: [LoggedSet]
+    /// Freeform notes for this exercise during the session.
+    var notes: String
+    /// When set, inline / full log rest prefill uses this instead of history or `WorkoutExercise.defaultRestTime`. Session-only (not written back to the library workout).
+    var sessionRestOverrideSeconds: Int?
+
+    init(
+        id: UUID,
+        workoutExercise: WorkoutExercise,
+        loggedSets: [LoggedSet],
+        notes: String = "",
+        sessionRestOverrideSeconds: Int? = nil
+    ) {
+        self.id = id
+        self.workoutExercise = workoutExercise
+        self.loggedSets = loggedSets
+        self.notes = notes
+        self.sessionRestOverrideSeconds = sessionRestOverrideSeconds
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        workoutExercise = try c.decode(WorkoutExercise.self, forKey: .workoutExercise)
+        loggedSets = try c.decode([LoggedSet].self, forKey: .loggedSets)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        sessionRestOverrideSeconds = try c.decodeIfPresent(Int.self, forKey: .sessionRestOverrideSeconds)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(workoutExercise, forKey: .workoutExercise)
+        try c.encode(loggedSets, forKey: .loggedSets)
+        if !notes.isEmpty { try c.encode(notes, forKey: .notes) }
+        if let sessionRestOverrideSeconds { try c.encode(sessionRestOverrideSeconds, forKey: .sessionRestOverrideSeconds) }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, workoutExercise, loggedSets, notes, sessionRestOverrideSeconds
+    }
 }
 
 struct WorkoutSession: Identifiable, Codable {
@@ -614,6 +1020,8 @@ struct WorkoutSession: Identifiable, Codable {
     var completedExerciseIds: [UUID] = []
     /// What the user started from (for History / Coach). Nil = legacy session before this field existed.
     var sessionPlanOrigin: WorkoutPlanRef?
+    /// Notes for the whole workout (optional).
+    var sessionNotes: String = ""
     var isCompleted: Bool { endTime != nil }
 
     init(
@@ -624,7 +1032,8 @@ struct WorkoutSession: Identifiable, Codable {
         exerciseLogs: [ExerciseLog],
         activeExerciseIds: [UUID] = [],
         completedExerciseIds: [UUID] = [],
-        sessionPlanOrigin: WorkoutPlanRef? = nil
+        sessionPlanOrigin: WorkoutPlanRef? = nil,
+        sessionNotes: String = ""
     ) {
         self.id = id
         self.workout = workout
@@ -634,6 +1043,7 @@ struct WorkoutSession: Identifiable, Codable {
         self.activeExerciseIds = activeExerciseIds
         self.completedExerciseIds = completedExerciseIds
         self.sessionPlanOrigin = sessionPlanOrigin
+        self.sessionNotes = sessionNotes
     }
 
     init(from decoder: Decoder) throws {
@@ -646,6 +1056,7 @@ struct WorkoutSession: Identifiable, Codable {
         activeExerciseIds = (try? c.decode([UUID].self, forKey: .activeExerciseIds)) ?? []
         completedExerciseIds = (try? c.decode([UUID].self, forKey: .completedExerciseIds)) ?? []
         sessionPlanOrigin = try? c.decode(WorkoutPlanRef.self, forKey: .sessionPlanOrigin)
+        sessionNotes = try c.decodeIfPresent(String.self, forKey: .sessionNotes) ?? ""
     }
 
     func encode(to encoder: Encoder) throws {
@@ -658,14 +1069,69 @@ struct WorkoutSession: Identifiable, Codable {
         if !activeExerciseIds.isEmpty { try c.encode(activeExerciseIds, forKey: .activeExerciseIds) }
         if !completedExerciseIds.isEmpty { try c.encode(completedExerciseIds, forKey: .completedExerciseIds) }
         if let sessionPlanOrigin { try c.encode(sessionPlanOrigin, forKey: .sessionPlanOrigin) }
+        if !sessionNotes.isEmpty { try c.encode(sessionNotes, forKey: .sessionNotes) }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, workout, startTime, endTime, exerciseLogs, activeExerciseIds, completedExerciseIds, sessionPlanOrigin
+        case id, workout, startTime, endTime, exerciseLogs, activeExerciseIds, completedExerciseIds, sessionPlanOrigin, sessionNotes
+    }
+
+    /// New in-progress session with the same workout snapshot, exercise rows, logged sets, and active/completed exercise state as `completed`.
+    static func resumingFromCompletedSession(_ completed: WorkoutSession) -> WorkoutSession {
+        let copiedLogs: [ExerciseLog] = completed.exerciseLogs.map { log in
+            let newSets = log.loggedSets.map { s in
+                LoggedSet(
+                    id: UUID(),
+                    weight: s.weight,
+                    reps: s.reps,
+                    restTime: s.restTime,
+                    timestamp: s.timestamp,
+                    setType: s.setType,
+                    configuration: s.configuration,
+                    dropSegments: s.dropSegments,
+                    rpe: s.rpe
+                )
+            }
+            return ExerciseLog(
+                id: UUID(),
+                workoutExercise: log.workoutExercise,
+                loggedSets: newSets,
+                notes: log.notes,
+                sessionRestOverrideSeconds: log.sessionRestOverrideSeconds
+            )
+        }
+        var active = completed.activeExerciseIds
+        if active.isEmpty {
+            if let exId = copiedLogs.first(where: { !$0.workoutExercise.isSlotPlaceholder })?.workoutExercise.exerciseId {
+                active = [exId]
+            } else if let exId = copiedLogs.first?.workoutExercise.exerciseId {
+                active = [exId]
+            }
+        }
+        return WorkoutSession(
+            id: UUID(),
+            workout: completed.workout,
+            startTime: Date(),
+            endTime: nil,
+            exerciseLogs: copiedLogs,
+            activeExerciseIds: active,
+            completedExerciseIds: completed.completedExerciseIds,
+            sessionPlanOrigin: completed.sessionPlanOrigin
+        )
     }
 }
 
 extension LoggedSet {
+    /// Non–warm-up sets with reps (includes failure). Excludes timed holds from volume-style totals.
+    var countsTowardVolumeTotals: Bool {
+        reps > 0 && setType != .warmup && setType != .timed
+    }
+
+    /// Sets that can establish load / est. 1RM / volume PRs (excludes warm-up, timed, and failure sets).
+    var countsTowardLoadPRMetrics: Bool {
+        reps > 0 && setType != .warmup && setType != .timed && setType != .failure
+    }
+
     /// Human-readable summary of configuration (e.g. "Grip: Narrow, Seat: 2") using field names from the workout exercise.
     func configurationSummary(fieldNames: [String]) -> String {
         guard !configuration.isEmpty else { return "" }
@@ -679,6 +1145,17 @@ extension LoggedSet {
     /// Volume for analytics (top set + all drops).
     var totalVolumeLoad: Double {
         weight * Double(reps) + dropSegments.reduce(0) { $0 + $1.weight * Double($1.reps) }
+    }
+
+    /// Non-working set badge for session/history rows (nil when `.working`).
+    var setTypeBadgeLabel: String? {
+        switch setType {
+        case .working: return nil
+        case .warmup: return "Warm-up"
+        case .dropSet: return "Drop"
+        case .failure: return "Failure"
+        case .timed: return "Timed"
+        }
     }
 
     /// Single-line summary for history / workout UI, e.g. `225 lb × 8 reps → 185 lb × 6 reps`.

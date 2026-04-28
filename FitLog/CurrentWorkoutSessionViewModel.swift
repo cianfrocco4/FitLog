@@ -7,6 +7,10 @@
 
 import Foundation
 import UserNotifications
+import AudioToolbox
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// When opening the pull-up sheet from elsewhere (e.g. workout plan), expand this row and optionally present the log-set sheet.
 struct PendingPullUpFocus: Equatable {
@@ -33,6 +37,10 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     @Published var showRestCompleteAlert: Bool = false
     /// Cleared when consumed by `CurrentWorkoutPullUpSheet` on appear.
     @Published var pendingPullUpFocus: PendingPullUpFocus?
+    /// Set when a new personal record is detected while logging a set.
+    @Published var recentPersonalRecordEvent: PersonalRecordEvent?
+    /// Populated when a workout is finished; consume to show the completion summary sheet.
+    @Published var pendingWorkoutCompletionSummary: WorkoutCompletionSummary?
     
     private var restTimer: Timer?
     private var workoutTimer: Timer?
@@ -79,6 +87,10 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             session.activeExerciseIds = [firstId]
         }
         session.completedExerciseIds = []
+        beginInProgressSession(session)
+    }
+
+    private func beginInProgressSession(_ session: WorkoutSession) {
         currentSession = session
         totalPausedDuration = 0
         workoutPausedAt = nil
@@ -89,13 +101,24 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         updateWorkoutElapsed()
     }
     
-    func stopWorkout() {
+    /// - Parameter showCompletionSummary: When true (e.g. user tapped Finish in the workout sheet), publishes `pendingWorkoutCompletionSummary` for the post-workout screen.
+    func stopWorkout(showCompletionSummary: Bool = false) {
         guard var session = currentSession else { return }
-        
+
+        normalizeConcreteSnapshotsOnExerciseLogs(&session.exerciseLogs)
+
         session.endTime = Date()
+
+        let summary: WorkoutCompletionSummary? = showCompletionSummary
+            ? dataManager?.buildWorkoutCompletionSummary(
+                session: session,
+                activeElapsedSeconds: workoutElapsedSeconds
+            )
+            : nil
 
         if let dm = dataManager {
             dm.appendCompletedSession(session)
+            dm.syncSessionToHealthIfEnabled(session)
         } else {
             #if DEBUG
             print("[CurrentWorkoutSessionVM] Warning: dataManager is nil, session not persisted")
@@ -106,7 +129,40 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         workoutTimer = nil
         cancelRestTimer()
         currentSession = nil
+        recentPersonalRecordEvent = nil
         workoutElapsedSeconds = 0
+        clearInactivityReminder()
+        clearPersistedActiveSession()
+        pendingWorkoutCompletionSummary = summary
+    }
+
+    /// Ensures each concrete exercise row has an `ExerciseSnapshot` so history and analytics can resolve it after save.
+    private func normalizeConcreteSnapshotsOnExerciseLogs(_ logs: inout [ExerciseLog]) {
+        guard let dm = dataManager else { return }
+        for i in logs.indices {
+            var we = logs[i].workoutExercise
+            guard !we.isSlotPlaceholder else { continue }
+            if we.snapshot != nil { continue }
+            guard let eid = we.exerciseId,
+                  let ex = dm.globalExercises.first(where: { $0.id == eid })
+            else { continue }
+            we.resolution = .concrete(ExerciseSnapshot(from: ex))
+            logs[i].workoutExercise = we
+        }
+    }
+
+    /// Drops the in-progress workout without writing to history or HealthKit.
+    func cancelWorkout() {
+        guard currentSession != nil else { return }
+
+        workoutTimer?.invalidate()
+        workoutTimer = nil
+        cancelRestTimer()
+        currentSession = nil
+        recentPersonalRecordEvent = nil
+        workoutElapsedSeconds = 0
+        totalPausedDuration = 0
+        workoutPausedAt = nil
         clearInactivityReminder()
         clearPersistedActiveSession()
     }
@@ -258,7 +314,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         recommendedConfigBySet: [[String: String]]
     ) {
         guard var session = currentSession else { return }
-        var we = WorkoutExercise(
+        let we = WorkoutExercise(
             id: UUID(),
             exercise: exercise,
             recommendedSets: recommendedSets,
@@ -273,15 +329,16 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         saveActiveSession()
     }
 
-    /// Appends a new template slot to the backing `WorkoutTemplate` and a matching placeholder row to the active session.
-    func appendSlotToSlotTemplateSession() {
+    /// Appends a new flexible slot to the backing library workout and a matching row to the active session.
+    func appendSlotToFlexibleLibrarySession() {
         guard var session = currentSession,
-              case .slotTemplate(let templateId) = session.sessionPlanOrigin,
+              case .workout(let libraryId) = session.sessionPlanOrigin,
               let dm = dataManager,
-              var template = dm.slotTemplate(id: templateId)
+              let lib = dm.workout(id: libraryId),
+              lib.hasFlexibleSlots
         else { return }
 
-        let n = template.slots.count + 1
+        let n = dm.flexibleSlots(from: lib).count + 1
         let newSlot = TemplateSlot(
             label: "Slot \(n)",
             targetedMuscles: [.chest],
@@ -292,13 +349,12 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             recommendedSets: 3,
             recommendedReps: "8-12"
         )
-        template.slots.append(newSlot)
-        dm.updateSlotTemplate(template)
+        dm.appendFlexibleSlot(toWorkoutId: libraryId, slot: newSlot)
 
         let weId = UUID()
         let we = WorkoutExercise(
             id: weId,
-            resolution: .unresolved(slotLabel: newSlot.label, templateSlotId: newSlot.id),
+            resolution: .flexible(newSlot.asSlotBlueprint()),
             defaultRestTime: newSlot.defaultRestTime,
             recommendedSets: newSlot.recommendedSets,
             recommendedReps: newSlot.recommendedReps
@@ -312,7 +368,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     }
 
     /// Removes the exercise row at the given log index from the session (and from the saved workout when this session uses a `userWorkouts` definition).
-    func removeExerciseFromSession(exerciseLogIndex: Int) {
+    func removeExerciseFromSession(exerciseLogIndex: Int, undoManager: UndoManager? = nil) {
         guard var session = currentSession,
               exerciseLogIndex >= 0,
               exerciseLogIndex < session.exerciseLogs.count else { return }
@@ -320,21 +376,32 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         let workout = session.workout
 
         if let dm = dataManager, dm.userWorkouts.contains(where: { $0.id == workout.id }) {
-            dm.deleteExercise(from: workout, exerciseId: rowId)
+            guard let snap = dm.deleteExerciseReturningSnapshot(from: workout, exerciseId: rowId) else { return }
             if let updated = dm.userWorkouts.first(where: { $0.id == workout.id }) {
                 syncExercises(withUpdatedWorkout: updated)
             }
             recordWorkoutActivity()
+            if let um = undoManager {
+                um.registerUndo(withTarget: um) { [weak self, weak dm] _ in
+                    guard let self, let dm else { return }
+                    dm.restoreWorkoutExercise(snap)
+                    if let w = dm.userWorkouts.first(where: { $0.id == snap.workoutId }) {
+                        self.syncExercises(withUpdatedWorkout: w)
+                    }
+                    self.recordWorkoutActivity()
+                }
+                um.setActionName("Remove Exercise")
+            }
             return
         }
 
         let we = session.exerciseLogs[exerciseLogIndex].workoutExercise
-        if case .slotTemplate(let templateId) = session.sessionPlanOrigin,
+        if case .workout(let libraryId) = session.sessionPlanOrigin,
            let slotId = session.workout.templateSlotIdByWorkoutExerciseId[rowId],
            let dm = dataManager,
-           var template = dm.slotTemplate(id: templateId) {
-            template.slots.removeAll { $0.id == slotId }
-            dm.updateSlotTemplate(template)
+           let lib = dm.workout(id: libraryId),
+           lib.hasFlexibleSlots {
+            dm.removeFlexibleSlot(fromWorkoutId: libraryId, slotId: slotId)
         }
 
         if let exId = we.exerciseId {
@@ -345,6 +412,72 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         session.workout.templateSlotIdByWorkoutExerciseId.removeValue(forKey: rowId)
         session.exerciseLogs.removeAll { $0.workoutExercise.id == rowId }
 
+        currentSession = session
+        recordWorkoutActivity()
+        saveActiveSession()
+    }
+
+    /// Reorders exercises for the active session. Library-backed workouts update `userWorkouts` and resync logs; ad-hoc sessions reorder the in-memory workout snapshot and logs together.
+    func moveExerciseLogs(fromOffsets source: IndexSet, toOffset destination: Int) {
+        guard var session = currentSession else { return }
+        let rowCount = session.exerciseLogs.count
+        guard rowCount > 0 else { return }
+
+        let safeSource = IndexSet(source.filter { $0 >= 0 && $0 < rowCount })
+        guard !safeSource.isEmpty else { return }
+        let safeDestination = min(max(0, destination), rowCount)
+
+        let workoutId = session.workout.id
+        if let dm = dataManager, dm.userWorkouts.contains(where: { $0.id == workoutId }) {
+            dm.moveExercise(in: session.workout, from: safeSource, to: safeDestination)
+            if let updated = dm.userWorkouts.first(where: { $0.id == workoutId }) {
+                syncExercises(withUpdatedWorkout: updated)
+            }
+            recordWorkoutActivity()
+        } else {
+            guard session.workout.exercises.count == rowCount else {
+                // Session rows drifted out of sync; avoid index traps and rebuild from workout snapshot.
+                syncExercises(withUpdatedWorkout: session.workout)
+                return
+            }
+            session.workout.exercises.move(fromOffsets: safeSource, toOffset: safeDestination)
+            session.exerciseLogs.move(fromOffsets: safeSource, toOffset: safeDestination)
+            currentSession = session
+            recordWorkoutActivity()
+            saveActiveSession()
+        }
+    }
+
+    func setSessionNotes(_ text: String) {
+        guard var session = currentSession else { return }
+        session.sessionNotes = text
+        currentSession = session
+        recordWorkoutActivity()
+        saveActiveSession()
+    }
+
+    func setExerciseLogNotes(at index: Int, notes: String) {
+        guard var session = currentSession, session.exerciseLogs.indices.contains(index) else { return }
+        session.exerciseLogs[index].notes = notes
+        currentSession = session
+        recordWorkoutActivity()
+        saveActiveSession()
+    }
+
+    /// Session-only default rest for the next set when this exercise has no logged sets yet (does not change the library workout).
+    func setExerciseLogSessionRestOverride(at index: Int, seconds: Int) {
+        guard var session = currentSession, session.exerciseLogs.indices.contains(index) else { return }
+        let clamped = min(300, max(0, seconds))
+        let planDefault = session.exerciseLogs[index].workoutExercise.defaultRestTime
+        session.exerciseLogs[index].sessionRestOverrideSeconds = (clamped == planDefault) ? nil : clamped
+        currentSession = session
+        recordWorkoutActivity()
+        saveActiveSession()
+    }
+
+    func clearExerciseLogSessionRestOverride(at index: Int) {
+        guard var session = currentSession, session.exerciseLogs.indices.contains(index) else { return }
+        session.exerciseLogs[index].sessionRestOverrideSeconds = nil
         currentSession = session
         recordWorkoutActivity()
         saveActiveSession()
@@ -387,6 +520,17 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             we.resolution = .concrete(snap)
             session.exerciseLogs[li].workoutExercise = we
         }
+
+        if let dm = dataManager,
+           let origin = session.sessionPlanOrigin,
+           case .workout(let libraryId) = origin,
+           let lib = dm.workout(id: libraryId), lib.hasFlexibleSlots,
+           let slotId = session.workout.templateSlotIdByWorkoutExerciseId[workoutExerciseId],
+           var slot = dm.flexibleSlots(from: lib).first(where: { $0.id == slotId }) {
+            slot.defaultExerciseId = exercise.id
+            dm.updateFlexibleSlot(workoutId: libraryId, slot: slot)
+        }
+
         currentSession = session
         saveActiveSession()
     }
@@ -400,17 +544,60 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             weight: last.weight,
             reps: last.reps,
             restTime: last.restTime,
-            isWarmup: last.isWarmup,
+            setType: last.setType,
             configuration: last.configuration,
-            dropSegments: last.dropSegments
+            dropSegments: last.dropSegments,
+            rpe: last.rpe
         )
     }
     
-    func logSet(exerciseIndex: Int, weight: Double, reps: Int, restTime: Int, isWarmup: Bool = false, configuration: [String: String] = [:], dropSegments: [DropSetSegment] = []) {
+    func logSet(
+        exerciseIndex: Int,
+        weight: Double,
+        reps: Int,
+        restTime: Int,
+        setType: ExerciseSetType = .working,
+        configuration: [String: String] = [:],
+        dropSegments: [DropSetSegment] = [],
+        rpe: Double? = nil
+    ) {
         guard var session = currentSession, exerciseIndex < session.exerciseLogs.count else { return }
         guard let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exerciseId else { return }
 
-        let set = LoggedSet(id: UUID(), weight: weight, reps: reps, restTime: restTime, timestamp: Date(), isWarmup: isWarmup, configuration: configuration, dropSegments: dropSegments)
+        let resolvedSetType: ExerciseSetType = {
+            if !dropSegments.isEmpty { return .dropSet }
+            switch setType {
+            case .dropSet:
+                return .working
+            default:
+                return setType
+            }
+        }()
+        let set = LoggedSet(
+            id: UUID(),
+            weight: weight,
+            reps: reps,
+            restTime: restTime,
+            timestamp: Date(),
+            setType: resolvedSetType,
+            configuration: configuration,
+            dropSegments: dropSegments,
+            rpe: rpe
+        )
+        let priorCurrentSets = session.exerciseLogs[exerciseIndex].loggedSets
+        let priorHistoricalSets: [LoggedSet] = (dataManager?.completedSessions ?? [])
+            .flatMap(\.exerciseLogs)
+            .filter { $0.workoutExercise.exerciseId == exId }
+            .flatMap(\.loggedSets)
+        let priorSets = priorCurrentSets + priorHistoricalSets
+        let exerciseName = dataManager?.displayName(for: session.exerciseLogs[exerciseIndex].workoutExercise) ?? "Exercise"
+        let prEvents = PersonalRecordDetector.detect(
+            newSet: set,
+            priorSets: priorSets,
+            exerciseId: exId,
+            exerciseName: exerciseName,
+            timestamp: set.timestamp
+        )
         session.exerciseLogs[exerciseIndex].loggedSets.append(set)
         let isAlreadyActive = session.activeExerciseIds.contains(exId)
 
@@ -436,6 +623,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         session.completedExerciseIds.removeAll { $0 == exId }
 
         currentSession = session
+        recentPersonalRecordEvent = prioritizedPREvent(from: prEvents)
         recordWorkoutActivity()
 
         // Start live countdown
@@ -447,6 +635,36 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             clearRestCompletionNotification()
         }
     }
+
+    /// Updates weight/reps (and optional type) on an existing logged set (inline edit). Does not re-run PR detection or rest timer.
+    func updateSet(exerciseIndex: Int, setIndex: Int, weight: Double, reps: Int, setType: ExerciseSetType? = nil) {
+        guard var session = currentSession,
+              exerciseIndex < session.exerciseLogs.count,
+              setIndex < session.exerciseLogs[exerciseIndex].loggedSets.count
+        else { return }
+        session.exerciseLogs[exerciseIndex].loggedSets[setIndex].weight = weight
+        session.exerciseLogs[exerciseIndex].loggedSets[setIndex].reps = reps
+        if !session.exerciseLogs[exerciseIndex].loggedSets[setIndex].dropSegments.isEmpty {
+            session.exerciseLogs[exerciseIndex].loggedSets[setIndex].setType = .dropSet
+        } else if let setType {
+            session.exerciseLogs[exerciseIndex].loggedSets[setIndex].setType =
+                setType == .dropSet ? .working : setType
+        }
+        currentSession = session
+        recordWorkoutActivity()
+    }
+
+    private func prioritizedPREvent(from events: [PersonalRecordEvent]) -> PersonalRecordEvent? {
+        guard !events.isEmpty else { return nil }
+        func rank(_ kind: PersonalRecordEvent.Kind) -> Int {
+            switch kind {
+            case .maxWeight: return 3
+            case .estimatedOneRM: return 2
+            case .maxVolumeSet: return 1
+            }
+        }
+        return events.max { rank($0.kind) < rank($1.kind) }
+    }
     
     private func startRestCountdown(seconds: Int) {
         restTimer?.invalidate()
@@ -456,15 +674,45 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
 
         guard seconds > 0 else { return }
 
+        let workoutTitle = currentSession?.workout.name ?? "Workout"
+        Task { @MainActor in
+            RestTimerLiveActivityCoordinator.shared.syncRestCountdown(
+                remainingSeconds: remainingRestTime,
+                workoutName: workoutTitle
+            )
+        }
+
         restTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             self.remainingRestTime -= 1
+            let title = self.currentSession?.workout.name ?? "Workout"
+            if self.remainingRestTime > 0 {
+                Task { @MainActor in
+                    RestTimerLiveActivityCoordinator.shared.syncRestCountdown(
+                        remainingSeconds: self.remainingRestTime,
+                        workoutName: title
+                    )
+                }
+            }
             if self.remainingRestTime <= 0 {
                 self.restTimer?.invalidate()
                 self.restTimer = nil
+                Task { @MainActor in
+                    RestTimerLiveActivityCoordinator.shared.endRestActivity()
+                }
+                Self.playRestCompleteFeedback()
                 self.showRestCompleteAlert = true
             }
         }
+    }
+
+    private static func playRestCompleteFeedback() {
+        #if canImport(UIKit)
+        let gen = UINotificationFeedbackGenerator()
+        gen.prepare()
+        gen.notificationOccurred(.success)
+        #endif
+        AudioServicesPlaySystemSound(1005)
     }
     
     func cancelRestTimer() {
@@ -473,6 +721,30 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         remainingRestTime = 0
         showRestCompleteAlert = false
         clearRestCompletionNotification()
+        Task { @MainActor in
+            RestTimerLiveActivityCoordinator.shared.endRestActivity()
+        }
+    }
+
+    /// Nudge the active rest countdown (e.g. +15 / −15) without restarting the timer tick loop.
+    func adjustRestCountdown(by delta: Int) {
+        guard delta != 0 else { return }
+        guard remainingRestTime > 0 || restTimer != nil else { return }
+        let capped = min(600, max(0, remainingRestTime + delta))
+        if capped == 0 {
+            cancelRestTimer()
+            return
+        }
+        remainingRestTime = capped
+        clearRestCompletionNotification()
+        scheduleRestNotification(seconds: capped)
+        let title = currentSession?.workout.name ?? "Workout"
+        Task { @MainActor in
+            RestTimerLiveActivityCoordinator.shared.syncRestCountdown(
+                remainingSeconds: capped,
+                workoutName: title
+            )
+        }
     }
 
     private func clearRestCompletionNotification() {
@@ -501,7 +773,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     func addEmptySet(toExerciseIndex: Int) {
         guard var session = currentSession, toExerciseIndex < session.exerciseLogs.count else { return }
         
-        let emptySet = LoggedSet(id: UUID(), weight: 0.0, reps: 0, restTime: 90, timestamp: Date(), isWarmup: false, configuration: [:], dropSegments: [])
+        let emptySet = LoggedSet(id: UUID(), weight: 0.0, reps: 0, restTime: 90, timestamp: Date(), isWarmup: false, configuration: [:], dropSegments: [], rpe: nil)
         session.exerciseLogs[toExerciseIndex].loggedSets.append(emptySet)
         currentSession = session
         recordWorkoutActivity()
@@ -539,6 +811,10 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             remainingRestTime = max(0, remainingRestTime - Int(elapsed))
             if remainingRestTime > 0 {
                 startRestCountdown(seconds: remainingRestTime)
+            } else {
+                Task { @MainActor in
+                    RestTimerLiveActivityCoordinator.shared.endRestActivity()
+                }
             }
             backgroundDate = nil
             wasTimerRunning = false
@@ -635,6 +911,14 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         recordWorkoutActivity()
     }
 
+    /// Undo an explicit early completion so the exercise shows as in-progress again.
+    func markExerciseNotCompleted(exerciseId: UUID) {
+        guard var session = currentSession else { return }
+        session.completedExerciseIds.removeAll { $0 == exerciseId }
+        currentSession = session
+        recordWorkoutActivity()
+    }
+
     // MARK: - Starting a workout while another may be active
 
     /// Whether the in-progress session is the same logical plan as the workout being started.
@@ -656,10 +940,34 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         return .needsReplaceConfirmation(PendingWorkoutReplace(workout: workout, sessionPlanOrigin: sessionPlanOrigin))
     }
 
+    /// Like `resolveStartingWorkout`, but when a replace is required the payload includes `resumedSession` for apply-after-stop.
+    func resolveStartingResumedSession(_ resumed: WorkoutSession) -> WorkoutStartResolution {
+        switch resolveStartingWorkout(resumed.workout, sessionPlanOrigin: resumed.sessionPlanOrigin) {
+        case .performStart:
+            return .performStart
+        case .noOpAlreadyActive:
+            return .noOpAlreadyActive
+        case .needsReplaceConfirmation:
+            return .needsReplaceConfirmation(
+                PendingWorkoutReplace(
+                    workout: resumed.workout,
+                    sessionPlanOrigin: resumed.sessionPlanOrigin,
+                    resumedSession: resumed
+                )
+            )
+        }
+    }
+
     /// Ends the current session (saved as completed) and starts the new one.
     func stopThenStartWorkout(_ workout: Workout, sessionPlanOrigin: WorkoutPlanRef? = nil) {
         stopWorkout()
         startWorkout(workout, sessionPlanOrigin: sessionPlanOrigin)
+    }
+
+    /// Ends the current session (saved) and continues with a resumed in-progress snapshot (same sets/state as when that session was finished).
+    func stopThenApplyResumedSession(_ resumed: WorkoutSession) {
+        stopWorkout()
+        beginInProgressSession(resumed)
     }
 
     /// Starts immediately, or invokes `onNeedReplaceConfirmation` when the user must confirm replacing the active session.
@@ -671,6 +979,22 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         switch resolveStartingWorkout(workout, sessionPlanOrigin: sessionPlanOrigin) {
         case .performStart:
             startWorkout(workout, sessionPlanOrigin: sessionPlanOrigin)
+        case .noOpAlreadyActive:
+            break
+        case .needsReplaceConfirmation(let pending):
+            onNeedReplaceConfirmation(pending)
+        }
+    }
+
+    /// Resumes from a **completed** session (copied logs and UI state). Same replace-active flow as `startWorkoutResolvingConflict`.
+    func startWorkoutResumingFromCompleted(
+        _ completed: WorkoutSession,
+        onNeedReplaceConfirmation: @escaping (PendingWorkoutReplace) -> Void
+    ) {
+        let resumed = WorkoutSession.resumingFromCompletedSession(completed)
+        switch resolveStartingResumedSession(resumed) {
+        case .performStart:
+            beginInProgressSession(resumed)
         case .noOpAlreadyActive:
             break
         case .needsReplaceConfirmation(let pending):
@@ -691,4 +1015,6 @@ struct PendingWorkoutReplace: Identifiable {
     let id = UUID()
     let workout: Workout
     let sessionPlanOrigin: WorkoutPlanRef?
+    /// When set, confirming replace applies this in-progress session instead of starting an empty workout from `workout`.
+    var resumedSession: WorkoutSession? = nil
 }

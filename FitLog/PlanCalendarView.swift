@@ -4,6 +4,19 @@
 //
 
 import SwiftUI
+import UIKit
+
+// MARK: - Haptics
+
+private enum FitlogHaptics {
+    static func lightImpact() {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    static func mediumImpact() {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+}
 
 // MARK: - Calendar grid
 
@@ -11,12 +24,15 @@ struct PlanCalendarView: View {
     @EnvironmentObject var dayMonitor: CalendarDayMonitor
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @EnvironmentObject var aiService: AIService
+    @Environment(\.fitlogRootTabSelection) private var rootTabSelection
+    @Environment(\.fitlogCoachDeepLink) private var coachDeepLink
 
     @State private var visibleMonth: Date = Date()
+    @State private var weekStripWeekOffset: Int = 0
     @State private var daySheetDate: Date?
     @State private var weekEditAnchor: Date?
-    @State private var showSplitEditor = false
-    @State private var showSetup = false
+    @State private var showProgramBuilder = false
     @State private var resolvedDayCache: [String: ResolvedScheduleDay] = [:]
     @State private var pendingWorkoutReplace: PendingWorkoutReplace?
 
@@ -27,7 +43,8 @@ struct PlanCalendarView: View {
         let p = dataVM.trainingProgram
         let cycleSig = p.cycleEntries.map(\.cacheKey).joined(separator: ",")
         let weekdaysSig = p.preferredWeekdays.map(String.init).joined(separator: ",")
-        return "\(dayMonitor.currentDayKey)-\(cycleSig)-\(p.sessionsPerWeek)-\(weekdaysSig)-\(p.anchorDayKey)-\(p.dayOverrides.count)-\(p.weekOverrides.count)-\(p.frozenCalendarDays.count)-\(dataVM.completedSessions.count)"
+        let skipSig = p.skippedCycleTrainingDayKeys.joined(separator: ",")
+        return "\(dayMonitor.currentDayKey)-\(cycleSig)-\(p.sessionsPerWeek)-\(weekdaysSig)-\(p.anchorDayKey)-\(p.cyclePhaseOffset)-\(skipSig)-\(p.dayOverrides.count)-\(p.weekOverrides.count)-\(p.frozenCalendarDays.count)-\(dataVM.completedSessions.count)"
     }
 
     private func rebuildResolvedDayCache() {
@@ -54,11 +71,39 @@ struct PlanCalendarView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                monthHeader
-                weekdayHeader
-                calendarGrid
-                legend
+            ScrollView {
+                VStack(spacing: 0) {
+                    monthHeader
+                    weekStrip
+                    weekdayHeader
+                    calendarGridContent
+                    legend
+                }
+                .contentShape(Rectangle())
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 45)
+                        .onEnded { value in
+                            let dx = value.translation.width
+                            let dy = value.translation.height
+                            guard abs(dx) > 52, abs(dx) > abs(dy) * 1.2 else { return }
+                            FitlogHaptics.lightImpact()
+                            if dx < 0 {
+                                advanceVisibleMonth(by: 1)
+                            } else {
+                                advanceVisibleMonth(by: -1)
+                            }
+                        }
+                )
+            }
+            .refreshable {
+                await MainActor.run {
+                    dataVM.reconcileSkippedCycleTrainingDays()
+                    rebuildResolvedDayCache()
+                    dataVM.publishWidgetSnapshot()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fitlogOpenProgramBuilder)) { _ in
+                showProgramBuilder = true
             }
             .task(id: calendarRefreshKey) {
                 rebuildResolvedDayCache()
@@ -67,24 +112,34 @@ struct PlanCalendarView: View {
                 rebuildResolvedDayCache()
             }
             .onChange(of: visibleMonth) { _, _ in
+                weekStripWeekOffset = 0
                 rebuildResolvedDayCache()
             }
             .fitlogWorkoutBarContentInset()
             .navigationTitle("Plan")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        showSplitEditor = true
+                        showProgramBuilder = true
                     } label: {
-                        Label("Split", systemImage: "arrow.triangle.swap")
+                        Label("Program", systemImage: "rectangle.grid.1x2")
                     }
+                    .accessibilityHint("Weekly schedule and training day order")
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
-                        showSetup = true
+                        openCoachSplitBuilderWithPlanContext()
                     } label: {
-                        Label("Schedule", systemImage: "calendar.badge.clock")
+                        Label("Split", systemImage: "sparkles")
                     }
+                    .accessibilityHint("Opens Coach with your current plan in the split builder")
+                    Button {
+                        jumpToTodayMonth()
+                    } label: {
+                        Label("Today", systemImage: "sun.max.fill")
+                    }
+                    .accessibilityHint("Shows the month containing today")
                 }
             }
             .sheet(item: Binding(
@@ -94,6 +149,7 @@ struct PlanCalendarView: View {
                 DayPlanSheet(date: item.date)
                     .environmentObject(dataVM)
                     .environmentObject(currentVM)
+                    .environmentObject(aiService)
             }
             .sheet(item: Binding(
                 get: { weekEditAnchor.map { WeekSheetItem(anchor: $0) } },
@@ -102,15 +158,218 @@ struct PlanCalendarView: View {
                 WeekOverrideSheet(weekContaining: item.anchor)
                     .environmentObject(dataVM)
             }
-            .sheet(isPresented: $showSplitEditor) {
-                SplitEditorSheet()
-                    .environmentObject(dataVM)
-            }
-            .sheet(isPresented: $showSetup) {
-                ProgramSetupSheet()
-                    .environmentObject(dataVM)
+            .sheet(isPresented: $showProgramBuilder) {
+                ProgramBuilderSheet(
+                    onBuildSplit: {
+                        showProgramBuilder = false
+                        openCoachSplitBuilderWithPlanContext()
+                    }
+                )
+                .environmentObject(dataVM)
+                .environmentObject(currentVM)
+                .environmentObject(aiService)
             }
             .workoutReplaceConflictConfirmation(currentVM: currentVM, pending: $pendingWorkoutReplace)
+        }
+    }
+
+    private func jumpToTodayMonth() {
+        FitlogHaptics.mediumImpact()
+        let today = Date()
+        visibleMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: today)) ?? today
+        weekStripWeekOffset = 0
+    }
+
+    private func advanceVisibleMonth(by months: Int) {
+        visibleMonth = calendar.date(byAdding: .month, value: months, to: visibleMonth) ?? visibleMonth
+    }
+
+    private func openCoachSplitBuilderWithPlanContext() {
+        FitlogHaptics.lightImpact()
+        coachDeepLink.wrappedValue = .openAISplitBuilder(prefill: dataVM.planCycleContextLineForCoach())
+        rootTabSelection?.wrappedValue = .coach
+    }
+
+    // MARK: - Week strip (focused week)
+
+    private var weekStripAnchorDate: Date {
+        let firstOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: visibleMonth)) ?? visibleMonth
+        let today = Date()
+        if calendar.isDate(today, equalTo: visibleMonth, toGranularity: .month) {
+            return today
+        }
+        return firstOfMonth
+    }
+
+    private var weekStripReferenceDate: Date {
+        calendar.date(byAdding: .weekOfYear, value: weekStripWeekOffset, to: weekStripAnchorDate) ?? weekStripAnchorDate
+    }
+
+    private var weekStripDays: [Date] {
+        guard let interval = calendar.dateInterval(of: .weekOfYear, for: weekStripReferenceDate) else { return [] }
+        var d = interval.start
+        var out: [Date] = []
+        while d < interval.end {
+            out.append(calendar.startOfDay(for: d))
+            guard let n = calendar.date(byAdding: .day, value: 1, to: d) else { break }
+            d = n
+        }
+        return out
+    }
+
+    private var weekStrip: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("This week")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                HStack(spacing: 4) {
+                    Button {
+                        weekStripWeekOffset -= 1
+                    } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                    .accessibilityLabel("Previous week")
+
+                    Button {
+                        FitlogHaptics.mediumImpact()
+                        weekStripWeekOffset = 0
+                        let today = Date()
+                        visibleMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: today)) ?? today
+                    } label: {
+                        Text("This week")
+                            .font(.caption.weight(.semibold))
+                    }
+
+                    Button {
+                        weekStripWeekOffset += 1
+                    } label: {
+                        Image(systemName: "chevron.right")
+                    }
+                    .accessibilityLabel("Next week")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(weekStripDays, id: \.self) { day in
+                        weekStripDayCell(day: day)
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func weekStripDayCell(day: Date) -> some View {
+        let resolved = cachedResolve(date: day)
+        let isToday = calendar.isDateInToday(day)
+        let inMonth = calendar.isDate(day, equalTo: visibleMonth, toGranularity: .month)
+        let status = dayStatus(date: day, resolved: resolved)
+        let subtitle = dayPlanSubtitle(date: day, resolved: resolved)
+
+        return Button {
+            FitlogHaptics.lightImpact()
+            if !inMonth {
+                visibleMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: day)) ?? visibleMonth
+            }
+            daySheetDate = day
+        } label: {
+            VStack(spacing: 4) {
+                Text(shortWeekdaySymbol(for: day))
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Text("\(calendar.component(.day, from: day))")
+                    .font(.subheadline.weight(isToday ? .bold : .regular))
+                statusDot(for: status)
+            }
+            .frame(minWidth: 40)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isToday ? Color.accentColor.opacity(0.18) : Color(.secondarySystemGroupedBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(isToday ? Color.accentColor.opacity(0.55) : Color.clear, lineWidth: isToday ? 1.5 : 0)
+            )
+            .opacity(inMonth ? 1 : 0.45)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(subtitle). \(accessibilityStatusLabel(status)).")
+    }
+
+    private func shortWeekdaySymbol(for date: Date) -> String {
+        let idx = calendar.component(.weekday, from: date) - 1
+        guard idx >= 0, idx < calendar.shortWeekdaySymbols.count else { return "" }
+        return String(calendar.shortWeekdaySymbols[idx].prefix(1))
+    }
+
+    private enum PlanDayStatus {
+        case logged
+        case missedWorkout
+        case rest
+        case unscheduled
+        case plannedWorkout
+    }
+
+    private func dayStatus(date: Date, resolved: ResolvedScheduleDay) -> PlanDayStatus {
+        if dataVM.primaryCompletedSession(on: date, calendar: calendar) != nil {
+            return .logged
+        }
+        let past = calendar.startOfDay(for: date) < calendar.startOfDay(for: Date())
+        switch resolved {
+        case .rest:
+            return .rest
+        case .unscheduled:
+            return .unscheduled
+        case .workout:
+            if past {
+                return .missedWorkout
+            }
+            return .plannedWorkout
+        }
+    }
+
+    @ViewBuilder
+    private func statusDot(for status: PlanDayStatus) -> some View {
+        switch status {
+        case .logged:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.caption2)
+                .foregroundStyle(FitlogPalette.success)
+        case .missedWorkout:
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.caption2)
+                .foregroundStyle(FitlogPalette.caution)
+        case .rest:
+            Image(systemName: "moon.zzz.fill")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        case .unscheduled:
+            Image(systemName: "circle.dashed")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        case .plannedWorkout:
+            Image(systemName: "dumbbell.fill")
+                .font(.caption2)
+                .foregroundStyle(Color.accentColor)
+        }
+    }
+
+    private func accessibilityStatusLabel(_ status: PlanDayStatus) -> String {
+        switch status {
+        case .logged: return "Logged workout"
+        case .missedWorkout: return "Missed planned workout"
+        case .rest: return "Rest"
+        case .unscheduled: return "Unscheduled"
+        case .plannedWorkout: return "Workout planned"
         }
     }
 
@@ -146,42 +405,44 @@ struct PlanCalendarView: View {
         .padding(.horizontal, 4)
     }
 
-    private var calendarGrid: some View {
+    private var calendarGridContent: some View {
         let days = daysInMonthGrid(for: visibleMonth)
-        return ScrollView {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
-                ForEach(Array(days.enumerated()), id: \.offset) { _, cell in
-                    if let date = cell {
-                        dayCell(date: date)
-                    } else {
-                        Color.clear
-                            .aspectRatio(1, contentMode: .fit)
-                    }
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
+            ForEach(Array(days.enumerated()), id: \.offset) { _, cell in
+                if let date = cell {
+                    dayCell(date: date)
+                } else {
+                    Color.clear
+                        .aspectRatio(1, contentMode: .fit)
                 }
             }
-            .padding(8)
         }
+        .padding(8)
     }
 
     private func dayCell(date: Date) -> some View {
         let resolved = cachedResolve(date: date)
         let isToday = calendar.isDateInToday(date)
-        let subtitle = dayPlanSubtitle(date: date, resolved: resolved)
         let isPastDay = calendar.startOfDay(for: date) < calendar.startOfDay(for: Date())
+        let subtitle = dayPlanSubtitle(date: date, resolved: resolved)
+        let status = dayStatus(date: date, resolved: resolved)
 
         return VStack(alignment: .leading, spacing: 4) {
-            ZStack {
-                if isToday {
-                    Circle()
-                        .fill(Color.accentColor)
-                        .frame(width: 30, height: 30)
+            HStack(alignment: .firstTextBaseline) {
+                ZStack {
+                    if isToday {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 30, height: 30)
+                    }
+                    Text("\(calendar.component(.day, from: date))")
+                        .font(.subheadline.weight(isToday ? .bold : .regular))
+                        .foregroundStyle(isToday ? Color.white : Color.primary)
                 }
-                Text("\(calendar.component(.day, from: date))")
-                    .font(.subheadline.weight(isToday ? .bold : .regular))
-                    .foregroundStyle(isToday ? Color.white : Color.primary)
+                .accessibilityHidden(true)
+                Spacer(minLength: 0)
+                statusDot(for: status)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityHidden(true)
 
             if isToday {
                 Text("Today")
@@ -206,9 +467,10 @@ struct PlanCalendarView: View {
                 .strokeBorder(isToday ? Color.accentColor.opacity(0.45) : Color.clear, lineWidth: isToday ? 1.5 : 0)
         )
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityDayLabel(date: date, isToday: isToday, subtitle: subtitle))
+        .accessibilityLabel(accessibilityDayLabel(date: date, isToday: isToday, subtitle: subtitle, status: status))
         .contentShape(Rectangle())
         .onTapGesture {
+            FitlogHaptics.lightImpact()
             daySheetDate = date
         }
         .contextMenu {
@@ -216,22 +478,12 @@ struct PlanCalendarView: View {
                 weekEditAnchor = date
             }
             if !isPastDay, case .workout(let ref) = resolved {
-                switch ref {
-                case .concreteWorkout(let id):
-                    if let w = dataVM.userWorkouts.first(where: { $0.id == id }) {
-                        Button("Start workout") {
-                            currentVM.startWorkoutResolvingConflict(w, sessionPlanOrigin: .concreteWorkout(id)) {
-                                pendingWorkoutReplace = $0
-                            }
-                        }
-                    }
-                case .slotTemplate(let tid):
-                    if let t = dataVM.slotTemplate(id: tid) {
-                        Button("Start workout") {
-                            let sessionWorkout = dataVM.instantiateWorkout(from: t)
-                            currentVM.startWorkoutResolvingConflict(sessionWorkout, sessionPlanOrigin: .slotTemplate(tid)) {
-                                pendingWorkoutReplace = $0
-                            }
+                let id = ref.libraryWorkoutId
+                if let w = dataVM.workout(id: id) {
+                    Button("Start workout") {
+                        let session = w.hasFlexibleSlots ? dataVM.sessionInstance(from: w) : w
+                        currentVM.startWorkoutResolvingConflict(session, sessionPlanOrigin: .workout(id)) {
+                            pendingWorkoutReplace = $0
                         }
                     }
                 }
@@ -254,8 +506,22 @@ struct PlanCalendarView: View {
     }
 
     private var legend: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Tip: tap a day to swap or mark rest. Long-press (or context menu) to edit the whole week.")
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Label("Logged", systemImage: "checkmark.circle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(FitlogPalette.success)
+                Label("Missed", systemImage: "exclamationmark.circle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(FitlogPalette.caution)
+                Label("Rest", systemImage: "moon.zzz.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Label("Planned", systemImage: "dumbbell.fill")
+                    .font(.caption2)
+                    .foregroundStyle(Color.accentColor)
+            }
+            Text("Tip: swipe left or right on the calendar to change months. Pull to refresh plan data. Tap a day to swap or mark rest. Long-press (or context menu) to edit the whole week. Missed planned workouts advance the rotation so upcoming days stay in sync.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -263,10 +529,10 @@ struct PlanCalendarView: View {
         .padding()
     }
 
-    private func accessibilityDayLabel(date: Date, isToday: Bool, subtitle: String) -> String {
+    private func accessibilityDayLabel(date: Date, isToday: Bool, subtitle: String, status: PlanDayStatus) -> String {
         let when = date.formatted(date: .abbreviated, time: .omitted)
         let prefix = isToday ? "Today, " : ""
-        return "\(prefix)\(when). \(subtitle)."
+        return "\(prefix)\(when). \(subtitle). \(accessibilityStatusLabel(status))."
     }
 
     private func daysInMonthGrid(for month: Date) -> [Date?] {
@@ -309,6 +575,7 @@ private struct WeekSheetItem: Identifiable {
 struct DayPlanSheet: View {
     @EnvironmentObject var dataVM: DataManager
     @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @EnvironmentObject var aiService: AIService
     @Environment(\.dismiss) private var dismiss
 
     let date: Date
@@ -339,6 +606,21 @@ struct DayPlanSheet: View {
                     }
                 }
 
+                if calendar.startOfDay(for: date) >= calendar.startOfDay(for: Date()),
+                   case .workout(let ref) = dataVM.resolvedScheduleDay(for: date, calendar: calendar) {
+                    Section {
+                        Text("Sets this calendar day as the rotation anchor so upcoming default assignments continue from this template. Per-day swaps already apply; use this after you reshuffle the week and want the split to line up again.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Align rotation from this workout") {
+                            dataVM.realignTrainingCycleAnchor(to: date, for: ref, calendar: calendar)
+                            dismiss()
+                        }
+                    } header: {
+                        Text("Rotation")
+                    }
+                }
+
                 if let done = dataVM.primaryCompletedSession(on: date, calendar: calendar) {
                     Section("Completed") {
                         Label(done.workout.name, systemImage: "checkmark.circle.fill")
@@ -347,50 +629,27 @@ struct DayPlanSheet: View {
 
                 if calendar.startOfDay(for: date) >= calendar.startOfDay(for: Date()) {
                     Section("Actions") {
-                        if case .workout(let ref) = dataVM.resolvedScheduleDay(for: date, calendar: calendar) {
-                            switch ref {
-                            case .concreteWorkout(let id):
-                                if let w = dataVM.userWorkouts.first(where: { $0.id == id }) {
-                                    Button("Start workout") {
-                                        switch currentVM.resolveStartingWorkout(w, sessionPlanOrigin: .concreteWorkout(id)) {
-                                        case .performStart:
-                                            currentVM.startWorkout(w, sessionPlanOrigin: .concreteWorkout(id))
-                                            dismiss()
-                                        case .noOpAlreadyActive:
-                                            dismiss()
-                                        case .needsReplaceConfirmation(let p):
-                                            pendingWorkoutReplace = p
-                                        }
-                                    }
-                                }
-                            case .slotTemplate(let tid):
-                                if let t = dataVM.slotTemplate(id: tid) {
-                                    Button("Start workout") {
-                                        let sessionWorkout = dataVM.instantiateWorkout(from: t)
-                                        switch currentVM.resolveStartingWorkout(sessionWorkout, sessionPlanOrigin: .slotTemplate(tid)) {
-                                        case .performStart:
-                                            currentVM.startWorkout(sessionWorkout, sessionPlanOrigin: .slotTemplate(tid))
-                                            dismiss()
-                                        case .noOpAlreadyActive:
-                                            dismiss()
-                                        case .needsReplaceConfirmation(let p):
-                                            pendingWorkoutReplace = p
-                                        }
-                                    }
+                        if case .workout(let ref) = dataVM.resolvedScheduleDay(for: date, calendar: calendar),
+                           let w = dataVM.workout(id: ref.libraryWorkoutId) {
+                            Button("Start workout") {
+                                let session = w.hasFlexibleSlots ? dataVM.sessionInstance(from: w) : w
+                                switch currentVM.resolveStartingWorkout(session, sessionPlanOrigin: .workout(w.id)) {
+                                case .performStart:
+                                    currentVM.startWorkout(session, sessionPlanOrigin: .workout(w.id))
+                                    dismiss()
+                                case .noOpAlreadyActive:
+                                    dismiss()
+                                case .needsReplaceConfirmation(let p):
+                                    pendingWorkoutReplace = p
                                 }
                             }
                         }
 
                         Picker("Swap to workout", selection: $swapPlanRef) {
                             Text("Choose…").tag(nil as WorkoutPlanRef?)
-                            Section("Workouts") {
+                            Section("Library") {
                                 ForEach(dataVM.userWorkouts) { w in
-                                    Text(w.name).tag(Optional(WorkoutPlanRef.concreteWorkout(w.id)))
-                                }
-                            }
-                            Section("Templates") {
-                                ForEach(dataVM.userWorkoutTemplates) { t in
-                                    Text(t.name).tag(Optional(WorkoutPlanRef.slotTemplate(t.id)))
+                                    Text(w.name).tag(Optional(WorkoutPlanRef.workout(w.id)))
                                 }
                             }
                         }
@@ -411,21 +670,16 @@ struct DayPlanSheet: View {
                 }
 
                 Section {
-                    if let wid = concreteWorkoutIdForLink {
-                        NavigationLink("Open concrete workout") {
+                    if let wid = planWorkoutIdForLink {
+                        NavigationLink("Open workout") {
                             if let binding = $dataVM.userWorkouts[wid] {
-                                WorkoutPlanView(workout: binding)
+                                WorkoutPlanView(workout: binding, currentVM: currentVM)
+                                    .environmentObject(dataVM)
+                                    .environmentObject(aiService)
                             } else {
-                                Text("This workout was deleted from My Workouts.")
+                                Text("This workout was removed from your library.")
                                     .foregroundStyle(.secondary)
                             }
-                        }
-                    }
-                    if let tid = slotTemplateIdForLink {
-                        NavigationLink("Edit slot template") {
-                            SlotTemplatePlanView(templateId: tid)
-                                .environmentObject(dataVM)
-                                .environmentObject(currentVM)
                         }
                     }
                 }
@@ -453,19 +707,10 @@ struct DayPlanSheet: View {
         .presentationDetents([.medium, .large])
     }
 
-    private var concreteWorkoutIdForLink: UUID? {
+    private var planWorkoutIdForLink: UUID? {
         switch dataVM.resolvedScheduleDay(for: date, calendar: calendar) {
-        case .workout(.concreteWorkout(let id)):
-            return id
-        default:
-            return nil
-        }
-    }
-
-    private var slotTemplateIdForLink: UUID? {
-        switch dataVM.resolvedScheduleDay(for: date, calendar: calendar) {
-        case .workout(.slotTemplate(let id)):
-            return id
+        case .workout(let ref):
+            return ref.libraryWorkoutId
         default:
             return nil
         }
@@ -579,14 +824,9 @@ private struct WeekdayRow: View {
             if mode == 2 {
                 Picker("Workout", selection: $pickedPlanRef) {
                     Text("Choose…").tag(nil as WorkoutPlanRef?)
-                    Section("Workouts") {
+                    Section("Library") {
                         ForEach(dataVM.userWorkouts) { w in
-                            Text(w.name).tag(Optional(WorkoutPlanRef.concreteWorkout(w.id)))
-                        }
-                    }
-                    Section("Templates") {
-                        ForEach(dataVM.userWorkoutTemplates) { t in
-                            Text(t.name).tag(Optional(WorkoutPlanRef.slotTemplate(t.id)))
+                            Text(w.name).tag(Optional(WorkoutPlanRef.workout(w.id)))
                         }
                     }
                 }
@@ -639,189 +879,199 @@ private struct WeekdayRow: View {
     }
 }
 
-// MARK: - Split editor
+// MARK: - Program builder (schedule + training order)
 
-struct SplitEditorSheet: View {
+struct ProgramBuilderSheet: View {
+    var onBuildSplit: () -> Void
+
     @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @EnvironmentObject var aiService: AIService
     @Environment(\.dismiss) private var dismiss
+
+    @State private var sessionsPerWeek: Int = 3
+    @State private var selectedWeekdays: Set<Int> = []
+    @State private var anchorDate: Date = Date()
+    @State private var showClearCycleConfirm = false
+    @State private var clearedRotationUndo: [WorkoutPlanRef]?
+    @State private var clearRotationUndoTask: Task<Void, Never>?
+
+    private var program: TrainingProgramState { dataVM.trainingProgram }
 
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    Text("Drag to reorder the cycle. This is your overall split; calendar day edits do not change this order.")
-                        .font(.caption)
+                if program.cycleEntries.isEmpty, !dataVM.userWorkouts.isEmpty {
+                    Section {
+                        Label(
+                            "Add workouts to the list below so the calendar knows what to schedule on training days.",
+                            systemImage: "calendar.badge.plus"
+                        )
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
+                    } header: {
+                        Text("Set up your week")
+                    }
                 }
 
-                Section("Cycle") {
-                    ForEach(Array(dataVM.trainingProgram.cycleEntries.enumerated()), id: \.offset) { _, entry in
-                        HStack {
-                            Text(dataVM.planLabel(for: entry))
-                            Spacer()
-                            switch entry {
-                            case .concreteWorkout(let id):
-                                if dataVM.userWorkouts.first(where: { $0.id == id }) == nil {
-                                    Image(systemName: "exclamationmark.triangle.fill")
-                                        .foregroundStyle(.orange)
-                                }
-                            case .slotTemplate(let id):
-                                if dataVM.slotTemplate(id: id) == nil {
-                                    Image(systemName: "exclamationmark.triangle.fill")
-                                        .foregroundStyle(.orange)
-                                }
+                Section {
+                    Stepper("Strength days per week: \(sessionsPerWeek)", value: $sessionsPerWeek, in: 1...7)
+                        .onChange(of: sessionsPerWeek) { _, n in
+                            dataVM.setTrainingSessionsPerWeek(n)
+                        }
+                    Text("Optional: tap days you prefer. Leave none selected to use Monday–Friday as training-day options.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    programBuilderWeekdayGrid
+                    DisclosureGroup("Advanced") {
+                        DatePicker("Plan start reference", selection: $anchorDate, displayedComponents: .date)
+                            .onChange(of: anchorDate) { _, d in
+                                dataVM.setTrainingAnchorDate(d)
                             }
+                        Text("The reference date aligns your workout order with the calendar. Change it if defaults feel “off” after a vacation or schedule change.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Your week")
+                }
+
+                Section {
+                    Button {
+                        dismiss()
+                        onBuildSplit()
+                    } label: {
+                        Label("Build split", systemImage: "sparkles")
+                    }
+                } header: {
+                    Text("Quick actions")
+                }
+
+                Section {
+                    ForEach(Array(program.cycleEntries.enumerated()), id: \.offset) { index, entry in
+                        NavigationLink {
+                            workoutEditorDestination(for: entry)
+                        } label: {
+                            cycleRowLabel(index: index, entry: entry)
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button {
+                                duplicateEntry(at: index)
+                            } label: {
+                                Label("Duplicate", systemImage: "plus.square.on.square")
+                            }
+                            .tint(FitlogPalette.chartPrimary)
                         }
                     }
                     .onDelete { indexSet in
-                        var entries = dataVM.trainingProgram.cycleEntries
+                        var entries = program.cycleEntries
                         entries.remove(atOffsets: indexSet)
                         dataVM.setTrainingCycleEntries(entries)
                     }
                     .onMove { source, dest in
-                        var entries = dataVM.trainingProgram.cycleEntries
+                        var entries = program.cycleEntries
                         entries.move(fromOffsets: source, toOffset: dest)
                         dataVM.setTrainingCycleEntries(entries)
                     }
+                } header: {
+                    Text("Training day order (\(program.cycleEntries.count))")
+                } footer: {
+                    Text("This is the repeating lineup (e.g. Push → Pull → Legs). Open a row to edit exercises. Duplicate adds another step.")
+                        .font(.caption)
                 }
 
-                Section("Add workout") {
+                Section("Add to your lineup") {
                     let inCycle: (UUID) -> Bool = { wid in
-                        dataVM.trainingProgram.cycleEntries.contains { $0 == .concreteWorkout(wid) }
+                        program.cycleEntries.contains { $0 == .workout(wid) }
+                    }
+                    if dataVM.userWorkouts.allSatisfy({ inCycle($0.id) }) {
+                        Text("Every saved workout is already in the lineup. Duplicate a step above to repeat a day.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                     ForEach(dataVM.userWorkouts.filter { !inCycle($0.id) }) { w in
                         Button {
-                            var entries = dataVM.trainingProgram.cycleEntries
-                            entries.append(.concreteWorkout(w.id))
+                            var entries = program.cycleEntries
+                            entries.append(.workout(w.id))
                             dataVM.setTrainingCycleEntries(entries)
                         } label: {
-                            Label(w.name, systemImage: "plus.circle")
+                            Label(w.name, systemImage: "plus.circle.fill")
                         }
                     }
                 }
 
-                Section("Add template") {
-                    let inCycle: (UUID) -> Bool = { tid in
-                        dataVM.trainingProgram.cycleEntries.contains { $0 == .slotTemplate(tid) }
+                Section {
+                    Button("Clear entire lineup", role: .destructive) {
+                        showClearCycleConfirm = true
                     }
-                    ForEach(dataVM.userWorkoutTemplates.filter { !inCycle($0.id) }) { t in
-                        Button {
-                            var entries = dataVM.trainingProgram.cycleEntries
-                            entries.append(.slotTemplate(t.id))
-                            dataVM.setTrainingCycleEntries(entries)
-                        } label: {
-                            Label(t.name, systemImage: "rectangle.stack.badge.plus")
-                        }
-                    }
+                    .disabled(program.cycleEntries.isEmpty)
                 }
-
             }
             .environment(\.editMode, .constant(.active))
-            .navigationTitle("Workout split")
+            .navigationTitle("Program")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
             }
-        }
-    }
-}
-
-// MARK: - Program setup / suggest
-
-struct ProgramSetupSheet: View {
-    @EnvironmentObject var dataVM: DataManager
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var sessionsPerWeek: Int = 3
-    @State private var selectedWeekdays: Set<Int> = []
-    @State private var anchorDate: Date = Date()
-    @State private var cycleEntriesDraft: [WorkoutPlanRef] = []
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    Stepper("Workouts per week: \(sessionsPerWeek)", value: $sessionsPerWeek, in: 1...7)
-                    Text("Preferred training days (optional). Leave none selected to use Monday–Friday as the pool.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    weekdayMultiSelect
-                    DatePicker("Rotation anchor", selection: $anchorDate, displayedComponents: .date)
-                    Text("The anchor sets where the cycle starts counting. Changing it shifts default assignments.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Section("Cycle for suggestions") {
-                    if cycleEntriesDraft.isEmpty {
-                        Text("Add workouts or flexible templates below — order is the split order.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(Array(cycleEntriesDraft.enumerated()), id: \.offset) { _, entry in
-                            Text(dataVM.planLabel(for: entry))
-                        }
-                        .onMove { s, d in
-                            cycleEntriesDraft.move(fromOffsets: s, toOffset: d)
-                        }
-                    }
-                    let concreteInDraft: (UUID) -> Bool = { wid in
-                        cycleEntriesDraft.contains { $0 == .concreteWorkout(wid) }
-                    }
-                    ForEach(dataVM.userWorkouts.filter { !concreteInDraft($0.id) }) { w in
-                        Button {
-                            cycleEntriesDraft.append(.concreteWorkout(w.id))
-                        } label: {
-                            Label("Add \(w.name)", systemImage: "plus.circle")
-                        }
-                    }
-                    let templateInDraft: (UUID) -> Bool = { tid in
-                        cycleEntriesDraft.contains { $0 == .slotTemplate(tid) }
-                    }
-                    ForEach(dataVM.userWorkoutTemplates.filter { !templateInDraft($0.id) }) { t in
-                        Button {
-                            cycleEntriesDraft.append(.slotTemplate(t.id))
-                        } label: {
-                            Label("Add \(t.name) (slot)", systemImage: "rectangle.stack.badge.plus")
-                        }
-                    }
-                }
-
-                Section {
-                    Button("Apply schedule") {
-                        let prefs = Array(selectedWeekdays).sorted()
-                        dataVM.applyTrainingProgramSuggestion(
-                            cycleEntries: cycleEntriesDraft,
-                            sessionsPerWeek: sessionsPerWeek,
-                            preferredWeekdays: prefs,
-                            anchorDate: anchorDate
-                        )
-                        dismiss()
-                    }
-                    .disabled(cycleEntriesDraft.isEmpty)
-                }
-            }
-            .navigationTitle("Schedule setup")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
-            .environment(\.editMode, .constant(.active))
             .onAppear {
-                sessionsPerWeek = dataVM.trainingProgram.sessionsPerWeek
-                selectedWeekdays = Set(dataVM.trainingProgram.preferredWeekdays)
-                if let d = TrainingProgramState.date(fromDayKey: dataVM.trainingProgram.anchorDayKey) {
-                    anchorDate = d
+                syncScheduleStateFromProgram()
+            }
+            .onChange(of: dataVM.trainingProgram.anchorDayKey) { _, _ in
+                syncScheduleStateFromProgram()
+            }
+            .confirmationDialog("Clear all workouts from your lineup?", isPresented: $showClearCycleConfirm, titleVisibility: .visible) {
+                Button("Clear lineup", role: .destructive) {
+                    let previous = program.cycleEntries
+                    dataVM.setTrainingCycleEntries([])
+                    clearedRotationUndo = previous
+                    clearRotationUndoTask?.cancel()
+                    clearRotationUndoTask = Task {
+                        try? await Task.sleep(nanoseconds: 12_000_000_000)
+                        await MainActor.run {
+                            clearedRotationUndo = nil
+                        }
+                    }
                 }
-                cycleEntriesDraft = dataVM.trainingProgram.cycleEntries
+                Button("Cancel", role: .cancel) {}
+            }
+            .overlay(alignment: .bottom) {
+                if let entries = clearedRotationUndo {
+                    HStack {
+                        Text("Lineup cleared")
+                            .font(.subheadline)
+                        Spacer()
+                        Button("Undo") {
+                            clearRotationUndoTask?.cancel()
+                            dataVM.setTrainingCycleEntries(entries)
+                            clearedRotationUndo = nil
+                        }
+                        .fontWeight(.semibold)
+                    }
+                    .padding()
+                    .background(.regularMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                    .padding()
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .onDisappear {
+                clearRotationUndoTask?.cancel()
             }
         }
     }
 
-    private var weekdayMultiSelect: some View {
+    private func syncScheduleStateFromProgram() {
+        sessionsPerWeek = program.sessionsPerWeek
+        selectedWeekdays = Set(program.preferredWeekdays)
+        if let d = TrainingProgramState.date(fromDayKey: program.anchorDayKey) {
+            anchorDate = d
+        }
+    }
+
+    private var programBuilderWeekdayGrid: some View {
         let days: [(Int, String)] = [
             (1, "Sun"), (2, "Mon"), (3, "Tue"), (4, "Wed"),
             (5, "Thu"), (6, "Fri"), (7, "Sat")
@@ -831,6 +1081,7 @@ struct ProgramSetupSheet: View {
                 let on = selectedWeekdays.contains(wd)
                 Button {
                     if on { selectedWeekdays.remove(wd) } else { selectedWeekdays.insert(wd) }
+                    dataVM.setTrainingPreferredWeekdays(Array(selectedWeekdays).sorted())
                 } label: {
                     Text(label)
                         .font(.caption.weight(.semibold))
@@ -843,5 +1094,51 @@ struct ProgramSetupSheet: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private func workoutEditorDestination(for entry: WorkoutPlanRef) -> some View {
+        switch entry {
+        case .workout(let id):
+            if let binding = $dataVM.userWorkouts[id] {
+                WorkoutPlanView(workout: binding, currentVM: currentVM)
+                    .environmentObject(dataVM)
+                    .environmentObject(aiService)
+            } else {
+                Text("This workout is missing from your library.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func cycleRowLabel(index: Int, entry: WorkoutPlanRef) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("\(index + 1)")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 22, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(dataVM.planLabel(for: entry))
+                Text("Next in your cycle")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer()
+            switch entry {
+            case .workout(let wid):
+                if dataVM.workout(id: wid) == nil {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(FitlogPalette.caution)
+                }
+            }
+        }
+    }
+
+    private func duplicateEntry(at index: Int) {
+        var entries = program.cycleEntries
+        guard index < entries.count else { return }
+        let copy = entries[index]
+        entries.insert(copy, at: index + 1)
+        dataVM.setTrainingCycleEntries(entries)
     }
 }

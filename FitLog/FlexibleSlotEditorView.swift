@@ -1,183 +1,18 @@
 //
-//  SlotTemplatePlanView.swift
+//  FlexibleSlotEditorView.swift
 //  FitLog
 //
-//  Editor for a slot-based blueprint (Option A). Full slot CRUD can grow here.
+//  Editor for one open slot (flexible row) inside a library workout.
 //
 
 import SwiftUI
 
-struct SlotTemplatePlanView: View {
+struct FlexibleSlotEditorView: View {
     @EnvironmentObject var dataVM: DataManager
-    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
-    let templateId: UUID
-
-    @State private var slots: [TemplateSlot] = []
-    @State private var showRenameAlert = false
-    @State private var newTemplateName = ""
-    @State private var pendingWorkoutReplace: PendingWorkoutReplace?
-
-    private var canonical: WorkoutTemplate? {
-        dataVM.slotTemplate(id: templateId)
-    }
-
-    /// Matches `WorkoutPlanView`’s Stop detection: session was started from this slot template.
-    private var isThisTemplateSessionActive: Bool {
-        guard let s = currentVM.currentSession, s.endTime == nil else { return false }
-        return s.sessionPlanOrigin == .slotTemplate(templateId)
-    }
-
-    private var canStartSlotTemplate: Bool {
-        !(canonical?.slots.isEmpty ?? true)
-    }
-
-    var body: some View {
-        templateRoot
-            .navigationTitle(canonical?.name ?? "Template")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(isThisTemplateSessionActive ? "Stop" : "Start") {
-                        if isThisTemplateSessionActive {
-                            currentVM.stopWorkout()
-                        } else {
-                            startWorkoutFromTemplate()
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(isThisTemplateSessionActive ? .red : .green)
-                    .disabled(!isThisTemplateSessionActive && !canStartSlotTemplate)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Rename") {
-                        newTemplateName = canonical?.name ?? ""
-                        showRenameAlert = true
-                    }
-                }
-                ToolbarItem(placement: .topBarLeading) {
-                    EditButton()
-                }
-            }
-            .onAppear {
-                syncFromData()
-            }
-            .onChange(of: dataVM.userWorkoutTemplates) { _, _ in
-                syncFromData()
-            }
-            .alert("Rename Template", isPresented: $showRenameAlert) {
-                TextField("New name", text: $newTemplateName)
-                Button("Cancel", role: .cancel) {}
-                Button("Save") {
-                    if let t = canonical {
-                        dataVM.renameSlotTemplate(t, newName: newTemplateName)
-                    }
-                }
-            }
-            .workoutReplaceConflictConfirmation(currentVM: currentVM, pending: $pendingWorkoutReplace)
-    }
-
-    @ViewBuilder
-    private var templateRoot: some View {
-        if canonical == nil {
-            ContentUnavailableView("Template removed", systemImage: "tray")
-        } else {
-            List {
-                templateSlotsSection
-            }
-        }
-    }
-
-    private var templateSlotsSection: some View {
-        Section {
-            if slots.isEmpty {
-                Text("No slots yet — add one to define this template.")
-                    .foregroundStyle(.secondary)
-            }
-            ForEach(slots) { slot in
-                NavigationLink {
-                    TemplateSlotEditorView(templateId: templateId, slotId: slot.id)
-                        .environmentObject(dataVM)
-                } label: {
-                    slotRowLabel(slot)
-                }
-            }
-            .onDelete(perform: deleteSlots)
-            .onMove(perform: moveSlots)
-
-            Button("Add slot") {
-                addSlot()
-            }
-        } header: {
-            Text("Slots")
-        } footer: {
-            Text("Flexible template · tap a slot to edit. Use Start / Stop in the toolbar to begin. Unfilled slots become placeholders until you pick exercises.")
-                .font(.caption)
-        }
-    }
-
-    @ViewBuilder
-    private func slotRowLabel(_ slot: TemplateSlot) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(slot.label)
-                .font(.headline)
-            Text(slot.targetedMuscles.prefix(3).map(\.rawValue).joined(separator: ", "))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private func startWorkoutFromTemplate() {
-        guard let t = canonical, !t.slots.isEmpty else { return }
-        let sessionWorkout = dataVM.instantiateWorkout(from: t)
-        currentVM.startWorkoutResolvingConflict(sessionWorkout, sessionPlanOrigin: .slotTemplate(t.id)) {
-            pendingWorkoutReplace = $0
-        }
-    }
-
-    private func syncFromData() {
-        guard let t = dataVM.slotTemplate(id: templateId) else { return }
-        slots = t.slots
-    }
-
-    private func persistSlots() {
-        guard var t = dataVM.slotTemplate(id: templateId) else { return }
-        t.slots = slots
-        dataVM.updateSlotTemplate(t)
-    }
-
-    private func addSlot() {
-        let n = slots.count + 1
-        slots.append(
-            TemplateSlot(
-                label: "Slot \(n)",
-                targetedMuscles: [.chest],
-                exerciseRole: .compound,
-                movementPattern: .horizontalPush,
-                defaultExerciseId: nil,
-                defaultRestTime: 90,
-                recommendedSets: 3,
-                recommendedReps: "8-12"
-            )
-        )
-        persistSlots()
-    }
-
-    private func deleteSlots(at offsets: IndexSet) {
-        slots.remove(atOffsets: offsets)
-        persistSlots()
-    }
-
-    private func moveSlots(from source: IndexSet, to destination: Int) {
-        slots.move(fromOffsets: source, toOffset: destination)
-        persistSlots()
-    }
-}
-
-// MARK: - Per-slot editor
-
-private struct TemplateSlotEditorView: View {
-    @EnvironmentObject var dataVM: DataManager
-    let templateId: UUID
+    let workoutId: UUID
     let slotId: UUID
+    /// When true (e.g. just added open slot), focus the label field after load.
+    var autoFocusLabelOnAppear: Bool = false
 
     @State private var label: String = ""
     @State private var selectedMuscles: [MuscleGroup] = []
@@ -196,8 +31,8 @@ private struct TemplateSlotEditorView: View {
     }
 
     private var currentSlot: TemplateSlot? {
-        guard let t = dataVM.slotTemplate(id: templateId) else { return nil }
-        return t.slots.first { $0.id == slotId }
+        guard let w = dataVM.workout(id: workoutId) else { return nil }
+        return dataVM.flexibleSlots(from: w).first { $0.id == slotId }
     }
 
     private var defaultExerciseButtonTitle: String {
@@ -212,6 +47,11 @@ private struct TemplateSlotEditorView: View {
         slotEditorChrome
             .onAppear {
                 loadFromCanonical()
+                if autoFocusLabelOnAppear {
+                    DispatchQueue.main.async {
+                        labelFieldFocused = true
+                    }
+                }
             }
             .sheet(isPresented: $showMusclePicker) {
                 musclePickerSheet
@@ -321,7 +161,7 @@ private struct TemplateSlotEditorView: View {
                 }
             }
         } footer: {
-            Text("If set, starting a workout from this template prefills this slot with that exercise. You can still change it before or during the session.")
+            Text("If set, starting a workout prefills this slot with that exercise. You can still change it before or during the session.")
                 .font(.caption)
         }
     }
@@ -369,10 +209,9 @@ private struct TemplateSlotEditorView: View {
     }
 
     private func persistFromState() {
-        guard var t = dataVM.slotTemplate(id: templateId),
-              let idx = t.slots.firstIndex(where: { $0.id == slotId }) else { return }
+        guard let slot = currentSlot else { return }
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
-        var s = t.slots[idx]
+        var s = slot
         if trimmed.isEmpty {
             s.label = s.label.isEmpty ? "Untitled slot" : s.label
         } else {
@@ -387,8 +226,7 @@ private struct TemplateSlotEditorView: View {
         s.recommendedSets = min(max(1, recommendedSets), 10)
         let repsTrimmed = recommendedReps.trimmingCharacters(in: .whitespacesAndNewlines)
         s.recommendedReps = repsTrimmed.isEmpty ? "8-12" : repsTrimmed
-        t.slots[idx] = s
-        dataVM.updateSlotTemplate(t)
+        dataVM.updateFlexibleSlot(workoutId: workoutId, slot: s)
     }
 }
 
@@ -400,9 +238,11 @@ private struct DefaultExercisePickerSheet: View {
 
     private var filteredExercises: [Exercise] {
         let sorted = dataVM.globalExercises.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        guard !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return sorted }
         let q = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        return sorted.filter { $0.name.localizedCaseInsensitiveContains(q) }
+        guard !q.isEmpty else { return sorted }
+        return sorted.filter {
+            $0.matchesExerciseSearch(query: q, resolvedDisplayName: dataVM.resolvedDisplayName(for: $0))
+        }
     }
 
     var body: some View {

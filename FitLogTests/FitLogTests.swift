@@ -11,6 +11,33 @@ import Testing
 
 struct FitLogTests {
 
+    @Test func trainingScheduleEngine_skippedTrainingDayDoesNotAdvanceCycle() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.firstWeekday = 1
+        let engine = TrainingScheduleEngine(calendar: cal)
+        let idPush = UUID(), idPull = UUID(), idLegs = UUID()
+        let anchor = cal.date(from: DateComponents(year: 2026, month: 3, day: 16))!
+        let dayKey = TrainingProgramState.dayKey(for: anchor, calendar: cal)
+        let mon = anchor
+        let wed = cal.date(byAdding: .day, value: 2, to: mon)!
+        let fri = cal.date(byAdding: .day, value: 4, to: mon)!
+        var program = TrainingProgramState(
+            cycleEntries: [.workout(idPush), .workout(idPull), .workout(idLegs)],
+            sessionsPerWeek: 3,
+            preferredWeekdays: [2, 4, 6],
+            anchorDayKey: dayKey,
+            cyclePhaseOffset: 0,
+            skippedCycleTrainingDayKeys: [dayKey],
+            dayOverrides: [:],
+            weekOverrides: [:]
+        )
+        // Monday was a planned workout day but skipped — rotation should not advance past it.
+        #expect(engine.defaultCycleEntry(for: wed, program: program) == .workout(idPush))
+        #expect(engine.defaultCycleEntry(for: fri, program: program) == .workout(idPull))
+        program.skippedCycleTrainingDayKeys = []
+        #expect(engine.defaultCycleEntry(for: wed, program: program) == .workout(idPull))
+    }
+
     @Test func trainingScheduleEngine_assignsCycleOnPreferredTrainingDays() {
         var cal = Calendar(identifier: .gregorian)
         cal.firstWeekday = 1
@@ -19,11 +46,11 @@ struct FitLogTests {
         // 2026-03-16 is a Monday (US calendar: weekday 2).
         let anchor = cal.date(from: DateComponents(year: 2026, month: 3, day: 16))!
         let dayKey = TrainingProgramState.dayKey(for: anchor, calendar: cal)
-        var program = TrainingProgramState(
+        let program = TrainingProgramState(
             cycleEntries: [
-                .concreteWorkout(idPush),
-                .concreteWorkout(idPull),
-                .concreteWorkout(idLegs)
+                .workout(idPush),
+                .workout(idPull),
+                .workout(idLegs)
             ],
             sessionsPerWeek: 3,
             preferredWeekdays: [2, 4, 6],
@@ -34,9 +61,9 @@ struct FitLogTests {
         let mon = anchor
         let wed = cal.date(byAdding: .day, value: 2, to: mon)!
         let fri = cal.date(byAdding: .day, value: 4, to: mon)!
-        #expect(engine.resolve(date: mon, program: program) == .workout(.concreteWorkout(idPush)))
-        #expect(engine.resolve(date: wed, program: program) == .workout(.concreteWorkout(idPull)))
-        #expect(engine.resolve(date: fri, program: program) == .workout(.concreteWorkout(idLegs)))
+        #expect(engine.resolve(date: mon, program: program) == .workout(.workout(idPush)))
+        #expect(engine.resolve(date: wed, program: program) == .workout(.workout(idPull)))
+        #expect(engine.resolve(date: fri, program: program) == .workout(.workout(idLegs)))
     }
 
     @Test func trainingScheduleEngine_dayOverrideBeatsDefault() {
@@ -46,18 +73,18 @@ struct FitLogTests {
         let anchor = cal.date(from: DateComponents(year: 2026, month: 3, day: 16))!
         let mon = anchor
         let dayKey = TrainingProgramState.dayKey(for: mon, calendar: cal)
-        var program = TrainingProgramState(
-            cycleEntries: [.concreteWorkout(idA)],
+        let program = TrainingProgramState(
+            cycleEntries: [.workout(idA)],
             sessionsPerWeek: 3,
             preferredWeekdays: [2, 3, 4],
             anchorDayKey: TrainingProgramState.dayKey(for: anchor, calendar: cal),
             dayOverrides: [dayKey: ScheduleDayOverride(intent: .workout, workoutId: idB)],
             weekOverrides: [:]
         )
-        #expect(engine.resolve(date: mon, program: program) == .workout(.concreteWorkout(idB)))
+        #expect(engine.resolve(date: mon, program: program) == .workout(.workout(idB)))
     }
 
-    @Test func trainingScheduleEngine_dayOverrideSupportsSlotTemplate() {
+    @Test func trainingScheduleEngine_dayOverrideSupportsUnifiedWorkoutRef() {
         let cal = Calendar(identifier: .gregorian)
         let engine = TrainingScheduleEngine(calendar: cal)
         let idTemplate = UUID()
@@ -65,18 +92,18 @@ struct FitLogTests {
         let mon = anchor
         let dayKey = TrainingProgramState.dayKey(for: mon, calendar: cal)
         let program = TrainingProgramState(
-            cycleEntries: [.concreteWorkout(UUID())],
+            cycleEntries: [.workout(UUID())],
             sessionsPerWeek: 3,
             preferredWeekdays: [2, 3, 4],
             anchorDayKey: TrainingProgramState.dayKey(for: anchor, calendar: cal),
-            dayOverrides: [dayKey: ScheduleDayOverride(intent: .workout, planRef: .slotTemplate(idTemplate))],
+            dayOverrides: [dayKey: ScheduleDayOverride(intent: .workout, planRef: .workout(idTemplate))],
             weekOverrides: [:]
         )
-        #expect(engine.resolve(date: mon, program: program) == .workout(.slotTemplate(idTemplate)))
+        #expect(engine.resolve(date: mon, program: program) == .workout(.workout(idTemplate)))
     }
 
-    @Test func scheduleDayOverride_encodesRoundTripWithTemplate() throws {
-        let original = ScheduleDayOverride(intent: .workout, planRef: .slotTemplate(UUID()))
+    @Test func scheduleDayOverride_encodesRoundTrip() throws {
+        let original = ScheduleDayOverride(intent: .workout, planRef: .workout(UUID()))
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(ScheduleDayOverride.self, from: data)
         #expect(decoded == original)
@@ -93,66 +120,226 @@ struct FitLogTests {
 
     @Test func frozenPlanDay_encodesRoundTrip() throws {
         let id = UUID()
-        let original = FrozenPlanDay(resolved: .workout(.concreteWorkout(id)))
+        let original = FrozenPlanDay(resolved: .workout(.workout(id)))
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(FrozenPlanDay.self, from: data)
         #expect(decoded == original)
-        #expect(decoded.asResolved() == .workout(.concreteWorkout(id)))
+        #expect(decoded.asResolved() == .workout(.workout(id)))
     }
 
-    @Test func workout_decodesLegacyJSONWithoutIsPinned() throws {
+    @Test func trainingProgramState_remappingWorkoutPlanRefs() {
+        let oldId = UUID(), newId = UUID()
+        var program = TrainingProgramState(
+            cycleEntries: [.workout(oldId)],
+            sessionsPerWeek: 3,
+            preferredWeekdays: [],
+            anchorDayKey: "2026-01-01",
+            dayOverrides: [:],
+            weekOverrides: [:],
+            frozenCalendarDays: [:]
+        )
+        program = program.remappingWorkoutPlanRefs([oldId: newId])
+        #expect(program.cycleEntries == [.workout(newId)])
+    }
+
+    @Test func workoutPlanRef_decodesLegacyConcreteWorkoutJSON() throws {
         let id = UUID()
-        let json = """
-        {"id":"\(id.uuidString)","name":"Legacy","exercises":[]}
-        """.data(using: .utf8)!
-        let w = try JSONDecoder().decode(Workout.self, from: json)
-        #expect(w.isPinned == false)
+        let json = Data(#"{"concreteWorkout":"\#(id.uuidString)"}"#.utf8)
+        let decoded = try JSONDecoder().decode(WorkoutPlanRef.self, from: json)
+        #expect(decoded == .workout(id))
     }
 
-    @Test func workout_encodesRoundTripWithIsPinned() throws {
-        let w = Workout(id: UUID(), name: "Pinned", exercises: [], isPinned: true)
-        let data = try JSONEncoder().encode(w)
-        let decoded = try JSONDecoder().decode(Workout.self, from: data)
-        #expect(decoded.isPinned == true)
-        #expect(decoded.name == "Pinned")
+    @Test func slotResolution_decodesLegacyUnresolved() throws {
+        let sid = UUID()
+        let json = Data(#"{"unresolved":{"slotLabel":"Push","templateSlotId":"\#(sid.uuidString)"}}"#.utf8)
+        let decoded = try JSONDecoder().decode(SlotResolution.self, from: json)
+        if case .flexible(let b) = decoded {
+            #expect(b.id == sid)
+            #expect(b.label == "Push")
+        } else {
+            #expect(Bool(false), "Expected flexible blueprint")
+        }
     }
 
-    @Test func workoutTemplate_decodesLegacyJSONWithoutIsPinned() throws {
-        let id = UUID()
-        let json = """
-        {"id":"\(id.uuidString)","name":"T","slots":[]}
-        """.data(using: .utf8)!
-        let t = try JSONDecoder().decode(WorkoutTemplate.self, from: json)
-        #expect(t.isPinned == false)
+    @Test func exerciseSnapshot_decodesLegacyIdAndNameKeys() throws {
+        let eid = UUID()
+        let json = Data(#"{"id":"\#(eid.uuidString)","name":"Squat"}"#.utf8)
+        let decoded = try JSONDecoder().decode(ExerciseSnapshot.self, from: json)
+        #expect(decoded.exerciseId == eid)
+        #expect(decoded.nameAtTimeOfLog == "Squat")
     }
 
-    @Test func homeListOrdering_keepsPinnedBeforeUnpinned() {
-        let idA = UUID(), idB = UUID(), idC = UUID()
-        let wA = Workout(id: idA, name: "a", exercises: [], isPinned: false)
-        let wB = Workout(id: idB, name: "b", exercises: [], isPinned: true)
-        let wC = Workout(id: idC, name: "c", exercises: [], isPinned: false)
-        let program = TrainingProgramState.empty(anchorDayKey: "day")
-        let ordered = HomeListOrdering.orderWorkouts([wA, wC, wB], program: program, sessions: [])
-        #expect(ordered.map(\.id) == [idB, idA, idC])
+    @Test func slotResolution_decodesConcreteLegacyFullExercise() throws {
+        let eid = UUID()
+        let json = Data(
+            #"""
+            {"concrete":{"id":"\#(eid.uuidString)","name":"Bench Press","description":"","targetedMuscles":[]}}
+            """#.utf8
+        )
+        let decoded = try JSONDecoder().decode(SlotResolution.self, from: json)
+        if case .concrete(let s) = decoded {
+            #expect(s.exerciseId == eid)
+            #expect(s.nameAtTimeOfLog == "Bench Press")
+        } else {
+            #expect(Bool(false), "Expected concrete snapshot from legacy Exercise payload")
+        }
     }
 
-    @Test func homeListOrdering_splitDisplayOrderFollowsCycleEntries() {
-        let id1 = UUID(), id2 = UUID(), id3 = UUID()
-        let w1 = Workout(id: id1, name: "A", exercises: [])
-        let w2 = Workout(id: id2, name: "B", exercises: [])
-        let w3 = Workout(id: id3, name: "C", exercises: [])
-        var program = TrainingProgramState.empty(anchorDayKey: "2026-01-01")
-        program.cycleEntries = [.concreteWorkout(id3), .concreteWorkout(id1)]
-        let ordered = HomeListOrdering.workoutsInSplitDisplayOrder([w1, w2, w3], program: program)
-        #expect(ordered.map(\.id) == [id3, id1])
+    @Test func workoutExercise_keepsConcreteWhenConcretePayloadWasFullExercise() throws {
+        let rowId = UUID()
+        let eid = UUID()
+        let json = Data(
+            #"""
+            {"id":"\#(rowId.uuidString)","resolution":{"concrete":{"id":"\#(eid.uuidString)","name":"Row","description":"","targetedMuscles":[]}},"defaultRestTime":90,"recommendedSets":3,"recommendedReps":"8-12","configurationFields":[],"recommendedConfigBySet":[]}
+            """#.utf8
+        )
+        let decoded = try JSONDecoder().decode(WorkoutExercise.self, from: json)
+        #expect(decoded.id == rowId)
+        if case .concrete(let s) = decoded.resolution {
+            #expect(s.exerciseId == eid)
+            #expect(s.nameAtTimeOfLog == "Row")
+        } else {
+            #expect(Bool(false), "Expected concrete row, not empty flexible fallback")
+        }
     }
 
-    @Test func homeListOrdering_splitIdsIgnoreCalendarOverrides() {
-        let idCycle = UUID(), idOverride = UUID()
-        var program = TrainingProgramState.empty(anchorDayKey: "2026-01-01")
-        program.cycleEntries = [.concreteWorkout(idCycle)]
-        program.dayOverrides["2026-03-01"] = ScheduleDayOverride(intent: .workout, planRef: .concreteWorkout(idOverride))
-        let splitIds = HomeListOrdering.splitConcreteWorkoutIds(from: program)
-        #expect(splitIds == Set([idCycle]))
+    @Test func workoutExercise_exerciseId_includesFlexibleDefault() {
+        let eid = UUID()
+        let bid = UUID()
+        let b = SlotBlueprint(id: bid, label: "Horizontal push", targetedMuscles: [.chest], defaultExerciseId: eid)
+        let we = WorkoutExercise(id: UUID(), resolution: .flexible(b))
+        #expect(we.exerciseId == eid)
+        #expect(!we.isOpenSlot)
+        #expect(we.isSlotPlaceholder == false)
+    }
+
+    @Test func unifiedSlotsMigration_convertsConcreteLibraryRow() {
+        let exId = UUID()
+        let rowId = UUID()
+        let wid = UUID()
+        let libraryExercise = Exercise(
+            id: exId,
+            name: "Back Squat",
+            description: "",
+            targetedMuscles: [.quads, .glutes],
+            isCustom: false,
+            configurationOptions: [],
+            exerciseRole: .compound,
+            movementPattern: .squat
+        )
+        let snap = ExerciseSnapshot(exerciseId: exId, nameAtTimeOfLog: "Back Squat")
+        let we = WorkoutExercise(
+            id: rowId,
+            resolution: .concrete(snap),
+            defaultRestTime: 120,
+            recommendedSets: 4,
+            recommendedReps: "5",
+            configurationFields: [],
+            recommendedConfigBySet: []
+        )
+        var workouts = [Workout(id: wid, name: "Legs", exercises: [we], templateSlotIdByWorkoutExerciseId: [:])]
+        let changed = WorkoutUnifiedSlotsMigration.migrateWorkoutsInPlace(&workouts, globalExercises: [libraryExercise])
+        #expect(changed == true)
+        guard case .flexible(let b) = workouts[0].exercises[0].resolution else {
+            #expect(Bool(false), "Expected flexible blueprint")
+            return
+        }
+        #expect(b.defaultExerciseId == exId)
+        #expect(b.label == "Back Squat")
+        #expect(workouts[0].templateSlotIdByWorkoutExerciseId[rowId] == b.id)
+        #expect(workouts[0].exercises[0].recommendedSets == 4)
+        #expect(workouts[0].exercises[0].recommendedReps == "5")
+    }
+
+    @Test func unifiedSlotsMigration_migratesSessionSnapshotAndSyncsLogs() {
+        let exId = UUID()
+        let rowId = UUID()
+        let sessionId = UUID()
+        let libraryExercise = Exercise(
+            id: exId,
+            name: "Bench Press",
+            description: "",
+            targetedMuscles: [.chest],
+            isCustom: false,
+            configurationOptions: [],
+            exerciseRole: .compound,
+            movementPattern: .horizontalPush
+        )
+        let snap = ExerciseSnapshot(exerciseId: exId, nameAtTimeOfLog: "Bench Press")
+        let we = WorkoutExercise(id: rowId, resolution: .concrete(snap), recommendedSets: 3, recommendedReps: "8")
+        let workout = Workout(id: UUID(), name: "Push", exercises: [we], templateSlotIdByWorkoutExerciseId: [:])
+        let log = ExerciseLog(
+            id: UUID(),
+            workoutExercise: we,
+            loggedSets: []
+        )
+        var session = WorkoutSession(
+            id: sessionId,
+            workout: workout,
+            startTime: Date(),
+            endTime: Date(),
+            exerciseLogs: [log],
+            sessionPlanOrigin: .workout(UUID())
+        )
+        let changed = WorkoutUnifiedSlotsMigration.migrateSessionConcreteSnapshotInPlace(&session, globalExercises: [libraryExercise])
+        #expect(changed == true)
+        guard case .flexible(let b) = session.workout.exercises[0].resolution else {
+            #expect(Bool(false), "Expected flexible in session workout")
+            return
+        }
+        #expect(b.defaultExerciseId == exId)
+        guard case .flexible = session.exerciseLogs[0].workoutExercise.resolution else {
+            #expect(Bool(false), "Expected log row synced to flexible")
+            return
+        }
+        #expect(session.exerciseLogs[0].workoutExercise.id == rowId)
+    }
+
+    @Test func splitProposalProgramAnalyzer_countsSetsAndInfersPPL() {
+        let days: [SplitProposalProgramAnalyzer.DayInput] = [
+            .init(
+                name: "Push",
+                focus: "",
+                slots: [
+                    .init(label: "Chest", targetMuscleNames: [MuscleGroup.chest.rawValue], sets: 4),
+                    .init(label: "Delts", targetMuscleNames: [MuscleGroup.frontDelts.rawValue], sets: 3)
+                ]
+            ),
+            .init(
+                name: "Pull",
+                focus: "",
+                slots: [
+                    .init(label: "Back", targetMuscleNames: [MuscleGroup.lats.rawValue], sets: 4)
+                ]
+            ),
+            .init(
+                name: "Legs",
+                focus: "",
+                slots: [
+                    .init(label: "Quads", targetMuscleNames: [MuscleGroup.quads.rawValue], sets: 5)
+                ]
+            )
+        ]
+        let stats = SplitProposalProgramAnalyzer.stats(for: days)
+        #expect(stats.totalHardSetsPerWeek == 16)
+        #expect(stats.inferredSplitStyle.contains("Push"))
+        let warns = SplitProposalProgramAnalyzer.warnings(stats: stats, days: days)
+        #expect(warns.contains { $0.message.contains("leg") } == false)
+    }
+
+    @Test func splitProposalProgramAnalyzer_warnsWhenNoLegs() {
+        let days: [SplitProposalProgramAnalyzer.DayInput] = [
+            .init(
+                name: "Upper",
+                focus: "",
+                slots: [
+                    .init(label: "Chest", targetMuscleNames: [MuscleGroup.chest.rawValue], sets: 6),
+                    .init(label: "Back", targetMuscleNames: [MuscleGroup.lats.rawValue], sets: 6)
+                ]
+            )
+        ]
+        let stats = SplitProposalProgramAnalyzer.stats(for: days)
+        let warns = SplitProposalProgramAnalyzer.warnings(stats: stats, days: days)
+        #expect(warns.contains { $0.message.localizedCaseInsensitiveContains("leg") })
     }
 }

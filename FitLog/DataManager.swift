@@ -10,11 +10,24 @@
 //
 
 import Foundation
+import os
 import SwiftData
+
+private let unifiedSlotsMigrationLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.acianfrocco.FitLog",
+    category: "UnifiedSlotsMigration"
+)
+
+/// Captures a removed library row for Undo restore.
+struct WorkoutExerciseDeletionSnapshot: Equatable {
+    let workoutId: UUID
+    let insertionIndex: Int
+    let workoutExercise: WorkoutExercise
+    let templateSlotId: UUID?
+}
 
 final class DataManager: ObservableObject {
     @Published var userWorkouts: [Workout] = []
-    @Published var userWorkoutTemplates: [WorkoutTemplate] = []
     @Published var globalExercises: [Exercise] = []
     @Published private(set) var exerciseLocalDisplayNames: [UUID: String] = [:]
     @Published var completedSessions: [WorkoutSession] = []
@@ -24,6 +37,14 @@ final class DataManager: ObservableObject {
     let sessionStore: SessionStore
     let exerciseStore: ExerciseStore
     let programStore: TrainingProgramStore
+    let healthSyncService: HealthKitSyncService
+    let dataTransferService: DataTransferServiceClient
+    @Published var healthSyncEnabled: Bool = false
+    @Published var healthSyncStatusMessage: String?
+
+    private let bodyMetricsStore = BodyMetricsStore()
+    @Published var bodyMetricEntries: [BodyMetricEntry] = []
+    @Published var progressPhotoRecords: [ProgressPhotoRecord] = []
 
     // MARK: - Lifecycle
 
@@ -33,14 +54,18 @@ final class DataManager: ObservableObject {
         self.sessionStore = SessionStore(modelContext: ctx)
         self.exerciseStore = ExerciseStore(modelContext: ctx)
         self.programStore = TrainingProgramStore(modelContext: ctx)
+        self.healthSyncService = HealthKitSyncService()
+        self.dataTransferService = DataTransferServiceClient(dataManagerProvider: { nil })
         loadAll()
+        self.dataTransferService.attachDataManager(self)
+        healthSyncEnabled = healthSyncService.syncEnabled
+        healthSyncStatusMessage = healthSyncService.statusMessage
     }
 
     func loadAll() {
         globalExercises = exerciseStore.loadExercises()
         exerciseLocalDisplayNames = exerciseStore.loadDisplayNames()
         userWorkouts = workoutStore.loadWorkouts()
-        userWorkoutTemplates = workoutStore.loadWorkoutTemplates()
         completedSessions = sessionStore.loadSessions()
 
         if let program = programStore.loadProgram() {
@@ -54,8 +79,184 @@ final class DataManager: ObservableObject {
         }
 
         migrateLegacyCustomExercises()
+        migrateWorkoutsToUnifiedSlotsIfNeeded()
+        repairSessionConcreteSnapshotsIfNeeded()
         rotateBackup()
         freezeYesterdayPlanAssignmentIfNeeded()
+        reconcileSkippedCycleTrainingDays()
+        publishWidgetSnapshot()
+        reloadBodyAndPhotosFromDisk()
+    }
+
+    /// Converts legacy `.concrete` rows in **library workouts and historical session snapshots** to `.flexible` blueprints. Runs once (UserDefaults flag).
+    /// Session snapshots were previously omitted, which left History decoding fragile and could strand plan/session data out of sync with the library model.
+    private func migrateWorkoutsToUnifiedSlotsIfNeeded() {
+        let key = WorkoutUnifiedSlotsMigration.completedUserDefaultsKey
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+
+        let hasConcreteLibraryRow = userWorkouts.contains { workout in
+            workout.exercises.contains { we in
+                if case .concrete = we.resolution { return true }
+                return false
+            }
+        }
+        let hasConcreteSessionSnapshot = completedSessions.contains {
+            WorkoutUnifiedSlotsMigration.embeddedWorkoutHasConcreteRow($0.workout)
+        }
+
+        if hasConcreteLibraryRow || hasConcreteSessionSnapshot {
+            let snapshot = BackupSnapshot(
+                schemaVersion: currentSchemaVersion,
+                exercises: globalExercises,
+                workouts: userWorkouts,
+                sessions: completedSessions,
+                program: trainingProgram,
+                displayNames: exerciseLocalDisplayNames
+            )
+            guard WorkoutUnifiedSlotsMigration.writePreMigrationBackupVerified(snapshot) else {
+                unifiedSlotsMigrationLog.error("Pre-migration backup missing or failed JSON verification; unified slots migration skipped.")
+                return
+            }
+            unifiedSlotsMigrationLog.notice("Pre-migration backup written and verified (workouts=\(snapshot.workouts.count), sessions=\(snapshot.sessions.count)).")
+        }
+
+        var migratedLibrary = userWorkouts
+        let libraryChanged = WorkoutUnifiedSlotsMigration.migrateWorkoutsInPlace(&migratedLibrary, globalExercises: globalExercises)
+
+        var migratedSessions = completedSessions
+        let sessionsChanged = WorkoutUnifiedSlotsMigration.migrateAllSessionsConcreteSnapshotsInPlace(
+            &migratedSessions,
+            globalExercises: globalExercises
+        )
+
+        if !libraryChanged && !sessionsChanged {
+            UserDefaults.standard.set(true, forKey: key)
+            unifiedSlotsMigrationLog.notice("Unified slots migration: no concrete rows in library or session snapshots; marked complete.")
+            return
+        }
+
+        if libraryChanged {
+            guard WorkoutUnifiedSlotsMigration.validateWorkoutsEncode(migratedLibrary) else {
+                unifiedSlotsMigrationLog.error("Unified slots migration aborted: migrated workouts failed to encode.")
+                return
+            }
+            guard WorkoutUnifiedSlotsMigration.validateWorkoutsCodableRoundTrip(migratedLibrary) else {
+                unifiedSlotsMigrationLog.error("Unified slots migration aborted: workouts JSON round-trip failed.")
+                return
+            }
+        }
+
+        if sessionsChanged {
+            guard WorkoutUnifiedSlotsMigration.validateSessionsCodableRoundTrip(migratedSessions) else {
+                unifiedSlotsMigrationLog.error("Unified slots migration aborted: migrated sessions failed JSON round-trip.")
+                return
+            }
+        }
+
+        let postSnapshot = BackupSnapshot(
+            schemaVersion: currentSchemaVersion,
+            exercises: globalExercises,
+            workouts: migratedLibrary,
+            sessions: migratedSessions,
+            program: trainingProgram,
+            displayNames: exerciseLocalDisplayNames
+        )
+        guard WorkoutUnifiedSlotsMigration.validateFullSnapshotCodableRoundTrip(postSnapshot) else {
+            unifiedSlotsMigrationLog.error("Unified slots migration aborted: full app snapshot round-trip failed.")
+            return
+        }
+
+        if libraryChanged {
+            guard WorkoutUnifiedSlotsMigration.libraryHasNoConcreteRows(migratedLibrary) else {
+                unifiedSlotsMigrationLog.error("Unified slots migration aborted: concrete rows still present in library after transform.")
+                return
+            }
+        }
+
+        let previousLibrary = userWorkouts
+        let previousSessions = completedSessions
+
+        if libraryChanged {
+            userWorkouts = migratedLibrary
+            guard saveWorkouts() else {
+                userWorkouts = previousLibrary
+                unifiedSlotsMigrationLog.error("Unified slots migration aborted: SwiftData workout save failed.")
+                return
+            }
+            let reloaded = workoutStore.loadWorkouts()
+            guard Self.workoutsMatchAfterUnifiedMigration(persisted: reloaded, expected: migratedLibrary) else {
+                userWorkouts = reloaded
+                unifiedSlotsMigrationLog.error("Unified slots migration aborted: reloaded workouts did not match migrated state; using disk. Will retry next launch.")
+                return
+            }
+            guard WorkoutUnifiedSlotsMigration.libraryHasNoConcreteRows(reloaded) else {
+                userWorkouts = reloaded
+                unifiedSlotsMigrationLog.error("Unified slots migration aborted: reloaded library still has concrete rows.")
+                return
+            }
+            userWorkouts = reloaded
+        }
+
+        if sessionsChanged {
+            completedSessions = migratedSessions
+            guard sessionStore.saveSessions(completedSessions) else {
+                completedSessions = previousSessions
+                if libraryChanged {
+                    userWorkouts = previousLibrary
+                    _ = saveWorkouts()
+                }
+                unifiedSlotsMigrationLog.error("Unified slots migration aborted: SwiftData session save failed; reverted in-memory state.")
+                return
+            }
+            let reloadedSessions = sessionStore.loadSessions()
+            guard reloadedSessions.count == migratedSessions.count else {
+                completedSessions = sessionStore.loadSessions()
+                unifiedSlotsMigrationLog.error("Unified slots migration: session count mismatch after save; using disk state.")
+                return
+            }
+            completedSessions = reloadedSessions
+        }
+
+        UserDefaults.standard.set(true, forKey: key)
+        let finalWorkoutCount = userWorkouts.count
+        let finalSessionCount = completedSessions.count
+        unifiedSlotsMigrationLog.notice(
+            "Unified slots migration completed (libraryWorkouts=\(finalWorkoutCount), sessions=\(finalSessionCount), libraryChanged=\(libraryChanged), sessionsChanged=\(sessionsChanged))."
+        )
+    }
+
+    /// Fixes users who already ran an older build that migrated the library but not embedded session workouts (History / round-trip issues).
+    private func repairSessionConcreteSnapshotsIfNeeded() {
+        guard UserDefaults.standard.bool(forKey: WorkoutUnifiedSlotsMigration.completedUserDefaultsKey) else { return }
+        var sessions = completedSessions
+        guard WorkoutUnifiedSlotsMigration.migrateAllSessionsConcreteSnapshotsInPlace(&sessions, globalExercises: globalExercises) else {
+            return
+        }
+        guard WorkoutUnifiedSlotsMigration.validateSessionsCodableRoundTrip(sessions) else {
+            unifiedSlotsMigrationLog.error("Session concrete repair aborted: JSON round-trip failed.")
+            return
+        }
+        guard sessionStore.saveSessions(sessions) else {
+            unifiedSlotsMigrationLog.error("Session concrete repair aborted: SwiftData save failed.")
+            return
+        }
+        completedSessions = sessionStore.loadSessions()
+        let repairedCount = completedSessions.count
+        unifiedSlotsMigrationLog.notice("Repaired session snapshots: concrete→flexible (count=\(repairedCount)).")
+    }
+
+    /// Per-workout exercise row ids and counts must match after save → load.
+    private static func workoutsMatchAfterUnifiedMigration(persisted: [Workout], expected: [Workout]) -> Bool {
+        guard persisted.count == expected.count else { return false }
+        let expectedById = Dictionary(uniqueKeysWithValues: expected.map { ($0.id, $0) })
+        for w in persisted {
+            guard let exp = expectedById[w.id] else { return false }
+            guard w.exercises.count == exp.exercises.count else { return false }
+            let idsP = Set(w.exercises.map(\.id))
+            let idsE = Set(exp.exercises.map(\.id))
+            guard idsP == idsE else { return false }
+        }
+        return true
     }
 
     // MARK: - Rotating backups
@@ -70,7 +271,6 @@ final class DataManager: ObservableObject {
             schemaVersion: currentSchemaVersion,
             exercises: globalExercises,
             workouts: userWorkouts,
-            templates: userWorkoutTemplates,
             sessions: completedSessions,
             program: trainingProgram,
             displayNames: exerciseLocalDisplayNames
@@ -118,12 +318,9 @@ final class DataManager: ObservableObject {
         return newWorkout.id
     }
 
-    func uniqueWorkoutTemplateName(_ base: String) -> String {
-        workoutStore.uniqueName(
-            base,
-            existingWorkoutNames: Set(userWorkouts.map(\.name)),
-            existingTemplateNames: Set(userWorkoutTemplates.map(\.name))
-        )
+    func uniqueWorkoutName(_ base: String) -> String {
+        let names = Set(userWorkouts.map(\.name))
+        return workoutStore.uniqueName(base, existingWorkoutNames: names, existingTemplateNames: names)
     }
 
     func applySplitBuilderTemplates(
@@ -135,7 +332,7 @@ final class DataManager: ObservableObject {
     ) {
         var newIds: [UUID] = []
         for w in workouts {
-            let name = uniqueWorkoutTemplateName(w.templateName)
+            let name = uniqueWorkoutName(w.templateName)
             let id = createWorkout(name: name)
             newIds.append(id)
             for ex in w.exercises {
@@ -153,9 +350,11 @@ final class DataManager: ObservableObject {
                 )
             }
         }
+        reorderWorkoutsPlacingIdsFirst(newIds)
+        saveWorkouts()
         if updateTrainingProgram, !newIds.isEmpty {
             applyTrainingProgramSuggestion(
-                cycleEntries: newIds.map { .concreteWorkout($0) },
+                cycleEntries: newIds.map { .workout($0) },
                 sessionsPerWeek: sessionsPerWeek,
                 preferredWeekdays: preferredWeekdays,
                 anchorDate: anchorDate
@@ -165,7 +364,12 @@ final class DataManager: ObservableObject {
 
     func deleteWorkout(_ workout: Workout) {
         userWorkouts.removeAll { $0.id == workout.id }
+        var p = trainingProgram
+        mergeFrozenPastDays(from: p, into: &p.frozenCalendarDays, calendar: .current)
+        p.cycleEntries.removeAll { $0.libraryWorkoutId == workout.id }
+        trainingProgram = p
         saveWorkouts()
+        saveTrainingProgram()
     }
 
     func renameWorkout(_ workout: Workout, newName: String) {
@@ -174,57 +378,104 @@ final class DataManager: ObservableObject {
         saveWorkouts()
     }
 
+    /// Slot blueprints in list order (flexible rows only).
+    func flexibleSlots(from workout: Workout) -> [TemplateSlot] {
+        workout.exercises.compactMap { we in
+            guard case .flexible(let b) = we.resolution else { return nil }
+            return b.asTemplateSlot()
+        }
+    }
+
+    /// Appends a new flexible slot to a library workout. Returns the slot blueprint id, or nil if the workout was not found.
+    @discardableResult
+    func appendFlexibleSlot(toWorkoutId workoutId: UUID, slot: TemplateSlot) -> UUID? {
+        guard let idx = userWorkouts.firstIndex(where: { $0.id == workoutId }) else { return nil }
+        var w = userWorkouts[idx]
+        let weId = UUID()
+        w.exercises.append(
+            WorkoutExercise(
+                id: weId,
+                resolution: .flexible(slot.asSlotBlueprint()),
+                defaultRestTime: slot.defaultRestTime,
+                recommendedSets: slot.recommendedSets,
+                recommendedReps: slot.recommendedReps
+            )
+        )
+        w.templateSlotIdByWorkoutExerciseId[weId] = slot.id
+        userWorkouts[idx] = w
+        saveWorkouts()
+        return slot.id
+    }
+
+    /// Removes a flexible slot from the library workout by stable slot blueprint id.
+    func removeFlexibleSlot(fromWorkoutId workoutId: UUID, slotId: UUID) {
+        guard let idx = userWorkouts.firstIndex(where: { $0.id == workoutId }) else { return }
+        var w = userWorkouts[idx]
+        let rowsToRemove = w.exercises.filter { $0.templateSlotId == slotId }.map(\.id)
+        w.exercises.removeAll { $0.templateSlotId == slotId }
+        for rid in rowsToRemove {
+            w.templateSlotIdByWorkoutExerciseId.removeValue(forKey: rid)
+        }
+        userWorkouts[idx] = w
+        saveWorkouts()
+    }
+
+    /// Updates one flexible row’s blueprint (stable slot id).
+    func updateFlexibleSlot(workoutId: UUID, slot: TemplateSlot) {
+        guard let widx = userWorkouts.firstIndex(where: { $0.id == workoutId }) else { return }
+        var w = userWorkouts[widx]
+        guard let eidx = w.exercises.firstIndex(where: { $0.templateSlotId == slot.id }) else { return }
+        var we = w.exercises[eidx]
+        we.resolution = .flexible(slot.asSlotBlueprint())
+        we.defaultRestTime = slot.defaultRestTime
+        we.recommendedSets = slot.recommendedSets
+        we.recommendedReps = slot.recommendedReps
+        w.exercises[eidx] = we
+        userWorkouts[widx] = w
+        saveWorkouts()
+    }
+
     func moveWorkout(from source: IndexSet, to destination: Int) {
         userWorkouts.move(fromOffsets: source, toOffset: destination)
         saveWorkouts()
     }
 
-    func setWorkoutPinned(_ workout: Workout, pinned: Bool) {
-        guard let i = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
-        userWorkouts[i].isPinned = pinned
-        normalizeWorkoutPinOrder()
-        saveWorkouts()
-    }
-
-    private func normalizeWorkoutPinOrder() {
-        let pinned = userWorkouts.filter(\.isPinned)
-        let unpinned = userWorkouts.filter { !$0.isPinned }
-        userWorkouts = pinned + unpinned
-    }
-
-    func setTemplatePinned(_ template: WorkoutTemplate, pinned: Bool) {
-        guard let i = userWorkoutTemplates.firstIndex(where: { $0.id == template.id }) else { return }
-        userWorkoutTemplates[i].isPinned = pinned
-        normalizeTemplatePinOrder()
-        saveWorkoutTemplates()
-    }
-
-    private func normalizeTemplatePinOrder() {
-        let pinned = userWorkoutTemplates.filter(\.isPinned)
-        let unpinned = userWorkoutTemplates.filter { !$0.isPinned }
-        userWorkoutTemplates = pinned + unpinned
-    }
-
-    func saveWorkouts() {
+    @discardableResult
+    func saveWorkouts() -> Bool {
         workoutStore.saveWorkouts(userWorkouts)
     }
 
-    // MARK: - Slot workout templates (blueprints)
+    // MARK: - Workouts with flexible (open) slots
 
+    /// Creates a library workout whose rows are flexible slot blueprints (same shape as a migrated template).
     @discardableResult
-    func createSlotTemplate(name: String) -> UUID {
-        let template = WorkoutTemplate(id: UUID(), name: name, slots: [])
-        userWorkoutTemplates.append(template)
-        saveWorkoutTemplates()
-        return template.id
+    func createWorkoutWithFlexibleSlots(name: String, slots: [TemplateSlot] = []) -> UUID {
+        let id = UUID()
+        let w = Workout.fromLegacyTemplate(WorkoutTemplate(id: id, name: name, slots: slots))
+        userWorkouts.append(w)
+        saveWorkouts()
+        return id
     }
 
-    @discardableResult
-    func createSlotTemplate(name: String, slots: [TemplateSlot]) -> UUID {
-        let template = WorkoutTemplate(id: UUID(), name: name, slots: slots)
-        userWorkoutTemplates.append(template)
-        saveWorkoutTemplates()
-        return template.id
+    /// After applying a split, new workouts are created by appending. Home (and similar UIs) show a
+    /// prefix of the library when the list is long, so users only saw older workouts. Move new ids
+    /// to the front in proposal order, then persist.
+    private func reorderWorkoutsPlacingIdsFirst(_ orderedLibraryIds: [UUID]) {
+        guard !orderedLibraryIds.isEmpty else { return }
+        let idSet = Set(orderedLibraryIds)
+        var byId: [UUID: Workout] = [:]
+        byId.reserveCapacity(userWorkouts.count)
+        for w in userWorkouts { byId[w.id] = w }
+        var head: [Workout] = []
+        head.reserveCapacity(orderedLibraryIds.count)
+        var placed = Set<UUID>()
+        for id in orderedLibraryIds {
+            guard !placed.contains(id), let w = byId[id] else { continue }
+            placed.insert(id)
+            head.append(w)
+        }
+        let tail = userWorkouts.filter { !idSet.contains($0.id) }
+        userWorkouts = head + tail
     }
 
     func applyWorkoutSplitProposal(
@@ -261,74 +512,70 @@ final class DataManager: ObservableObject {
 
         var entries: [WorkoutPlanRef] = []
         for day in proposal.workouts {
-            if day.isSlotTemplateDay {
-                let templateSlots: [TemplateSlot] = day.slots.map { s in
-                    let parsedMuscles = ExerciseNameResolution.resolveMuscleGroups(from: s.targetMuscleNames)
-                    let matchedExercise: Exercise? = {
-                        if let oid = s.suggestedExerciseOverrideId,
-                           let ex = globalExercises.first(where: { $0.id == oid }) {
-                            return ex
-                        }
-                        guard let raw = s.suggestedExerciseName?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
-                            return nil
-                        }
-                        let musclesForNew = parsedMuscles.isEmpty ? [MuscleGroup.other] : parsedMuscles
-                        return resolveOrCreateExercise(
-                            planName: raw,
-                            overrideId: nil,
-                            musclesIfCreatingCustom: musclesForNew
-                        )
-                    }()
-                    let targetedMuscles: [MuscleGroup]
-                    if !parsedMuscles.isEmpty {
-                        targetedMuscles = parsedMuscles
-                    } else if let ex = matchedExercise, !ex.targetedMuscles.isEmpty {
-                        targetedMuscles = ex.targetedMuscles
-                    } else {
-                        targetedMuscles = [MuscleGroup.other]
+            let slotSources: [WorkoutSplitProposalSlotItem] = {
+                if !day.slots.isEmpty { return day.slots }
+                return day.exercises.compactMap { ex in
+                    let n = ex.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !n.isEmpty else { return nil }
+                    let sets = min(max(1, ex.sets), 10)
+                    let repsRaw = ex.reps.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let reps = repsRaw.isEmpty ? "8-12" : repsRaw
+                    return WorkoutSplitProposalSlotItem(
+                        label: n,
+                        targetMuscleNames: [],
+                        sets: sets,
+                        reps: reps,
+                        suggestedExerciseName: n,
+                        suggestedExerciseOverrideId: ex.libraryExerciseOverrideId
+                    )
+                }
+            }()
+            guard !slotSources.isEmpty else { continue }
+
+            let templateSlots: [TemplateSlot] = slotSources.map { s in
+                let parsedMuscles = ExerciseNameResolution.resolveMuscleGroups(from: s.targetMuscleNames)
+                let matchedExercise: Exercise? = {
+                    if let oid = s.suggestedExerciseOverrideId,
+                       let ex = globalExercises.first(where: { $0.id == oid }) {
+                        return ex
                     }
-                    let repsRaw = s.reps.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let repsFinal = repsRaw.isEmpty ? "8-12" : repsRaw
-                    return TemplateSlot(
-                        label: s.label,
-                        targetedMuscles: targetedMuscles,
-                        exerciseRole: matchedExercise?.exerciseRole,
-                        movementPattern: matchedExercise?.movementPattern,
-                        defaultExerciseId: matchedExercise?.id,
-                        recommendedSets: min(max(1, s.sets), 10),
-                        recommendedReps: repsFinal
+                    guard let raw = s.suggestedExerciseName?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+                        return nil
+                    }
+                    let musclesForNew = parsedMuscles.isEmpty ? [MuscleGroup.other] : parsedMuscles
+                    return resolveOrCreateExercise(
+                        planName: raw,
+                        overrideId: nil,
+                        musclesIfCreatingCustom: musclesForNew
                     )
+                }()
+                let targetedMuscles: [MuscleGroup]
+                if !parsedMuscles.isEmpty {
+                    targetedMuscles = parsedMuscles
+                } else if let ex = matchedExercise, !ex.targetedMuscles.isEmpty {
+                    targetedMuscles = ex.targetedMuscles
+                } else {
+                    targetedMuscles = [MuscleGroup.other]
                 }
-                guard !templateSlots.isEmpty else { continue }
-                let name = uniqueSlotTemplateName(day.name)
-                let id = createSlotTemplate(name: name, slots: templateSlots)
-                entries.append(.slotTemplate(id))
-            } else {
-                guard !day.exercises.isEmpty else { continue }
-                let name = uniqueWorkoutTemplateName(day.name)
-                let id = createWorkout(name: name)
-                entries.append(.concreteWorkout(id))
-                for exItem in day.exercises {
-                    guard let fresh = userWorkouts.first(where: { $0.id == id }) else { break }
-                    let sets = min(max(1, exItem.sets), 10)
-                    let reps = exItem.reps.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let repsFinal = reps.isEmpty ? "8-12" : reps
-                    guard let ex = resolveOrCreateExercise(
-                        planName: exItem.name,
-                        overrideId: exItem.libraryExerciseOverrideId,
-                        musclesIfCreatingCustom: [MuscleGroup.other]
-                    ) else { continue }
-                    _ = addExercise(
-                        to: fresh,
-                        exercise: ex,
-                        recommendedSets: sets,
-                        recommendedReps: repsFinal,
-                        configurationFields: [],
-                        recommendedConfigBySet: Array(repeating: [:], count: sets)
-                    )
-                }
+                let repsRaw = s.reps.trimmingCharacters(in: .whitespacesAndNewlines)
+                let repsFinal = repsRaw.isEmpty ? "8-12" : repsRaw
+                return TemplateSlot(
+                    label: s.label,
+                    targetedMuscles: targetedMuscles,
+                    exerciseRole: matchedExercise?.exerciseRole,
+                    movementPattern: matchedExercise?.movementPattern,
+                    defaultExerciseId: matchedExercise?.id,
+                    recommendedSets: min(max(1, s.sets), 10),
+                    recommendedReps: repsFinal
+                )
             }
+
+            let name = uniqueFlexWorkoutName(day.name)
+            let id = createWorkoutWithFlexibleSlots(name: name, slots: templateSlots)
+            entries.append(.workout(id))
         }
+        reorderWorkoutsPlacingIdsFirst(entries.map(\.libraryWorkoutId))
+        saveWorkouts()
         if updateTrainingProgram, !entries.isEmpty {
             applyTrainingProgramSuggestion(
                 cycleEntries: entries,
@@ -339,64 +586,27 @@ final class DataManager: ObservableObject {
         }
     }
 
-    func uniqueSlotTemplateName(_ base: String) -> String {
-        let root = base.isEmpty ? "Template" : base
-        let existingW = Set(userWorkouts.map(\.name))
-        let existingT = Set(userWorkoutTemplates.map(\.name))
-        if !existingW.contains(root), !existingT.contains(root) { return root }
-        var n = 2
-        while existingW.contains("\(root) (\(n))") || existingT.contains("\(root) (\(n))") {
-            n += 1
-        }
-        return "\(root) (\(n))"
+    func uniqueFlexWorkoutName(_ base: String) -> String {
+        uniqueWorkoutName(base.isEmpty ? "Workout" : base)
     }
 
-    func deleteSlotTemplate(_ template: WorkoutTemplate) {
-        userWorkoutTemplates.removeAll { $0.id == template.id }
-        var p = trainingProgram
-        mergeFrozenPastDays(from: p, into: &p.frozenCalendarDays, calendar: .current)
-        p.cycleEntries.removeAll { $0 == .slotTemplate(template.id) }
-        trainingProgram = p
-        saveWorkoutTemplates()
-        saveTrainingProgram()
+    func workout(id: UUID) -> Workout? {
+        userWorkouts.first { $0.id == id }
     }
 
-    func renameSlotTemplate(_ template: WorkoutTemplate, newName: String) {
-        guard let idx = userWorkoutTemplates.firstIndex(where: { $0.id == template.id }) else { return }
-        var t = userWorkoutTemplates[idx]
-        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty {
-            t.name = trimmed
-        }
-        userWorkoutTemplates[idx] = t
-        saveWorkoutTemplates()
+    func updateWorkout(_ workout: Workout) {
+        guard let idx = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
+        userWorkouts[idx] = workout
+        saveWorkouts()
     }
 
-    func updateSlotTemplate(_ template: WorkoutTemplate) {
-        guard let idx = userWorkoutTemplates.firstIndex(where: { $0.id == template.id }) else { return }
-        userWorkoutTemplates[idx] = template
-        saveWorkoutTemplates()
-    }
-
-    func slotTemplate(id: UUID) -> WorkoutTemplate? {
-        userWorkoutTemplates.first { $0.id == id }
-    }
-
-    func instantiateWorkout(from template: WorkoutTemplate) -> Workout {
-        workoutStore.instantiateWorkout(from: template, globalExercises: globalExercises)
-    }
-
-    func saveWorkoutTemplates() {
-        workoutStore.saveWorkoutTemplates(userWorkoutTemplates)
+    /// Copy for an in-progress session: new ids when the library workout has flexible rows.
+    func sessionInstance(from library: Workout) -> Workout {
+        workoutStore.sessionInstance(from: library, globalExercises: globalExercises)
     }
 
     func planLabel(for ref: WorkoutPlanRef) -> String {
-        switch ref {
-        case .concreteWorkout(let id):
-            return userWorkouts.first(where: { $0.id == id })?.name ?? "Missing workout"
-        case .slotTemplate(let id):
-            return userWorkoutTemplates.first(where: { $0.id == id })?.name ?? "Missing template"
-        }
+        userWorkouts.first(where: { $0.id == ref.libraryWorkoutId })?.name ?? "Missing workout"
     }
 
     /// Plan assignment shown on the calendar for `date`: frozen history before today (after rotation changes), else live engine resolution.
@@ -521,8 +731,19 @@ final class DataManager: ObservableObject {
         let snap = ExerciseSnapshot(from: exercise)
         for i in userWorkouts.indices {
             for j in userWorkouts[i].exercises.indices {
-                if userWorkouts[i].exercises[j].exerciseId == exercise.id {
+                guard userWorkouts[i].exercises[j].exerciseId == exercise.id else { continue }
+                switch userWorkouts[i].exercises[j].resolution {
+                case .concrete:
                     userWorkouts[i].exercises[j].resolution = .concrete(snap)
+                case .flexible(var b):
+                    b.defaultExerciseId = exercise.id
+                    if b.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        b.label = exercise.name
+                    }
+                    b.targetedMuscles = exercise.targetedMuscles
+                    b.exerciseRole = exercise.exerciseRole
+                    b.movementPattern = exercise.movementPattern
+                    userWorkouts[i].exercises[j].resolution = .flexible(b)
                 }
             }
         }
@@ -534,7 +755,23 @@ final class DataManager: ObservableObject {
         clearLocalExerciseDisplayName(for: exercise.id)
         globalExercises.removeAll { $0.id == exercise.id }
         for i in userWorkouts.indices {
-            userWorkouts[i].exercises.removeAll { $0.exerciseId == exercise.id }
+            var removedRowIds: [UUID] = []
+            var newList: [WorkoutExercise] = []
+            for var we in userWorkouts[i].exercises {
+                if case .concrete(let s) = we.resolution, s.exerciseId == exercise.id {
+                    removedRowIds.append(we.id)
+                    continue
+                }
+                if case .flexible(var b) = we.resolution, b.defaultExerciseId == exercise.id {
+                    b.defaultExerciseId = nil
+                    we.resolution = .flexible(b)
+                }
+                newList.append(we)
+            }
+            userWorkouts[i].exercises = newList
+            for rid in removedRowIds {
+                userWorkouts[i].templateSlotIdByWorkoutExerciseId.removeValue(forKey: rid)
+            }
         }
         saveExercises()
         saveWorkouts()
@@ -684,15 +921,85 @@ final class DataManager: ObservableObject {
 
     func refreshCompletedSessions() {
         completedSessions = sessionStore.loadSessions()
+        reconcileSkippedCycleTrainingDays()
+        publishWidgetSnapshot()
     }
 
     func appendCompletedSession(_ session: WorkoutSession) {
         completedSessions.append(session)
         sessionStore.appendSession(session)
+        reconcileSkippedCycleTrainingDays()
     }
 
-    func saveSessions() {
-        sessionStore.saveSessions(completedSessions)
+    /// Template for a new live session from a **completed** session (library + flexible slots when possible).
+    func workoutForNewSession(fromCompleted session: WorkoutSession) -> Workout {
+        if let library = userWorkouts.first(where: { $0.id == session.workout.id }) {
+            return library.hasFlexibleSlots ? sessionInstance(from: library) : library
+        }
+        return session.workout
+    }
+
+    /// Most recent completed session today for this library workout (plan ref or legacy same workout id).
+    func mostRecentCompletedSessionToday(forLibraryWorkoutId libraryWorkoutId: UUID, referenceDate: Date = Date(), calendar: Calendar = .current) -> WorkoutSession? {
+        let planRef = WorkoutPlanRef.workout(libraryWorkoutId)
+        let candidates = completedSessions.filter { session in
+            guard let end = session.endTime, calendar.isDate(end, inSameDayAs: referenceDate) else { return false }
+            if session.sessionPlanOrigin == planRef { return true }
+            if session.sessionPlanOrigin == nil, session.workout.id == libraryWorkoutId { return true }
+            return false
+        }
+        return candidates.max(by: { ($0.endTime ?? $0.startTime) < ($1.endTime ?? $1.startTime) })
+    }
+
+    /// Removes a completed session from history and persists. Returns false if save failed (state rolled back).
+    @discardableResult
+    func deleteCompletedSession(id: UUID) -> Bool {
+        let previous = completedSessions
+        completedSessions.removeAll { $0.id == id }
+        guard sessionStore.saveSessions(completedSessions) else {
+            completedSessions = previous
+            return false
+        }
+        reconcileSkippedCycleTrainingDays()
+        publishWidgetSnapshot()
+        return true
+    }
+
+    /// Re-inserts a session removed by `deleteCompletedSession` (e.g. Undo).
+    @discardableResult
+    func restoreCompletedSession(_ session: WorkoutSession) -> Bool {
+        guard !completedSessions.contains(where: { $0.id == session.id }) else { return true }
+        var next = completedSessions
+        next.append(session)
+        next.sort { ($0.endTime ?? .distantPast) > ($1.endTime ?? .distantPast) }
+        let previous = completedSessions
+        completedSessions = next
+        guard sessionStore.saveSessions(completedSessions) else {
+            completedSessions = previous
+            return false
+        }
+        reconcileSkippedCycleTrainingDays()
+        publishWidgetSnapshot()
+        return true
+    }
+
+    @discardableResult
+    func saveSessions() -> Bool {
+        let ok = sessionStore.saveSessions(completedSessions)
+        if ok {
+            reconcileSkippedCycleTrainingDays()
+            publishWidgetSnapshot()
+        }
+        return ok
+    }
+
+    func syncSessionToHealthIfEnabled(_ session: WorkoutSession) {
+        Task {
+            await healthSyncService.writeWorkoutIfAuthorized(session: session)
+            await MainActor.run {
+                healthSyncStatusMessage = healthSyncService.statusMessage
+            }
+        }
     }
 
     // MARK: - Week summary / analytics
@@ -745,18 +1052,134 @@ final class DataManager: ObservableObject {
         return WeekAtAGlance(isoWeekKey: weekKey, days: days, completedCount: completed, weeklyGoal: goal)
     }
 
+    /// ISO-week snapshot for the Home recap card (current vs prior week).
+    struct WeeklyRecapSummary: Equatable {
+        let isoWeekKey: String
+        let sessionsThisWeek: Int
+        let sessionsPriorWeek: Int
+        /// Sum of `LoggedSet.totalVolumeLoad` (pounds × reps) for the week.
+        let volumeThisWeekLbRep: Double
+        let volumePriorWeekLbRep: Double
+        let setsThisWeek: Int
+        let weeklyGoal: Int?
+
+        var metWeeklyGoal: Bool {
+            guard let g = weeklyGoal else { return false }
+            return sessionsThisWeek >= g
+        }
+
+        /// Show the celebration / summary card when the user actually trained this week.
+        var shouldShowRecapCard: Bool { sessionsThisWeek > 0 }
+
+        var volumeChangeFraction: Double? {
+            guard volumePriorWeekLbRep > 1 else { return nil }
+            return (volumeThisWeekLbRep - volumePriorWeekLbRep) / volumePriorWeekLbRep
+        }
+    }
+
+    func weeklyRecapSummary(referenceDate: Date = Date(), calendar: Calendar = .current) -> WeeklyRecapSummary? {
+        let weekKey = TrainingProgramState.isoWeekKey(for: referenceDate, calendar: calendar)
+        guard let weekInterval = calendar.dateInterval(of: .weekOfYear, for: referenceDate) else { return nil }
+
+        let priorStart = calendar.date(byAdding: .weekOfYear, value: -1, to: weekInterval.start) ?? weekInterval.start
+        let priorEnd = weekInterval.start
+
+        func sessionsEnding(in range: Range<Date>) -> [WorkoutSession] {
+            completedSessions.filter { session in
+                guard let end = session.endTime else { return false }
+                return end >= range.lowerBound && end < range.upperBound
+            }
+        }
+
+        func aggregateVolumeAndSets(_ sessions: [WorkoutSession]) -> (volume: Double, sets: Int) {
+            var vol = 0.0
+            var setCount = 0
+            for s in sessions {
+                for log in s.exerciseLogs {
+                    for st in log.loggedSets {
+                        vol += st.totalVolumeLoad
+                        setCount += 1
+                    }
+                }
+            }
+            return (vol, setCount)
+        }
+
+        let thisWeekSessions = sessionsEnding(in: weekInterval.start..<weekInterval.end)
+        let priorWeekSessions = sessionsEnding(in: priorStart..<priorEnd)
+
+        let thisAgg = aggregateVolumeAndSets(thisWeekSessions)
+        let priorAgg = aggregateVolumeAndSets(priorWeekSessions)
+
+        let goal: Int? = trainingProgram.cycleEntries.isEmpty
+            ? nil
+            : min(max(1, trainingProgram.sessionsPerWeek), 7)
+
+        return WeeklyRecapSummary(
+            isoWeekKey: weekKey,
+            sessionsThisWeek: thisWeekSessions.count,
+            sessionsPriorWeek: priorWeekSessions.count,
+            volumeThisWeekLbRep: thisAgg.volume,
+            volumePriorWeekLbRep: priorAgg.volume,
+            setsThisWeek: thisAgg.sets,
+            weeklyGoal: goal
+        )
+    }
+
     // MARK: - Exercise CRUD on workouts
 
-    func deleteExercise(from workout: Workout, exerciseId: UUID) {
-        guard let wIndex = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
-        userWorkouts[wIndex].exercises.removeAll { $0.id == exerciseId }
+    /// Removes a row and returns a snapshot for Undo. Returns `nil` if nothing was removed.
+    @discardableResult
+    func deleteExerciseReturningSnapshot(from workout: Workout, exerciseId: UUID) -> WorkoutExerciseDeletionSnapshot? {
+        guard let wIndex = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return nil }
+        guard let exIndex = userWorkouts[wIndex].exercises.firstIndex(where: { $0.id == exerciseId }) else { return nil }
+        let we = userWorkouts[wIndex].exercises[exIndex]
+        let tid = userWorkouts[wIndex].templateSlotIdByWorkoutExerciseId[exerciseId]
+        userWorkouts[wIndex].exercises.remove(at: exIndex)
         userWorkouts[wIndex].templateSlotIdByWorkoutExerciseId.removeValue(forKey: exerciseId)
         saveWorkouts()
+        return WorkoutExerciseDeletionSnapshot(
+            workoutId: workout.id,
+            insertionIndex: exIndex,
+            workoutExercise: we,
+            templateSlotId: tid
+        )
+    }
+
+    func restoreWorkoutExercise(_ snapshot: WorkoutExerciseDeletionSnapshot) {
+        guard let wIndex = userWorkouts.firstIndex(where: { $0.id == snapshot.workoutId }) else { return }
+        var w = userWorkouts[wIndex]
+        guard !w.exercises.contains(where: { $0.id == snapshot.workoutExercise.id }) else { return }
+        let i = min(snapshot.insertionIndex, w.exercises.count)
+        w.exercises.insert(snapshot.workoutExercise, at: i)
+        if let tid = snapshot.templateSlotId {
+            w.templateSlotIdByWorkoutExerciseId[snapshot.workoutExercise.id] = tid
+        }
+        userWorkouts[wIndex] = w
+        saveWorkouts()
+    }
+
+    func deleteExercise(from workout: Workout, exerciseId: UUID) {
+        _ = deleteExerciseReturningSnapshot(from: workout, exerciseId: exerciseId)
     }
 
     func moveExercise(in workout: Workout, from source: IndexSet, to destination: Int) {
         guard let wIndex = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
-        userWorkouts[wIndex].exercises.move(fromOffsets: source, toOffset: destination)
+        let count = userWorkouts[wIndex].exercises.count
+        guard count > 0 else { return }
+
+        let safeSource = IndexSet(source.filter { $0 >= 0 && $0 < count })
+        guard !safeSource.isEmpty else { return }
+        // SwiftUI `onMove` destinations can be unstable at boundaries (especially top insert).
+        // Normalize to a legal insertion target and avoid no-op move traps.
+        let safeDestination = min(max(0, destination), count)
+        if safeSource.count == 1,
+           let from = safeSource.first,
+           (from == safeDestination || from + 1 == safeDestination) {
+            return
+        }
+
+        userWorkouts[wIndex].exercises.move(fromOffsets: safeSource, toOffset: safeDestination)
         saveWorkouts()
     }
 
@@ -770,12 +1193,30 @@ final class DataManager: ObservableObject {
         recommendedConfigBySet: [[String: String]]
     ) -> WorkoutExercise? {
         guard let index = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return nil }
-        var we = WorkoutExercise(id: UUID(), exercise: exercise)
-        we.recommendedSets = recommendedSets
-        we.recommendedReps = recommendedReps
-        we.configurationFields = configurationFields
-        we.recommendedConfigBySet = recommendedConfigBySet
+        let weId = UUID()
+        let slotId = UUID()
+        let blueprint = SlotBlueprint(
+            id: slotId,
+            label: exercise.name,
+            targetedMuscles: exercise.targetedMuscles.isEmpty ? [.other] : exercise.targetedMuscles,
+            exerciseRole: exercise.exerciseRole,
+            movementPattern: exercise.movementPattern,
+            defaultExerciseId: exercise.id,
+            defaultRestTime: 90,
+            recommendedSets: recommendedSets,
+            recommendedReps: recommendedReps
+        )
+        let we = WorkoutExercise(
+            id: weId,
+            resolution: .flexible(blueprint),
+            defaultRestTime: 90,
+            recommendedSets: recommendedSets,
+            recommendedReps: recommendedReps,
+            configurationFields: configurationFields,
+            recommendedConfigBySet: recommendedConfigBySet
+        )
         userWorkouts[index].exercises.append(we)
+        userWorkouts[index].templateSlotIdByWorkoutExerciseId[weId] = slotId
         saveWorkouts()
         return we
     }
@@ -784,6 +1225,23 @@ final class DataManager: ObservableObject {
 
     func saveTrainingProgram() {
         programStore.saveProgram(trainingProgram)
+        publishWidgetSnapshot()
+    }
+
+    /// One line for AI split builder / Coach prefill from the current training program.
+    func planCycleContextLineForCoach() -> String {
+        let p = trainingProgram
+        guard !p.cycleEntries.isEmpty else {
+            return "No workout rotation configured yet. Sessions per week: \(p.sessionsPerWeek)."
+        }
+        let names = p.cycleEntries.map { planLabel(for: $0) }.joined(separator: " → ")
+        let pool: String
+        if p.preferredWeekdays.isEmpty {
+            pool = "training day pool Mon–Fri (default)"
+        } else {
+            pool = "preferred weekdays: \(p.preferredWeekdays.sorted().map(String.init).joined(separator: ", "))"
+        }
+        return "Current rotation: \(names). Pattern: \(p.sessionsPerWeek)×/week, \(pool). Anchor: \(p.anchorDayKey)."
     }
 
     func applyTrainingProgramSuggestion(
@@ -793,7 +1251,7 @@ final class DataManager: ObservableObject {
         anchorDate: Date = Date()
     ) {
         applyTrainingProgramSuggestion(
-            cycleEntries: cycleWorkoutIds.map { .concreteWorkout($0) },
+            cycleEntries: cycleWorkoutIds.map { .workout($0) },
             sessionsPerWeek: sessionsPerWeek,
             preferredWeekdays: preferredWeekdays,
             anchorDate: anchorDate
@@ -811,16 +1269,19 @@ final class DataManager: ObservableObject {
         p.sessionsPerWeek = min(max(1, sessionsPerWeek), 7)
         p.preferredWeekdays = preferredWeekdays
         p.anchorDayKey = TrainingProgramState.dayKey(for: anchorDate)
+        p.cyclePhaseOffset = 0
+        p.skippedCycleTrainingDayKeys = []
         applyTrainingProgramAfterFreezingPast(p)
     }
 
     func setTrainingCycleWorkoutIds(_ ids: [UUID]) {
-        setTrainingCycleEntries(ids.map { .concreteWorkout($0) })
+        setTrainingCycleEntries(ids.map { .workout($0) })
     }
 
     func setTrainingCycleEntries(_ entries: [WorkoutPlanRef]) {
         var p = trainingProgram
         p.cycleEntries = entries
+        normalizeCycleDerivedFields(&p)
         applyTrainingProgramAfterFreezingPast(p)
     }
 
@@ -839,7 +1300,84 @@ final class DataManager: ObservableObject {
     func setTrainingAnchorDate(_ date: Date) {
         var p = trainingProgram
         p.anchorDayKey = TrainingProgramState.dayKey(for: date)
+        normalizeCycleDerivedFields(&p)
         applyTrainingProgramAfterFreezingPast(p)
+    }
+
+    /// Sets the rotation anchor to this calendar day and phase so the chosen workout is “day 1” of the cycle for future default assignments.
+    func realignTrainingCycleAnchor(to date: Date, for ref: WorkoutPlanRef, calendar: Calendar = .current) {
+        guard let idx = trainingProgram.cycleEntries.firstIndex(of: ref) else { return }
+        var p = trainingProgram
+        p.anchorDayKey = TrainingProgramState.dayKey(for: date, calendar: calendar)
+        p.cyclePhaseOffset = idx
+        normalizeCycleDerivedFields(&p)
+        applyTrainingProgramAfterFreezingPast(p)
+    }
+
+    private func normalizeCycleDerivedFields(_ p: inout TrainingProgramState) {
+        let n = p.cycleEntries.count
+        if n == 0 {
+            p.cyclePhaseOffset = 0
+            p.skippedCycleTrainingDayKeys = []
+            return
+        }
+        p.cyclePhaseOffset = ((p.cyclePhaseOffset % n) + n) % n
+    }
+
+    /// Marks past days where a workout was planned but nothing was logged so the rotation does not stay stuck on missed sessions.
+    func reconcileSkippedCycleTrainingDays(calendar: Calendar = .current) {
+        let cal = calendar
+        guard !trainingProgram.cycleEntries.isEmpty else {
+            if !trainingProgram.skippedCycleTrainingDayKeys.isEmpty {
+                var p = trainingProgram
+                p.skippedCycleTrainingDayKeys = []
+                trainingProgram = p
+                saveTrainingProgram()
+            }
+            return
+        }
+
+        let todayStart = cal.startOfDay(for: Date())
+        guard let yesterday = cal.date(byAdding: .day, value: -1, to: todayStart) else { return }
+
+        var walkStart: Date
+        if let oldest = completedSessions.filter(\.isCompleted).map({ cal.startOfDay(for: $0.endTime ?? $0.startTime) }).min() {
+            walkStart = oldest
+        } else if let fallback = cal.date(byAdding: .day, value: -14, to: todayStart) {
+            walkStart = fallback
+        } else {
+            walkStart = yesterday
+        }
+
+        var newSkips = Set(trainingProgram.skippedCycleTrainingDayKeys)
+        var walk = walkStart
+        if walk > yesterday { return }
+
+        while walk <= yesterday {
+            let dk = TrainingProgramState.dayKey(for: walk, calendar: cal)
+            let planned = resolvedScheduleDay(for: walk, calendar: cal)
+            let done = primaryCompletedSession(on: walk, calendar: cal) != nil
+            switch planned {
+            case .workout:
+                if done {
+                    newSkips.remove(dk)
+                } else {
+                    newSkips.insert(dk)
+                }
+            case .rest, .unscheduled:
+                newSkips.remove(dk)
+            }
+            guard let nx = cal.date(byAdding: .day, value: 1, to: walk) else { break }
+            walk = nx
+        }
+
+        let newArr = newSkips.sorted()
+        if newSkips != Set(trainingProgram.skippedCycleTrainingDayKeys) {
+            var p = trainingProgram
+            p.skippedCycleTrainingDayKeys = newArr
+            trainingProgram = p
+            saveTrainingProgram()
+        }
     }
 
     func clearTrainingDayOverride(dayKey: String) {
@@ -882,5 +1420,87 @@ final class DataManager: ObservableObject {
 
     func workoutDisplayName(forWorkoutId id: UUID) -> String {
         userWorkouts.first(where: { $0.id == id })?.name ?? "Missing workout"
+    }
+
+    // MARK: - Integrations / data transfer
+
+    @MainActor
+    func setHealthSyncEnabled(_ enabled: Bool) {
+        Task { @MainActor in
+            let granted = await healthSyncService.setSyncEnabled(enabled)
+            healthSyncEnabled = granted
+            healthSyncStatusMessage = healthSyncService.statusMessage
+        }
+    }
+
+    func backupSnapshot() -> BackupSnapshot {
+        BackupSnapshot(
+            schemaVersion: currentSchemaVersion,
+            exercises: globalExercises,
+            workouts: userWorkouts,
+            sessions: completedSessions,
+            program: trainingProgram,
+            displayNames: exerciseLocalDisplayNames
+        )
+    }
+
+    func overwriteWithImportedSnapshot(_ snapshot: BackupSnapshot) {
+        globalExercises = snapshot.exercises
+        userWorkouts = snapshot.workouts
+        completedSessions = snapshot.sessions
+        trainingProgram = snapshot.program
+        exerciseLocalDisplayNames = Dictionary(
+            uniqueKeysWithValues: snapshot.displayNames.compactMap { key, value in
+                guard let id = UUID(uuidString: key) else { return nil }
+                return (id, value)
+            }
+        )
+
+        saveExercises()
+        saveWorkouts()
+        saveSessions()
+        saveTrainingProgram()
+        saveExerciseLocalDisplayNames()
+        reconcileSkippedCycleTrainingDays()
+        publishWidgetSnapshot()
+    }
+
+    // MARK: - Body metrics & progress photos
+
+    private func reloadBodyAndPhotosFromDisk() {
+        bodyMetricEntries = bodyMetricsStore.loadMetrics()
+        progressPhotoRecords = bodyMetricsStore.loadPhotoRecords()
+    }
+
+    func upsertBodyMetric(_ entry: BodyMetricEntry) {
+        var list = bodyMetricEntries.filter { $0.id != entry.id }
+        list.append(entry)
+        bodyMetricEntries = list.sorted { $0.date > $1.date }
+        bodyMetricsStore.saveMetrics(bodyMetricEntries)
+    }
+
+    func deleteBodyMetric(id: UUID) {
+        bodyMetricEntries.removeAll { $0.id == id }
+        bodyMetricsStore.saveMetrics(bodyMetricEntries)
+    }
+
+    func addProgressPhoto(imageData: Data, capturedAt: Date) throws {
+        let id = UUID()
+        let fileName = try bodyMetricsStore.savePhotoFile(id: id, imageData: imageData)
+        var rec = progressPhotoRecords
+        rec.append(ProgressPhotoRecord(id: id, capturedAt: capturedAt, fileName: fileName))
+        progressPhotoRecords = rec.sorted { $0.capturedAt > $1.capturedAt }
+        bodyMetricsStore.savePhotoRecords(progressPhotoRecords)
+    }
+
+    func deleteProgressPhoto(id: UUID) {
+        guard let idx = progressPhotoRecords.firstIndex(where: { $0.id == id }) else { return }
+        bodyMetricsStore.deletePhotoFile(fileName: progressPhotoRecords[idx].fileName)
+        progressPhotoRecords.remove(at: idx)
+        bodyMetricsStore.savePhotoRecords(progressPhotoRecords)
+    }
+
+    func progressPhotoImageData(fileName: String) -> Data? {
+        try? Data(contentsOf: bodyMetricsStore.photoFileURL(fileName: fileName))
     }
 }

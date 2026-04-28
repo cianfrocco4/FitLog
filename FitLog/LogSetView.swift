@@ -30,20 +30,44 @@ struct LogSetView: View {
     /// re-render this sheet every second (which could re-run `onAppear` and wipe weight while typing).
     let sessionVM: CurrentWorkoutSessionViewModel
     @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.dismiss) var dismiss
 
     let exerciseIndex: Int
+    /// When opening from inline quick-entry, seed weight/reps after normal prefill.
+    var prefillDisplayWeight: Double? = nil
+    var prefillReps: Int? = nil
+    /// Reps-first layout with optional added vs assisted load (net stored as signed weight).
+    var prefillBodyweightMode: Bool = false
 
     @State private var weight: Double = 0.0
     @State private var reps: Int = 0
     @State private var restTime: Int = 90
-    @State private var isWarmup: Bool = false
+    @State private var setTypeChoice: ExerciseSetType = .working
     /// Field name -> value for this set.
     @State private var configValues: [String: String] = [:]
     @State private var dropSetEnabled = false
     @State private var dropRows: [EditableDropRow] = []
     /// Manual override for superset rest. `nil` = use auto-determined value.
     @State private var restOverride: Bool?
+    /// Optional RPE 6–10; `nil` means not recorded.
+    @State private var rpeChoice: Int? = nil
+    @State private var showPlateCalculator = false
+    @State private var bodyweightMode = false
+    @State private var bwAddedDisplay: Double = 0
+    @State private var bwAssistedDisplay: Double = 0
+
+    private var displayUnit: WeightDisplayUnit { userPreferences.weightDisplayUnit }
+
+    private var displayWeightRange: ClosedRange<Double> {
+        WeightStoreConversion.displayRange(unit: displayUnit)
+    }
+
+    private var weightStep: Double {
+        WeightStoreConversion.stepperStep(unit: displayUnit)
+    }
+
+    private var unitShortLabel: String { displayUnit.shortLabel }
 
     private var workoutExercise: WorkoutExercise? {
         guard let session = sessionVM.currentSession, exerciseIndex < session.exerciseLogs.count else { return nil }
@@ -76,34 +100,54 @@ struct LogSetView: View {
         restOverride ?? autoRestAfterSet
     }
 
-    private static let weightRange: ClosedRange<Double> = 0...1100
-
     /// Keeps weight in range for both typing and the stepper (no negatives, no values above max).
     private var clampedWeightBinding: Binding<Double> {
         Binding(
             get: { weight },
             set: { new in
                 guard new.isFinite else { return }
-                weight = Self.clampWeight(new)
+                weight = clampDisplay(new)
             }
         )
     }
 
-    private static func clampWeight(_ w: Double) -> Double {
-        guard w.isFinite else { return 0 }
-        return min(weightRange.upperBound, max(weightRange.lowerBound, w))
+    private func clampDisplay(_ w: Double) -> Double {
+        WeightStoreConversion.clampNonNegativeDisplay(w, unit: displayUnit)
     }
 
-    /// Drop rows with at least one rep (weights clamped on save).
-    private var sanitizedDropSegments: [DropSetSegment] {
+    private func clampSignedNet(_ w: Double) -> Double {
+        WeightStoreConversion.clampSignedNetDisplay(w, unit: displayUnit)
+    }
+
+    private var displayNetLoad: Double {
+        clampSignedNet(bwAddedDisplay - bwAssistedDisplay)
+    }
+
+    private func syncBodyweightFieldsFromNet(_ net: Double) {
+        let n = clampSignedNet(net)
+        if n >= 0 {
+            bwAddedDisplay = clampDisplay(n)
+            bwAssistedDisplay = 0
+        } else {
+            bwAddedDisplay = 0
+            bwAssistedDisplay = clampDisplay(-n)
+        }
+    }
+
+    /// Drop rows with at least one rep; weights converted to stored pounds for persistence.
+    private var segmentsForSave: [DropSetSegment] {
         dropRows.compactMap { row in
             guard row.reps > 0 else { return nil }
-            return DropSetSegment(weight: Self.clampWeight(row.weight), reps: row.reps)
+            let stored = WeightStoreConversion.storedPounds(
+                displayValue: clampDisplay(row.weight),
+                unit: displayUnit
+            )
+            return DropSetSegment(weight: stored, reps: row.reps)
         }
     }
 
     private var dropSetEntryIsValid: Bool {
-        !dropSetEnabled || !sanitizedDropSegments.isEmpty
+        !dropSetEnabled || !segmentsForSave.isEmpty
     }
 
     private func dropWeightBinding(at index: Int) -> Binding<Double> {
@@ -115,7 +159,7 @@ struct LogSetView: View {
             set: { new in
                 guard dropRows.indices.contains(index) else { return }
                 var copy = dropRows
-                copy[index].weight = Self.clampWeight(new)
+                copy[index].weight = clampDisplay(new)
                 dropRows = copy
             }
         )
@@ -140,31 +184,95 @@ struct LogSetView: View {
         NavigationStack {
             Form {
                 Section("Log Set") {
-                    LabeledContent("Weight") {
-                        HStack(spacing: 10) {
-                            TextField("0", value: clampedWeightBinding, format: .number.precision(.fractionLength(0...2)))
+                    Toggle("Bodyweight mode (reps first)", isOn: $bodyweightMode)
+                        .onChange(of: bodyweightMode) { _, on in
+                            if on {
+                                if dropSetEnabled {
+                                    dropSetEnabled = false
+                                    dropRows = []
+                                }
+                                syncBodyweightFieldsFromNet(weight)
+                                weight = 0
+                            } else {
+                                weight = clampDisplay(max(0, displayNetLoad))
+                                bwAddedDisplay = 0
+                                bwAssistedDisplay = 0
+                            }
+                        }
+
+                    if bodyweightMode {
+                        Stepper(
+                            "Reps: \(reps)",
+                            value: $reps,
+                            in: 0...50,
+                            step: 1
+                        )
+                        LabeledContent("+ Added") {
+                            HStack(spacing: 10) {
+                                TextField("0", value: Binding(
+                                    get: { bwAddedDisplay },
+                                    set: { bwAddedDisplay = clampDisplay($0) }
+                                ), format: .number.precision(.fractionLength(0...2)))
                                 .keyboardType(.decimalPad)
                                 .multilineTextAlignment(.trailing)
                                 .frame(minWidth: 56)
-                            Text("lb")
-                                .foregroundStyle(.secondary)
-                            Stepper("", value: clampedWeightBinding, in: Self.weightRange, step: 5)
-                                .labelsHidden()
-                                .accessibilityLabel("Adjust weight by 5 pounds")
+                                Text(unitShortLabel)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
-                    }
-                    if weight == 0 {
-                        Text("0 lb = body weight only")
+                        LabeledContent("− Assisted") {
+                            HStack(spacing: 10) {
+                                TextField("0", value: Binding(
+                                    get: { bwAssistedDisplay },
+                                    set: { bwAssistedDisplay = clampDisplay($0) }
+                                ), format: .number.precision(.fractionLength(0...2)))
+                                .keyboardType(.decimalPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(minWidth: 56)
+                                Text(unitShortLabel)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        if displayNetLoad != 0 {
+                            Text(
+                                displayNetLoad > 0
+                                    ? "Net load: +\(WeightStoreConversion.formatDisplay(displayNetLoad)) \(unitShortLabel)"
+                                    : "Net load: −\(WeightStoreConversion.formatDisplay(-displayNetLoad)) \(unitShortLabel) (assisted)"
+                            )
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                    }
+                        } else {
+                            Text("Net \(unitShortLabel) is saved as 0 (body weight only).")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        LabeledContent("Weight") {
+                            HStack(spacing: 10) {
+                                TextField("0", value: clampedWeightBinding, format: .number.precision(.fractionLength(0...2)))
+                                    .keyboardType(.decimalPad)
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(minWidth: 56)
+                                Text(unitShortLabel)
+                                    .foregroundStyle(.secondary)
+                                Stepper("", value: clampedWeightBinding, in: displayWeightRange, step: weightStep)
+                                    .labelsHidden()
+                                    .accessibilityLabel("Adjust weight by \(Int(weightStep)) \(unitShortLabel)")
+                            }
+                        }
+                        if weight == 0 {
+                            Text("0 \(unitShortLabel) = body weight only")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
 
-                    Stepper(
-                        "Reps: \(reps)",
-                        value: $reps,
-                        in: 0...50,
-                        step: 1
-                    )
+                        Stepper(
+                            "Reps: \(reps)",
+                            value: $reps,
+                            in: 0...50,
+                            step: 1
+                        )
+                    }
 
                     if let pos = supersetPosition {
                         HStack {
@@ -206,6 +314,21 @@ struct LogSetView: View {
                         }
                     }
 
+                    if let we = workoutExercise,
+                       let suggestion = dataVM.progressionSuggestion(for: we) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Adaptive progression")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(suggestion.shortLine)
+                                .font(.caption)
+                            Text(suggestion.rationale)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 2)
+                    }
+
                     if effectiveRestAfterSet {
                         Stepper(
                             "Rest after set: \(restTime)s",
@@ -215,11 +338,35 @@ struct LogSetView: View {
                         )
                     }
 
-                    Toggle("Mark as warm-up set", isOn: $isWarmup)
+                    if dropSetEnabled {
+                        Text("Set type: working (top of drop sequence)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Picker("Set type", selection: $setTypeChoice) {
+                            Text(ExerciseSetType.working.logPickerLabel).tag(ExerciseSetType.working)
+                            Text(ExerciseSetType.warmup.logPickerLabel).tag(ExerciseSetType.warmup)
+                            Text(ExerciseSetType.failure.logPickerLabel).tag(ExerciseSetType.failure)
+                            Text(ExerciseSetType.timed.logPickerLabel).tag(ExerciseSetType.timed)
+                        }
+                        if setTypeChoice == .timed {
+                            Text("Use Reps as hold duration in seconds (e.g. 45). Optional load above is added weight during the hold.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Picker("RPE (optional)", selection: $rpeChoice) {
+                        Text("None").tag(nil as Int?)
+                        ForEach(Array(6...10), id: \.self) { v in
+                            Text("\(v)").tag(Optional(v))
+                        }
+                    }
                 }
 
                 Section {
                     Toggle("Drop set", isOn: $dropSetEnabled)
+                        .disabled(bodyweightMode)
                     if dropSetEnabled {
                         Text("After your top weight, log each lighter load and reps with no rest in between. Rest below starts when the whole sequence is done.")
                             .font(.caption)
@@ -232,7 +379,7 @@ struct LogSetView: View {
                         } label: {
                             Label("Add drop", systemImage: "plus.circle")
                         }
-                        if dropSetEnabled && sanitizedDropSegments.isEmpty {
+                        if dropSetEnabled && segmentsForSave.isEmpty {
                             Text("Add at least one drop with reps greater than 0, or turn off drop set.")
                                 .font(.caption)
                                 .foregroundStyle(.orange)
@@ -254,11 +401,41 @@ struct LogSetView: View {
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 prefillFromRecentSet()
+                if prefillBodyweightMode {
+                    bodyweightMode = true
+                    if dropSetEnabled {
+                        dropSetEnabled = false
+                        dropRows = []
+                    }
+                    let netSeed: Double
+                    if let w = prefillDisplayWeight {
+                        netSeed = clampSignedNet(w)
+                    } else if let session = sessionVM.currentSession,
+                              exerciseIndex < session.exerciseLogs.count,
+                              let last = session.exerciseLogs[exerciseIndex].loggedSets.last {
+                        netSeed = clampSignedNet(
+                            WeightStoreConversion.displayValue(storedPounds: last.weight, unit: displayUnit)
+                        )
+                    } else {
+                        netSeed = 0
+                    }
+                    syncBodyweightFieldsFromNet(netSeed)
+                    weight = 0
+                } else if let w = prefillDisplayWeight {
+                    weight = clampDisplay(w)
+                }
+                if let r = prefillReps {
+                    reps = min(50, max(0, r))
+                }
             }
-            
+
             .onChange(of: dropSetEnabled) { _, on in
-                if on, dropRows.isEmpty {
-                    dropRows = [EditableDropRow()]
+                guard !bodyweightMode else { return }
+                if on {
+                    setTypeChoice = .working
+                    if dropRows.isEmpty {
+                        dropRows = [EditableDropRow()]
+                    }
                 }
                 if !on {
                     dropRows = []
@@ -268,18 +445,31 @@ struct LogSetView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
-                
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showPlateCalculator = true
+                    } label: {
+                        Image(systemName: "scalemass")
+                    }
+                    .accessibilityLabel("Plate calculator")
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         let effectiveRest = (isSupersetContext && !effectiveRestAfterSet) ? 0 : restTime
+                        let displayForStore = bodyweightMode ? displayNetLoad : weight
+                        let storedWeight = WeightStoreConversion.storedPounds(
+                            displayValue: bodyweightMode ? clampSignedNet(displayForStore) : clampDisplay(displayForStore),
+                            unit: displayUnit
+                        )
                         sessionVM.logSet(
                             exerciseIndex: exerciseIndex,
-                            weight: weight,
+                            weight: storedWeight,
                             reps: reps,
                             restTime: effectiveRest,
-                            isWarmup: isWarmup,
+                            setType: dropSetEnabled ? .working : setTypeChoice,
                             configuration: configValues,
-                            dropSegments: dropSetEnabled ? sanitizedDropSegments : []
+                            dropSegments: (!bodyweightMode && dropSetEnabled) ? segmentsForSave : [],
+                            rpe: rpeChoice.map { Double($0) }
                         )
 
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -287,10 +477,32 @@ struct LogSetView: View {
                         }
                     }
                     .fontWeight(.semibold)
-                    .disabled(reps <= 0 || !dropSetEntryIsValid)
+                    .disabled(reps <= 0 || (!bodyweightMode && !dropSetEntryIsValid))
                 }
             }
             .keyboardDismissToolbar()
+            .sheet(isPresented: $showPlateCalculator) {
+                let suggest: Double? = {
+                    if bodyweightMode {
+                        let n = displayNetLoad
+                        return n > 0 ? n : nil
+                    }
+                    return weight > 0 ? weight : nil
+                }()
+                PlateCalculatorSheet(
+                    displayUnit: displayUnit,
+                    suggestedTargetDisplay: suggest,
+                    onApplyDisplayWeight: { w in
+                        let c = clampDisplay(w)
+                        if bodyweightMode {
+                            bwAddedDisplay = c
+                            bwAssistedDisplay = 0
+                        } else {
+                            weight = c
+                        }
+                    }
+                )
+            }
         }
     }
 
@@ -301,23 +513,43 @@ struct LogSetView: View {
         else { return }
 
         let currentLog = session.exerciseLogs[exerciseIndex]
+        setTypeChoice = .working
 
         // Prefer the most recent set from the current session for this exercise.
         if let lastInSession = currentLog.loggedSets.last {
-            weight = Self.clampWeight(lastInSession.weight)
+            weight = clampDisplay(
+                WeightStoreConversion.displayValue(storedPounds: lastInSession.weight, unit: displayUnit)
+            )
             reps = lastInSession.reps
             restTime = lastInSession.restTime
-            // Do not carry warm-up forward: the next set defaults to a normal (working) set.
-            isWarmup = false
+            switch lastInSession.setType {
+            case .warmup, .dropSet:
+                setTypeChoice = .working
+            default:
+                setTypeChoice = lastInSession.setType
+            }
             if !lastInSession.configuration.isEmpty {
                 configValues = lastInSession.configuration
             }
             if !lastInSession.dropSegments.isEmpty {
                 dropSetEnabled = true
-                dropRows = lastInSession.dropSegments.map { EditableDropRow(weight: $0.weight, reps: $0.reps) }
+                dropRows = lastInSession.dropSegments.map {
+                    EditableDropRow(
+                        weight: clampDisplay(
+                            WeightStoreConversion.displayValue(storedPounds: $0.weight, unit: displayUnit)
+                        ),
+                        reps: $0.reps
+                    )
+                }
             } else {
                 dropSetEnabled = false
                 dropRows = []
+            }
+            if let r = lastInSession.rpe {
+                let rounded = Int(r.rounded())
+                rpeChoice = (6...10).contains(rounded) ? rounded : nil
+            } else {
+                rpeChoice = nil
             }
             restOverride = nil
             if isSupersetContext && !autoRestAfterSet {
@@ -345,17 +577,37 @@ struct LogSetView: View {
         }
 
         if let recent = latestSet {
-            weight = Self.clampWeight(recent.weight)
+            weight = clampDisplay(
+                WeightStoreConversion.displayValue(storedPounds: recent.weight, unit: displayUnit)
+            )
             reps = recent.reps
             restTime = recent.restTime
-            isWarmup = false
+            switch recent.setType {
+            case .warmup, .dropSet:
+                setTypeChoice = .working
+            default:
+                setTypeChoice = recent.setType
+            }
             if !recent.configuration.isEmpty { configValues = recent.configuration }
             if !recent.dropSegments.isEmpty {
                 dropSetEnabled = true
-                dropRows = recent.dropSegments.map { EditableDropRow(weight: $0.weight, reps: $0.reps) }
+                dropRows = recent.dropSegments.map {
+                    EditableDropRow(
+                        weight: clampDisplay(
+                            WeightStoreConversion.displayValue(storedPounds: $0.weight, unit: displayUnit)
+                        ),
+                        reps: $0.reps
+                    )
+                }
             } else {
                 dropSetEnabled = false
                 dropRows = []
+            }
+            if let r = recent.rpe {
+                let rounded = Int(r.rounded())
+                rpeChoice = (6...10).contains(rounded) ? rounded : nil
+            } else {
+                rpeChoice = nil
             }
         } else {
             restTime = currentLog.workoutExercise.defaultRestTime
@@ -369,6 +621,7 @@ struct LogSetView: View {
             }
             dropSetEnabled = false
             dropRows = []
+            rpeChoice = nil
         }
 
         restOverride = nil
@@ -410,6 +663,10 @@ struct LogSetView: View {
             return recent.restTime
         }
 
+        if let override = currentLog.sessionRestOverrideSeconds {
+            return override
+        }
+
         return currentLog.workoutExercise.defaultRestTime
     }
 
@@ -438,11 +695,11 @@ struct LogSetView: View {
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
                             .frame(minWidth: 56)
-                        Text("lb")
+                        Text(unitShortLabel)
                             .foregroundStyle(.secondary)
-                        Stepper("", value: dropWeightBinding(at: index), in: Self.weightRange, step: 5)
+                        Stepper("", value: dropWeightBinding(at: index), in: displayWeightRange, step: weightStep)
                             .labelsHidden()
-                            .accessibilityLabel("Adjust drop weight by 5 pounds")
+                            .accessibilityLabel("Adjust drop weight by \(Int(weightStep)) \(unitShortLabel)")
                     }
                 }
                 Stepper("Reps: \(dropRows[index].reps)", value: dropRepsBinding(at: index), in: 0...50, step: 1)

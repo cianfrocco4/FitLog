@@ -10,16 +10,16 @@ import Charts
 
 private enum HistorySessionOriginFilter: String, CaseIterable, Identifiable {
     case all
-    case concreteAndOlder
-    case slotTemplate
+    case fixedRoutine
+    case openSlotPlan
 
     var id: String { rawValue }
 
     var shortLabel: String {
         switch self {
         case .all: return "All"
-        case .concreteAndOlder: return "Routines"
-        case .slotTemplate: return "Templates"
+        case .fixedRoutine: return "No open slots"
+        case .openSlotPlan: return "Has open slots"
         }
     }
 
@@ -27,24 +27,27 @@ private enum HistorySessionOriginFilter: String, CaseIterable, Identifiable {
         switch self {
         case .all:
             return "Analytics use every completed session in the time range."
-        case .concreteAndOlder:
-            return "Saved workout routines and older sessions logged before source tracking."
-        case .slotTemplate:
-            return "Only sessions started from a flexible template on Plan."
+        case .fixedRoutine:
+            return "Sessions whose library workout had no open slots (every row has a default exercise), plus older logs without plan tracking."
+        case .openSlotPlan:
+            return "Sessions started from a library workout that included at least one open slot (no default exercise)."
         }
     }
 
-    func includes(_ session: WorkoutSession) -> Bool {
+    func includes(_ session: WorkoutSession, dataVM: DataManager) -> Bool {
         switch self {
         case .all: return true
-        case .concreteAndOlder:
+        case .fixedRoutine:
             switch session.sessionPlanOrigin {
-            case nil, .concreteWorkout: return true
-            case .slotTemplate: return false
+            case nil: return true
+            case .workout(let id):
+                guard let w = dataVM.workout(id: id) else { return true }
+                return !w.hasOpenSlots
             }
-        case .slotTemplate:
-            if case .slotTemplate = session.sessionPlanOrigin { return true }
-            return false
+        case .openSlotPlan:
+            guard case .workout(let id) = session.sessionPlanOrigin,
+                  let w = dataVM.workout(id: id) else { return false }
+            return w.hasOpenSlots
         }
     }
 }
@@ -175,9 +178,34 @@ private func historyEpleyEst1RM(weight: Double, reps: Int) -> Double {
     return weight * (1 + Double(reps) / 30)
 }
 
+private func completedSessionIsSameCalendarDay(_ session: WorkoutSession, as reference: Date = Date(), calendar: Calendar = .current) -> Bool {
+    guard let end = session.endTime else { return false }
+    return calendar.isDate(end, inSameDayAs: reference)
+}
+
+private func startAgainFromCompletedSession(
+    _ session: WorkoutSession,
+    currentVM: CurrentWorkoutSessionViewModel,
+    openCurrentWorkoutSheet: (() -> Void)?,
+    setPendingReplace: @escaping (PendingWorkoutReplace?) -> Void
+) {
+    currentVM.startWorkoutResumingFromCompleted(session) {
+        setPendingReplace($0)
+    }
+    if currentVM.isInProgress {
+        openCurrentWorkoutSheet?()
+    }
+}
+
 struct HistoryView: View {
     @EnvironmentObject var dataVM: DataManager
-    @State private var dayRange: HistoryDayRange = .d7
+    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @EnvironmentObject var userPreferences: UserPreferences
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
+    @Environment(\.undoManager) private var undoManager
+    @Environment(\.fitlogRootTabSelection) private var rootTabSelection
+    @State private var pendingStartAgainReplace: PendingWorkoutReplace?
+    @State private var dayRange: HistoryDayRange = .d90
     @State private var sessionOriginFilter: HistorySessionOriginFilter = .all
     @State private var mainTab: HistoryMainTab = .overview
     @State private var comparePriorPeriod = false
@@ -185,6 +213,7 @@ struct HistoryView: View {
     @State private var selectedWorkoutsWeek: Date?
     @State private var selectedVolumeWeek: Date?
     @State private var selectedSetsWeek: Date?
+    @State private var historyOverviewSkeleton = true
 
     private var periodCutoff: Date {
         dayRange.cutoff(from: Date(), calendar: Calendar.current)
@@ -214,19 +243,30 @@ struct HistoryView: View {
     }
 
     private var filteredSessions: [WorkoutSession] {
-        sessionsInDateRange.filter { sessionOriginFilter.includes($0) }
+        sessionsInDateRange.filter { sessionOriginFilter.includes($0, dataVM: dataVM) }
+    }
+
+    /// Completed sessions matching the session-source filter (no date window), newest first.
+    private var originFilteredAllSessionsSorted: [WorkoutSession] {
+        dataVM.completedSessions
+            .filter { sessionOriginFilter.includes($0, dataVM: dataVM) }
+            .sorted { ($0.endTime ?? .distantPast) > ($1.endTime ?? .distantPast) }
     }
 
     private var priorFilteredSessions: [WorkoutSession] {
         guard let (ps, pe) = dayRange.priorWindow() else { return [] }
         return dataVM.completedSessions.filter { s in
             let d = s.endTime ?? s.startTime
-            return d >= ps && d < pe && sessionOriginFilter.includes(s)
+            return d >= ps && d < pe && sessionOriginFilter.includes(s, dataVM: dataVM)
         }
     }
 
     private var currentKPIs: HistoryKPIs { computeKPIs(filteredSessions) }
     private var priorKPIs: HistoryKPIs { computeKPIs(priorFilteredSessions) }
+
+    private func deleteSessionWithUndo(_ session: WorkoutSession) {
+        fitlogDeleteCompletedSessionWithUndo(session, dataVM: dataVM, undoManager: undoManager)
+    }
 
     var body: some View {
         NavigationStack {
@@ -270,10 +310,19 @@ struct HistoryView: View {
 
                 switch mainTab {
                 case .overview:
-                    kpiSection
-                    consistencySection
-                    trendsChartsSection
-                    muscleBalanceSection
+                    if historyOverviewSkeleton {
+                        Section {
+                            FitlogHistoryKPISkeleton()
+                                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                                .listRowBackground(Color.clear)
+                        }
+                    } else {
+                        kpiSection
+                        consistencySection
+                        yearTrainingHeatmapSection
+                        trendsChartsSection
+                        muscleBalanceSection
+                    }
                 case .sessions:
                     workoutsCompletedSection
                 case .explore:
@@ -282,15 +331,25 @@ struct HistoryView: View {
             }
             .fitlogWorkoutBarContentInset()
             .navigationTitle("History & Analytics")
+            .navigationBarTitleDisplayMode(.large)
             .searchable(text: $exploreSearch, prompt: "Search workouts & exercises")
             .onAppear {
                 dataVM.refreshCompletedSessions()
+            }
+            .task {
+                try? await Task.sleep(nanoseconds: 280_000_000)
+                historyOverviewSkeleton = false
             }
             .onChange(of: mainTab) { _, newTab in
                 if newTab != .explore {
                     exploreSearch = ""
                 }
             }
+            .workoutReplaceConflictConfirmation(
+                currentVM: currentVM,
+                pending: $pendingStartAgainReplace,
+                onAfterReplace: { openCurrentWorkoutSheet?() }
+            )
         }
     }
 
@@ -369,7 +428,7 @@ struct HistoryView: View {
     private func deltaLine(current: Int, prior: Int, invert: Bool) -> (String, Color) {
         if prior == 0 {
             if current == 0 { return ("No prior data", .secondary) }
-            return ("New vs prior", .green)
+            return ("New vs prior", FitlogPalette.success)
         }
         let p = Int(round(Double(current - prior) / Double(prior) * 100))
         let sign = p > 0 ? "+" : ""
@@ -379,8 +438,8 @@ struct HistoryView: View {
 
     private func kpiDeltaColor(percent: Int, invert: Bool) -> Color {
         let p = invert ? -percent : percent
-        if p > 0 { return .green }
-        if p < 0 { return .orange }
+        if p > 0 { return FitlogPalette.success }
+        if p < 0 { return FitlogPalette.caution }
         return .secondary
     }
 
@@ -412,8 +471,27 @@ struct HistoryView: View {
     @ViewBuilder
     private var emptyOverviewMessage: some View {
         if sessionsInDateRange.isEmpty {
-            Text("Complete workouts to see trends")
-                .foregroundStyle(.secondary)
+            VStack(spacing: 14) {
+                Image(systemName: "chart.bar.doc.horizontal")
+                    .font(.system(size: 40))
+                    .foregroundStyle(.secondary)
+                Text("Nothing in this range yet")
+                    .font(.headline)
+                Text("Finish a workout from Home or follow your Plan to populate History.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                if let tab = rootTabSelection {
+                    HStack(spacing: 12) {
+                        Button("Home") { tab.wrappedValue = .home }
+                            .buttonStyle(.borderedProminent)
+                        Button("Plan") { tab.wrappedValue = .plan }
+                            .buttonStyle(.bordered)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
         } else {
             VStack(alignment: .leading, spacing: 10) {
                 Text("No sessions match this source filter")
@@ -481,6 +559,122 @@ struct HistoryView: View {
             }
         } header: {
             Text("Consistency")
+        }
+    }
+
+    private struct YearHeatmapDay: Identifiable {
+        let id: Date
+        let date: Date
+        let sessionCount: Int
+    }
+
+    /// Last 365 days (calendar days), all completed sessions — independent of the History range filters.
+    private var yearHeatmapDays: [YearHeatmapDay] {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        guard let start = cal.date(byAdding: .day, value: -364, to: today) else { return [] }
+        var countByDay: [Date: Int] = [:]
+        for s in dataVM.completedSessions where s.isCompleted {
+            let d = cal.startOfDay(for: s.endTime ?? s.startTime)
+            countByDay[d, default: 0] += 1
+        }
+        var out: [YearHeatmapDay] = []
+        var d = start
+        while d <= today {
+            out.append(YearHeatmapDay(id: d, date: d, sessionCount: countByDay[d] ?? 0))
+            guard let next = cal.date(byAdding: .day, value: 1, to: d) else { break }
+            d = next
+        }
+        return out
+    }
+
+    private var yearHeatmapWeekColumns: [[YearHeatmapDay]] {
+        let days = yearHeatmapDays
+        guard !days.isEmpty else { return [] }
+        var weeks: [[YearHeatmapDay]] = []
+        var row: [YearHeatmapDay] = []
+        for day in days {
+            row.append(day)
+            if row.count == 7 {
+                weeks.append(row)
+                row = []
+            }
+        }
+        if !row.isEmpty {
+            weeks.append(row)
+        }
+        return weeks
+    }
+
+    private func yearHeatmapCellColor(count: Int) -> Color {
+        switch count {
+        case 0: return Color.primary.opacity(0.07)
+        case 1: return FitlogPalette.success.opacity(0.38)
+        case 2: return FitlogPalette.success.opacity(0.58)
+        default: return FitlogPalette.success.opacity(0.82)
+        }
+    }
+
+    private var yearTrainingHeatmapSection: some View {
+        Section {
+            if dataVM.completedSessions.isEmpty {
+                Text("Complete workouts to see your training density here.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Each square is a day; darker green means more sessions that day.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(alignment: .top, spacing: 3) {
+                            ForEach(Array(yearHeatmapWeekColumns.enumerated()), id: \.offset) { _, week in
+                                VStack(spacing: 3) {
+                                    ForEach(week) { day in
+                                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                                            .fill(yearHeatmapCellColor(count: day.sessionCount))
+                                            .frame(width: 10, height: 10)
+                                            .accessibilityLabel(
+                                                day.sessionCount == 0
+                                                    ? "No workout"
+                                                    : "\(day.sessionCount) session\(day.sessionCount == 1 ? "" : "s")"
+                                            )
+                                    }
+                                    if week.count < 7 {
+                                        ForEach(0..<(7 - week.count), id: \.self) { _ in
+                                            Color.clear.frame(width: 10, height: 10)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    HStack(spacing: 8) {
+                        Text("Less")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(yearHeatmapCellColor(count: 0))
+                            .frame(width: 10, height: 10)
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(yearHeatmapCellColor(count: 1))
+                            .frame(width: 10, height: 10)
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(yearHeatmapCellColor(count: 2))
+                            .frame(width: 10, height: 10)
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(yearHeatmapCellColor(count: 3))
+                            .frame(width: 10, height: 10)
+                        Text("More")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        } header: {
+            Text("Training year (365 days)")
         }
     }
 
@@ -588,8 +782,9 @@ struct HistoryView: View {
                 .foregroundStyle(by: .value("Source", row.segment))
             }
             .chartForegroundStyleScale([
-                "Routine": Color.blue,
-                "Template": Color.purple,
+                "No open slots": Color.blue,
+                "Has open slots": Color.purple,
+                "Plan": FitlogPalette.chartPrimary,
                 "Older": Color.secondary
             ])
             .chartLegend(.visible)
@@ -626,7 +821,7 @@ struct HistoryView: View {
                     )
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [.orange.opacity(0.35), .orange.opacity(0.06)],
+                            colors: [FitlogPalette.caution.opacity(0.35), FitlogPalette.caution.opacity(0.06)],
                             startPoint: .top,
                             endPoint: .bottom
                         )
@@ -636,7 +831,7 @@ struct HistoryView: View {
                         x: .value("Week", row.weekStart),
                         y: .value("Volume", row.volume)
                     )
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(FitlogPalette.caution)
                     .lineStyle(StrokeStyle(lineWidth: 2.5, lineJoin: .round))
                     .interpolationMethod(.catmullRom)
                 }
@@ -688,7 +883,7 @@ struct HistoryView: View {
                     )
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [.green.opacity(0.32), .green.opacity(0.06)],
+                            colors: [FitlogPalette.success.opacity(0.32), FitlogPalette.success.opacity(0.06)],
                             startPoint: .top,
                             endPoint: .bottom
                         )
@@ -698,7 +893,7 @@ struct HistoryView: View {
                         x: .value("Week", row.weekStart),
                         y: .value("Sets", row.count)
                     )
-                    .foregroundStyle(.green)
+                    .foregroundStyle(FitlogPalette.success)
                     .lineStyle(StrokeStyle(lineWidth: 2.5, lineJoin: .round))
                     .interpolationMethod(.catmullRom)
                 }
@@ -838,10 +1033,11 @@ struct HistoryView: View {
         switch session.sessionPlanOrigin {
         case nil:
             return "Older"
-        case .concreteWorkout:
-            return "Routine"
-        case .slotTemplate:
-            return "Template"
+        case .workout(let id):
+            if let w = dataVM.workout(id: id) {
+                return w.hasOpenSlots ? "Has open slots" : "No open slots"
+            }
+            return "Plan"
         }
     }
 
@@ -856,7 +1052,7 @@ struct HistoryView: View {
             m[seg, default: 0] += 1
             tallies[weekStart] = m
         }
-        let segmentOrder = ["Routine", "Template", "Older"]
+        let segmentOrder = ["No open slots", "Has open slots", "Plan", "Older"]
         return tallies.flatMap { weekStart, counts in
             segmentOrder.compactMap { seg in
                 let c = counts[seg] ?? 0
@@ -924,7 +1120,10 @@ struct HistoryView: View {
                 }
             } else {
                 ForEach(filteredSessions) { session in
-                    NavigationLink(destination: SessionDetailView(session: session).environmentObject(dataVM)) {
+                    NavigationLink(destination: SessionDetailView(session: session)
+                        .environmentObject(dataVM)
+                        .environmentObject(currentVM)
+                    ) {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(session.workout.name)
@@ -940,6 +1139,26 @@ struct HistoryView: View {
                             Text(durationString(for: session))
                                 .font(.subheadline.monospacedDigit())
                                 .foregroundStyle(.secondary)
+                        }
+                    }
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        if completedSessionIsSameCalendarDay(session) {
+                            Button {
+                                startAgainFromCompletedSession(
+                                    session,
+                                    currentVM: currentVM,
+                                    openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+                                    setPendingReplace: { pendingStartAgainReplace = $0 }
+                                )
+                            } label: {
+                                Label("Continue", systemImage: "arrow.clockwise.circle.fill")
+                            }
+                            .tint(FitlogPalette.success)
+                        }
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button("Delete", role: .destructive) {
+                            deleteSessionWithUndo(session)
                         }
                     }
                 }
@@ -964,7 +1183,10 @@ struct HistoryView: View {
                 ForEach(sorted, id: \.key) { workoutId, sessions in
                     let name = sessions.first?.workout.name ?? "Unknown"
                     let last = sessions.map(\.endTime).compactMap { $0 }.max()
-                    NavigationLink(destination: WorkoutHistoryDetailView(sessions: sessions, workoutName: name).environmentObject(dataVM)) {
+                    NavigationLink(destination: WorkoutHistoryDetailView(workoutId: workoutId, workoutName: name)
+                        .environmentObject(dataVM)
+                        .environmentObject(currentVM)
+                    ) {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(name)
@@ -1000,7 +1222,13 @@ struct HistoryView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(stats.sorted(by: { $0.sessions > $1.sessions }), id: \.id) { stat in
-                    NavigationLink(destination: ExerciseHistoryDetailView(exerciseId: stat.id, sessions: filteredSessions).environmentObject(dataVM)) {
+                    NavigationLink(destination: ExerciseHistoryDetailView(
+                        exerciseId: stat.id,
+                        rangeSessions: filteredSessions,
+                        originFilteredAllSessions: originFilteredAllSessionsSorted
+                    )
+                        .environmentObject(dataVM)
+                        .environmentObject(userPreferences)) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(dataVM.resolvedDisplayName(for: stat.sampleExercise))
                                 .font(.headline)
@@ -1008,7 +1236,10 @@ struct HistoryView: View {
                                 Label("\(stat.sessions) session\(stat.sessions == 1 ? "" : "s")", systemImage: "calendar")
                                 Label("\(stat.totalSets) sets", systemImage: "square.stack.3d.up")
                                 if stat.volume > 0 {
-                                    Label("\(Int(stat.volume)) lb·rep", systemImage: "scalemass")
+                                    Label(
+                                        WeightStoreConversion.formatVolumeLbRep(stat.volume, unit: userPreferences.weightDisplayUnit),
+                                        systemImage: "scalemass"
+                                    )
                                 }
                             }
                             .font(.caption)
@@ -1034,7 +1265,9 @@ struct HistoryView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(stats.sorted(by: { $0.sessions > $1.sessions }), id: \.name) { stat in
-                    NavigationLink(destination: MuscleGroupHistoryDetailView(muscleGroupName: stat.name, sessions: filteredSessions).environmentObject(dataVM)) {
+                    NavigationLink(destination: MuscleGroupHistoryDetailView(muscleGroupName: stat.name, sessions: filteredSessions)
+                        .environmentObject(dataVM)
+                        .environmentObject(userPreferences)) {
                         HStack {
                             Text(stat.name)
                                 .font(.headline)
@@ -1075,10 +1308,11 @@ struct HistoryView: View {
         switch session.sessionPlanOrigin {
         case nil:
             return "Older session"
-        case .concreteWorkout:
-            return "Saved workout"
-        case .slotTemplate:
-            return "Flexible template"
+        case .workout(let id):
+            if let w = dataVM.workout(id: id) {
+                return "\(w.name) · \(w.listDetailSubtitle)"
+            }
+            return "From training plan"
         }
     }
     
@@ -1089,13 +1323,25 @@ struct HistoryView: View {
         let totalSets: Int
         let volume: Double
     }
+
+    /// Resolves a library exercise for analytics when snapshot and/or exercise id is present (legacy sessions may lack snapshot).
+    private func resolvedExerciseForHistoryAnalytics(log: ExerciseLog) -> Exercise? {
+        if let snap = log.workoutExercise.snapshot,
+           let ex = dataVM.resolveExercise(for: snap) {
+            return ex
+        }
+        if let eid = log.workoutExercise.exerciseId,
+           let ex = dataVM.globalExercises.first(where: { $0.id == eid }) {
+            return ex
+        }
+        return nil
+    }
     
     private func exerciseStats(in sessions: [WorkoutSession]) -> [ExerciseStat] {
         var byId: [UUID: (sample: Exercise, sessions: Set<UUID>, sets: Int, volume: Double)] = [:]
         for session in sessions {
             for log in session.exerciseLogs {
-                guard let snap = log.workoutExercise.snapshot,
-                      let ex = dataVM.resolveExercise(for: snap) else { continue }
+                guard let ex = resolvedExerciseForHistoryAnalytics(log: log) else { continue }
                 var entry = byId[ex.id] ?? (sample: ex, sessions: [], sets: 0, volume: 0)
                 entry.sessions.insert(session.id)
                 entry.sets += log.loggedSets.count
@@ -1118,8 +1364,7 @@ struct HistoryView: View {
         var byGroup: [String: (sessions: Set<UUID>, exercises: Set<UUID>)] = [:]
         for session in sessions {
             for log in session.exerciseLogs {
-                guard let snap = log.workoutExercise.snapshot,
-                      let ex = dataVM.resolveExercise(for: snap) else { continue }
+                guard let ex = resolvedExerciseForHistoryAnalytics(log: log) else { continue }
                 let muscles = ex.targetedMuscles
                 if muscles.isEmpty {
                     let g = MuscleGroup.other.rawValue
@@ -1144,22 +1389,57 @@ struct HistoryView: View {
     }
 }
 
+private func historyRpeLabel(_ rpe: Double) -> String {
+    if abs(rpe.truncatingRemainder(dividingBy: 1)) < 0.001 {
+        return "RPE \(Int(rpe))"
+    }
+    return String(format: "RPE %.1f", rpe)
+}
+
+fileprivate func fitlogDeleteCompletedSessionWithUndo(
+    _ session: WorkoutSession,
+    dataVM: DataManager,
+    undoManager: UndoManager?
+) {
+    let snapshot = session
+    guard dataVM.deleteCompletedSession(id: session.id) else { return }
+    guard let um = undoManager else { return }
+    let dm = dataVM
+    um.registerUndo(withTarget: um) { _ in
+        _ = dm.restoreCompletedSession(snapshot)
+    }
+    um.setActionName("Delete Workout")
+}
+
 // MARK: - Session detail (single workout session: exercises + logged sets)
 private struct SessionDetailView: View {
     @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @EnvironmentObject var userPreferences: UserPreferences
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
+    @Environment(\.undoManager) private var undoManager
     let session: WorkoutSession
 
+    @State private var confirmDeleteSession = false
+    @State private var pendingStartAgainReplace: PendingWorkoutReplace?
+    @State private var prKindsBySetId: [UUID: [PersonalRecordEvent.Kind]] = [:]
+
     private var endDate: Date { session.endTime ?? session.startTime }
+
+    private var canStartAgainToday: Bool {
+        completedSessionIsSameCalendarDay(session)
+    }
 
     private var sessionPlanLine: String {
         switch session.sessionPlanOrigin {
         case nil:
             return "Not recorded (older log)"
-        case .concreteWorkout:
-            return "Saved workout"
-        case .slotTemplate(let id):
-            let name = dataVM.slotTemplate(id: id)?.name
-            return name.map { "Template: \($0)" } ?? "Flexible template"
+        case .workout(let id):
+            if let w = dataVM.workout(id: id) {
+                return "\(w.name) (\(w.listDetailSubtitle))"
+            }
+            return "Plan workout (removed from library)"
         }
     }
 
@@ -1186,19 +1466,59 @@ private struct SessionDetailView: View {
                         .multilineTextAlignment(.trailing)
                 }
             }
+            if !session.sessionNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Section("Workout notes") {
+                    Text(session.sessionNotes)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            if canStartAgainToday {
+                Section {
+                    Button {
+                        startAgainFromCompletedSession(
+                            session,
+                            currentVM: currentVM,
+                            openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+                            setPendingReplace: { pendingStartAgainReplace = $0 }
+                        )
+                    } label: {
+                        Label("Continue session", systemImage: "arrow.clockwise.circle.fill")
+                    }
+                } footer: {
+                    Text("Continues this session with the same logged sets and progress. This finished entry stays in your history until you complete the new run.")
+                }
+            }
             ForEach(session.exerciseLogs) { log in
                 Section {
                     ForEach(log.loggedSets) { set in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
-                                Text(set.weightRepsDisplaySummary())
-                                if set.isWarmup {
-                                    Text("Warm-up")
+                                Text(set.weightRepsDisplaySummary(displayUnit: userPreferences.weightDisplayUnit))
+                                if let badge = set.setTypeBadgeLabel {
+                                    Text(badge)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 2)
                                         .background(.quaternary, in: Capsule())
+                                }
+                                if let rpe = set.rpe {
+                                    Text(historyRpeLabel(rpe))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(.quaternary, in: Capsule())
+                                }
+                                if let kinds = prKindsBySetId[set.id], !kinds.isEmpty {
+                                    ForEach(kinds, id: \.self) { k in
+                                        Text(sessionDetailPRBadgeLabel(k))
+                                            .font(.caption2.weight(.bold))
+                                            .foregroundStyle(FitlogPalette.highlight)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(FitlogPalette.highlight.opacity(0.15), in: Capsule())
+                                    }
                                 }
                                 Spacer()
                             }
@@ -1218,28 +1538,88 @@ private struct SessionDetailView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
+                        if !log.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text(log.notes)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
         }
         .navigationTitle(session.workout.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Delete", role: .destructive) {
+                    confirmDeleteSession = true
+                }
+            }
+        }
+        .confirmationDialog(
+            "Remove this workout from your history? You can undo from the navigation bar.",
+            isPresented: $confirmDeleteSession,
+            titleVisibility: .visible
+        ) {
+            Button("Delete from history", role: .destructive) {
+                fitlogDeleteCompletedSessionWithUndo(session, dataVM: dataVM, undoManager: undoManager)
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .workoutReplaceConflictConfirmation(
+            currentVM: currentVM,
+            pending: $pendingStartAgainReplace,
+            onAfterReplace: { openCurrentWorkoutSheet?() }
+        )
+        .onAppear {
+            rebuildSessionDetailPRMap()
+        }
+    }
+
+    private func sessionDetailPRBadgeLabel(_ kind: PersonalRecordEvent.Kind) -> String {
+        switch kind {
+        case .maxWeight: return "Wt PR"
+        case .estimatedOneRM: return "1RM PR"
+        case .maxVolumeSet: return "Vol PR"
+        }
+    }
+
+    private func rebuildSessionDetailPRMap() {
+        var map: [UUID: [PersonalRecordEvent.Kind]] = [:]
+        for log in session.exerciseLogs {
+            for set in log.loggedSets {
+                let kinds = dataVM.personalRecordKindsForHistoricalSet(set: set, log: log, session: session)
+                if !kinds.isEmpty {
+                    map[set.id] = kinds
+                }
+            }
+        }
+        prKindsBySetId = map
     }
 }
 
 // MARK: - Workout history (list of sessions for one workout)
 private struct WorkoutHistoryDetailView: View {
     @EnvironmentObject var dataVM: DataManager
-    let sessions: [WorkoutSession]
+    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
+    @Environment(\.undoManager) private var undoManager
+    @State private var pendingStartAgainReplace: PendingWorkoutReplace?
+    let workoutId: UUID
     let workoutName: String
 
+    private var sessionsForWorkout: [WorkoutSession] {
+        dataVM.completedSessions.filter { $0.workout.id == workoutId }
+    }
+
     private var sortedSessions: [WorkoutSession] {
-        sessions.sorted { ($0.endTime ?? $0.startTime) > ($1.endTime ?? $1.startTime) }
+        sessionsForWorkout.sorted { ($0.endTime ?? $0.startTime) > ($1.endTime ?? $1.startTime) }
     }
 
     /// Chronological for chart (oldest → newest).
     private var durationTrendPoints: [WorkoutDurationPoint] {
-        sessions
+        sessionsForWorkout
             .sorted { ($0.endTime ?? $0.startTime) < ($1.endTime ?? $1.startTime) }
             .map { s in
                 let end = s.endTime ?? s.startTime
@@ -1260,7 +1640,7 @@ private struct WorkoutHistoryDetailView: View {
                             )
                             .foregroundStyle(
                                 LinearGradient(
-                                    colors: [.indigo.opacity(0.3), .indigo.opacity(0.05)],
+                                    colors: [FitlogPalette.chartPrimary.opacity(0.3), FitlogPalette.chartPrimary.opacity(0.05)],
                                     startPoint: .top,
                                     endPoint: .bottom
                                 )
@@ -1270,7 +1650,7 @@ private struct WorkoutHistoryDetailView: View {
                                 x: .value("Date", pt.date),
                                 y: .value("Minutes", pt.minutes)
                             )
-                            .foregroundStyle(.indigo)
+                            .foregroundStyle(FitlogPalette.chartPrimary)
                             .lineStyle(StrokeStyle(lineWidth: 2, lineJoin: .round))
                             .interpolationMethod(.catmullRom)
                         }
@@ -1295,7 +1675,10 @@ private struct WorkoutHistoryDetailView: View {
                 }
             }
             ForEach(sortedSessions) { session in
-                NavigationLink(destination: SessionDetailView(session: session).environmentObject(dataVM)) {
+                NavigationLink(destination: SessionDetailView(session: session)
+                    .environmentObject(dataVM)
+                    .environmentObject(currentVM)
+                ) {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(HistoryView.formatDateStatic(session.endTime ?? session.startTime))
@@ -1310,10 +1693,35 @@ private struct WorkoutHistoryDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                    if completedSessionIsSameCalendarDay(session) {
+                        Button {
+                            startAgainFromCompletedSession(
+                                session,
+                                currentVM: currentVM,
+                                openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+                                setPendingReplace: { pendingStartAgainReplace = $0 }
+                            )
+                        } label: {
+                            Label("Continue", systemImage: "arrow.clockwise.circle.fill")
+                        }
+                        .tint(FitlogPalette.success)
+                    }
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button("Delete", role: .destructive) {
+                        fitlogDeleteCompletedSessionWithUndo(session, dataVM: dataVM, undoManager: undoManager)
+                    }
+                }
             }
         }
         .navigationTitle(workoutName)
         .navigationBarTitleDisplayMode(.inline)
+        .workoutReplaceConflictConfirmation(
+            currentVM: currentVM,
+            pending: $pendingStartAgainReplace,
+            onAfterReplace: { openCurrentWorkoutSheet?() }
+        )
     }
 }
 
@@ -1329,15 +1737,48 @@ private struct ExerciseProgressionPoint: Identifiable {
     let estOneRM: Double
 }
 
+private struct ExerciseVolumePoint: Identifiable {
+    let id: UUID
+    let date: Date
+    let volumeLbRep: Double
+}
+
+private enum ExerciseHistoryDataScope: String, CaseIterable {
+    case selectedRange
+    case allTime
+
+    var label: String {
+        switch self {
+        case .selectedRange: return "Selected range"
+        case .allTime: return "All time"
+        }
+    }
+}
+
 // MARK: - Exercise history (each session where exercise was done + logged sets)
 private struct ExerciseHistoryDetailView: View {
     @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var userPreferences: UserPreferences
     let exerciseId: UUID
-    let sessions: [WorkoutSession]
+    let rangeSessions: [WorkoutSession]
+    let originFilteredAllSessions: [WorkoutSession]
+    @State private var dataScope: ExerciseHistoryDataScope = .selectedRange
+
+    private var effectiveSessions: [WorkoutSession] {
+        switch dataScope {
+        case .selectedRange:
+            return rangeSessions
+        case .allTime:
+            return originFilteredAllSessions
+        }
+    }
 
     private var sessionLogs: [(session: WorkoutSession, log: ExerciseLog)] {
-        sessions.compactMap { session in
-            guard let log = session.exerciseLogs.first(where: { $0.workoutExercise.exerciseId == exerciseId }) else { return nil }
+        effectiveSessions.compactMap { session in
+            guard let log = session.exerciseLogs.first(where: {
+                $0.workoutExercise.exerciseId == exerciseId
+                    || $0.workoutExercise.snapshot?.exerciseId == exerciseId
+            }) else { return nil }
             return (session, log)
         }.sorted { ($0.session.endTime ?? $0.session.startTime) > ($1.session.endTime ?? $1.session.startTime) }
     }
@@ -1364,7 +1805,7 @@ private struct ExerciseHistoryDetailView: View {
     private static func bestWorkingEst1RM(for log: ExerciseLog) -> Double? {
         var best = 0.0
         var found = false
-        for set in log.loggedSets where !set.isWarmup && set.reps > 0 {
+        for set in log.loggedSets where set.countsTowardLoadPRMetrics {
             var candidate = historyEpleyEst1RM(weight: set.weight, reps: set.reps)
             for d in set.dropSegments where d.reps > 0 {
                 let e = historyEpleyEst1RM(weight: d.weight, reps: d.reps)
@@ -1378,14 +1819,55 @@ private struct ExerciseHistoryDetailView: View {
         return found ? best : nil
     }
 
+    private var progressionLoadAxisLabel: String { userPreferences.weightDisplayUnit.shortLabel }
+
+    private func progressionChartY(_ estStoredLb: Double) -> Double {
+        WeightStoreConversion.displayValue(storedPounds: estStoredLb, unit: userPreferences.weightDisplayUnit)
+    }
+
     private var progressionInsight: String? {
         guard let peak = progressionSeries.map(\.estOneRM).max(), peak > 0 else { return nil }
-        let rounded = peak == floor(peak) ? "\(Int(peak))" : String(format: "%.1f", peak)
-        return "Peak estimated 1RM in this range: \(rounded) lb (Epley, working sets only)."
+        let d = WeightStoreConversion.displayValue(storedPounds: peak, unit: userPreferences.weightDisplayUnit)
+        let rounded = d == floor(d) ? "\(Int(d))" : String(format: "%.1f", d)
+        let u = userPreferences.weightDisplayUnit.shortLabel
+        return "Peak estimated 1RM in this range: \(rounded) \(u) (Epley, working sets only)."
+    }
+
+    private var volumeSeries: [ExerciseVolumePoint] {
+        sessionLogs.map { item in
+            let vol = item.log.loggedSets.reduce(0.0) { $0 + $1.totalVolumeLoad }
+            let d = item.session.endTime ?? item.session.startTime
+            return ExerciseVolumePoint(id: item.session.id, date: d, volumeLbRep: vol)
+        }
+        .sorted { $0.date < $1.date }
+    }
+
+    private var volumeAxisLabel: String {
+        userPreferences.weightDisplayUnit == .pounds ? "lb·rep" : "kg·rep"
+    }
+
+    private func volumeChartY(_ lbRep: Double) -> Double {
+        WeightStoreConversion.volumeDisplayValue(lbRep: lbRep, unit: userPreferences.weightDisplayUnit)
     }
 
     var body: some View {
         List {
+            Section {
+                Picker("Scope", selection: $dataScope) {
+                    ForEach(ExerciseHistoryDataScope.allCases, id: \.rawValue) { scope in
+                        Text(scope.label).tag(scope)
+                    }
+                }
+                .pickerStyle(.segmented)
+            } footer: {
+                Text(
+                    dataScope == .selectedRange
+                        ? "Matches the time range on the History tab."
+                        : "Every session that included this exercise, using your session source filter (no date limit)."
+                )
+                .font(.caption2)
+            }
+
             if !progressionSeries.isEmpty {
                 Section {
                     if progressionSeries.count >= 2 {
@@ -1393,11 +1875,11 @@ private struct ExerciseHistoryDetailView: View {
                         Chart(progressionSeries) { pt in
                             AreaMark(
                                 x: .value("Session", pt.date),
-                                y: .value("lb", pt.estOneRM)
+                                y: .value(progressionLoadAxisLabel, progressionChartY(pt.estOneRM))
                             )
                             .foregroundStyle(
                                 LinearGradient(
-                                    colors: [.cyan.opacity(0.28), .cyan.opacity(0.06)],
+                                    colors: [FitlogPalette.chartSecondary.opacity(0.28), FitlogPalette.chartSecondary.opacity(0.06)],
                                     startPoint: .top,
                                     endPoint: .bottom
                                 )
@@ -1405,16 +1887,16 @@ private struct ExerciseHistoryDetailView: View {
                             .interpolationMethod(.catmullRom)
                             LineMark(
                                 x: .value("Session", pt.date),
-                                y: .value("lb", pt.estOneRM)
+                                y: .value(progressionLoadAxisLabel, progressionChartY(pt.estOneRM))
                             )
-                            .foregroundStyle(.cyan)
+                            .foregroundStyle(FitlogPalette.chartSecondary)
                             .lineStyle(StrokeStyle(lineWidth: 2.5, lineJoin: .round))
                             .interpolationMethod(.catmullRom)
                             PointMark(
                                 x: .value("Session", pt.date),
-                                y: .value("lb", pt.estOneRM)
+                                y: .value(progressionLoadAxisLabel, progressionChartY(pt.estOneRM))
                             )
-                            .foregroundStyle(.cyan)
+                            .foregroundStyle(FitlogPalette.chartSecondary)
                             .symbolSize(36)
                         }
                         .chartXAxis {
@@ -1445,6 +1927,45 @@ private struct ExerciseHistoryDetailView: View {
                     Text("Progression")
                 }
             }
+
+            if volumeSeries.count >= 2 {
+                Section {
+                    HistoryChartCard(title: "Volume per session") {
+                        Chart(volumeSeries) { pt in
+                            BarMark(
+                                x: .value("Session", pt.date),
+                                y: .value(volumeAxisLabel, volumeChartY(pt.volumeLbRep))
+                            )
+                            .foregroundStyle(
+                                LinearGradient(colors: [.mint, .teal.opacity(0.85)], startPoint: .bottom, endPoint: .top)
+                            )
+                        }
+                        .chartXAxis {
+                            AxisMarks(values: .stride(by: .day, count: max(1, volumeSeries.count / 3))) { _ in
+                                AxisGridLine()
+                                AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                            }
+                        }
+                        .chartYAxis {
+                            AxisMarks { v in
+                                AxisGridLine()
+                                AxisValueLabel {
+                                    if let n = v.as(Double.self) {
+                                        Text(historyFormatCompact(n))
+                                    }
+                                }
+                            }
+                        }
+                        .frame(height: 188)
+                    }
+                } header: {
+                    Text("Volume trend")
+                } footer: {
+                    Text("Sum of load × reps for this exercise each session (including drop segments).")
+                        .font(.caption2)
+                }
+            }
+
             ForEach(sessionLogs, id: \.session.id) { item in
                 Section {
                     HStack {
@@ -1471,9 +1992,9 @@ private struct ExerciseHistoryDetailView: View {
                     ForEach(item.log.loggedSets) { set in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
-                                Text(set.weightRepsDisplaySummary())
-                                if set.isWarmup {
-                                    Text("Warm-up")
+                                Text(set.weightRepsDisplaySummary(displayUnit: userPreferences.weightDisplayUnit))
+                                if let badge = set.setTypeBadgeLabel {
+                                    Text(badge)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                         .padding(.horizontal, 6)
@@ -1503,6 +2024,7 @@ private struct ExerciseHistoryDetailView: View {
 // MARK: - Muscle group history (sessions + exercises that targeted this muscle + sets)
 private struct MuscleGroupHistoryDetailView: View {
     @EnvironmentObject var dataVM: DataManager
+    @EnvironmentObject var userPreferences: UserPreferences
     let muscleGroupName: String
     let sessions: [WorkoutSession]
 
@@ -1586,9 +2108,9 @@ private struct MuscleGroupHistoryDetailView: View {
                             ForEach(log.loggedSets) { set in
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack {
-                                        Text(set.weightRepsDisplaySummary())
-                                        if set.isWarmup {
-                                            Text("Warm-up")
+                                        Text(set.weightRepsDisplaySummary(displayUnit: userPreferences.weightDisplayUnit))
+                                        if let badge = set.setTypeBadgeLabel {
+                                            Text(badge)
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)
                                                 .padding(.horizontal, 6)
@@ -1634,12 +2156,13 @@ private struct MuscleSessionVolumePoint: Identifiable {
 
 // MARK: - Shared formatters (used by detail views)
 extension HistoryView {
-    /// Template slot label for this log when the session was started from a slot template and bindings exist.
+    /// Slot label when the session was started from a flexible library workout and row bindings exist.
     static func templateSlotCaption(for log: ExerciseLog, session: WorkoutSession, dataVM: DataManager) -> String? {
-        guard case .slotTemplate(let templateId) = session.sessionPlanOrigin,
+        guard case .workout(let libraryId) = session.sessionPlanOrigin,
               let slotUUID = session.workout.templateSlotId(forWorkoutExerciseRow: log.workoutExercise.id),
-              let template = dataVM.slotTemplate(id: templateId),
-              let slot = template.slots.first(where: { $0.id == slotUUID })
+              let lib = dataVM.workout(id: libraryId),
+              lib.hasFlexibleSlots,
+              let slot = dataVM.flexibleSlots(from: lib).first(where: { $0.id == slotUUID })
         else { return nil }
         let label = slot.label.trimmingCharacters(in: .whitespacesAndNewlines)
         return label.isEmpty ? nil : label

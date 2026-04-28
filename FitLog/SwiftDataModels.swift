@@ -23,7 +23,14 @@ struct VersionedPayload<T: Codable>: Codable {
 /// Bump this when the JSON shape of any persisted blob changes.
 /// The version history:
 ///   1 – initial SwiftData migration (ExerciseSnapshot, SlotResolution, WorkoutPlanRef cycle entries)
-let currentSchemaVersion = 1
+///   2 – unified workout library (SlotBlueprint, single WorkoutPlanRef.workout, backups omit templates)
+///   3 – library workouts use slot blueprints only (concrete rows migrated to flexible + defaultExerciseId)
+///   4 – `SDWorkoutSession.sessionNotes` added as a native column (workout-level notes persist after save)
+///
+/// **AI split builder wizard defaults** use a separate, versioned UserDefaults envelope
+/// (`SplitBuilderPreferencesStore`) — not `VersionedPayload` / SwiftData — so workout and program
+/// data are unaffected if wizard prefs are reset or migrated independently.
+let currentSchemaVersion = 4
 
 /// Encode a value wrapped in a VersionedPayload.
 func versionedEncode<T: Codable>(_ value: T) -> Data {
@@ -48,20 +55,48 @@ struct BackupSnapshot: Codable {
     let schemaVersion: Int
     let exercises: [Exercise]
     let workouts: [Workout]
-    let templates: [WorkoutTemplate]
     let sessions: [WorkoutSession]
     let program: TrainingProgramState
     /// Display names keyed by exercise UUID string.
     let displayNames: [String: String]
 
-    init(schemaVersion: Int, exercises: [Exercise], workouts: [Workout], templates: [WorkoutTemplate], sessions: [WorkoutSession], program: TrainingProgramState, displayNames: [UUID: String]) {
+    init(schemaVersion: Int, exercises: [Exercise], workouts: [Workout], sessions: [WorkoutSession], program: TrainingProgramState, displayNames: [UUID: String]) {
         self.schemaVersion = schemaVersion
         self.exercises = exercises
         self.workouts = workouts
-        self.templates = templates
         self.sessions = sessions
         self.program = program
         self.displayNames = Dictionary(uniqueKeysWithValues: displayNames.map { ($0.key.uuidString, $0.value) })
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, exercises, workouts, templates, sessions, program, displayNames
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
+        exercises = try c.decode([Exercise].self, forKey: .exercises)
+        var loadedWorkouts = try c.decode([Workout].self, forKey: .workouts)
+        if let legacyTemplates = try c.decodeIfPresent([WorkoutTemplate].self, forKey: .templates) {
+            for t in legacyTemplates {
+                loadedWorkouts.append(Workout.fromLegacyTemplate(t))
+            }
+        }
+        workouts = loadedWorkouts
+        sessions = try c.decode([WorkoutSession].self, forKey: .sessions)
+        program = try c.decode(TrainingProgramState.self, forKey: .program)
+        displayNames = try c.decode([String: String].self, forKey: .displayNames)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(schemaVersion, forKey: .schemaVersion)
+        try c.encode(exercises, forKey: .exercises)
+        try c.encode(workouts, forKey: .workouts)
+        try c.encode(sessions, forKey: .sessions)
+        try c.encode(program, forKey: .program)
+        try c.encode(displayNames, forKey: .displayNames)
     }
 }
 
@@ -127,23 +162,21 @@ final class SDWorkout {
     /// Encoded `[UUID: UUID]` (workout exercise row id → template slot id). Nil for legacy rows.
     var templateSlotBindingsData: Data?
     var sortOrder: Int = 0
-    var isPinned: Bool = false
 
     init() {}
 
-    init(workoutId: UUID, name: String, exercisesData: Data, sortOrder: Int, templateSlotBindingsData: Data? = nil, isPinned: Bool = false) {
+    init(workoutId: UUID, name: String, exercisesData: Data, sortOrder: Int, templateSlotBindingsData: Data? = nil) {
         self.workoutId = workoutId
         self.name = name
         self.exercisesData = exercisesData
         self.templateSlotBindingsData = templateSlotBindingsData
         self.sortOrder = sortOrder
-        self.isPinned = isPinned
     }
 
     func toStruct() -> Workout {
         let exercises = versionedDecode([WorkoutExercise].self, from: exercisesData) ?? []
         let mapFromStore = templateSlotBindingsData.flatMap { versionedDecode([UUID: UUID].self, from: $0) } ?? [:]
-        var w = Workout(id: workoutId, name: name, exercises: exercises, templateSlotIdByWorkoutExerciseId: mapFromStore, isPinned: isPinned)
+        var w = Workout(id: workoutId, name: name, exercises: exercises, templateSlotIdByWorkoutExerciseId: mapFromStore)
         w.normalizeTemplateSlotBindingsAfterDecoding()
         return w
     }
@@ -151,7 +184,7 @@ final class SDWorkout {
     static func from(_ w: Workout, sortOrder: Int) -> SDWorkout {
         let data = versionedEncode(w.exercises)
         let bindings = w.templateSlotIdByWorkoutExerciseId.isEmpty ? nil : versionedEncode(w.templateSlotIdByWorkoutExerciseId)
-        return SDWorkout(workoutId: w.id, name: w.name, exercisesData: data, sortOrder: sortOrder, templateSlotBindingsData: bindings, isPinned: w.isPinned)
+        return SDWorkout(workoutId: w.id, name: w.name, exercisesData: data, sortOrder: sortOrder, templateSlotBindingsData: bindings)
     }
 }
 
@@ -163,26 +196,24 @@ final class SDWorkoutTemplate {
     var name: String = ""
     var slotsData: Data = Data()
     var sortOrder: Int = 0
-    var isPinned: Bool = false
 
     init() {}
 
-    init(templateId: UUID, name: String, slotsData: Data, sortOrder: Int, isPinned: Bool = false) {
+    init(templateId: UUID, name: String, slotsData: Data, sortOrder: Int) {
         self.templateId = templateId
         self.name = name
         self.slotsData = slotsData
         self.sortOrder = sortOrder
-        self.isPinned = isPinned
     }
 
     func toStruct() -> WorkoutTemplate {
         let slots = versionedDecode([TemplateSlot].self, from: slotsData) ?? []
-        return WorkoutTemplate(id: templateId, name: name, slots: slots, isPinned: isPinned)
+        return WorkoutTemplate(id: templateId, name: name, slots: slots)
     }
 
     static func from(_ t: WorkoutTemplate, sortOrder: Int) -> SDWorkoutTemplate {
         let data = versionedEncode(t.slots)
-        return SDWorkoutTemplate(templateId: t.id, name: t.name, slotsData: data, sortOrder: sortOrder, isPinned: t.isPinned)
+        return SDWorkoutTemplate(templateId: t.id, name: t.name, slotsData: data, sortOrder: sortOrder)
     }
 }
 
@@ -198,10 +229,22 @@ final class SDWorkoutSession {
     var activeExerciseIdsData: Data = Data()
     var completedExerciseIdsData: Data = Data()
     var sessionPlanOriginData: Data?
+    /// Whole-workout notes (mirrors `WorkoutSession.sessionNotes`).
+    var sessionNotes: String = ""
 
     init() {}
 
-    init(sessionId: UUID, workoutData: Data, startTime: Date, endTime: Date?, exerciseLogsData: Data, activeExerciseIdsData: Data, completedExerciseIdsData: Data, sessionPlanOriginData: Data?) {
+    init(
+        sessionId: UUID,
+        workoutData: Data,
+        startTime: Date,
+        endTime: Date?,
+        exerciseLogsData: Data,
+        activeExerciseIdsData: Data,
+        completedExerciseIdsData: Data,
+        sessionPlanOriginData: Data?,
+        sessionNotes: String = ""
+    ) {
         self.sessionId = sessionId
         self.workoutData = workoutData
         self.startTime = startTime
@@ -210,6 +253,7 @@ final class SDWorkoutSession {
         self.activeExerciseIdsData = activeExerciseIdsData
         self.completedExerciseIdsData = completedExerciseIdsData
         self.sessionPlanOriginData = sessionPlanOriginData
+        self.sessionNotes = sessionNotes
     }
 
     func toStruct() -> WorkoutSession? {
@@ -223,7 +267,8 @@ final class SDWorkoutSession {
         return WorkoutSession(
             id: sessionId, workout: workout, startTime: startTime, endTime: endTime,
             exerciseLogs: logs, activeExerciseIds: activeIds,
-            completedExerciseIds: completedIds, sessionPlanOrigin: origin
+            completedExerciseIds: completedIds, sessionPlanOrigin: origin,
+            sessionNotes: sessionNotes
         )
     }
 
@@ -236,7 +281,8 @@ final class SDWorkoutSession {
         return SDWorkoutSession(
             sessionId: s.id, workoutData: wData, startTime: s.startTime, endTime: s.endTime,
             exerciseLogsData: logsData, activeExerciseIdsData: activeData,
-            completedExerciseIdsData: completedData, sessionPlanOriginData: originData
+            completedExerciseIdsData: completedData, sessionPlanOriginData: originData,
+            sessionNotes: s.sessionNotes
         )
     }
 }

@@ -13,6 +13,12 @@ struct SessionQuickAddExerciseSheet: View {
     let workout: Workout
     let currentVM: CurrentWorkoutSessionViewModel
     let dataVM: DataManager
+    /// When true, shows “Add template slot” for flexible library sessions.
+    var isFlexibleLibrarySession: Bool = false
+    /// Dismiss quick-add first; parent should present full add (e.g. `AddExerciseSheet`).
+    var onRequestCustomSetsAndFields: (() -> Void)? = nil
+    /// Appends a flexible slot to the in-progress session / library.
+    var onAddTemplateSlot: (() -> Void)? = nil
     @EnvironmentObject var aiService: AIService
     @Environment(\.dismiss) private var dismiss
 
@@ -101,6 +107,36 @@ struct SessionQuickAddExerciseSheet: View {
                         }
                     }
                 }
+
+                if onRequestCustomSetsAndFields != nil || (isFlexibleLibrarySession && onAddTemplateSlot != nil) {
+                    Section {
+                        if onRequestCustomSetsAndFields != nil {
+                            Button {
+                                dismiss()
+                                DispatchQueue.main.async {
+                                    onRequestCustomSetsAndFields?()
+                                }
+                            } label: {
+                                Label("Custom sets & fields…", systemImage: "slider.horizontal.3")
+                            }
+                        }
+                        if isFlexibleLibrarySession, onAddTemplateSlot != nil {
+                            Button {
+                                onAddTemplateSlot?()
+                                dismiss()
+                            } label: {
+                                Label("Add template slot", systemImage: "square.dashed")
+                            }
+                        }
+                    } header: {
+                        Text("More options")
+                    } footer: {
+                        if onRequestCustomSetsAndFields != nil {
+                            Text("Use custom add when you need specific set counts, rep strings, or per-set configuration fields.")
+                                .font(.caption)
+                        }
+                    }
+                }
             }
             .searchable(text: $searchText, prompt: "Search exercises")
             .navigationTitle("Add exercise")
@@ -174,10 +210,7 @@ struct SessionQuickAddExerciseSheet: View {
         let q = query
 
         func matchesSearch(_ ex: Exercise) -> Bool {
-            guard !q.isEmpty else { return true }
-            return dataVM.resolvedDisplayName(for: ex).localizedCaseInsensitiveContains(q)
-                || ex.name.localizedCaseInsensitiveContains(q)
-                || (ex.targetedMuscles.first ?? .other).rawValue.localizedCaseInsensitiveContains(q)
+            ex.matchesExerciseSearch(query: q, resolvedDisplayName: dataVM.resolvedDisplayName(for: ex))
         }
 
         func overlapScore(_ ex: Exercise) -> Int {
@@ -257,8 +290,9 @@ struct SessionQuickAddExerciseSheet: View {
 
     private func addExercise(_ ex: Exercise) {
         ExercisePickerPersistence.recordRecent(exerciseId: ex.id)
-        let recommendedSets = 3
-        let recommendedReps = "8-12"
+        let remembered = ExercisePrescriptionMemory.rememberedSetsAndReps(for: ex.id)
+        let recommendedSets = remembered?.sets ?? 3
+        let recommendedReps = remembered?.reps ?? "8-12"
         let recommendedConfigBySet: [[String: String]] = Array(repeating: [:], count: recommendedSets)
 
         if dataVM.userWorkouts.contains(where: { $0.id == workout.id }) {

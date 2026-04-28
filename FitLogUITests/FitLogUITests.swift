@@ -24,11 +24,14 @@ final class FitLogUITests: XCTestCase {
 
     @MainActor
     func testExample() throws {
-        // UI tests must launch the application that they test.
         let app = XCUIApplication()
+        FitLogUITestSupport.configure(app)
         app.launch()
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        XCTAssertTrue(
+            app.tabBars.firstMatch.waitForExistence(timeout: 30),
+            "Main tab bar should appear after launch (UI test login bypass)."
+        )
     }
 
     @MainActor
@@ -36,7 +39,9 @@ final class FitLogUITests: XCTestCase {
         if #available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 7.0, *) {
             // This measures how long it takes to launch your application.
             measure(metrics: [XCTApplicationLaunchMetric()]) {
-                XCUIApplication().launch()
+                let app = XCUIApplication()
+                FitLogUITestSupport.configure(app)
+                app.launch()
             }
         }
     }
