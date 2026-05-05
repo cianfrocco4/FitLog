@@ -128,6 +128,45 @@ extension LoggedSet {
     }
 }
 
+/// Whether effort is expressed as RPE (subjective intensity, 1–10 scale, where 10 = max effort)
+/// or RIR (reps in reserve, 0 = failure, 4+ = plenty left).
+enum EffortInputStyle: String, CaseIterable, Identifiable, Codable {
+    case rpe
+    case rir
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .rpe: return "RPE"
+        case .rir: return "RIR"
+        }
+    }
+
+    var pickerLabel: String {
+        switch self {
+        case .rpe: return "RPE (Rate of Perceived Exertion)"
+        case .rir: return "RIR (Reps in Reserve)"
+        }
+    }
+
+    /// Convert a stored RPE value to its RIR equivalent (10 − RPE).
+    func displayValue(fromRPE rpe: Double) -> Double {
+        switch self {
+        case .rpe: return rpe
+        case .rir: return max(0, 10 - rpe)
+        }
+    }
+
+    /// Convert a user-entered value back to RPE for storage.
+    func toRPE(_ input: Double) -> Double {
+        switch self {
+        case .rpe: return input
+        case .rir: return max(0, 10 - input)
+        }
+    }
+}
+
 @MainActor
 final class UserPreferences: ObservableObject {
     private enum Keys {
@@ -137,6 +176,7 @@ final class UserPreferences: ObservableObject {
         static let coachPlan = "fitlog.coachMark.plan.v1"
         static let coachHistory = "fitlog.coachMark.history.v1"
         static let dismissedProgramAssignmentBanner = "fitlog.dismissedProgramAssignmentBanner"
+        static let effortInputStyle = "fitlog.effortInputStyle"
     }
 
     private let defaults: UserDefaults
@@ -166,6 +206,11 @@ final class UserPreferences: ObservableObject {
         didSet { defaults.set(dismissedProgramAssignmentBanner, forKey: Keys.dismissedProgramAssignmentBanner) }
     }
 
+    /// Whether the inline log row shows effort as RPE or RIR.
+    @Published var effortInputStyle: EffortInputStyle {
+        didSet { defaults.set(effortInputStyle.rawValue, forKey: Keys.effortInputStyle) }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         if let raw = defaults.string(forKey: Keys.weightUnit),
@@ -179,6 +224,12 @@ final class UserPreferences: ObservableObject {
         _coachMarkPlanDismissed = Published(initialValue: defaults.bool(forKey: Keys.coachPlan))
         _coachMarkHistoryDismissed = Published(initialValue: defaults.bool(forKey: Keys.coachHistory))
         _dismissedProgramAssignmentBanner = Published(initialValue: defaults.bool(forKey: Keys.dismissedProgramAssignmentBanner))
+        if let raw = defaults.string(forKey: Keys.effortInputStyle),
+           let style = EffortInputStyle(rawValue: raw) {
+            _effortInputStyle = Published(initialValue: style)
+        } else {
+            _effortInputStyle = Published(initialValue: .rpe)
+        }
     }
 
     func markOnboardingComplete() {
@@ -192,5 +243,6 @@ final class UserPreferences: ObservableObject {
         coachMarkPlanDismissed = true
         coachMarkHistoryDismissed = true
         dismissedProgramAssignmentBanner = true
+        effortInputStyle = .rpe
     }
 }

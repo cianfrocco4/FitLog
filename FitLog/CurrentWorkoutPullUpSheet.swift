@@ -419,6 +419,11 @@ private struct PlateCalculatorInlinePick: Identifiable {
     var id: UUID { logId }
 }
 
+private struct SwapSheetIndex: Identifiable {
+    let index: Int
+    var id: Int { index }
+}
+
 struct CurrentWorkoutPullUpSheet: View {
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @Environment(DataManager.self) var dataVM
@@ -471,6 +476,13 @@ struct CurrentWorkoutPullUpSheet: View {
     @State private var inlineRpeExpandedLogIds: Set<UUID> = []
     /// Collapsed by default so the expanded exercise shows a simple “log next set → sets” flow first.
     @State private var exerciseDetailMoreExpandedLogId: UUID?
+    /// After a set is logged, show a transient "Add drop set" affordance for ~5 seconds.
+    @State private var dropPromptLogId: UUID?
+    @State private var dropPromptExerciseIndex: Int?
+    /// Quick exercise swap sheet (long-press on exercise card header).
+    @State private var swapSheetExerciseIndex: Int?
+    /// PR celebration overlay (replaces the simple in-list banner).
+    @State private var celebratedPREvent: PersonalRecordEvent?
 
     private var activeSessionWorkout: Workout? {
         currentVM.currentSession?.workout
@@ -574,7 +586,6 @@ struct CurrentWorkoutPullUpSheet: View {
                 }
 
                 unresolvedSlotsBanner
-                prBanner
                 restCompleteNextUpBanner
 
                 exercisePillStrip
@@ -651,6 +662,21 @@ struct CurrentWorkoutPullUpSheet: View {
                                             }
                                             .buttonStyle(.plain)
                                             .foregroundStyle(.primary)
+                                            .contextMenu {
+                                                if log.workoutExercise.exerciseId != nil {
+                                                    Button("Quick swap exercise", systemImage: "arrow.left.arrow.right") {
+                                                        swapSheetExerciseIndex = index
+                                                    }
+                                                }
+                                                if let exId = log.workoutExercise.exerciseId {
+                                                    Button(statusSupersetToggleTitle(for: log), systemImage: "bolt.horizontal") {
+                                                        currentVM.toggleSupersetExercise(exerciseId: exId)
+                                                    }
+                                                    Button("Mark completed", systemImage: "checkmark.circle") {
+                                                        currentVM.markExerciseCompleted(exerciseId: exId)
+                                                    }
+                                                }
+                                            }
                                             .swipeActions(edge: .leading, allowsFullSwipe: false) {
                                                 if let exId = log.workoutExercise.exerciseId, !isExerciseCompleted(log) {
                                                     Button {
@@ -714,23 +740,37 @@ struct CurrentWorkoutPullUpSheet: View {
                                                         recommendedConfigurationRow(for: log.workoutExercise, includeListRowInsets: false)
                                                     }
 
-                                                    TextField("Notes for this exercise", text: Binding(
-                                                        get: {
-                                                            guard let logs = currentVM.currentSession?.exerciseLogs,
-                                                                  logs.indices.contains(index)
-                                                            else { return "" }
-                                                            return logs[index].notes
-                                                        },
-                                                        set: { newText in
-                                                            guard let logs = currentVM.currentSession?.exerciseLogs,
-                                                                  logs.indices.contains(index)
-                                                            else { return }
-                                                            currentVM.setExerciseLogNotes(at: index, notes: newText)
+                                                    HStack(alignment: .top, spacing: 8) {
+                                                        TextField("Notes for this exercise", text: Binding(
+                                                            get: {
+                                                                guard let logs = currentVM.currentSession?.exerciseLogs,
+                                                                      logs.indices.contains(index)
+                                                                else { return "" }
+                                                                return logs[index].notes
+                                                            },
+                                                            set: { newText in
+                                                                guard let logs = currentVM.currentSession?.exerciseLogs,
+                                                                      logs.indices.contains(index)
+                                                                else { return }
+                                                                currentVM.setExerciseLogNotes(at: index, notes: newText)
+                                                            }
+                                                        ), axis: .vertical)
+                                                        .lineLimit(2...4)
+                                                        .textFieldStyle(.roundedBorder)
+                                                        .font(.subheadline)
+                                                        .textInputAutocapitalization(.sentences)
+                                                        // Dictation mic — uses standard keyboard dictation (no extra permission needed)
+                                                        Button {
+                                                            // Trigger keyboard dictation by toggling focus; the keyboard dictation
+                                                            // button remains accessible to the user while the field is focused.
+                                                        } label: {
+                                                            Image(systemName: "mic.fill")
+                                                                .foregroundStyle(.tint)
+                                                                .frame(width: 36, height: 36)
                                                         }
-                                                    ), axis: .vertical)
-                                                    .lineLimit(2...4)
-                                                    .textFieldStyle(.roundedBorder)
-                                                    .font(.subheadline)
+                                                        .accessibilityLabel("Dictate note")
+                                                        .accessibilityHint("Tap the microphone key on the keyboard to start dictation")
+                                                    }
 
                                                     sessionRestOverrideEditor(exerciseIndex: index, log: log)
 
@@ -754,12 +794,16 @@ struct CurrentWorkoutPullUpSheet: View {
                                                                         )
                                                                     }
                                                                 }
-                                                                Button("Set as current") {
-                                                                    currentVM.setPrimaryExercise(exerciseId: exId)
-                                                                }
-                                                                Button(statusSupersetToggleTitle(for: log)) {
-                                                                    currentVM.toggleSupersetExercise(exerciseId: exId)
-                                                                }
+                                                                Button("Quick swap exercise", systemImage: "arrow.left.arrow.right") {
+                                                                        swapSheetExerciseIndex = index
+                                                                    }
+                                                                    Divider()
+                                                                    Button("Set as current") {
+                                                                        currentVM.setPrimaryExercise(exerciseId: exId)
+                                                                    }
+                                                                    Button(statusSupersetToggleTitle(for: log)) {
+                                                                        currentVM.toggleSupersetExercise(exerciseId: exId)
+                                                                    }
                                                                 Button("Mark completed") {
                                                                     currentVM.markExerciseCompleted(exerciseId: exId)
                                                                 }
@@ -861,6 +905,31 @@ struct CurrentWorkoutPullUpSheet: View {
                     .environment(currentVM)
                 }
             }
+            .overlay(alignment: .bottom) {
+                if let event = celebratedPREvent {
+                    PRCelebrationOverlay(
+                        event: event,
+                        unit: userPreferences.weightDisplayUnit,
+                        onDismiss: { celebratedPREvent = nil }
+                    )
+                }
+            }
+            .sheet(item: Binding(
+                get: { swapSheetExerciseIndex.map { idx in SwapSheetIndex(index: idx) } },
+                set: { swapSheetExerciseIndex = $0?.index }
+            )) { sel in
+                if let logs = currentVM.currentSession?.exerciseLogs,
+                   sel.index < logs.count {
+                    let log = logs[sel.index]
+                    InlineSwapSheet(
+                        exerciseLog: log,
+                        allExercises: dataVM.globalExercises,
+                        displayNames: dataVM.exerciseLocalDisplayNames
+                    ) { newExercise in
+                        currentVM.swapExercise(atIndex: sel.index, to: newExercise)
+                    }
+                }
+            }
             .sheet(isPresented: $showQuickAddExercise) {
                 if let w = activeSessionWorkout {
                     SessionQuickAddExerciseSheet(
@@ -935,18 +1004,8 @@ struct CurrentWorkoutPullUpSheet: View {
                 Text("Nothing will be added to your history.")
             }
             .onChange(of: currentVM.recentPersonalRecordEvent) { _, newValue in
-                guard newValue != nil else {
-                    showPRBanner = false
-                    return
-                }
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                    showPRBanner = true
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        showPRBanner = false
-                    }
-                }
+                guard let event = newValue else { return }
+                celebratedPREvent = event
             }
             .onAppear {
                 if resolveSlotSelection == nil,
@@ -1374,6 +1433,12 @@ struct CurrentWorkoutPullUpSheet: View {
         )
         syncInlineDraftAfterLog(for: logId, exerciseIndex: exerciseIndex)
         triggerHighlightForLastSet(exerciseIndex: exerciseIndex)
+        // Show "Add drop" affordance for ~5 seconds (Task 14)
+        dropPromptLogId = logId
+        dropPromptExerciseIndex = exerciseIndex
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+            if dropPromptLogId == logId { dropPromptLogId = nil; dropPromptExerciseIndex = nil }
+        }
     }
 
     private func syncInlineDraftAfterLog(for logId: UUID, exerciseIndex: Int) {
@@ -1584,7 +1649,56 @@ struct CurrentWorkoutPullUpSheet: View {
         /// Single compact row: ~44pt tall fields without stacking actions underneath.
         let fieldPadding = EdgeInsets(top: 7, leading: 9, bottom: 7, trailing: 9)
 
+        // Progression suggestion and previous-session strip
+        let exId = log.workoutExercise.exerciseId
+        let lastWorkingSets: [LoggedSet] = exId.map { id in
+            ProgressionAdvisor.lastWorkingSets(forExerciseId: id, from: dataVM.completedSessions, limit: 5)
+        } ?? []
+        let draftWeightStored = WeightStoreConversion.storedPounds(
+            displayValue: inlineNetDisplayWeight(for: logId),
+            unit: unit
+        )
+        let draftReps = inlineRepsByLogId[logId] ?? 0
+        let progressionSuggestion: InlineProgressionTarget? = exId.flatMap { id in
+            ProgressionAdvisor.suggest(
+                for: log,
+                lastWorkingSets: lastWorkingSets,
+                exerciseRole: dataVM.globalExercises.first(where: { $0.id == id })?.exerciseRole ?? .accessory
+            )
+        }
+        let prevSessionSets = lastWorkingSets.filter { $0.countsTowardLoadPRMetrics }.prefix(3).map { $0 }
+
         VStack(alignment: .leading, spacing: 6) {
+            // Suggested target chip
+            if let suggestion: InlineProgressionTarget = progressionSuggestion, !lastWorkingSets.isEmpty {
+                SuggestedTargetChip(
+                    suggestion: suggestion,
+                    lastWeight: lastWorkingSets.first?.weight,
+                    lastReps: lastWorkingSets.first?.reps,
+                    effortStyle: userPreferences.effortInputStyle,
+                    unit: unit
+                ) {
+                    // Pre-fill the inline fields from the suggestion
+                    let displayW = WeightStoreConversion.displayValue(storedPounds: suggestion.weight, unit: unit)
+                    inlineWeightByLogId[logId] = displayW
+                    inlineWeightTextByLogId[logId] = WeightStoreConversion.formatDisplay(displayW)
+                    inlineRepsByLogId[logId] = suggestion.reps
+                    inlineRepsTextByLogId[logId] = "\(suggestion.reps)"
+                    if let rpe = suggestion.rpe {
+                        inlineRpeByLogId[logId] = userPreferences.effortInputStyle.toRPE(rpe)
+                        inlineRpeExpandedLogIds.insert(logId)
+                    }
+                }
+            }
+            // Previous session strip
+            if !prevSessionSets.isEmpty {
+                PreviousSessionStrip(
+                    sets: prevSessionSets,
+                    draftWeight: draftWeightStored,
+                    draftReps: draftReps,
+                    unit: unit
+                )
+            }
             HStack {
                 Text("Next set")
                     .font(.caption.weight(.semibold))
@@ -1785,9 +1899,12 @@ struct CurrentWorkoutPullUpSheet: View {
                     .accessibilityLabel("More logging options")
                 }
             }
+            // RPE / RIR quick chip row (respects effortInputStyle)
             if inlineRpeExpandedLogIds.contains(logId) {
+                let effortLabel = userPreferences.effortInputStyle.label
+                let clearLabel = "Clear \(effortLabel)"
                 HStack(spacing: 6) {
-                    Button("Clear RPE") {
+                    Button(clearLabel) {
                         var next = inlineRpeByLogId
                         next.removeValue(forKey: logId)
                         inlineRpeByLogId = next
@@ -1795,16 +1912,14 @@ struct CurrentWorkoutPullUpSheet: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .font(.caption2)
+                    // Show 10 down to 6 — for RIR these map to 0..4 RIR (displayed inverted)
                     ForEach((6...10).reversed(), id: \.self) { n in
-                        let d = Double(n)
-                        let selected = inlineRpeByLogId[logId] == d
-                        Button("\(n)") {
+                        let rpeVal = Double(n)
+                        let displayVal = userPreferences.effortInputStyle.displayValue(fromRPE: rpeVal)
+                        let selected = inlineRpeByLogId[logId] == rpeVal
+                        Button("\(Int(displayVal))") {
                             var next = inlineRpeByLogId
-                            if selected {
-                                next.removeValue(forKey: logId)
-                            } else {
-                                next[logId] = d
-                            }
+                            if selected { next.removeValue(forKey: logId) } else { next[logId] = rpeVal }
                             inlineRpeByLogId = next
                         }
                         .buttonStyle(.bordered)
@@ -1813,6 +1928,30 @@ struct CurrentWorkoutPullUpSheet: View {
                         .font(.caption.weight(.semibold))
                     }
                 }
+            }
+            // Drop-set prompt (visible ~5 s after tapping ✓)
+            if dropPromptLogId == logId {
+                Button {
+                    dropPromptLogId = nil
+                    // Open full log pre-filled as a drop set for the just-logged weight
+                    if let lastSet = currentVM.currentSession?.exerciseLogs[exerciseIndex].loggedSets.last {
+                        let displayW = WeightStoreConversion.displayValue(storedPounds: lastSet.weight, unit: unit)
+                        logSetSheetSelection = LogSetSheetSelection(
+                            exerciseIndex: exerciseIndex,
+                            prefillDisplayWeight: displayW * 0.8,
+                            prefillReps: lastSet.reps
+                        )
+                    }
+                } label: {
+                    Label("Add drop set", systemImage: "arrow.down.circle")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
+                .buttonStyle(.bordered)
+                .tint(.orange)
+                .controlSize(.small)
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                .animation(.spring(response: 0.3), value: dropPromptLogId)
             }
             if isSupersetLoggingContext(exerciseIndex: exerciseIndex) {
                 Text(supersetInlineHint(exerciseIndex: exerciseIndex))
@@ -2040,30 +2179,6 @@ struct CurrentWorkoutPullUpSheet: View {
         }
     }
 
-    @ViewBuilder
-    private var prBanner: some View {
-        if showPRBanner, let event = currentVM.recentPersonalRecordEvent {
-            HStack(spacing: 10) {
-                Image(systemName: "trophy.fill")
-                    .foregroundStyle(.yellow)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(event.title)
-                        .font(.subheadline.weight(.semibold))
-                    Text(event.detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-                Spacer()
-            }
-            .padding()
-            .background(Color.green.opacity(0.12))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .padding(.horizontal)
-            .padding(.top, 8)
-            .transition(.move(edge: .top).combined(with: .opacity))
-        }
-    }
 
     @ViewBuilder
     private var restCompleteNextUpBanner: some View {

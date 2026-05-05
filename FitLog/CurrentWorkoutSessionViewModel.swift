@@ -235,29 +235,41 @@ final class CurrentWorkoutSessionViewModel {
     }
     
     // MARK: - Persistence (background / restart)
-    
+
+    /// Persist the active session to SwiftData so it survives app kills.
     private func saveActiveSession() {
-        guard let session = currentSession, session.endTime == nil,
-              let data = try? JSONEncoder().encode(session) else {
-            return
-        }
-        UserDefaults.standard.set(data, forKey: PersistenceKey.activeSession)
+        guard let session = currentSession, session.endTime == nil else { return }
+        dataManager.sessionStore.upsertActiveSession(session)
+        saveTimerState()
     }
-    
+
     private func saveTimerState() {
         UserDefaults.standard.set(totalPausedDuration, forKey: PersistenceKey.timerTotalPaused)
         UserDefaults.standard.set(workoutPausedAt != nil, forKey: PersistenceKey.timerIsPaused)
         UserDefaults.standard.set(workoutPausedAt?.timeIntervalSince1970, forKey: PersistenceKey.timerPausedAt)
     }
-    
+
     private func clearPersistedActiveSession() {
+        dataManager.sessionStore.clearActiveSession()
         UserDefaults.standard.removeObject(forKey: PersistenceKey.activeSession)
         UserDefaults.standard.removeObject(forKey: PersistenceKey.timerTotalPaused)
         UserDefaults.standard.removeObject(forKey: PersistenceKey.timerIsPaused)
         UserDefaults.standard.removeObject(forKey: PersistenceKey.timerPausedAt)
     }
-    
+
     private func restoreActiveSessionIfNeeded() {
+        // Primary: SwiftData (survives hard app kills and schema migrations)
+        if let session = dataManager.sessionStore.loadActiveSession(), session.endTime == nil {
+            currentSession = session
+            totalPausedDuration = UserDefaults.standard.double(forKey: PersistenceKey.timerTotalPaused)
+            let wasPaused = UserDefaults.standard.bool(forKey: PersistenceKey.timerIsPaused)
+            let pausedAtInterval = UserDefaults.standard.object(forKey: PersistenceKey.timerPausedAt) as? Double
+            workoutPausedAt = wasPaused && pausedAtInterval != nil ? Date(timeIntervalSince1970: pausedAtInterval!) : nil
+            updateWorkoutElapsed()
+            if workoutPausedAt == nil { startWorkoutTimer() }
+            return
+        }
+        // Migration path: legacy UserDefaults JSON (users upgrading from pre-Phase B builds)
         guard let data = UserDefaults.standard.data(forKey: PersistenceKey.activeSession),
               let session = try? JSONDecoder().decode(WorkoutSession.self, from: data),
               session.endTime == nil else {
@@ -268,10 +280,11 @@ final class CurrentWorkoutSessionViewModel {
         let wasPaused = UserDefaults.standard.bool(forKey: PersistenceKey.timerIsPaused)
         let pausedAtInterval = UserDefaults.standard.object(forKey: PersistenceKey.timerPausedAt) as? Double
         workoutPausedAt = wasPaused && pausedAtInterval != nil ? Date(timeIntervalSince1970: pausedAtInterval!) : nil
+        // Immediately promote the legacy session into SwiftData so subsequent saves use the new path
+        dataManager.sessionStore.upsertActiveSession(session)
+        UserDefaults.standard.removeObject(forKey: PersistenceKey.activeSession)
         updateWorkoutElapsed()
-        if workoutPausedAt == nil {
-            startWorkoutTimer()
-        }
+        if workoutPausedAt == nil { startWorkoutTimer() }
     }
 
     /// Sync the current session's workout and exercise logs with an updated workout definition.
@@ -540,6 +553,34 @@ final class CurrentWorkoutSessionViewModel {
         saveActiveSession()
     }
 
+    /// Swap the exercise at the given log index with a new exercise (mid-session swap).
+    /// Preserves already-logged sets and slot context.
+    func swapExercise(atIndex exerciseIndex: Int, to exercise: Exercise) {
+        guard var session = currentSession, exerciseIndex < session.exerciseLogs.count else { return }
+        let snap = ExerciseSnapshot(from: exercise)
+        let workoutExerciseId = session.exerciseLogs[exerciseIndex].workoutExercise.id
+
+        // Update workout exercises snapshot
+        if let wi = session.workout.exercises.firstIndex(where: { $0.id == workoutExerciseId }) {
+            let oldId = session.workout.exercises[wi].exerciseId
+            var we = session.workout.exercises[wi]
+            if let oid = oldId, oid != snap.exerciseId {
+                session.activeExerciseIds.removeAll { $0 == oid }
+                session.completedExerciseIds.removeAll { $0 == oid }
+            }
+            we.resolution = .concrete(snap)
+            session.workout.exercises[wi] = we
+        }
+        // Update exercise log's workoutExercise (keep logged sets)
+        var we = session.exerciseLogs[exerciseIndex].workoutExercise
+        we.resolution = .concrete(snap)
+        session.exerciseLogs[exerciseIndex].workoutExercise = we
+
+        currentSession = session
+        recordWorkoutActivity()
+        saveActiveSession()
+    }
+
     /// Log another set identical to the last one for this exercise (quick repeat).
     func repeatLastSet(exerciseIndex: Int) {
         guard let session = currentSession, exerciseIndex < session.exerciseLogs.count else { return }
@@ -589,19 +630,13 @@ final class CurrentWorkoutSessionViewModel {
             dropSegments: dropSegments,
             rpe: rpe
         )
-        let priorCurrentSets = session.exerciseLogs[exerciseIndex].loggedSets
-        let priorHistoricalSets: [LoggedSet] = dataManager.completedSessions
-            .flatMap(\.exerciseLogs)
-            .filter { $0.workoutExercise.exerciseId == exId }
-            .flatMap(\.loggedSets)
-        let priorSets = priorCurrentSets + priorHistoricalSets
         let exerciseName = dataManager.displayName(for: session.exerciseLogs[exerciseIndex].workoutExercise)
-        let prEvents = PersonalRecordDetector.detect(
-            newSet: set,
-            priorSets: priorSets,
+        // O(1) PR detection via pre-computed SDPersonalRecordV2 rows — no full-history scan needed.
+        let prEvents = dataManager.prStore.updateIfPR(
+            set: set,
             exerciseId: exId,
             exerciseName: exerciseName,
-            timestamp: set.timestamp
+            sessionId: session.id
         )
         session.exerciseLogs[exerciseIndex].loggedSets.append(set)
         let isAlreadyActive = session.activeExerciseIds.contains(exId)

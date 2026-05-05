@@ -38,6 +38,7 @@ final class DataManager {
     let sessionStore: SessionStore
     let exerciseStore: ExerciseStore
     let programStore: TrainingProgramStore
+    let prStore: PersonalRecordStore
     let healthSyncService: HealthKitSyncService
     let dataTransferService: DataTransferServiceClient
     var healthSyncEnabled: Bool = false
@@ -55,6 +56,7 @@ final class DataManager {
         self.sessionStore = SessionStore(modelContext: ctx)
         self.exerciseStore = ExerciseStore(modelContext: ctx)
         self.programStore = TrainingProgramStore(modelContext: ctx)
+        self.prStore = PersonalRecordStore(modelContext: ctx)
         self.healthSyncService = HealthKitSyncService()
         self.dataTransferService = DataTransferServiceClient(dataManagerProvider: { nil })
         loadAll()
