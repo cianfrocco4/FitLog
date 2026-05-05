@@ -2,7 +2,9 @@
 //  WorkoutStore.swift
 //  FitLog
 //
-//  Workout and template CRUD, extracted from DataManager.
+//  Workout and template CRUD. Now reads/writes V2 @Model rows and converts
+//  with toDomain()/SDWorkoutV2.from(_:sortOrder:), exposing the same
+//  [Workout] / [WorkoutTemplate] API used by DataManager.
 //
 
 import Foundation
@@ -18,54 +20,42 @@ final class WorkoutStore {
     // MARK: - Workouts
 
     func loadWorkouts() -> [Workout] {
-        let descriptor = FetchDescriptor<SDWorkout>(sortBy: [SortDescriptor(\.sortOrder)])
+        let descriptor = FetchDescriptor<SDWorkoutV2>(sortBy: [SortDescriptor(\.sortOrder)])
         guard let sdWorkouts = try? modelContext.fetch(descriptor) else { return [] }
         #if DEBUG
-        print("[SwiftData] Loaded \(sdWorkouts.count) workouts")
+        print("[SwiftData V2] Loaded \(sdWorkouts.count) workouts")
         #endif
-        return sdWorkouts.map { $0.toStruct() }
+        return sdWorkouts.map { $0.toDomain() }
     }
 
     @discardableResult
     func saveWorkouts(_ workouts: [Workout]) -> Bool {
         do {
-            try modelContext.delete(model: SDWorkout.self)
+            try modelContext.delete(model: SDWorkoutV2.self)
             for (i, w) in workouts.enumerated() {
-                modelContext.insert(SDWorkout.from(w, sortOrder: i))
+                modelContext.insert(SDWorkoutV2.from(w, sortOrder: i))
             }
             try modelContext.save()
             return true
         } catch {
             #if DEBUG
-            print("[SwiftData] Save workouts failed: \(error.localizedDescription)")
+            print("[SwiftData V2] Save workouts failed: \(error.localizedDescription)")
             #endif
             return false
         }
     }
 
-    // MARK: - Slot templates
+    // MARK: - Slot templates (legacy compatibility layer)
 
     func loadWorkoutTemplates() -> [WorkoutTemplate] {
-        let descriptor = FetchDescriptor<SDWorkoutTemplate>()
-        guard let sdTemplates = try? modelContext.fetch(descriptor) else { return [] }
-        #if DEBUG
-        print("[SwiftData] Loaded \(sdTemplates.count) slot templates")
-        #endif
-        return sdTemplates.map { $0.toStruct() }
+        // V2 stores all templates as library workouts (SDWorkoutV2 with flexible rows).
+        // Return an empty array; callers that relied on SDWorkoutTemplate are already
+        // migrated by WorkoutMigrationService before V2 is engaged.
+        []
     }
 
     func saveWorkoutTemplates(_ templates: [WorkoutTemplate]) {
-        do {
-            try modelContext.delete(model: SDWorkoutTemplate.self)
-            for (i, t) in templates.enumerated() {
-                modelContext.insert(SDWorkoutTemplate.from(t, sortOrder: i))
-            }
-            try modelContext.save()
-        } catch {
-            #if DEBUG
-            print("[SwiftData] Save slot templates failed: \(error.localizedDescription)")
-            #endif
-        }
+        // No-op in V2 — templates are represented as flexible library workouts.
     }
 
     // MARK: - Helpers

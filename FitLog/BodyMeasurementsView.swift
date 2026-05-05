@@ -6,7 +6,7 @@
 import SwiftUI
 
 struct BodyMeasurementsView: View {
-    @EnvironmentObject private var dataVM: DataManager
+    @Environment(DataManager.self) private var dataVM
     @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var showEditor = false

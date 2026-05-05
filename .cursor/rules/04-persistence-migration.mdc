@@ -1,0 +1,18 @@
+---
+description: SwiftData persistence & critical migration rules
+globs: ["**/*.swift"]
+alwaysApply: true
+---
+
+## DATA PERSISTENCE & MIGRATION (CRITICAL — USER DATA PROTECTION)
+- Use SwiftData as the primary persistence layer.
+- **It is extremely important to migrate user data on every data model change.** Users must NEVER lose their data when updating to newer versions of the app.
+- When modifying any @Model:
+  - Always create a new schema version (e.g. Schema v2, v3, etc.).
+  - Implement lightweight migration when possible.
+  - For complex changes, define a custom MigrationPlan that explicitly maps old → new models, handles renames, default values, deletions, etc.
+  - Update the ModelContainer configuration to include the migration plan.
+  - Test the full migration path thoroughly before shipping.
+- Never rely solely on implicit migration for production apps.
+- Use @Model with proper relationships, unique constraints, and delete rules.
+- All persistence operations must use async/await and be properly MainActor-isolated when updating UI.

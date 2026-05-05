@@ -17,7 +17,7 @@ struct OnboardingFlowView: View {
     /// Called when onboarding ends (including Skip). Use to deep-link into Coach or New Workout.
     var onPostOnboarding: ((PostOnboardingRoutineAction) -> Void)?
 
-    @EnvironmentObject private var dataVM: DataManager
+    @Environment(DataManager.self) private var dataVM
     @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var page = 0

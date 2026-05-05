@@ -1,0 +1,28 @@
+---
+description: Project architecture & folder structure
+globs: ["**/*.swift"]
+alwaysApply: true
+---
+
+## PROJECT STRUCTURE (Strictly Enforced)
+Organize code exactly like this:
+
+Sources/
+├── App/                  # @main App, Scene, environment setup
+├── Features/             # One folder per feature
+│   └── {FeatureName}/
+│       ├── Views/
+│       ├── ViewModels/
+│       └── Models/
+├── Shared/
+│   ├── Components/
+│   ├── Modifiers/
+│   └── Styles/
+├── Models/               # Domain models
+├── Services/             # Network/, Persistence/, etc.
+└── Core/
+    ├── Extensions/
+    ├── Utilities/
+    └── Constants/
+
+Use feature-first modular design. Keep files focused and small.

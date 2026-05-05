@@ -19,8 +19,8 @@ enum NewWorkoutLaunchHint: String {
 }
 
 struct NewWorkoutSheet: View {
-    @EnvironmentObject var dataVM: DataManager
-    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(DataManager.self) var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var aiService: AIService
     @Environment(\.dismiss) var dismiss
 
@@ -39,11 +39,12 @@ struct NewWorkoutSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        @Bindable var dm = dataVM
+        return NavigationStack {
             Group {
-                if let id = createdWorkoutId, let binding = $dataVM.userWorkouts[id] {
+                if let id = createdWorkoutId, let binding = $dm.userWorkouts[id] {
                     WorkoutPlanView(workout: binding, creationFlowOnDone: { dismiss() }, currentVM: currentVM)
-                        .environmentObject(dataVM)
+                        .environment(dataVM)
                         .environmentObject(aiService)
                 } else if let pending = pendingStarterReview {
                     starterReviewView(pending)

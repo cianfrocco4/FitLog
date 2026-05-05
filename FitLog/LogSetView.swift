@@ -29,7 +29,7 @@ struct LogSetView: View {
     /// Passed in instead of `@EnvironmentObject` so rest/workout timers on the session VM do not
     /// re-render this sheet every second (which could re-run `onAppear` and wipe weight while typing).
     let sessionVM: CurrentWorkoutSessionViewModel
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(DataManager.self) var dataVM
     @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.dismiss) var dismiss
 

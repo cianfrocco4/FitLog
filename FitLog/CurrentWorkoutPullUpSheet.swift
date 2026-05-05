@@ -29,8 +29,8 @@ private struct ResolveSlotExerciseSheet: View {
     let workoutExerciseId: UUID
     let templateSlotId: UUID?
     var isSwapExercise: Bool = false
-    @EnvironmentObject var dataVM: DataManager
-    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(DataManager.self) var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
 
@@ -420,8 +420,8 @@ private struct PlateCalculatorInlinePick: Identifiable {
 }
 
 struct CurrentWorkoutPullUpSheet: View {
-    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
+    @Environment(DataManager.self) var dataVM
     @EnvironmentObject var aiService: AIService
     @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.dismiss) var dismiss
@@ -847,7 +847,7 @@ struct CurrentWorkoutPullUpSheet: View {
                     prefillReps: selection.prefillReps,
                     prefillBodyweightMode: selection.prefillBodyweightMode
                 )
-                .environmentObject(dataVM)
+                .environment(dataVM)
                 .environmentObject(userPreferences)
             }
             .sheet(item: $resolveSlotSelection) { sel in
@@ -857,8 +857,8 @@ struct CurrentWorkoutPullUpSheet: View {
                         templateSlotId: sel.templateSlotId,
                         isSwapExercise: sel.isSwapExercise
                     )
-                    .environmentObject(dataVM)
-                    .environmentObject(currentVM)
+                    .environment(dataVM)
+                    .environment(currentVM)
                 }
             }
             .sheet(isPresented: $showQuickAddExercise) {
@@ -881,14 +881,14 @@ struct CurrentWorkoutPullUpSheet: View {
             .sheet(isPresented: $showFullAddExercise) {
                 if let w = activeSessionWorkout {
                     AddExerciseSheet(workout: w, currentVM: currentVM)
-                        .environmentObject(dataVM)
+                        .environment(dataVM)
                         .environmentObject(aiService)
                 }
             }
             .sheet(isPresented: $showExerciseReorderSheet) {
                 ExerciseReorderSheet()
-                    .environmentObject(currentVM)
-                    .environmentObject(dataVM)
+                    .environment(currentVM)
+                    .environment(dataVM)
             }
             .sheet(item: $plateCalculatorInlinePick) { pick in
                 let suggest = {

@@ -2,7 +2,7 @@
 //  ExerciseStore.swift
 //  FitLog
 //
-//  Exercise library and display name management, extracted from DataManager.
+//  Exercise library and display name management. Reads/writes SDExerciseV2 rows.
 //
 
 import Foundation
@@ -18,24 +18,24 @@ final class ExerciseStore {
     // MARK: - Load / save
 
     func loadExercises() -> [Exercise] {
-        let descriptor = FetchDescriptor<SDExercise>()
-        guard let sdExercises = try? modelContext.fetch(descriptor) else { return [] }
+        let descriptor = FetchDescriptor<SDExerciseV2>()
+        guard let rows = try? modelContext.fetch(descriptor) else { return [] }
         #if DEBUG
-        print("[SwiftData] Loaded \(sdExercises.count) exercises")
+        print("[SwiftData V2] Loaded \(rows.count) exercises")
         #endif
-        return sdExercises.map { $0.toStruct() }
+        return rows.map { $0.toDomain() }
     }
 
     func saveExercises(_ exercises: [Exercise]) {
         do {
-            try modelContext.delete(model: SDExercise.self)
+            try modelContext.delete(model: SDExerciseV2.self)
             for ex in exercises {
-                modelContext.insert(SDExercise.from(ex))
+                modelContext.insert(SDExerciseV2.from(ex))
             }
             try modelContext.save()
         } catch {
             #if DEBUG
-            print("[SwiftData] Save exercises failed: \(error.localizedDescription)")
+            print("[SwiftData V2] Save exercises failed: \(error.localizedDescription)")
             #endif
         }
     }
@@ -43,7 +43,7 @@ final class ExerciseStore {
     // MARK: - Display names
 
     func loadDisplayNames() -> [UUID: String] {
-        let descriptor = FetchDescriptor<SDExerciseDisplayName>()
+        let descriptor = FetchDescriptor<SDExerciseDisplayNameV2>()
         guard let records = try? modelContext.fetch(descriptor) else { return [:] }
         var out: [UUID: String] = [:]
         for r in records {
@@ -55,16 +55,16 @@ final class ExerciseStore {
 
     func saveDisplayNames(_ names: [UUID: String]) {
         do {
-            try modelContext.delete(model: SDExerciseDisplayName.self)
+            try modelContext.delete(model: SDExerciseDisplayNameV2.self)
             for (id, name) in names {
                 let t = name.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !t.isEmpty else { continue }
-                modelContext.insert(SDExerciseDisplayName(exerciseId: id, customName: t))
+                modelContext.insert(SDExerciseDisplayNameV2(exerciseId: id, customName: t))
             }
             try modelContext.save()
         } catch {
             #if DEBUG
-            print("[SwiftData] Save display names failed: \(error.localizedDescription)")
+            print("[SwiftData V2] Save display names failed: \(error.localizedDescription)")
             #endif
         }
     }

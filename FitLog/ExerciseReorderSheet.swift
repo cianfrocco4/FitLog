@@ -9,8 +9,8 @@
 import SwiftUI
 
 struct ExerciseReorderSheet: View {
-    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
+    @Environment(DataManager.self) var dataVM
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {

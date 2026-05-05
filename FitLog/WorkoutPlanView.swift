@@ -50,7 +50,7 @@ struct WorkoutPlanView: View {
     var creationFlowOnDone: (() -> Void)? = nil
     /// Passed in so this view does not observe timer-driven `@Published` updates from the session VM (avoids flicker in static content like muscle summaries).
     let currentVM: CurrentWorkoutSessionViewModel
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(DataManager.self) var dataVM
     @EnvironmentObject var aiService: AIService
     @Environment(\.openPullUpToExerciseLogIndex) private var openPullUpToExerciseLogIndex
     @Environment(\.undoManager) private var undoManager
@@ -183,11 +183,11 @@ struct WorkoutPlanView: View {
                     currentVM: currentVM,
                     presentation: $addExercisePresentation
                 )
-                .environmentObject(dataVM)
+                .environment(dataVM)
                 .environmentObject(aiService)
             case .fullAdd(let prefillId):
                 AddExerciseSheet(workout: workout, currentVM: currentVM, presetExerciseId: prefillId)
-                    .environmentObject(dataVM)
+                    .environment(dataVM)
                     .environmentObject(aiService)
             }
         }
@@ -201,7 +201,7 @@ struct WorkoutPlanView: View {
         .workoutReplaceConflictConfirmation(currentVM: currentVM, pending: $pendingWorkoutReplace)
         .navigationDestination(item: $openSlotEditorNavigation) { nav in
             FlexibleSlotEditorView(workoutId: workout.id, slotId: nav.id, autoFocusLabelOnAppear: true)
-                .environmentObject(dataVM)
+                .environment(dataVM)
                 .onDisappear {
                     if openSlotEditorNavigation?.id == nav.id {
                         openSlotEditorNavigation = nil
@@ -216,7 +216,7 @@ struct WorkoutPlanView: View {
                 workoutId: workout.id,
                 currentVM: currentVM
             )
-            .environmentObject(dataVM)
+            .environment(dataVM)
             .environmentObject(aiService)
         }
     }
@@ -456,7 +456,7 @@ struct WorkoutPlanView: View {
         if case .flexible = we.resolution, let slotId = we.templateSlotId {
             NavigationLink {
                 FlexibleSlotEditorView(workoutId: workout.id, slotId: slotId)
-                    .environmentObject(dataVM)
+                    .environment(dataVM)
             } label: {
                 flexibleRowLabel(we, progression: progression)
             }
@@ -631,6 +631,7 @@ struct WorkoutPlanView: View {
 }
 
 // MARK: - Structure / balance helpers
+@MainActor
 private func workoutStructureGapHints(for workout: Workout, dataVM: DataManager) -> [String] {
     guard !workout.exercises.isEmpty else { return [] }
     var hints: [String] = []
@@ -665,6 +666,7 @@ private func workoutStructureGapHints(for workout: Workout, dataVM: DataManager)
 }
 
 // MARK: - Heuristic fallback suggestions
+@MainActor
 private func heuristicImprovementSuggestions(for workout: Workout, dataVM: DataManager) -> [String] {
     guard !workout.exercises.isEmpty else {
         return ["Add 4–6 compound and accessory movements that cover all major muscle groups you want to train."]
@@ -683,7 +685,7 @@ private struct ExercisePickerView: View {
     /// When set, choosing a row invokes this instead of updating `selection` (e.g. one-tap add flow).
     var onExerciseChosen: ((Exercise) -> Void)? = nil
     var navigationTitleText: String = "Select Exercise"
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(DataManager.self) var dataVM
     @Environment(\.dismiss) var dismiss
     @State private var searchText = ""
     @State private var favoriteIds: Set<UUID> = []
@@ -825,7 +827,7 @@ private struct PlanQuickAddExerciseSheet: View {
     let workoutId: UUID
     let currentVM: CurrentWorkoutSessionViewModel
     @Binding var presentation: AddExerciseSheetMode?
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(DataManager.self) var dataVM
     @EnvironmentObject var aiService: AIService
     @Environment(\.dismiss) private var dismiss
 
@@ -844,7 +846,7 @@ private struct PlanQuickAddExerciseSheet: View {
                     },
                     navigationTitleText: "Add exercise"
                 )
-                .environmentObject(dataVM)
+                .environment(dataVM)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Close") {
@@ -874,7 +876,7 @@ private struct PlanQuickAddExerciseSheet: View {
                         exerciseList = dataVM.globalExercises
                         addExerciseQuick(created)
                     })
-                    .environmentObject(dataVM)
+                    .environment(dataVM)
                     .environmentObject(aiService)
                 }
             }
@@ -964,7 +966,7 @@ struct AddExerciseSheet: View {
     let currentVM: CurrentWorkoutSessionViewModel
     /// When non-nil, pre-selects this exercise (e.g. after “Customize” from quick add).
     var presetExerciseId: UUID? = nil
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(DataManager.self) var dataVM
     @EnvironmentObject private var aiService: AIService
     @Environment(\.dismiss) var dismiss
     
@@ -984,7 +986,7 @@ struct AddExerciseSheet: View {
                 Section("Select Exercise") {
                     NavigationLink {
                         ExercisePickerView(exercises: exerciseList, selection: $selectedExercise)
-                            .environmentObject(dataVM)
+                            .environment(dataVM)
                     } label: {
                         HStack {
                             Text("Exercise")
@@ -1130,7 +1132,7 @@ struct AddExerciseSheet: View {
                     exerciseList = dataVM.globalExercises
                     selectedExercise = created
                 })
-                .environmentObject(dataVM)
+                .environment(dataVM)
                 .environmentObject(aiService)
             }
         }
@@ -1142,7 +1144,7 @@ struct AddExerciseSheet: View {
 private struct AISuggestExercisesFillSheet: View {
     let workoutId: UUID
     let currentVM: CurrentWorkoutSessionViewModel
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(DataManager.self) var dataVM
     @EnvironmentObject var aiService: AIService
     @Environment(\.dismiss) private var dismiss
 

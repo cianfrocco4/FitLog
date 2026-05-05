@@ -23,6 +23,7 @@ enum FitLogWidgetSupport {
         var updatedAt: Date
     }
 
+    @MainActor
     static func writeSnapshot(from dataVM: DataManager) {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
         let cal = Calendar.current

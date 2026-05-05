@@ -6,7 +6,7 @@
 import SwiftUI
 
 struct WorkoutReplaceConflictConfirmation: ViewModifier {
-    @ObservedObject var currentVM: CurrentWorkoutSessionViewModel
+    let currentVM: CurrentWorkoutSessionViewModel
     @Binding var pending: PendingWorkoutReplace?
     /// Called after the user confirms and the new workout has started (e.g. dismiss a sheet).
     var onAfterReplace: (() -> Void)?

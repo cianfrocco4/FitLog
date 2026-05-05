@@ -9,8 +9,8 @@
 import SwiftUI
 
 struct SplitBuilderView: View {
-    @EnvironmentObject private var dataVM: DataManager
-    @EnvironmentObject private var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(DataManager.self) private var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
     @EnvironmentObject private var aiService: AIService
     @Environment(\.dismiss) private var dismiss
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
@@ -65,15 +65,15 @@ struct SplitBuilderView: View {
                 switch path {
                 case .ai:
                     AISplitBuilderView()
-                        .environmentObject(dataVM)
-                        .environmentObject(currentVM)
+                        .environment(dataVM)
+                        .environment(currentVM)
                         .environmentObject(aiService)
                         .environment(\.fitlogRootTabSelection, rootTabSelection)
                         .environment(\.fitlogAISplitCoachPrefill, coachPrefill)
                         .toolbar(.hidden, for: .navigationBar)
                 case .manual:
                     ManualSplitBuilderView()
-                        .environmentObject(dataVM)
+                        .environment(dataVM)
                         .environment(\.fitlogRootTabSelection, rootTabSelection)
                         .toolbar(.hidden, for: .navigationBar)
                 }

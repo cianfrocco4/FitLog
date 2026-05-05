@@ -34,7 +34,7 @@ private enum HistorySessionOriginFilter: String, CaseIterable, Identifiable {
         }
     }
 
-    func includes(_ session: WorkoutSession, dataVM: DataManager) -> Bool {
+    @MainActor func includes(_ session: WorkoutSession, dataVM: DataManager) -> Bool {
         switch self {
         case .all: return true
         case .fixedRoutine:
@@ -183,6 +183,7 @@ private func completedSessionIsSameCalendarDay(_ session: WorkoutSession, as ref
     return calendar.isDate(end, inSameDayAs: reference)
 }
 
+@MainActor
 private func startAgainFromCompletedSession(
     _ session: WorkoutSession,
     currentVM: CurrentWorkoutSessionViewModel,
@@ -198,8 +199,8 @@ private func startAgainFromCompletedSession(
 }
 
 struct HistoryView: View {
-    @EnvironmentObject var dataVM: DataManager
-    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(DataManager.self) var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
     @Environment(\.undoManager) private var undoManager
@@ -1121,8 +1122,8 @@ struct HistoryView: View {
             } else {
                 ForEach(filteredSessions) { session in
                     NavigationLink(destination: SessionDetailView(session: session)
-                        .environmentObject(dataVM)
-                        .environmentObject(currentVM)
+                        .environment(dataVM)
+                        .environment(currentVM)
                     ) {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
@@ -1184,8 +1185,8 @@ struct HistoryView: View {
                     let name = sessions.first?.workout.name ?? "Unknown"
                     let last = sessions.map(\.endTime).compactMap { $0 }.max()
                     NavigationLink(destination: WorkoutHistoryDetailView(workoutId: workoutId, workoutName: name)
-                        .environmentObject(dataVM)
-                        .environmentObject(currentVM)
+                        .environment(dataVM)
+                        .environment(currentVM)
                     ) {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
@@ -1227,7 +1228,7 @@ struct HistoryView: View {
                         rangeSessions: filteredSessions,
                         originFilteredAllSessions: originFilteredAllSessionsSorted
                     )
-                        .environmentObject(dataVM)
+                        .environment(dataVM)
                         .environmentObject(userPreferences)) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(dataVM.resolvedDisplayName(for: stat.sampleExercise))
@@ -1266,7 +1267,7 @@ struct HistoryView: View {
             } else {
                 ForEach(stats.sorted(by: { $0.sessions > $1.sessions }), id: \.name) { stat in
                     NavigationLink(destination: MuscleGroupHistoryDetailView(muscleGroupName: stat.name, sessions: filteredSessions)
-                        .environmentObject(dataVM)
+                        .environment(dataVM)
                         .environmentObject(userPreferences)) {
                         HStack {
                             Text(stat.name)
@@ -1396,6 +1397,7 @@ private func historyRpeLabel(_ rpe: Double) -> String {
     return String(format: "RPE %.1f", rpe)
 }
 
+@MainActor
 fileprivate func fitlogDeleteCompletedSessionWithUndo(
     _ session: WorkoutSession,
     dataVM: DataManager,
@@ -1413,8 +1415,8 @@ fileprivate func fitlogDeleteCompletedSessionWithUndo(
 
 // MARK: - Session detail (single workout session: exercises + logged sets)
 private struct SessionDetailView: View {
-    @EnvironmentObject var dataVM: DataManager
-    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(DataManager.self) var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
@@ -1601,8 +1603,8 @@ private struct SessionDetailView: View {
 
 // MARK: - Workout history (list of sessions for one workout)
 private struct WorkoutHistoryDetailView: View {
-    @EnvironmentObject var dataVM: DataManager
-    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(DataManager.self) var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
     @Environment(\.undoManager) private var undoManager
     @State private var pendingStartAgainReplace: PendingWorkoutReplace?
@@ -1676,8 +1678,8 @@ private struct WorkoutHistoryDetailView: View {
             }
             ForEach(sortedSessions) { session in
                 NavigationLink(destination: SessionDetailView(session: session)
-                    .environmentObject(dataVM)
-                    .environmentObject(currentVM)
+                    .environment(dataVM)
+                    .environment(currentVM)
                 ) {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
@@ -1757,7 +1759,7 @@ private enum ExerciseHistoryDataScope: String, CaseIterable {
 
 // MARK: - Exercise history (each session where exercise was done + logged sets)
 private struct ExerciseHistoryDetailView: View {
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(DataManager.self) var dataVM
     @EnvironmentObject var userPreferences: UserPreferences
     let exerciseId: UUID
     let rangeSessions: [WorkoutSession]
@@ -2023,7 +2025,7 @@ private struct ExerciseHistoryDetailView: View {
 
 // MARK: - Muscle group history (sessions + exercises that targeted this muscle + sets)
 private struct MuscleGroupHistoryDetailView: View {
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(DataManager.self) var dataVM
     @EnvironmentObject var userPreferences: UserPreferences
     let muscleGroupName: String
     let sessions: [WorkoutSession]

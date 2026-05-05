@@ -25,22 +25,37 @@ private enum PersistenceKey {
     static let timerPausedAt = "activeWorkoutTimerPausedAt"
 }
 
-final class CurrentWorkoutSessionViewModel: ObservableObject {
-    /// Set from the app root so completed workouts persist through `DataManager` (backups + in-memory list stay in sync).
-    weak var dataManager: DataManager?
+/// Isolated 1 Hz clock so timer-display views observe only elapsed seconds
+/// without subscribing to the full session view-model.
+@Observable @MainActor
+final class WorkoutTimerClock {
+    var elapsedSeconds: Int = 0
+}
 
-    @Published var currentSession: WorkoutSession?
-    @Published var remainingRestTime: Int = 0
-    /// Elapsed workout time in seconds (excluding paused time). Updates every second when running.
-    @Published var workoutElapsedSeconds: Int = 0
+@Observable @MainActor
+final class CurrentWorkoutSessionViewModel {
+    /// Injected at init; non-optional because the session VM requires it to persist sessions.
+    var dataManager: DataManager
+
+    var currentSession: WorkoutSession?
+    var remainingRestTime: Int = 0
     /// Set to true when a rest countdown naturally reaches zero (not when cancelled).
-    @Published var showRestCompleteAlert: Bool = false
+    var showRestCompleteAlert: Bool = false
     /// Cleared when consumed by `CurrentWorkoutPullUpSheet` on appear.
-    @Published var pendingPullUpFocus: PendingPullUpFocus?
+    var pendingPullUpFocus: PendingPullUpFocus?
     /// Set when a new personal record is detected while logging a set.
-    @Published var recentPersonalRecordEvent: PersonalRecordEvent?
+    var recentPersonalRecordEvent: PersonalRecordEvent?
     /// Populated when a workout is finished; consume to show the completion summary sheet.
-    @Published var pendingWorkoutCompletionSummary: WorkoutCompletionSummary?
+    var pendingWorkoutCompletionSummary: WorkoutCompletionSummary?
+
+    /// Granular timer clock — views that only need elapsed time observe this instead of the full VM.
+    let clock = WorkoutTimerClock()
+
+    /// Elapsed workout time in seconds (excluding paused time). Forwards to the clock.
+    var workoutElapsedSeconds: Int {
+        get { clock.elapsedSeconds }
+        set { clock.elapsedSeconds = newValue }
+    }
     
     private var restTimer: Timer?
     private var workoutTimer: Timer?
@@ -67,7 +82,8 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         currentSession?.activeExerciseIds.first
     }
     
-    init() {
+    init(dataManager: DataManager) {
+        self.dataManager = dataManager
         restoreActiveSessionIfNeeded()
     }
     
@@ -110,20 +126,14 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         session.endTime = Date()
 
         let summary: WorkoutCompletionSummary? = showCompletionSummary
-            ? dataManager?.buildWorkoutCompletionSummary(
+            ? dataManager.buildWorkoutCompletionSummary(
                 session: session,
                 activeElapsedSeconds: workoutElapsedSeconds
             )
             : nil
 
-        if let dm = dataManager {
-            dm.appendCompletedSession(session)
-            dm.syncSessionToHealthIfEnabled(session)
-        } else {
-            #if DEBUG
-            print("[CurrentWorkoutSessionVM] Warning: dataManager is nil, session not persisted")
-            #endif
-        }
+        dataManager.appendCompletedSession(session)
+        dataManager.syncSessionToHealthIfEnabled(session)
 
         workoutTimer?.invalidate()
         workoutTimer = nil
@@ -136,15 +146,13 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         pendingWorkoutCompletionSummary = summary
     }
 
-    /// Ensures each concrete exercise row has an `ExerciseSnapshot` so history and analytics can resolve it after save.
     private func normalizeConcreteSnapshotsOnExerciseLogs(_ logs: inout [ExerciseLog]) {
-        guard let dm = dataManager else { return }
         for i in logs.indices {
             var we = logs[i].workoutExercise
             guard !we.isSlotPlaceholder else { continue }
             if we.snapshot != nil { continue }
             guard let eid = we.exerciseId,
-                  let ex = dm.globalExercises.first(where: { $0.id == eid })
+                  let ex = dataManager.globalExercises.first(where: { $0.id == eid })
             else { continue }
             we.resolution = .concrete(ExerciseSnapshot(from: ex))
             logs[i].workoutExercise = we
@@ -214,14 +222,14 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     }
     
     private func updateWorkoutElapsed() {
-        workoutElapsedSeconds = computedElapsedSeconds()
+        clock.elapsedSeconds = computedElapsedSeconds()
     }
-    
+
     private func startWorkoutTimer() {
         guard currentSession != nil, workoutPausedAt == nil else { return }
         workoutTimer?.invalidate()
         workoutTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.updateWorkoutElapsed()
+            Task { @MainActor [weak self] in self?.updateWorkoutElapsed() }
         }
         RunLoop.main.add(workoutTimer!, forMode: .common)
     }
@@ -333,12 +341,11 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
     func appendSlotToFlexibleLibrarySession() {
         guard var session = currentSession,
               case .workout(let libraryId) = session.sessionPlanOrigin,
-              let dm = dataManager,
-              let lib = dm.workout(id: libraryId),
+              let lib = dataManager.workout(id: libraryId),
               lib.hasFlexibleSlots
         else { return }
 
-        let n = dm.flexibleSlots(from: lib).count + 1
+        let n = dataManager.flexibleSlots(from: lib).count + 1
         let newSlot = TemplateSlot(
             label: "Slot \(n)",
             targetedMuscles: [.chest],
@@ -349,7 +356,7 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             recommendedSets: 3,
             recommendedReps: "8-12"
         )
-        dm.appendFlexibleSlot(toWorkoutId: libraryId, slot: newSlot)
+        dataManager.appendFlexibleSlot(toWorkoutId: libraryId, slot: newSlot)
 
         let weId = UUID()
         let we = WorkoutExercise(
@@ -375,17 +382,17 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         let rowId = session.exerciseLogs[exerciseLogIndex].workoutExercise.id
         let workout = session.workout
 
-        if let dm = dataManager, dm.userWorkouts.contains(where: { $0.id == workout.id }) {
-            guard let snap = dm.deleteExerciseReturningSnapshot(from: workout, exerciseId: rowId) else { return }
-            if let updated = dm.userWorkouts.first(where: { $0.id == workout.id }) {
+        if dataManager.userWorkouts.contains(where: { $0.id == workout.id }) {
+            guard let snap = dataManager.deleteExerciseReturningSnapshot(from: workout, exerciseId: rowId) else { return }
+            if let updated = dataManager.userWorkouts.first(where: { $0.id == workout.id }) {
                 syncExercises(withUpdatedWorkout: updated)
             }
             recordWorkoutActivity()
             if let um = undoManager {
-                um.registerUndo(withTarget: um) { [weak self, weak dm] _ in
-                    guard let self, let dm else { return }
-                    dm.restoreWorkoutExercise(snap)
-                    if let w = dm.userWorkouts.first(where: { $0.id == snap.workoutId }) {
+                um.registerUndo(withTarget: um) { [weak self] _ in
+                    guard let self else { return }
+                    self.dataManager.restoreWorkoutExercise(snap)
+                    if let w = self.dataManager.userWorkouts.first(where: { $0.id == snap.workoutId }) {
                         self.syncExercises(withUpdatedWorkout: w)
                     }
                     self.recordWorkoutActivity()
@@ -398,10 +405,9 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         let we = session.exerciseLogs[exerciseLogIndex].workoutExercise
         if case .workout(let libraryId) = session.sessionPlanOrigin,
            let slotId = session.workout.templateSlotIdByWorkoutExerciseId[rowId],
-           let dm = dataManager,
-           let lib = dm.workout(id: libraryId),
+           let lib = dataManager.workout(id: libraryId),
            lib.hasFlexibleSlots {
-            dm.removeFlexibleSlot(fromWorkoutId: libraryId, slotId: slotId)
+            dataManager.removeFlexibleSlot(fromWorkoutId: libraryId, slotId: slotId)
         }
 
         if let exId = we.exerciseId {
@@ -428,9 +434,9 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
         let safeDestination = min(max(0, destination), rowCount)
 
         let workoutId = session.workout.id
-        if let dm = dataManager, dm.userWorkouts.contains(where: { $0.id == workoutId }) {
-            dm.moveExercise(in: session.workout, from: safeSource, to: safeDestination)
-            if let updated = dm.userWorkouts.first(where: { $0.id == workoutId }) {
+        if dataManager.userWorkouts.contains(where: { $0.id == workoutId }) {
+            dataManager.moveExercise(in: session.workout, from: safeSource, to: safeDestination)
+            if let updated = dataManager.userWorkouts.first(where: { $0.id == workoutId }) {
                 syncExercises(withUpdatedWorkout: updated)
             }
             recordWorkoutActivity()
@@ -521,14 +527,13 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             session.exerciseLogs[li].workoutExercise = we
         }
 
-        if let dm = dataManager,
-           let origin = session.sessionPlanOrigin,
+        if let origin = session.sessionPlanOrigin,
            case .workout(let libraryId) = origin,
-           let lib = dm.workout(id: libraryId), lib.hasFlexibleSlots,
+           let lib = dataManager.workout(id: libraryId), lib.hasFlexibleSlots,
            let slotId = session.workout.templateSlotIdByWorkoutExerciseId[workoutExerciseId],
-           var slot = dm.flexibleSlots(from: lib).first(where: { $0.id == slotId }) {
+           var slot = dataManager.flexibleSlots(from: lib).first(where: { $0.id == slotId }) {
             slot.defaultExerciseId = exercise.id
-            dm.updateFlexibleSlot(workoutId: libraryId, slot: slot)
+            dataManager.updateFlexibleSlot(workoutId: libraryId, slot: slot)
         }
 
         currentSession = session
@@ -585,12 +590,12 @@ final class CurrentWorkoutSessionViewModel: ObservableObject {
             rpe: rpe
         )
         let priorCurrentSets = session.exerciseLogs[exerciseIndex].loggedSets
-        let priorHistoricalSets: [LoggedSet] = (dataManager?.completedSessions ?? [])
+        let priorHistoricalSets: [LoggedSet] = dataManager.completedSessions
             .flatMap(\.exerciseLogs)
             .filter { $0.workoutExercise.exerciseId == exId }
             .flatMap(\.loggedSets)
         let priorSets = priorCurrentSets + priorHistoricalSets
-        let exerciseName = dataManager?.displayName(for: session.exerciseLogs[exerciseIndex].workoutExercise) ?? "Exercise"
+        let exerciseName = dataManager.displayName(for: session.exerciseLogs[exerciseIndex].workoutExercise)
         let prEvents = PersonalRecordDetector.detect(
             newSet: set,
             priorSets: priorSets,

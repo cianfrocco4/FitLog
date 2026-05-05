@@ -112,8 +112,8 @@ final class PassthroughWorkoutBarContainer: UIView {
 
 struct WorkoutBarPassthroughOverlay: UIViewRepresentable {
     @Binding var showPullUp: Bool
-    @ObservedObject var currentVM: CurrentWorkoutSessionViewModel
-    @ObservedObject var dataVM: DataManager
+    let currentVM: CurrentWorkoutSessionViewModel
+    let dataVM: DataManager
 
     func makeUIView(context: Context) -> PassthroughWorkoutBarContainer {
         let v = PassthroughWorkoutBarContainer()
@@ -125,8 +125,8 @@ struct WorkoutBarPassthroughOverlay: UIViewRepresentable {
     func updateUIView(_ uiView: PassthroughWorkoutBarContainer, context: Context) {
         let root = AnyView(
             CurrentWorkoutCollapsedBar(showPullUp: $showPullUp)
-                .environmentObject(dataVM)
-                .environmentObject(currentVM)
+                .environment(dataVM)
+                .environment(currentVM)
         )
         uiView.configure(root: root)
         uiView.setNeedsLayout()

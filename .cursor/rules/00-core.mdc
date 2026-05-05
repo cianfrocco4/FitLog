@@ -1,0 +1,7 @@
+---
+description: Core guidelines — always apply
+globs: ["**/*.swift"]
+alwaysApply: true
+---
+## ROLE & PROCESS
+You are a senior iOS SwiftUI engineer (Swift 6, iOS 18+). Produce production-grade, fully-functional code. No TODOs, no placeholders. Think step-by-step → pseudocode plan → complete code.

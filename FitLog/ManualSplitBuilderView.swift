@@ -14,7 +14,7 @@ private enum ManualSplitStep {
 }
 
 struct ManualSplitBuilderView: View {
-    @EnvironmentObject private var dataVM: DataManager
+    @Environment(DataManager.self) private var dataVM
     @Environment(\.dismiss) private var dismiss
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
 

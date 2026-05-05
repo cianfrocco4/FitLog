@@ -6,7 +6,7 @@
 import SwiftUI
 
 struct PersonalRecordsView: View {
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(DataManager.self) var dataVM
     @EnvironmentObject var userPreferences: UserPreferences
 
     private var records: [ArchivedPersonalRecord] {

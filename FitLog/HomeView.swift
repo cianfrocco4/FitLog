@@ -10,8 +10,8 @@ import Charts
 
 struct HomeView: View {
     @EnvironmentObject var dayMonitor: CalendarDayMonitor
-    @EnvironmentObject var dataVM: DataManager
-    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(DataManager.self) var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var authVM: AuthViewModel
     @EnvironmentObject var aiService: AIService
     @EnvironmentObject var userPreferences: UserPreferences
@@ -212,7 +212,8 @@ struct HomeView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        @Bindable var dm = dataVM
+        return NavigationStack {
             List {
                 Section {
                     if currentVM.isInProgress {
@@ -292,8 +293,8 @@ struct HomeView: View {
                         }
                         NavigationLink {
                             HomeWorkoutLibraryView()
-                                .environmentObject(dataVM)
-                                .environmentObject(currentVM)
+                                .environment(dataVM)
+                                .environment(currentVM)
                                 .environmentObject(aiService)
                         } label: {
                             HStack(spacing: 12) {
@@ -379,7 +380,7 @@ struct HomeView: View {
                         }
                         NavigationLink {
                             ExercisesLibraryView()
-                                .environmentObject(dataVM)
+                                .environment(dataVM)
                         } label: {
                             Label("Exercise library", systemImage: "books.vertical")
                         }
@@ -397,8 +398,8 @@ struct HomeView: View {
             }
             .sheet(isPresented: $showNewWorkout, onDismiss: { newWorkoutLaunchHint = nil }) {
                 NewWorkoutSheet(launchHint: newWorkoutLaunchHint)
-                    .environmentObject(dataVM)
-                    .environmentObject(currentVM)
+                    .environment(dataVM)
+                    .environment(currentVM)
                     .environmentObject(aiService)
             }
             .onReceive(NotificationCenter.default.publisher(for: .fitlogPresentNewWorkout)) { output in
@@ -411,13 +412,13 @@ struct HomeView: View {
             }
             .sheet(isPresented: $showSplitBuilder) {
                 SplitBuilderView()
-                    .environmentObject(dataVM)
-                    .environmentObject(currentVM)
+                    .environment(dataVM)
+                    .environment(currentVM)
                     .environmentObject(aiService)
             }
             .sheet(isPresented: $showNewExercise) {
                 NewExerciseSheet()
-                    .environmentObject(dataVM)
+                    .environment(dataVM)
                     .environmentObject(aiService)
             }
             .alert("Rename Workout", isPresented: Binding(
@@ -435,9 +436,9 @@ struct HomeView: View {
             .navigationDestination(item: $todayPlanDetailRoute) { route in
                 switch route {
                 case .plannedWorkout(let id):
-                    if let binding = $dataVM.userWorkouts[id] {
+                    if let binding = $dm.userWorkouts[id] {
                         WorkoutPlanView(workout: binding, currentVM: currentVM)
-                            .environmentObject(dataVM)
+                            .environment(dataVM)
                             .environmentObject(aiService)
                     } else {
                         Text("Workout not found")
@@ -879,8 +880,8 @@ struct HomeView: View {
 // MARK: - Workout library row (Home + full list)
 
 private struct HomeWorkoutListRow: View {
-    @EnvironmentObject var dataVM: DataManager
-    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(DataManager.self) var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var aiService: AIService
 
     let workout: Workout
@@ -889,11 +890,12 @@ private struct HomeWorkoutListRow: View {
     let onStartLibrary: (Workout) -> Void
 
     var body: some View {
-        Group {
+        @Bindable var dm = dataVM
+        return Group {
             NavigationLink {
-                if let binding = $dataVM.userWorkouts[workout.id] {
+                if let binding = $dm.userWorkouts[workout.id] {
                     WorkoutPlanView(workout: binding, currentVM: currentVM)
-                        .environmentObject(dataVM)
+                        .environment(dataVM)
                         .environmentObject(aiService)
                 } else {
                     Text("Workout not found")
@@ -940,8 +942,8 @@ private struct HomeWorkoutListRow: View {
 // MARK: - Full workout library (pushed from Home when the list is long)
 
 private struct HomeWorkoutLibraryView: View {
-    @EnvironmentObject var dataVM: DataManager
-    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(DataManager.self) var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var aiService: AIService
 
     @State private var workoutSearchText = ""

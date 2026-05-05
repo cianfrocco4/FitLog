@@ -143,8 +143,8 @@ private enum ExerciseSuggestContext: Identifiable {
 // MARK: - View
 
 struct AISplitBuilderView: View {
-    @EnvironmentObject private var dataVM: DataManager
-    @EnvironmentObject private var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(DataManager.self) private var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
     @EnvironmentObject private var aiService: AIService
     @Environment(\.dismiss) private var dismiss
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
@@ -329,7 +329,8 @@ struct AISplitBuilderView: View {
     }
 
     private var navigationRoot: some View {
-        NavigationStack {
+        @Bindable var dm = dataVM
+        return NavigationStack {
             Group {
                 if let p = proposal {
                     previewContent(p)
@@ -345,9 +346,9 @@ struct AISplitBuilderView: View {
                 }
             }
             .navigationDestination(item: $fullEditorWorkoutNav) { item in
-                if let binding = $dataVM.userWorkouts[item.id] {
+                if let binding = $dm.userWorkouts[item.id] {
                     WorkoutPlanView(workout: binding, currentVM: currentVM)
-                        .environmentObject(dataVM)
+                        .environment(dataVM)
                         .environmentObject(aiService)
                 } else {
                     Text("This workout is no longer in your library.")

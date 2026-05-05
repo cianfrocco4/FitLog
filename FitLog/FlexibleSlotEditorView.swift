@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct FlexibleSlotEditorView: View {
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(DataManager.self) var dataVM
     let workoutId: UUID
     let slotId: UUID
     /// When true (e.g. just added open slot), focus the label field after load.
@@ -58,7 +58,7 @@ struct FlexibleSlotEditorView: View {
             }
             .sheet(isPresented: $showExercisePicker) {
                 DefaultExercisePickerSheet(selectedExerciseId: $defaultExerciseId)
-                    .environmentObject(dataVM)
+                    .environment(dataVM)
                     .onDisappear {
                         persistFromState()
                     }
@@ -231,7 +231,7 @@ struct FlexibleSlotEditorView: View {
 }
 
 private struct DefaultExercisePickerSheet: View {
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(DataManager.self) var dataVM
     @Environment(\.dismiss) private var dismiss
     @Binding var selectedExerciseId: UUID?
     @State private var search = ""

@@ -1,0 +1,15 @@
+---
+description: Modern state management rules
+globs: ["**/*.swift"]
+alwaysApply: true
+---
+
+## STATE MANAGEMENT (Observation Framework)
+- Use `@Observable final class` for ViewModels (never ObservableObject or @Published).
+- Pass `let viewModel: MyViewModel` to child views (no @StateObject).
+- Use `@Bindable` for two-way bindings.
+- `@State` only for pure local UI state.
+- `@Environment` for app-wide state.
+- All UI-updating code must be annotated `@MainActor`.
+- Prefer value types (structs) over classes unless identity or reference semantics are required.
+- Use async/await + Task for concurrency.

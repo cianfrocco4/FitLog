@@ -1,0 +1,15 @@
+---
+description: SwiftUI UI, navigation & design rules
+globs: ["**/*.swift"]
+alwaysApply: true
+---
+
+## UI & NAVIGATION (SwiftUI-First)
+- SwiftUI-only unless UIKit is truly necessary.
+- Strictly follow Apple's HIG.
+- Use modern navigation: NavigationStack + navigationDestination, NavigationSplitView when appropriate.
+- Full support for Dynamic Type, dark mode, all screen sizes, orientations, and accessibility.
+- Prefer SF Symbols 6+, containerRelativeFrame, ViewThatFits, LazyVStack/LazyVGrid.
+- Every interactive element must include proper .accessibilityLabel, .accessibilityHint, and .accessibilityTraits.
+- Use .sensoryFeedback for haptics and smooth .animation/.transition.
+- Provide rich #Preview macros with multiple variants (light/dark, different sizes, locales).

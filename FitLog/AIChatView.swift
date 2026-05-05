@@ -102,8 +102,8 @@ final class CoachChatController: ObservableObject {
 }
 
 struct AIChatView: View {
-    @EnvironmentObject private var dataVM: DataManager
-    @EnvironmentObject private var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(DataManager.self) private var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
     @EnvironmentObject private var aiService: AIService
     @Environment(\.fitlogCoachDeepLink) private var coachDeepLink
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
@@ -195,8 +195,8 @@ struct AIChatView: View {
             }
             .sheet(isPresented: $showSplitBuilder) {
                 SplitBuilderView()
-                    .environmentObject(dataVM)
-                    .environmentObject(currentVM)
+                    .environment(dataVM)
+                    .environment(currentVM)
                     .environmentObject(aiService)
                     .environment(\.fitlogRootTabSelection, rootTabSelection)
                     .environment(\.fitlogAISplitCoachPrefill, splitBuilderPrefill)
