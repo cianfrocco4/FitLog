@@ -15,4 +15,6 @@ alwaysApply: true
   - Test the full migration path thoroughly before shipping.
 - Never rely solely on implicit migration for production apps.
 - Use @Model with proper relationships, unique constraints, and delete rules.
+- **`@Relationship` on only one side of each edge:** For a pair linked via `inverse:`, put `@Relationship(..., inverse: \Other.backRef)` on the aggregate / “owns the rule” side (often the to-many collection). The other side must be a **plain** stored property (`var backRef: OtherType?`) with **no** `@Relationship`. Putting `@Relationship` on both sides can produce `loadIssueModelContainer` at runtime. Exception: document any deliberate two-sided pattern if Apple’s sample for your case requires it.
+- When using `VersionedSchema`, open the store with `Schema(versionedSchema: YourLatestSchema.self)` (not `Schema([types])` alone), and keep `ModelContainer` aligned with `SchemaMigrationPlan`.
 - All persistence operations must use async/await and be properly MainActor-isolated when updating UI.

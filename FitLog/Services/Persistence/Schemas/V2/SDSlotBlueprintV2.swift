@@ -18,6 +18,8 @@ final class SDSlotBlueprintV2 {
     var recommendedSets: Int = 3
     var recommendedReps: String = "8-12"
 
+    var exerciseRow: SDWorkoutExerciseRowV2?
+
     init() {}
 
     init(blueprintId: UUID, label: String, targetedMusclesData: Data,

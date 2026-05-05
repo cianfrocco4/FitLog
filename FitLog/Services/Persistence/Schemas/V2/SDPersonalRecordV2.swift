@@ -9,13 +9,6 @@
 import Foundation
 import SwiftData
 
-/// The kind of personal record tracked.
-enum PRKind: String, Codable, CaseIterable {
-    case maxWeight      // Highest single-set weight
-    case estimatedOneRM // Highest Epley-estimated 1RM
-    case maxVolume      // Highest total volume in a single set (weight × reps)
-}
-
 @Model
 final class SDPersonalRecordV2 {
     var prId: UUID = UUID()

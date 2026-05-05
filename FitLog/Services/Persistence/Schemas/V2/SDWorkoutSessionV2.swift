@@ -21,13 +21,9 @@ final class SDWorkoutSessionV2 {
     /// JSON-encoded `WorkoutPlanRef?` — what the plan scheduled for this session.
     var planOriginData: Data?
 
-    /// True when the session has no end time (still in progress).
-    var isActive: Bool { endTime == nil }
-
     @Relationship(deleteRule: .cascade, inverse: \SDExerciseLogV2.session)
     var logs: [SDExerciseLogV2] = []
 
-    @Relationship(deleteRule: .nullify)
     var workout: SDWorkoutV2?
 
     init() {}

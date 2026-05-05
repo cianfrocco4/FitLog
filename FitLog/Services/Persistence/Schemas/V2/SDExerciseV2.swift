@@ -20,6 +20,12 @@ final class SDExerciseV2 {
     @Relationship(deleteRule: .cascade, inverse: \SDExerciseDisplayNameV2.exercise)
     var displayName: SDExerciseDisplayNameV2?
 
+    @Relationship(deleteRule: .nullify, inverse: \SDWorkoutExerciseRowV2.defaultExercise)
+    var rowsWithDefaultExercise: [SDWorkoutExerciseRowV2] = []
+
+    @Relationship(deleteRule: .nullify, inverse: \SDExerciseLogV2.exercise)
+    var exerciseLogs: [SDExerciseLogV2] = []
+
     init() {}
 
     init(

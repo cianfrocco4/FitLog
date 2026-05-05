@@ -7,8 +7,9 @@
 
 import SwiftData
 
+/// Current V2 schema (must be opened with `Schema(versionedSchema: FitLogSchemaV2.self)` when using `SchemaMigrationPlan`).
 enum FitLogSchemaV2: VersionedSchema {
-    static var versionIdentifier: Schema.Version { Schema.Version(2, 0, 0) }
+    static var versionIdentifier: Schema.Version { Schema.Version(2, 0, 1) }
 
     static var models: [any PersistentModel.Type] {
         [

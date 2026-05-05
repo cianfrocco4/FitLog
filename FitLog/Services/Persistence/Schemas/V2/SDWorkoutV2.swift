@@ -17,6 +17,12 @@ final class SDWorkoutV2 {
     @Relationship(deleteRule: .cascade, inverse: \SDWorkoutExerciseRowV2.workout)
     var rows: [SDWorkoutExerciseRowV2] = []
 
+    @Relationship(deleteRule: .nullify, inverse: \SDWorkoutSessionV2.workout)
+    var sessions: [SDWorkoutSessionV2] = []
+
+    @Relationship(deleteRule: .nullify, inverse: \SDProgramCycleEntryV2.referencedWorkout)
+    var programCycleEntries: [SDProgramCycleEntryV2] = []
+
     init() {}
 
     init(workoutId: UUID, name: String, sortOrder: Int) {

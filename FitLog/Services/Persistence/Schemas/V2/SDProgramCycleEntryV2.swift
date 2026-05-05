@@ -14,7 +14,6 @@ final class SDProgramCycleEntryV2 {
 
     var program: SDTrainingProgramV2?
 
-    @Relationship(deleteRule: .nullify)
     var referencedWorkout: SDWorkoutV2?
 
     init() {}

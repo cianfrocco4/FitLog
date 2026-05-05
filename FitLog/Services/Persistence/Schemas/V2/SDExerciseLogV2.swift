@@ -23,7 +23,6 @@ final class SDExerciseLogV2 {
 
     var session: SDWorkoutSessionV2?
 
-    @Relationship(deleteRule: .nullify)
     var exercise: SDExerciseV2?
 
     @Relationship(deleteRule: .cascade, inverse: \SDLoggedSetV2.log)

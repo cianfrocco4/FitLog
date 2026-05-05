@@ -30,21 +30,34 @@ struct FitLogApp: App {
             let appSupport = URL.applicationSupportDirectory
             try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
             let storeURL = appSupport.appending(path: "FitLogData.store")
-            let config = ModelConfiguration(url: storeURL)
+            // Explicit `.none` avoids CloudKit-backed store wiring that can fail schema open on some environments.
+            let config = ModelConfiguration(url: storeURL, cloudKitDatabase: .none)
+            // Must use `Schema(versionedSchema:)` so the store version matches `SchemaMigrationPlan` / `VersionedSchema` (not the default 1.0.0 from `Schema([types])`).
+            let schema = Schema(versionedSchema: FitLogSchemaV2.self)
             container = try ModelContainer(
-                for: Schema(FitLogSchemaV2.models),
+                for: schema,
                 migrationPlan: FitLogMigrationPlan.self,
                 configurations: config
             )
         } catch {
             migError = error
-            // Fallback to an in-memory container so the app can show the recovery sheet.
-            container = (try? ModelContainer(
-                for: Schema(FitLogSchemaV2.models),
-                configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-            )) ?? {
+            // Fallback: in-memory with migration plan, then without (migration graph can still fail open in edge cases).
+            let schema = Schema(versionedSchema: FitLogSchemaV2.self)
+            let memWithPlan = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
+            let memNoPlan = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
+            if let c = try? ModelContainer(
+                for: schema,
+                migrationPlan: FitLogMigrationPlan.self,
+                configurations: memWithPlan
+            ) {
+                container = c
+                migError = nil
+            } else if let c = try? ModelContainer(for: schema, configurations: memNoPlan) {
+                container = c
+                migError = nil
+            } else {
                 fatalError("Cannot create even an in-memory ModelContainer: \(error)")
-            }()
+            }
         }
 
         self.modelContainer = container

@@ -25,13 +25,11 @@ final class SDWorkoutExerciseRowV2 {
 
     var workout: SDWorkoutV2?
 
-    @Relationship(deleteRule: .cascade)
+    @Relationship(deleteRule: .cascade, inverse: \SDSlotBlueprintV2.exerciseRow)
     var slot: SDSlotBlueprintV2?
 
-    @Relationship(deleteRule: .nullify)
     var defaultExercise: SDExerciseV2?
 
-    @Relationship(deleteRule: .nullify)
     var supersetGroup: SDSupersetGroupV2?
 
     init() {}
