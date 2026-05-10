@@ -122,11 +122,19 @@ struct FitLogApp: App {
 
     // MARK: - Recovery actions
 
-    private func restoreFromLatestBackup() {
-        guard let snapshot = FitLogMigrationPlan.readLatestBackup() else { return }
+    /// Restores from `Application Support/Backups/pre_v2_latest.json` (written only during the V1→V2 migration).
+    /// - Returns `true` if a snapshot was found, decoded, and saved; then clears `migrationError`.
+    @discardableResult
+    private func restoreFromLatestBackup() -> Bool {
+        guard let snapshot = FitLogMigrationPlan.readLatestBackup() else { return false }
         let ctx = ModelContext(modelContainer)
-        try? V2MigrationDecoder.decode(snapshot: snapshot, into: ctx)
-        migrationError = nil
+        do {
+            try V2MigrationDecoder.decode(snapshot: snapshot, into: ctx)
+            migrationError = nil
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func resetAndRelaunch() {

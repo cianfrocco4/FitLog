@@ -11,7 +11,8 @@ import SwiftUI
 
 struct FitLogRecoverySheet: View {
     let error: Error
-    let onRestoreLatest: () -> Void
+    /// Return `true` when restore succeeded (caller typically clears the migration error and dismisses this sheet).
+    let onRestoreLatest: () -> Bool
     let onChooseFile: () -> Void
     let onReset: () -> Void
 
@@ -62,7 +63,7 @@ struct FitLogRecoverySheet: View {
             Text("FitLog could not open your data")
                 .font(.title2.bold())
                 .multilineTextAlignment(.center)
-            Text("A database upgrade failed. Your workout history is safe in a backup — restore it below.")
+            Text("A database upgrade failed. “Restore from latest” uses the automatic backup from the last V1 to V2 upgrade (if one exists on this device). Typical restore finishes in a few seconds; if it fails, you’ll see a message below.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -88,9 +89,15 @@ struct FitLogRecoverySheet: View {
         VStack(spacing: 16) {
             // Primary: restore from latest backup
             Button {
-                isRestoring = true
-                restoreError = nil
-                onRestoreLatest()
+                Task { @MainActor in
+                    isRestoring = true
+                    restoreError = nil
+                    let ok = onRestoreLatest()
+                    isRestoring = false
+                    if !ok {
+                        restoreError = "No backup found at Backups/pre_v2_latest.json, or restore failed. Try “Reset and continue” if you only need a fresh install."
+                    }
+                }
             } label: {
                 HStack {
                     if isRestoring {
@@ -151,7 +158,7 @@ struct FitLogRecoverySheet: View {
 #Preview("Recovery Sheet") {
     FitLogRecoverySheet(
         error: FitLogMigrationError.backupNotFound,
-        onRestoreLatest: {},
+        onRestoreLatest: { false },
         onChooseFile: {},
         onReset: {}
     )
@@ -160,7 +167,7 @@ struct FitLogRecoverySheet: View {
 #Preview("Recovery Sheet – Dark") {
     FitLogRecoverySheet(
         error: FitLogMigrationError.decodingFailed("Unexpected null at keyPath exercises[3].id"),
-        onRestoreLatest: {},
+        onRestoreLatest: { false },
         onChooseFile: {},
         onReset: {}
     )
