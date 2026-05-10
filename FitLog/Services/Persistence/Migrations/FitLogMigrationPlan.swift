@@ -4,6 +4,14 @@
 //
 //  Custom SwiftData migration from V1 (JSON-blob @Models) to V2 (normalized graph).
 //
+//  **V2 minor / additive changes:** `FitLogSchemaV2.versionIdentifier` must stay aligned with the
+//  newest store version that has a migration path in `schemas` + `stages`. Adding `@Model` types
+//  or columns at the *same* `versionIdentifier` is handled by SwiftData’s automatic lightweight
+//  migration. To bump the V2 triple (e.g. 2.0.1 → 2.1.0), add a frozen prior `VersionedSchema` plus
+//  `MigrationStage.lightweight(fromVersion:toVersion:)` (or `.custom`) before changing the live
+//  schema’s `versionIdentifier`, otherwise on-disk `ModelContainer` creation fails and users lose
+//  access to their store.
+//
 //  Strategy:
 //    willMigrate  — runs against the V1 context; reads all rows via their
 //                   toStruct() methods, encodes a BackupSnapshot to disk, and

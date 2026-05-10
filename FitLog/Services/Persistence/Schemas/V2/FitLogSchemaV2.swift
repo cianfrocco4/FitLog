@@ -8,8 +8,14 @@
 import SwiftData
 
 /// Current V2 schema (must be opened with `Schema(versionedSchema: FitLogSchemaV2.self)` when using `SchemaMigrationPlan`).
+///
+/// **Migration policy:** Keep `versionIdentifier` at `2.0.1` until `FitLogMigrationPlan` defines an explicit
+/// lightweight (or custom) stage from a frozen prior `VersionedSchema` to a newer one. Bumping this
+/// alone breaks existing stores: the plan only covers V1→V2, so a 2.0.1→2.x jump makes `ModelContainer`
+/// fail to open and the app can fall back to an empty in-memory store. Additive `@Model` types (e.g.
+/// `SDDynamicProgramV2`) are merged via automatic lightweight migration at the same version.
 enum FitLogSchemaV2: VersionedSchema {
-    static var versionIdentifier: Schema.Version { Schema.Version(2, 1, 0) }
+    static var versionIdentifier: Schema.Version { Schema.Version(2, 0, 1) }
 
     static var models: [any PersistentModel.Type] {
         [

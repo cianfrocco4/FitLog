@@ -41,7 +41,9 @@ struct FitLogApp: App {
             )
         } catch {
             migError = error
-            // Fallback: in-memory with migration plan, then without (migration graph can still fail open in edge cases).
+            // Fallback: in-memory store so the app can show `FitLogRecoverySheet` with the **disk** error.
+            // Never clear `migError` here — doing so showed an empty database with no explanation after a
+            // failed on-disk migration (e.g. missing migration stage for a schema version bump).
             let schema = Schema(versionedSchema: FitLogSchemaV2.self)
             let memWithPlan = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
             let memNoPlan = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
@@ -51,10 +53,8 @@ struct FitLogApp: App {
                 configurations: memWithPlan
             ) {
                 container = c
-                migError = nil
             } else if let c = try? ModelContainer(for: schema, configurations: memNoPlan) {
                 container = c
-                migError = nil
             } else {
                 fatalError("Cannot create even an in-memory ModelContainer: \(error)")
             }
