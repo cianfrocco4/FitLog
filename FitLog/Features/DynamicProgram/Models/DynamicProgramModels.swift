@@ -172,11 +172,13 @@ struct DynamicProgramState: Codable, Equatable, Sendable {
     var busyDayKeys: Set<String>
     /// Days a planned session was not completed (detected by adaptation service).
     var missedSessionDayKeys: Set<String>
-    /// Extra whole weeks (can be negative in future) added to a block when policy is `.shift`.
+    /// Extra calendar days added to a block span (e.g. `.shift` policy).
     var blockShiftDays: [UUID: Int]
     var completedBlockIds: Set<UUID>
     /// Same semantics as `TrainingProgramState.skippedCycleTrainingDayKeys` for rotation order.
     var skippedProgramTrainingDayKeys: Set<String>
+    /// Maps each `BlockWeeklyTemplate.id` to a library `Workout.id` after templates are materialized (apply / builder).
+    var materializedTemplateWorkoutIds: [UUID: UUID]
 
     init(
         program: DynamicProgram,
@@ -185,7 +187,8 @@ struct DynamicProgramState: Codable, Equatable, Sendable {
         missedSessionDayKeys: Set<String> = [],
         blockShiftDays: [UUID: Int] = [:],
         completedBlockIds: Set<UUID> = [],
-        skippedProgramTrainingDayKeys: Set<String> = []
+        skippedProgramTrainingDayKeys: Set<String> = [],
+        materializedTemplateWorkoutIds: [UUID: UUID] = [:]
     ) {
         self.program = program
         self.anchorDate = anchorDate
@@ -194,6 +197,7 @@ struct DynamicProgramState: Codable, Equatable, Sendable {
         self.blockShiftDays = blockShiftDays
         self.completedBlockIds = completedBlockIds
         self.skippedProgramTrainingDayKeys = skippedProgramTrainingDayKeys
+        self.materializedTemplateWorkoutIds = materializedTemplateWorkoutIds
     }
 }
 

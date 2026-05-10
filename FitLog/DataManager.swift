@@ -33,11 +33,14 @@ final class DataManager {
     private(set) var exerciseLocalDisplayNames: [UUID: String] = [:]
     var completedSessions: [WorkoutSession] = []
     var trainingProgram: TrainingProgramState = TrainingProgramState.empty(anchorDayKey: TrainingProgramState.dayKey(for: Date()))
+    /// Active periodized / dynamic program; when set, schedule fields sync into `trainingProgram`.
+    var dynamicProgramState: DynamicProgramState?
 
     let workoutStore: WorkoutStore
     let sessionStore: SessionStore
     let exerciseStore: ExerciseStore
     let programStore: TrainingProgramStore
+    let dynamicProgramStore: DynamicProgramStore
     let prStore: PersonalRecordStore
     let healthSyncService: HealthKitSyncService
     let dataTransferService: DataTransferServiceClient
@@ -56,6 +59,7 @@ final class DataManager {
         self.sessionStore = SessionStore(modelContext: ctx)
         self.exerciseStore = ExerciseStore(modelContext: ctx)
         self.programStore = TrainingProgramStore(modelContext: ctx)
+        self.dynamicProgramStore = DynamicProgramStore(modelContext: ctx)
         self.prStore = PersonalRecordStore(modelContext: ctx)
         self.healthSyncService = HealthKitSyncService()
         self.dataTransferService = DataTransferServiceClient(dataManagerProvider: { nil })
@@ -73,6 +77,14 @@ final class DataManager {
 
         if let program = programStore.loadProgram() {
             trainingProgram = program
+        }
+
+        if let dyn = dynamicProgramStore.loadActiveState() {
+            dynamicProgramState = dyn
+            syncTrainingProgramFromDynamicProgram()
+            saveTrainingProgram()
+        } else {
+            dynamicProgramState = nil
         }
 
         pruneStaleFrozenCalendarDays()
@@ -1230,6 +1242,64 @@ final class DataManager {
         publishWidgetSnapshot()
     }
 
+    /// Persists `dynamicProgramState` and syncs schedule + cycle (when materialized) into `trainingProgram`.
+    func saveDynamicProgramState() {
+        if let s = dynamicProgramState {
+            dynamicProgramStore.saveActiveState(s)
+        } else {
+            dynamicProgramStore.clearActiveState()
+        }
+        syncTrainingProgramFromDynamicProgram()
+        if dynamicProgramState != nil {
+            saveTrainingProgram()
+        }
+        publishWidgetSnapshot()
+    }
+
+    /// Replaces the active dynamic program (or clears when `nil`).
+    func setDynamicProgramState(_ state: DynamicProgramState?) {
+        dynamicProgramState = state
+        saveDynamicProgramState()
+    }
+
+    /// Copies `DynamicProgram` schedule and optional materialized cycle into `trainingProgram`.
+    private func syncTrainingProgramFromDynamicProgram(calendar: Calendar = .current) {
+        guard let s = dynamicProgramState else { return }
+        var p = trainingProgram
+        p.sessionsPerWeek = s.program.defaultSessionsPerWeek
+        p.preferredWeekdays = s.program.preferredWeekdays
+        p.anchorDayKey = TrainingProgramState.dayKey(for: s.anchorDate, calendar: calendar)
+        p.skippedCycleTrainingDayKeys = s.skippedProgramTrainingDayKeys.sorted()
+
+        let engine = PeriodizationEngine(calendar: calendar)
+        if let placement = engine.blockPlacement(on: Date(), state: s) {
+            let templates = placement.block.weeklyTemplates
+            let refs: [WorkoutPlanRef] = templates.compactMap { t in
+                guard let wid = s.materializedTemplateWorkoutIds[t.id] else { return nil }
+                return .workout(wid)
+            }
+            if !templates.isEmpty, refs.count == templates.count {
+                p.cycleEntries = refs
+                p.cyclePhaseOffset = 0
+            }
+        }
+        if !p.cycleEntries.isEmpty {
+            normalizeCycleDerivedFields(&p)
+        } else {
+            p.cyclePhaseOffset = 0
+        }
+        applyTrainingProgramAfterFreezingPast(p)
+    }
+
+    /// Writes `dynamicProgramState` to SwiftData without re-running `syncTrainingProgramFromDynamicProgram` (avoids re-entrancy when caller already synced).
+    private func saveDynamicProgramStateBlobOnly() {
+        if let s = dynamicProgramState {
+            dynamicProgramStore.saveActiveState(s)
+        } else {
+            dynamicProgramStore.clearActiveState()
+        }
+    }
+
     /// One line for AI split builder / Coach prefill from the current training program.
     func planCycleContextLineForCoach() -> String {
         let p = trainingProgram
@@ -1329,6 +1399,15 @@ final class DataManager {
     /// Marks past days where a workout was planned but nothing was logged so the rotation does not stay stuck on missed sessions.
     func reconcileSkippedCycleTrainingDays(calendar: Calendar = .current) {
         let cal = calendar
+        if var dyn = dynamicProgramState {
+            var adapter = ScheduleAdaptationService(calendar: cal)
+            adapter.mergeSkippedRotationKeysThroughYesterday(state: &dyn, completedSessions: completedSessions)
+            dynamicProgramState = dyn
+            syncTrainingProgramFromDynamicProgram(calendar: cal)
+            saveTrainingProgram()
+            saveDynamicProgramStateBlobOnly()
+            return
+        }
         guard !trainingProgram.cycleEntries.isEmpty else {
             if !trainingProgram.skippedCycleTrainingDayKeys.isEmpty {
                 var p = trainingProgram

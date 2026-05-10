@@ -9,7 +9,7 @@ import SwiftData
 
 /// Current V2 schema (must be opened with `Schema(versionedSchema: FitLogSchemaV2.self)` when using `SchemaMigrationPlan`).
 enum FitLogSchemaV2: VersionedSchema {
-    static var versionIdentifier: Schema.Version { Schema.Version(2, 0, 1) }
+    static var versionIdentifier: Schema.Version { Schema.Version(2, 1, 0) }
 
     static var models: [any PersistentModel.Type] {
         [
@@ -43,6 +43,9 @@ enum FitLogSchemaV2: VersionedSchema {
 
             // Personal records
             SDPersonalRecordV2.self,
+
+            // Dynamic periodized program (JSON blob)
+            SDDynamicProgramV2.self,
         ]
     }
 }
