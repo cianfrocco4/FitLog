@@ -16,7 +16,7 @@ final class SplitPresetStoreTests: XCTestCase {
     override func setUp() async throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(
-            for: SDSplitPresetV2.self, SDSplitPresetDayV2.self, SDSplitPresetSlotV2.self,
+            for: SDSplitPresetV2.self,
             configurations: config
         )
         modelContext = ModelContext(container)

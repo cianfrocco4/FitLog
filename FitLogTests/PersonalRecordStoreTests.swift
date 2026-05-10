@@ -54,10 +54,25 @@ final class PersonalRecordStoreTests: XCTestCase {
         let firstSet = LoggedSet(id: UUID(), weight: 200.0, reps: 5, restTime: 90, timestamp: Date(), setType: .working)
         _ = store.updateIfPR(set: firstSet, exerciseId: exerciseId, exerciseName: "Squat", sessionId: UUID())
         
+        // Lower weight AND lower volume/est1RM should not trigger any PR
+        let secondSet = LoggedSet(id: UUID(), weight: 150.0, reps: 3, restTime: 90, timestamp: Date().addingTimeInterval(300), setType: .working)
+        let events = store.updateIfPR(set: secondSet, exerciseId: exerciseId, exerciseName: "Squat", sessionId: UUID())
+        
+        XCTAssertTrue(events.isEmpty, "Lower weight with lower volume should not trigger PR")
+    }
+    
+    func testUpdateIfPR_VolumePR_WithLowerWeight() {
+        let exerciseId = UUID()
+        let firstSet = LoggedSet(id: UUID(), weight: 200.0, reps: 5, restTime: 90, timestamp: Date(), setType: .working)
+        _ = store.updateIfPR(set: firstSet, exerciseId: exerciseId, exerciseName: "Squat", sessionId: UUID())
+        
+        // Lower weight but higher volume (200×5=1000 vs 150×10=1500)
         let secondSet = LoggedSet(id: UUID(), weight: 150.0, reps: 10, restTime: 90, timestamp: Date().addingTimeInterval(300), setType: .working)
         let events = store.updateIfPR(set: secondSet, exerciseId: exerciseId, exerciseName: "Squat", sessionId: UUID())
         
-        XCTAssertTrue(events.isEmpty, "Lower weight should not trigger PR")
+        XCTAssertFalse(events.isEmpty, "Should detect volume PR")
+        XCTAssertTrue(events.contains { $0.kind == .maxVolumeSet }, "Should be a volume PR")
+        XCTAssertFalse(events.contains { $0.kind == .maxWeight }, "Should not be a weight PR")
     }
     
     func testBestValues_ReturnsMaximums() {
