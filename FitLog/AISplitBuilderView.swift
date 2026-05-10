@@ -149,6 +149,7 @@ struct AISplitBuilderView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
     @Environment(\.fitlogAISplitCoachPrefill) private var coachPrefillFromEnvironment
+    @Environment(\.modelContext) private var modelContext
 
     @State private var primaryGoal: PrimaryTrainingGoal = .general
     @State private var equipment: EquipmentAccess = .fullGym
@@ -181,6 +182,9 @@ struct AISplitBuilderView: View {
     @State private var pendingAdjustmentInstruction: String?
     @State private var showApplySuccess = false
     @State private var applySuccessMessage = ""
+    @State private var showApplyConfirmation = false
+    @State private var saveAsPreset = false
+    @State private var presetName = ""
     @State private var expandedDayIds: Set<UUID> = []
     @State private var exerciseSuggestContext: ExerciseSuggestContext?
 
@@ -319,6 +323,23 @@ struct AISplitBuilderView: View {
                 },
                 onDone: { dismiss() }
             ))
+            .sheet(isPresented: $showApplyConfirmation) {
+                if let p = proposal {
+                    SplitApplyConfirmationView(
+                        days: editableDays,
+                        sessionsPerWeek: p.sessionsPerWeek,
+                        preferredWeekdays: p.preferredWeekdays,
+                        rationale: p.rationale,
+                        updateTrainingProgram: updateTrainingProgram,
+                        dataVM: dataVM,
+                        onConfirm: { anchorDate in
+                            Task { await applyWithAnchor(anchorDate, proposal: p) }
+                            showApplyConfirmation = false
+                        },
+                        onCancel: { showApplyConfirmation = false }
+                    )
+                }
+            }
             .onAppear(perform: loadInitialBuilderStateIfNeeded)
             .onChange(of: persistenceSignature) { _, _ in
                 if customRotationLength != boundedCustomRotationLength {
@@ -972,6 +993,16 @@ struct AISplitBuilderView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .contextMenu {
+                    Button {
+                        duplicateAsVariant(day: day)
+                    } label: {
+                        Label("Duplicate as variant", systemImage: "doc.on.doc")
+                    }
+                }
+            }
+            .onMove { from, to in
+                editableDays.move(fromOffsets: from, toOffset: to)
             }
         } header: {
             Text("Training days")
@@ -993,10 +1024,14 @@ struct AISplitBuilderView: View {
     private var previewApplySection: some View {
         Section {
             Toggle("Set as my training program", isOn: $updateTrainingProgram)
+            Toggle("Save as preset", isOn: $saveAsPreset)
+            if saveAsPreset {
+                TextField("Preset name", text: $presetName, prompt: Text("My custom split"))
+                    .textFieldStyle(.roundedBorder)
+            }
 
             Button {
-                let final = buildProposalFromEdits()
-                Task { await apply(final) }
+                showApplyConfirmation = true
             } label: {
                 if isApplying {
                     HStack {
@@ -1044,6 +1079,11 @@ struct AISplitBuilderView: View {
                 dayId: day.wrappedValue.id,
                 slot: bindingForSlot(day: day, slotId: slotValue.id)
             )
+        }
+        .onMove { from, to in
+            var d = day.wrappedValue
+            d.slots.move(fromOffsets: from, toOffset: to)
+            day.wrappedValue = d
         }
 
         Button {
@@ -1458,26 +1498,59 @@ struct AISplitBuilderView: View {
     }
 
     @MainActor
-    private func apply(_ p: WorkoutSplitProposal) async {
+    @MainActor
+    private func applyWithAnchor(_ anchorDate: Date, proposal: WorkoutSplitProposal) async {
         isApplying = true
         defer { isApplying = false }
+
+        // Save preset if requested (Task 19)
+        if saveAsPreset {
+            let store = SplitPresetStore(modelContext: modelContext)
+            let name = presetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "Unnamed Split \(Date().formatted(date: .abbreviated, time: .omitted))"
+                : presetName
+            _ = store.savePreset(
+                name: name,
+                notes: "",
+                sessionsPerWeek: proposal.sessionsPerWeek,
+                preferredWeekdays: proposal.preferredWeekdays,
+                days: editableDays
+            )
+        }
 
         _ = SplitBuilderApplyService.apply(
             days: editableDays,
             dataVM: dataVM,
-            sessionsPerWeek: p.sessionsPerWeek,
-            preferredWeekdays: p.preferredWeekdays,
+            sessionsPerWeek: proposal.sessionsPerWeek,
+            preferredWeekdays: proposal.preferredWeekdays,
             updateTrainingProgram: updateTrainingProgram,
-            rationale: p.rationale,
-            anchorDate: Date()
+            rationale: proposal.rationale,
+            anchorDate: anchorDate
         )
 
-        let templates = p.workouts.count
+        let templates = proposal.workouts.count
         let planLine = updateTrainingProgram
             ? "Your Plan tab now follows this cycle."
             : "Your Plan calendar was not changed; new templates are in your workout list."
         applySuccessMessage = "Created \(templates) workout template\(templates == 1 ? "" : "s"). \(planLine)"
         showApplySuccess = true
+    }
+
+    private func duplicateAsVariant(day: EditableDay) {
+        var newDay = day
+        newDay.id = UUID()
+        // Auto-suffix with A/B variants
+        let baseName = day.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let variantSuffix = baseName.hasSuffix(" A") ? " B" : " A"
+        newDay.name = baseName + variantSuffix
+        // Copy slots with new IDs
+        newDay.slots = day.slots.map { slot in
+            var copy = slot
+            copy.id = UUID()
+            return copy
+        }
+        editableDays.append(newDay)
+        expandedDayIds.insert(newDay.id)
     }
 }
 
