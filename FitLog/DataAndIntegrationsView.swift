@@ -9,7 +9,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct DataAndIntegrationsView: View {
-    @EnvironmentObject private var dataVM: DataManager
+    @Environment(DataManager.self) private var dataVM
     @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var showArchiveImporter = false
@@ -18,7 +18,8 @@ struct DataAndIntegrationsView: View {
     @State private var alertMessage: String?
 
     var body: some View {
-        Form {
+        @Bindable var dm = dataVM
+        return Form {
             Section("Units") {
                 Picker("Weight display", selection: $userPreferences.weightDisplayUnit) {
                     ForEach(WeightDisplayUnit.allCases) { u in
@@ -31,7 +32,7 @@ struct DataAndIntegrationsView: View {
             }
 
             Section("Health") {
-                Toggle("Sync completed workouts to Apple Health", isOn: $dataVM.healthSyncEnabled)
+                Toggle("Sync completed workouts to Apple Health", isOn: $dm.healthSyncEnabled)
                     .onChange(of: dataVM.healthSyncEnabled) { _, enabled in
                         dataVM.setHealthSyncEnabled(enabled)
                     }

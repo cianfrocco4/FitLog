@@ -22,8 +22,8 @@ private enum FitlogHaptics {
 
 struct PlanCalendarView: View {
     @EnvironmentObject var dayMonitor: CalendarDayMonitor
-    @EnvironmentObject var dataVM: DataManager
-    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(DataManager.self) var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var aiService: AIService
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
     @Environment(\.fitlogCoachDeepLink) private var coachDeepLink
@@ -147,8 +147,8 @@ struct PlanCalendarView: View {
                 set: { daySheetDate = $0?.date }
             )) { item in
                 DayPlanSheet(date: item.date)
-                    .environmentObject(dataVM)
-                    .environmentObject(currentVM)
+                    .environment(dataVM)
+                    .environment(currentVM)
                     .environmentObject(aiService)
             }
             .sheet(item: Binding(
@@ -156,7 +156,7 @@ struct PlanCalendarView: View {
                 set: { weekEditAnchor = $0?.anchor }
             )) { item in
                 WeekOverrideSheet(weekContaining: item.anchor)
-                    .environmentObject(dataVM)
+                    .environment(dataVM)
             }
             .sheet(isPresented: $showProgramBuilder) {
                 ProgramBuilderSheet(
@@ -165,8 +165,8 @@ struct PlanCalendarView: View {
                         openCoachSplitBuilderWithPlanContext()
                     }
                 )
-                .environmentObject(dataVM)
-                .environmentObject(currentVM)
+                .environment(dataVM)
+                .environment(currentVM)
                 .environmentObject(aiService)
             }
             .workoutReplaceConflictConfirmation(currentVM: currentVM, pending: $pendingWorkoutReplace)
@@ -573,8 +573,8 @@ private struct WeekSheetItem: Identifiable {
 // MARK: - Day plan sheet
 
 struct DayPlanSheet: View {
-    @EnvironmentObject var dataVM: DataManager
-    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(DataManager.self) var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var aiService: AIService
     @Environment(\.dismiss) private var dismiss
 
@@ -587,7 +587,8 @@ struct DayPlanSheet: View {
     private var dayKey: String { TrainingProgramState.dayKey(for: date, calendar: calendar) }
 
     var body: some View {
-        NavigationStack {
+        @Bindable var dm = dataVM
+        return NavigationStack {
             Form {
                 Section {
                     Text(date, style: .date)
@@ -672,9 +673,9 @@ struct DayPlanSheet: View {
                 Section {
                     if let wid = planWorkoutIdForLink {
                         NavigationLink("Open workout") {
-                            if let binding = $dataVM.userWorkouts[wid] {
+                            if let binding = $dm.userWorkouts[wid] {
                                 WorkoutPlanView(workout: binding, currentVM: currentVM)
-                                    .environmentObject(dataVM)
+                                    .environment(dataVM)
                                     .environmentObject(aiService)
                             } else {
                                 Text("This workout was removed from your library.")
@@ -720,7 +721,7 @@ struct DayPlanSheet: View {
 // MARK: - Week override sheet
 
 struct WeekOverrideSheet: View {
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(DataManager.self) var dataVM
     @Environment(\.dismiss) private var dismiss
 
     let weekContaining: Date
@@ -790,7 +791,7 @@ struct WeekOverrideSheet: View {
 }
 
 private struct WeekdayRow: View {
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(DataManager.self) var dataVM
 
     let title: String
     let weekKey: String
@@ -884,8 +885,8 @@ private struct WeekdayRow: View {
 struct ProgramBuilderSheet: View {
     var onBuildSplit: () -> Void
 
-    @EnvironmentObject var dataVM: DataManager
-    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(DataManager.self) var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var aiService: AIService
     @Environment(\.dismiss) private var dismiss
 
@@ -1098,11 +1099,12 @@ struct ProgramBuilderSheet: View {
 
     @ViewBuilder
     private func workoutEditorDestination(for entry: WorkoutPlanRef) -> some View {
+        @Bindable var dm = dataVM
         switch entry {
         case .workout(let id):
-            if let binding = $dataVM.userWorkouts[id] {
+            if let binding = $dm.userWorkouts[id] {
                 WorkoutPlanView(workout: binding, currentVM: currentVM)
-                    .environmentObject(dataVM)
+                    .environment(dataVM)
                     .environmentObject(aiService)
             } else {
                 Text("This workout is missing from your library.")

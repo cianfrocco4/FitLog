@@ -8,8 +8,8 @@
 import SwiftUI
 
 struct CurrentWorkoutCollapsedBar: View {
-    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
+    @Environment(DataManager.self) var dataVM
     @Binding var showPullUp: Bool
 
     private var primaryExerciseLog: ExerciseLog? {

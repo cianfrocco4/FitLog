@@ -174,7 +174,7 @@ struct SessionQuickAddExerciseSheet: View {
                 NewExerciseSheet(onCreated: { created in
                     addExercise(created)
                 })
-                .environmentObject(dataVM)
+                .environment(dataVM)
                 .environmentObject(aiService)
             }
         }

@@ -30,7 +30,7 @@ enum ExerciseLibraryBrowseMode: String, CaseIterable {
 }
 
 struct ExercisesLibraryView: View {
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(DataManager.self) var dataVM
     @EnvironmentObject private var aiService: AIService
     @State private var showAddSheet = false
     @State private var exerciseToEdit: EditableExerciseItem?
@@ -140,7 +140,7 @@ struct ExercisesLibraryView: View {
         }
         .sheet(isPresented: $showAddSheet) {
             NewExerciseSheet()
-                .environmentObject(dataVM)
+                .environment(dataVM)
                 .environmentObject(aiService)
         }
         .sheet(item: $exerciseToRenameLocally) { item in
@@ -148,7 +148,7 @@ struct ExercisesLibraryView: View {
                 exercise: item.exercise,
                 initialDisplayName: dataVM.resolvedDisplayName(for: item.exercise)
             )
-            .environmentObject(dataVM)
+            .environment(dataVM)
         }
         .sheet(item: $exerciseToEdit, onDismiss: { exerciseToEdit = nil }) { item in
             EditExerciseSheet(exercise: item.exercise)

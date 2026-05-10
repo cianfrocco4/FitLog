@@ -26,25 +26,27 @@ struct WorkoutExerciseDeletionSnapshot: Equatable {
     let templateSlotId: UUID?
 }
 
-final class DataManager: ObservableObject {
-    @Published var userWorkouts: [Workout] = []
-    @Published var globalExercises: [Exercise] = []
-    @Published private(set) var exerciseLocalDisplayNames: [UUID: String] = [:]
-    @Published var completedSessions: [WorkoutSession] = []
-    @Published var trainingProgram: TrainingProgramState = TrainingProgramState.empty(anchorDayKey: TrainingProgramState.dayKey(for: Date()))
+@Observable @MainActor
+final class DataManager {
+    var userWorkouts: [Workout] = []
+    var globalExercises: [Exercise] = []
+    private(set) var exerciseLocalDisplayNames: [UUID: String] = [:]
+    var completedSessions: [WorkoutSession] = []
+    var trainingProgram: TrainingProgramState = TrainingProgramState.empty(anchorDayKey: TrainingProgramState.dayKey(for: Date()))
 
     let workoutStore: WorkoutStore
     let sessionStore: SessionStore
     let exerciseStore: ExerciseStore
     let programStore: TrainingProgramStore
+    let prStore: PersonalRecordStore
     let healthSyncService: HealthKitSyncService
     let dataTransferService: DataTransferServiceClient
-    @Published var healthSyncEnabled: Bool = false
-    @Published var healthSyncStatusMessage: String?
+    var healthSyncEnabled: Bool = false
+    var healthSyncStatusMessage: String?
 
     private let bodyMetricsStore = BodyMetricsStore()
-    @Published var bodyMetricEntries: [BodyMetricEntry] = []
-    @Published var progressPhotoRecords: [ProgressPhotoRecord] = []
+    var bodyMetricEntries: [BodyMetricEntry] = []
+    var progressPhotoRecords: [ProgressPhotoRecord] = []
 
     // MARK: - Lifecycle
 
@@ -54,6 +56,7 @@ final class DataManager: ObservableObject {
         self.sessionStore = SessionStore(modelContext: ctx)
         self.exerciseStore = ExerciseStore(modelContext: ctx)
         self.programStore = TrainingProgramStore(modelContext: ctx)
+        self.prStore = PersonalRecordStore(modelContext: ctx)
         self.healthSyncService = HealthKitSyncService()
         self.dataTransferService = DataTransferServiceClient(dataManagerProvider: { nil })
         loadAll()
@@ -314,7 +317,6 @@ final class DataManager: ObservableObject {
         let newWorkout = Workout(id: UUID(), name: name, exercises: [])
         userWorkouts.append(newWorkout)
         saveWorkouts()
-        objectWillChange.send()
         return newWorkout.id
     }
 

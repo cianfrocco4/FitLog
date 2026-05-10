@@ -126,4 +126,36 @@ struct TrainingScheduleEngine {
         let idx = ((-k + phase) % n + n) % n
         return program.cycleEntries[idx]
     }
+
+    // MARK: - Preview (Task 23)
+
+    /// Preview schedule for the next N weeks based on proposed cycle entries.
+    func previewSchedule(
+        cycleEntries: [WorkoutPlanRef],
+        sessionsPerWeek: Int,
+        preferredWeekdays: [Int],
+        anchorDate: Date,
+        weeksAhead: Int = 4
+    ) -> [Date: ResolvedScheduleDay] {
+        let hypotheticalProgram = TrainingProgramState(
+            cycleEntries: cycleEntries,
+            sessionsPerWeek: sessionsPerWeek,
+            preferredWeekdays: preferredWeekdays,
+            anchorDayKey: TrainingProgramState.dayKey(for: anchorDate, calendar: calendar),
+            cyclePhaseOffset: 0,
+            skippedCycleTrainingDayKeys: [],
+            dayOverrides: [:],
+            weekOverrides: [:],
+            frozenCalendarDays: [:]
+        )
+
+        var result: [Date: ResolvedScheduleDay] = [:]
+        let start = calendar.startOfDay(for: anchorDate)
+        let totalDays = weeksAhead * 7
+        for dayOffset in 0..<totalDays {
+            guard let d = calendar.date(byAdding: .day, value: dayOffset, to: start) else { continue }
+            result[d] = resolve(date: d, program: hypotheticalProgram)
+        }
+        return result
+    }
 }

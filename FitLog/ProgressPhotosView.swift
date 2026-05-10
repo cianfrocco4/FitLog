@@ -8,7 +8,7 @@ import SwiftUI
 import UIKit
 
 struct ProgressPhotosView: View {
-    @EnvironmentObject private var dataVM: DataManager
+    @Environment(DataManager.self) private var dataVM
 
     @State private var pickerItem: PhotosPickerItem?
     @State private var showCompare = false
@@ -75,7 +75,7 @@ struct ProgressPhotosView: View {
         }
         .sheet(isPresented: $showCompare) {
             ProgressPhotoCompareSheet()
-                .environmentObject(dataVM)
+                .environment(dataVM)
         }
     }
 
@@ -110,7 +110,7 @@ struct ProgressPhotosView: View {
 
 private struct ProgressPhotoCompareSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var dataVM: DataManager
+    @Environment(DataManager.self) private var dataVM
 
     @State private var leftId: UUID?
     @State private var rightId: UUID?

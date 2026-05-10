@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct ExerciseDetailView: View {
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(DataManager.self) var dataVM
     @EnvironmentObject var aiService: AIService
     @Environment(\.dismiss) var dismiss
     let exerciseId: UUID
@@ -121,7 +121,7 @@ struct ExerciseDetailView: View {
                             exercise: ex,
                             initialDisplayName: dataVM.resolvedDisplayName(for: ex)
                         )
-                        .environmentObject(dataVM)
+                        .environment(dataVM)
                     }
                 }
             } else {

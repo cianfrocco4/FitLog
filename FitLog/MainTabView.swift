@@ -8,8 +8,8 @@
 import SwiftUI
 
 struct MainTabView: View {
-    @EnvironmentObject var currentVM: CurrentWorkoutSessionViewModel
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
+    @Environment(DataManager.self) var dataVM
     @EnvironmentObject var aiService: AIService
     @EnvironmentObject var dayMonitor: CalendarDayMonitor
     @EnvironmentObject var userPreferences: UserPreferences
@@ -53,7 +53,7 @@ struct MainTabView: View {
                 .tabItem { Label("Coach", systemImage: "bubble.left.and.bubble.right") }
                 .tag(FitlogRootTab.coach)
             MoreTabRootView()
-                .environmentObject(dataVM)
+                .environment(dataVM)
                 .environmentObject(userPreferences)
                 .tabItem { Label("More", systemImage: "ellipsis.circle") }
                 .tag(FitlogRootTab.more)
@@ -90,8 +90,8 @@ struct MainTabView: View {
         }
         .sheet(isPresented: $showCurrentWorkoutPullUp) {
             CurrentWorkoutPullUpSheet()
-                .environmentObject(currentVM)
-                .environmentObject(dataVM)
+                .environment(currentVM)
+                .environment(dataVM)
                 .environmentObject(aiService)
                 .environmentObject(userPreferences)
         }
@@ -126,7 +126,7 @@ struct MainTabView: View {
                     )
                 }
             }
-            .environmentObject(dataVM)
+            .environment(dataVM)
             .environmentObject(userPreferences)
             .interactiveDismissDisabled()
         }

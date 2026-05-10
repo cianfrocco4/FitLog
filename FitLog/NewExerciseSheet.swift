@@ -13,7 +13,7 @@ private struct ExerciseReviewPayload: Identifiable {
 }
 
 struct NewExerciseSheet: View {
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(DataManager.self) var dataVM
     @EnvironmentObject private var aiService: AIService
     @Environment(\.dismiss) var dismiss
 

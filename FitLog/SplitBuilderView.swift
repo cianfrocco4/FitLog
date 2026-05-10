@@ -9,23 +9,30 @@
 import SwiftUI
 
 struct SplitBuilderView: View {
-    @EnvironmentObject private var dataVM: DataManager
-    @EnvironmentObject private var currentVM: CurrentWorkoutSessionViewModel
+    @Environment(DataManager.self) private var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
     @EnvironmentObject private var aiService: AIService
     @Environment(\.dismiss) private var dismiss
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
     @Environment(\.fitlogAISplitCoachPrefill) private var coachPrefill
 
     @State private var selectedPath: SplitBuilderPath?
+    @State private var showPresetBrowser = false
+    @State private var presetDays: [SplitBuilderEditableDay] = []
+    @State private var presetSessions: Int = 3
+    @State private var presetWeekdays: [Int] = []
+    @State private var presetName: String = ""
 
     private enum SplitBuilderPath: Identifiable {
         case ai
         case manual
+        case preset
 
         var id: String {
             switch self {
             case .ai: return "ai"
             case .manual: return "manual"
+            case .preset: return "preset"
             }
         }
     }
@@ -52,6 +59,31 @@ struct SplitBuilderView: View {
                         systemImage: "rectangle.stack.badge.plus",
                         path: .manual
                     )
+                    Button {
+                        showPresetBrowser = true
+                    } label: {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "square.stack.3d.up")
+                                .font(.title2)
+                                .foregroundStyle(Color.accentColor)
+                                .frame(width: 30)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Use saved preset")
+                                    .font(.headline)
+                                    .foregroundStyle(.primary)
+                                Text("Load a previously saved split configuration and customize it.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .navigationTitle("Build a split")
@@ -65,18 +97,37 @@ struct SplitBuilderView: View {
                 switch path {
                 case .ai:
                     AISplitBuilderView()
-                        .environmentObject(dataVM)
-                        .environmentObject(currentVM)
+                        .environment(dataVM)
+                        .environment(currentVM)
                         .environmentObject(aiService)
                         .environment(\.fitlogRootTabSelection, rootTabSelection)
                         .environment(\.fitlogAISplitCoachPrefill, coachPrefill)
                         .toolbar(.hidden, for: .navigationBar)
                 case .manual:
                     ManualSplitBuilderView()
-                        .environmentObject(dataVM)
+                        .environment(dataVM)
                         .environment(\.fitlogRootTabSelection, rootTabSelection)
                         .toolbar(.hidden, for: .navigationBar)
+                case .preset:
+                    ManualSplitBuilderView(
+                        preloadedDays: presetDays,
+                        preloadedSessions: presetSessions,
+                        preloadedWeekdays: presetWeekdays
+                    )
+                    .environment(dataVM)
+                    .environment(\.fitlogRootTabSelection, rootTabSelection)
+                    .toolbar(.hidden, for: .navigationBar)
                 }
+            }
+            .sheet(isPresented: $showPresetBrowser) {
+                SplitPresetBrowser { name, days, sessions, weekdays in
+                    presetName = name
+                    presetDays = days
+                    presetSessions = sessions
+                    presetWeekdays = weekdays
+                    selectedPath = .preset
+                }
+                .environment(dataVM)
             }
         }
     }

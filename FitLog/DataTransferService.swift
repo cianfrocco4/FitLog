@@ -50,6 +50,7 @@ enum DataTransferError: LocalizedError {
     }
 }
 
+@MainActor
 final class DataTransferServiceClient {
     private weak var dataManager: DataManager?
 

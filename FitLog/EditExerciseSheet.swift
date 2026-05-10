@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct EditExerciseSheet: View {
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(DataManager.self) var dataVM
     @Environment(\.dismiss) var dismiss
 
     let exercise: Exercise

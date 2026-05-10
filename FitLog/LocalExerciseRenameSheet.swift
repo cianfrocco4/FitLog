@@ -9,7 +9,7 @@ import SwiftUI
 
 struct LocalExerciseRenameSheet: View {
     let exercise: Exercise
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(DataManager.self) var dataVM
     @Environment(\.dismiss) var dismiss
 
     @State private var editedName: String

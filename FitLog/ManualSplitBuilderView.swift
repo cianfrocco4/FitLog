@@ -14,9 +14,10 @@ private enum ManualSplitStep {
 }
 
 struct ManualSplitBuilderView: View {
-    @EnvironmentObject private var dataVM: DataManager
+    @Environment(DataManager.self) private var dataVM
     @Environment(\.dismiss) private var dismiss
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
+    @Environment(\.modelContext) private var modelContext
 
     @State private var preset: SplitBuilderManualPreset = .pushPullLegs
     @State private var sessionsPerWeek = 4
@@ -30,6 +31,28 @@ struct ManualSplitBuilderView: View {
     @State private var isApplying = false
     @State private var showApplySuccess = false
     @State private var applySuccessMessage = ""
+    @State private var showApplyConfirmation = false
+    @State private var saveAsPreset = false
+    @State private var presetName = ""
+    @State private var slotPickerForSlot: SplitBuilderEditableSlot?
+    @State private var slotPickerDayBinding: Binding<SplitBuilderEditableDay>?
+    @State private var editMode: EditMode = .active
+    @State private var musclePickerSlot: SplitBuilderEditableSlot?
+    @State private var musclePickerDayBinding: Binding<SplitBuilderEditableDay>?
+
+    init(
+        preloadedDays: [SplitBuilderEditableDay] = [],
+        preloadedSessions: Int = 4,
+        preloadedWeekdays: [Int] = []
+    ) {
+        if !preloadedDays.isEmpty {
+            _editableDays = State(initialValue: preloadedDays)
+            _sessionsPerWeek = State(initialValue: preloadedSessions)
+            _selectedWeekdays = State(initialValue: Set(preloadedWeekdays))
+            _step = State(initialValue: .editor)
+            _expandedDayIds = State(initialValue: Set(preloadedDays.map { $0.id }))
+        }
+    }
 
     private var maxSessionsAllowed: Int {
         selectedWeekdays.isEmpty ? 7 : max(1, selectedWeekdays.count)
@@ -130,6 +153,77 @@ struct ManualSplitBuilderView: View {
         }
         .onChange(of: variationMode) { _, _ in persistVariationDefaults() }
         .onChange(of: customRotationLength) { _, _ in persistVariationDefaults() }
+        .sheet(isPresented: $showApplyConfirmation) {
+            SplitApplyConfirmationView(
+                days: editableDays,
+                sessionsPerWeek: min(sessionsPerWeek, maxSessionsAllowed),
+                preferredWeekdays: Array(selectedWeekdays).sorted(),
+                rationale: "Manual split built in FitLog.",
+                updateTrainingProgram: updateTrainingProgram,
+                dataVM: dataVM,
+                onConfirm: { anchorDate in
+                    Task { await applyWithAnchor(anchorDate) }
+                    showApplyConfirmation = false
+                },
+                onCancel: { showApplyConfirmation = false }
+            )
+        }
+        .sheet(item: Binding(
+            get: { slotPickerForSlot.map { SlotPickerIdentity(slot: $0) } },
+            set: { slotPickerForSlot = $0?.slot }
+        )) { identity in
+            SlotLibraryPickerSheet(slot: identity.slot) { exercise in
+                if let dayBinding = slotPickerDayBinding {
+                    var day = dayBinding.wrappedValue
+                    if let idx = day.slots.firstIndex(where: { $0.id == identity.slot.id }) {
+                        day.slots[idx].suggestedExerciseName = exercise.name
+                        day.slots[idx].suggestedExerciseOverrideId = exercise.id
+                        if day.slots[idx].targetMuscleNames == [MuscleGroup.other.rawValue] {
+                            day.slots[idx].targetMuscleNames = exercise.targetedMuscles.map(\.rawValue)
+                        }
+                    }
+                    dayBinding.wrappedValue = day
+                }
+                slotPickerForSlot = nil
+                slotPickerDayBinding = nil
+            }
+            .environment(dataVM)
+        }
+        .sheet(item: Binding(
+            get: { musclePickerSlot.map { MusclePickerIdentity(slot: $0) } },
+            set: { musclePickerSlot = $0?.slot }
+        )) { identity in
+            NavigationStack {
+                SplitMuscleMultiPickerView(
+                    initial: identity.slot.targetMuscleNames.compactMap { MuscleGroup(rawValue: $0) },
+                    onDone: { muscles in
+                        if let dayBinding = musclePickerDayBinding {
+                            var day = dayBinding.wrappedValue
+                            if let idx = day.slots.firstIndex(where: { $0.id == identity.slot.id }) {
+                                day.slots[idx].targetMuscleNames = muscles.map(\.rawValue)
+                            }
+                            dayBinding.wrappedValue = day
+                        }
+                        musclePickerSlot = nil
+                        musclePickerDayBinding = nil
+                    },
+                    onCancel: {
+                        musclePickerSlot = nil
+                        musclePickerDayBinding = nil
+                    }
+                )
+            }
+        }
+    }
+
+    private struct MusclePickerIdentity: Identifiable {
+        let slot: SplitBuilderEditableSlot
+        var id: UUID { slot.id }
+    }
+
+    private struct SlotPickerIdentity: Identifiable {
+        let slot: SplitBuilderEditableSlot
+        var id: UUID { slot.id }
     }
 
     private var setupView: some View {
@@ -232,7 +326,7 @@ struct ManualSplitBuilderView: View {
             daysSection
             applySection
         }
-        .environment(\.editMode, .constant(.active))
+        .environment(\.editMode, $editMode)
         .onAppear {
             if expandedDayIds.isEmpty {
                 expandedDayIds = Set(editableDays.map(\.id))
@@ -294,6 +388,16 @@ struct ManualSplitBuilderView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .contextMenu {
+                    Button {
+                        duplicateAsVariant(day: day)
+                    } label: {
+                        Label("Duplicate as variant", systemImage: "doc.on.doc")
+                    }
+                }
+            }
+            .onMove { from, to in
+                editableDays.move(fromOffsets: from, toOffset: to)
             }
         } header: {
             Text("Training days")
@@ -303,8 +407,14 @@ struct ManualSplitBuilderView: View {
     @ViewBuilder
     private var applySection: some View {
         Section {
+            Toggle("Save as preset", isOn: $saveAsPreset)
+            if saveAsPreset {
+                TextField("Preset name", text: $presetName, prompt: Text("My custom split"))
+                    .textFieldStyle(.roundedBorder)
+            }
+
             Button {
-                Task { await apply() }
+                showApplyConfirmation = true
             } label: {
                 if isApplying {
                     HStack {
@@ -355,7 +465,12 @@ struct ManualSplitBuilderView: View {
             .foregroundStyle(.secondary)
 
         ForEach(day.wrappedValue.slots) { slotValue in
-            manualSlotRow(slot: bindingForSlot(day: day, slotId: slotValue.id))
+            manualSlotRow(slot: bindingForSlot(day: day, slotId: slotValue.id), day: day)
+        }
+        .onMove { from, to in
+            var d = day.wrappedValue
+            d.slots.move(fromOffsets: from, toOffset: to)
+            day.wrappedValue = d
         }
 
         Button {
@@ -409,33 +524,43 @@ struct ManualSplitBuilderView: View {
         )
     }
 
-    private func manualSlotRow(slot: Binding<SplitBuilderEditableSlot>) -> some View {
+    private func manualSlotRow(slot: Binding<SplitBuilderEditableSlot>, day: Binding<SplitBuilderEditableDay>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             TextField("Slot label", text: slot.label)
                 .font(.body)
-            TextField("Default exercise (optional)", text: Binding(
-                get: { slot.wrappedValue.suggestedExerciseName ?? "" },
-                set: { raw in
-                    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-                    var next = slot.wrappedValue
-                    next.suggestedExerciseName = trimmed.isEmpty ? nil : trimmed
-                    next.suggestedExerciseOverrideId = nil
-                    if let resolved = ExerciseNameResolution.resolve(planName: trimmed, library: dataVM.globalExercises),
-                       case .linked(let ex) = resolved {
-                        next.suggestedExerciseOverrideId = ex.id
-                        if next.targetMuscleNames == [MuscleGroup.other.rawValue] {
-                            next.targetMuscleNames = ex.targetedMuscles.map(\.rawValue)
-                        }
-                    }
-                    slot.wrappedValue = next
-                }
-            ))
-            .font(.caption)
-            .textFieldStyle(.roundedBorder)
 
-            Text(muscleSummary(slot.wrappedValue))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            Button {
+                slotPickerForSlot = slot.wrappedValue
+                slotPickerDayBinding = day
+            } label: {
+                HStack {
+                    Text(slot.wrappedValue.suggestedExerciseName ?? "Choose exercise from library")
+                        .font(.caption)
+                        .foregroundStyle(slot.wrappedValue.suggestedExerciseName == nil ? .secondary : .primary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 8)
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(6)
+            }
+
+            HStack {
+                Text(muscleSummary(slot.wrappedValue))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    musclePickerSlot = slot.wrappedValue
+                    musclePickerDayBinding = day
+                } label: {
+                    Label("Edit muscles", systemImage: "pencil.circle")
+                        .font(.caption2)
+                }
+            }
 
             Text(SplitBuilderSupportText.slotSuggestedExerciseLine(slot.wrappedValue, library: dataVM.globalExercises))
                 .font(.caption2)
@@ -477,24 +602,71 @@ struct ManualSplitBuilderView: View {
     }
 
     @MainActor
-    private func apply() async {
+    private func applyWithAnchor(_ anchorDate: Date) async {
         isApplying = true
         defer { isApplying = false }
 
         let effectiveSessions = min(sessionsPerWeek, maxSessionsAllowed)
+
+        // Save preset if requested (Task 19)
+        if saveAsPreset {
+            let store = SplitPresetStore(modelContext: modelContext)
+            let name = presetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "Unnamed Split \(Date().formatted(date: .abbreviated, time: .omitted))"
+                : presetName
+            _ = store.savePreset(
+                name: name,
+                notes: "",
+                sessionsPerWeek: effectiveSessions,
+                preferredWeekdays: Array(selectedWeekdays).sorted(),
+                days: editableDays
+            )
+        }
+
         let p = SplitBuilderApplyService.apply(
             days: editableDays,
             dataVM: dataVM,
             sessionsPerWeek: effectiveSessions,
             preferredWeekdays: Array(selectedWeekdays).sorted(),
             updateTrainingProgram: updateTrainingProgram,
-            rationale: "Manual split built in FitLog."
+            rationale: "Manual split built in FitLog.",
+            anchorDate: anchorDate
         )
         let planLine = updateTrainingProgram
             ? "Your Plan tab now follows this cycle."
             : "Your Plan calendar was not changed; new templates are in your workout list."
         applySuccessMessage = "Created \(p.workouts.count) workout template\(p.workouts.count == 1 ? "" : "s"). \(planLine)"
         showApplySuccess = true
+    }
+
+    private func duplicateAsVariant(day: SplitBuilderEditableDay) {
+        // Auto-suffix with A/B variants
+        let baseName = day.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let variantSuffix = baseName.hasSuffix(" A") ? " B" : " A"
+        let newName = baseName + variantSuffix
+        
+        // Copy slots with new IDs
+        let newSlots = day.slots.map { slot in
+            SplitBuilderEditableSlot(
+                id: UUID(),
+                label: slot.label,
+                targetMuscleNames: slot.targetMuscleNames,
+                sets: slot.sets,
+                reps: slot.reps,
+                suggestedExerciseName: slot.suggestedExerciseName,
+                suggestedExerciseOverrideId: slot.suggestedExerciseOverrideId
+            )
+        }
+        
+        let newDay = SplitBuilderEditableDay(
+            id: UUID(),
+            name: newName,
+            focus: day.focus,
+            slots: newSlots
+        )
+        
+        editableDays.append(newDay)
+        expandedDayIds.insert(newDay.id)
     }
 
     private var weekdayMultiSelect: some View {

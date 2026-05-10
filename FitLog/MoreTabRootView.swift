@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct MoreTabRootView: View {
-    @EnvironmentObject var dataVM: DataManager
+    @Environment(DataManager.self) var dataVM
     @EnvironmentObject var userPreferences: UserPreferences
 
     var body: some View {
@@ -16,21 +16,21 @@ struct MoreTabRootView: View {
             List {
                 NavigationLink {
                     PersonalRecordsView()
-                        .environmentObject(dataVM)
+                        .environment(dataVM)
                         .environmentObject(userPreferences)
                 } label: {
                     Label("Personal records", systemImage: "trophy.fill")
                 }
                 NavigationLink {
                     BodyMeasurementsView()
-                        .environmentObject(dataVM)
+                        .environment(dataVM)
                         .environmentObject(userPreferences)
                 } label: {
                     Label("Body measurements", systemImage: "figure.stand")
                 }
                 NavigationLink {
                     ProgressPhotosView()
-                        .environmentObject(dataVM)
+                        .environment(dataVM)
                 } label: {
                     Label("Progress photos", systemImage: "photo.on.rectangle.angled")
                 }
