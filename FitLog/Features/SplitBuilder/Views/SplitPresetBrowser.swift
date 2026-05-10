@@ -13,7 +13,7 @@ struct SplitPresetBrowser: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
-    let onSelect: (name: String, days: [SplitBuilderEditableDay], sessionsPerWeek: Int, preferredWeekdays: [Int]) -> Void
+    let onSelect: (_ name: String, _ days: [SplitBuilderEditableDay], _ sessionsPerWeek: Int, _ preferredWeekdays: [Int]) -> Void
 
     @Query(sort: \SDSplitPresetV2.createdAt, order: .reverse) private var presets: [SDSplitPresetV2]
     @State private var presetToDelete: SDSplitPresetV2?
