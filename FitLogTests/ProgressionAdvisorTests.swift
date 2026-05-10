@@ -16,12 +16,9 @@ final class ProgressionAdvisorTests: XCTestCase {
                 id: UUID(),
                 resolution: .concrete(ExerciseSnapshot(
                     exerciseId: UUID(),
-                    name: "Squat",
-                    targetedMuscles: [.quadriceps],
-                    exerciseRole: .compound,
-                    movementPattern: .squat,
-                    configurationOptions: []
+                    nameAtTimeOfLog: "Squat"
                 )),
+                defaultRestTime: 180,
                 recommendedSets: 3,
                 recommendedReps: "5"
             ),
@@ -29,9 +26,9 @@ final class ProgressionAdvisorTests: XCTestCase {
         )
         
         let lastWorkingSets = [
-            LoggedSet(id: UUID(), weight: 135.0, reps: 5, rpe: 8.0, restTime: 180, timestamp: Date(), dropSegments: []),
-            LoggedSet(id: UUID(), weight: 135.0, reps: 5, rpe: 8.5, restTime: 180, timestamp: Date(), dropSegments: []),
-            LoggedSet(id: UUID(), weight: 135.0, reps: 5, rpe: 9.0, restTime: 180, timestamp: Date(), dropSegments: [])
+            LoggedSet(id: UUID(), weight: 135.0, reps: 5, restTime: 180, timestamp: Date(), setType: .working, rpe: 8.0),
+            LoggedSet(id: UUID(), weight: 135.0, reps: 5, restTime: 180, timestamp: Date(), setType: .working, rpe: 8.5),
+            LoggedSet(id: UUID(), weight: 135.0, reps: 5, restTime: 180, timestamp: Date(), setType: .working, rpe: 9.0)
         ]
         
         let suggestion = ProgressionAdvisor.suggest(
@@ -42,8 +39,8 @@ final class ProgressionAdvisorTests: XCTestCase {
         )
         
         XCTAssertNotNil(suggestion)
-        XCTAssertEqual(suggestion?.targetWeight, 140.0, "Should add 5 lbs for compound")
-        XCTAssertEqual(suggestion?.targetReps, 5)
+        XCTAssertEqual(suggestion?.weight, 140.0, "Should add 5 lbs for compound")
+        XCTAssertEqual(suggestion?.reps, 5)
     }
     
     func testSuggest_AccessoryExercise_DoubleProgression() {
@@ -53,12 +50,9 @@ final class ProgressionAdvisorTests: XCTestCase {
                 id: UUID(),
                 resolution: .concrete(ExerciseSnapshot(
                     exerciseId: UUID(),
-                    name: "Dumbbell Curl",
-                    targetedMuscles: [.biceps],
-                    exerciseRole: .accessory,
-                    movementPattern: .pull,
-                    configurationOptions: []
+                    nameAtTimeOfLog: "Dumbbell Curl"
                 )),
+                defaultRestTime: 90,
                 recommendedSets: 3,
                 recommendedReps: "8-12"
             ),
@@ -66,9 +60,9 @@ final class ProgressionAdvisorTests: XCTestCase {
         )
         
         let lastWorkingSets = [
-            LoggedSet(id: UUID(), weight: 30.0, reps: 12, rpe: 8.0, restTime: 90, timestamp: Date(), dropSegments: []),
-            LoggedSet(id: UUID(), weight: 30.0, reps: 12, rpe: 8.0, restTime: 90, timestamp: Date(), dropSegments: []),
-            LoggedSet(id: UUID(), weight: 30.0, reps: 12, rpe: 8.5, restTime: 90, timestamp: Date(), dropSegments: [])
+            LoggedSet(id: UUID(), weight: 30.0, reps: 12, restTime: 90, timestamp: Date(), setType: .working, rpe: 8.0),
+            LoggedSet(id: UUID(), weight: 30.0, reps: 12, restTime: 90, timestamp: Date(), setType: .working, rpe: 8.0),
+            LoggedSet(id: UUID(), weight: 30.0, reps: 12, restTime: 90, timestamp: Date(), setType: .working, rpe: 8.5)
         ]
         
         let suggestion = ProgressionAdvisor.suggest(
@@ -80,8 +74,8 @@ final class ProgressionAdvisorTests: XCTestCase {
         
         XCTAssertNotNil(suggestion)
         // Hit upper bound, should increase weight and reset reps
-        XCTAssertEqual(suggestion?.targetWeight, 35.0)
-        XCTAssertEqual(suggestion?.targetReps, 8)
+        XCTAssertEqual(suggestion?.weight, 35.0)
+        XCTAssertEqual(suggestion?.reps, 8)
     }
     
     func testSuggest_ConsecutiveMisses_Deload() {
@@ -91,12 +85,9 @@ final class ProgressionAdvisorTests: XCTestCase {
                 id: UUID(),
                 resolution: .concrete(ExerciseSnapshot(
                     exerciseId: UUID(),
-                    name: "Bench Press",
-                    targetedMuscles: [.chest],
-                    exerciseRole: .compound,
-                    movementPattern: .push,
-                    configurationOptions: []
+                    nameAtTimeOfLog: "Bench Press"
                 )),
+                defaultRestTime: 240,
                 recommendedSets: 3,
                 recommendedReps: "5"
             ),
@@ -104,7 +95,7 @@ final class ProgressionAdvisorTests: XCTestCase {
         )
         
         let lastWorkingSets = [
-            LoggedSet(id: UUID(), weight: 185.0, reps: 3, rpe: 10.0, restTime: 240, timestamp: Date(), dropSegments: [])
+            LoggedSet(id: UUID(), weight: 185.0, reps: 3, restTime: 240, timestamp: Date(), setType: .working, rpe: 10.0)
         ]
         
         let suggestion = ProgressionAdvisor.suggest(
@@ -115,6 +106,6 @@ final class ProgressionAdvisorTests: XCTestCase {
         )
         
         XCTAssertNotNil(suggestion)
-        XCTAssertLessThan(suggestion!.targetWeight, 185.0, "Should deload after 2 misses")
+        XCTAssertLessThan(suggestion!.weight, 185.0, "Should deload after 2 misses")
     }
 }

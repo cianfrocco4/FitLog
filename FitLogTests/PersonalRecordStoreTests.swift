@@ -31,10 +31,9 @@ final class PersonalRecordStoreTests: XCTestCase {
             id: UUID(),
             weight: 135.0,
             reps: 10,
-            rpe: nil,
             restTime: 90,
             timestamp: Date(),
-            dropSegments: []
+            setType: .working
         )
         
         let events = store.updateIfPR(
@@ -46,16 +45,16 @@ final class PersonalRecordStoreTests: XCTestCase {
         
         XCTAssertEqual(events.count, 3, "First set should trigger 3 PRs: weight, volume, est1RM")
         XCTAssertTrue(events.contains { $0.kind == .maxWeight })
-        XCTAssertTrue(events.contains { $0.kind == .maxVolume })
-        XCTAssertTrue(events.contains { $0.kind == .estimated1RM })
+        XCTAssertTrue(events.contains { $0.kind == .maxVolumeSet })
+        XCTAssertTrue(events.contains { $0.kind == .estimatedOneRM })
     }
     
     func testUpdateIfPR_LowerWeight_NoEvent() {
         let exerciseId = UUID()
-        let firstSet = LoggedSet(id: UUID(), weight: 200.0, reps: 5, rpe: nil, restTime: 90, timestamp: Date(), dropSegments: [])
+        let firstSet = LoggedSet(id: UUID(), weight: 200.0, reps: 5, restTime: 90, timestamp: Date(), setType: .working)
         _ = store.updateIfPR(set: firstSet, exerciseId: exerciseId, exerciseName: "Squat", sessionId: UUID())
         
-        let secondSet = LoggedSet(id: UUID(), weight: 150.0, reps: 10, rpe: nil, restTime: 90, timestamp: Date().addingTimeInterval(300), dropSegments: [])
+        let secondSet = LoggedSet(id: UUID(), weight: 150.0, reps: 10, restTime: 90, timestamp: Date().addingTimeInterval(300), setType: .working)
         let events = store.updateIfPR(set: secondSet, exerciseId: exerciseId, exerciseName: "Squat", sessionId: UUID())
         
         XCTAssertTrue(events.isEmpty, "Lower weight should not trigger PR")
@@ -64,9 +63,9 @@ final class PersonalRecordStoreTests: XCTestCase {
     func testBestValues_ReturnsMaximums() {
         let exerciseId = UUID()
         let sets = [
-            LoggedSet(id: UUID(), weight: 100.0, reps: 10, rpe: nil, restTime: 90, timestamp: Date(), dropSegments: []),
-            LoggedSet(id: UUID(), weight: 150.0, reps: 5, rpe: nil, restTime: 90, timestamp: Date().addingTimeInterval(300), dropSegments: []),
-            LoggedSet(id: UUID(), weight: 120.0, reps: 8, rpe: nil, restTime: 90, timestamp: Date().addingTimeInterval(600), dropSegments: [])
+            LoggedSet(id: UUID(), weight: 100.0, reps: 10, restTime: 90, timestamp: Date(), setType: .working),
+            LoggedSet(id: UUID(), weight: 150.0, reps: 5, restTime: 90, timestamp: Date().addingTimeInterval(300), setType: .working),
+            LoggedSet(id: UUID(), weight: 120.0, reps: 8, restTime: 90, timestamp: Date().addingTimeInterval(600), setType: .working)
         ]
         
         for set in sets {
