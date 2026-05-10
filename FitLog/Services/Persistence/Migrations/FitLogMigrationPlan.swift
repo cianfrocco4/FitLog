@@ -116,6 +116,51 @@ enum FitLogMigrationPlan: SchemaMigrationPlan {
         return try? JSONDecoder().decode(BackupSnapshot.self, from: data)
     }
 
+    /// Recovery order: V1→V2 snapshot, unified-slots pre-migration snapshot, then newest `backup_*.json` / `pre_v2_*.json` in Application Support/Backups.
+    static func readBestAvailableRecoverySnapshot() -> BackupSnapshot? {
+        try? FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
+
+        if let s = readLatestBackup() { return s }
+
+        let slotsURL = backupDir.appending(path: WorkoutUnifiedSlotsMigration.latestPreMigrationBackupFileName, directoryHint: .notDirectory)
+        if let data = try? Data(contentsOf: slotsURL),
+           let s = try? JSONDecoder().decode(BackupSnapshot.self, from: data) {
+            return s
+        }
+
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: backupDir,
+            includingPropertiesForKeys: [.creationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+
+        func decodeFirstMatch(_ candidates: [URL]) -> BackupSnapshot? {
+            for url in candidates {
+                guard url.pathExtension == "json" else { continue }
+                guard let data = try? Data(contentsOf: url) else { continue }
+                if let s = try? JSONDecoder().decode(BackupSnapshot.self, from: data) {
+                    return s
+                }
+            }
+            return nil
+        }
+
+        let sortedNewestFirst = urls.sorted {
+            let da = (try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            let db = (try? $1.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            return da > db
+        }
+
+        let rotating = sortedNewestFirst.filter { $0.lastPathComponent.hasPrefix("backup_") }
+        if let s = decodeFirstMatch(rotating) { return s }
+
+        let preV2Stamped = sortedNewestFirst.filter {
+            let n = $0.lastPathComponent
+            return n.hasPrefix("pre_v2_") && n != "pre_v2_latest.json"
+        }
+        return decodeFirstMatch(preV2Stamped)
+    }
+
     static func latestBackupURL() -> URL? {
         let url = backupDir.appending(path: "pre_v2_latest.json")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil

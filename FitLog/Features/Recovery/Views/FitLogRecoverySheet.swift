@@ -63,7 +63,7 @@ struct FitLogRecoverySheet: View {
             Text("FitLog could not open your data")
                 .font(.title2.bold())
                 .multilineTextAlignment(.center)
-            Text("A database upgrade failed. “Restore from latest” uses the automatic backup from the last V1 to V2 upgrade (if one exists on this device). Typical restore finishes in a few seconds; if it fails, you’ll see a message below.")
+            Text("A database upgrade failed. “Restore from latest” loads the newest automatic JSON backup (V1→V2 export, unified-slots export, or the periodic backup FitLog writes when you use the app). Typical restore finishes in a few seconds; if nothing is found, you’ll see a message below.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -95,7 +95,7 @@ struct FitLogRecoverySheet: View {
                     let ok = onRestoreLatest()
                     isRestoring = false
                     if !ok {
-                        restoreError = "No backup found at Backups/pre_v2_latest.json, or restore failed. Try “Reset and continue” if you only need a fresh install."
+                        restoreError = "No JSON backup was found in Application Support/Backups (or restore failed). If this is a simulator you’ve never backed up, use “Reset and continue”. On a real device, use an iTunes/Finder or iCloud backup of the device to recover older data."
                     }
                 }
             } label: {
