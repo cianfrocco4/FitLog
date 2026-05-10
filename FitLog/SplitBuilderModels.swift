@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct SplitBuilderEditableSlot: Identifiable, Equatable {
+struct SplitBuilderEditableSlot: Identifiable, Equatable, Codable, Hashable {
     let id: UUID
     var label: String
     var targetMuscleNames: [String]
@@ -35,7 +35,7 @@ struct SplitBuilderEditableSlot: Identifiable, Equatable {
     }
 }
 
-struct SplitBuilderEditableDay: Identifiable, Equatable {
+struct SplitBuilderEditableDay: Identifiable, Equatable, Codable, Hashable {
     let id: UUID
     var name: String
     var focus: String
