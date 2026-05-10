@@ -20,8 +20,8 @@ struct SuggestedTargetChip: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 6) {
-                Image(systemName: "arrow.up.right.circle.fill")
-                    .foregroundStyle(.tint)
+                Image(systemName: suggestion.suggestsPRAttempt ? "trophy.fill" : "arrow.up.right.circle.fill")
+                    .foregroundStyle(suggestion.suggestsPRAttempt ? Color.orange : Color.accentColor)
                     .imageScale(.small)
 
                 Group {
@@ -61,6 +61,9 @@ struct SuggestedTargetChip: View {
 
     private var accessibilityText: String {
         var parts: [String] = []
+        if suggestion.suggestsPRAttempt {
+            parts.append("Possible personal record attempt")
+        }
         if let lw = lastWeight, let lr = lastReps {
             parts.append("Last: \(displayWeight(lw)) for \(lr) reps")
         }

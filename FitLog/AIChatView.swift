@@ -110,8 +110,8 @@ struct AIChatView: View {
 
     @StateObject private var chat = CoachChatController()
     @FocusState private var isComposerFocused: Bool
-    @State private var showSplitBuilder = false
-    @State private var splitBuilderPrefill: String?
+    @State private var showProgramBuilder = false
+    @State private var programBuilderPrefill: String?
 
     var body: some View {
         NavigationStack {
@@ -180,11 +180,12 @@ struct AIChatView: View {
                             Button("Done") { dismissCoachKeyboard() }
                         }
                         Button {
-                            splitBuilderPrefill = nil
-                            showSplitBuilder = true
+                            programBuilderPrefill = nil
+                            showProgramBuilder = true
                         } label: {
-                            Label("Split builder", systemImage: "sparkles")
+                            Label("Program builder", systemImage: "calendar.badge.clock")
                         }
+                        .accessibilityHint("Opens the program builder to create or edit a training program")
                         Button("Clear") {
                             dismissCoachKeyboard()
                             chat.clearChat()
@@ -193,19 +194,22 @@ struct AIChatView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showSplitBuilder) {
+            .sheet(isPresented: $showProgramBuilder, onDismiss: { programBuilderPrefill = nil }) {
                 SplitBuilderView()
                     .environment(dataVM)
                     .environment(currentVM)
                     .environmentObject(aiService)
                     .environment(\.fitlogRootTabSelection, rootTabSelection)
-                    .environment(\.fitlogAISplitCoachPrefill, splitBuilderPrefill)
+                    .environment(\.fitlogAISplitCoachPrefill, programBuilderPrefill)
             }
-            .onChange(of: coachDeepLink.wrappedValue) { _, new in
-                if case .openAISplitBuilder(let prefill) = new {
-                    splitBuilderPrefill = prefill
-                    showSplitBuilder = true
+            .onChange(of: coachDeepLink.wrappedValue, initial: true) { _, new in
+                switch new {
+                case .openDynamicProgramBuilder(let prefill):
+                    programBuilderPrefill = prefill
+                    showProgramBuilder = true
                     coachDeepLink.wrappedValue = .idle
+                case .idle:
+                    break
                 }
             }
         }

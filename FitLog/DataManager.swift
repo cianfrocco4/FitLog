@@ -36,6 +36,10 @@ final class DataManager {
     /// Active periodized / dynamic program; when set, schedule fields sync into `trainingProgram`.
     var dynamicProgramState: DynamicProgramState?
 
+    /// In-memory only: avoids duplicate block-transition toasts across reconciliations.
+    private var lastNotifiedDynamicProgramId: UUID?
+    private var lastNotifiedDynamicBlockId: UUID?
+
     let workoutStore: WorkoutStore
     let sessionStore: SessionStore
     let exerciseStore: ExerciseStore
@@ -498,7 +502,28 @@ final class DataManager {
         anchorDate: Date = Date()
     ) {
         var createdByPlanKey: [String: Exercise] = [:]
+        var entries: [WorkoutPlanRef] = []
+        for day in proposal.workouts {
+            guard let id = createFlexWorkoutFromProposalDay(day, createdByPlanKey: &createdByPlanKey) else { continue }
+            entries.append(.workout(id))
+        }
+        reorderWorkoutsPlacingIdsFirst(entries.map(\.libraryWorkoutId))
+        saveWorkouts()
+        if updateTrainingProgram, !entries.isEmpty {
+            applyTrainingProgramSuggestion(
+                cycleEntries: entries,
+                sessionsPerWeek: proposal.sessionsPerWeek,
+                preferredWeekdays: proposal.preferredWeekdays,
+                anchorDate: anchorDate
+            )
+        }
+    }
 
+    /// Builds flexible `TemplateSlot` rows for one split proposal day (shared by split apply and dynamic program materialization).
+    private func buildTemplateSlots(
+        for day: WorkoutSplitProposalDay,
+        createdByPlanKey: inout [String: Exercise]
+    ) -> [TemplateSlot]? {
         func resolveOrCreateExercise(
             planName: String,
             overrideId: UUID?,
@@ -524,80 +549,115 @@ final class DataManager {
             }
         }
 
-        var entries: [WorkoutPlanRef] = []
-        for day in proposal.workouts {
-            let slotSources: [WorkoutSplitProposalSlotItem] = {
-                if !day.slots.isEmpty { return day.slots }
-                return day.exercises.compactMap { ex in
-                    let n = ex.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !n.isEmpty else { return nil }
-                    let sets = min(max(1, ex.sets), 10)
-                    let repsRaw = ex.reps.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let reps = repsRaw.isEmpty ? "8-12" : repsRaw
-                    return WorkoutSplitProposalSlotItem(
-                        label: n,
-                        targetMuscleNames: [],
-                        sets: sets,
-                        reps: reps,
-                        suggestedExerciseName: n,
-                        suggestedExerciseOverrideId: ex.libraryExerciseOverrideId
-                    )
-                }
-            }()
-            guard !slotSources.isEmpty else { continue }
-
-            let templateSlots: [TemplateSlot] = slotSources.map { s in
-                let parsedMuscles = ExerciseNameResolution.resolveMuscleGroups(from: s.targetMuscleNames)
-                let matchedExercise: Exercise? = {
-                    if let oid = s.suggestedExerciseOverrideId,
-                       let ex = globalExercises.first(where: { $0.id == oid }) {
-                        return ex
-                    }
-                    guard let raw = s.suggestedExerciseName?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
-                        return nil
-                    }
-                    let musclesForNew = parsedMuscles.isEmpty ? [MuscleGroup.other] : parsedMuscles
-                    return resolveOrCreateExercise(
-                        planName: raw,
-                        overrideId: nil,
-                        musclesIfCreatingCustom: musclesForNew
-                    )
-                }()
-                let targetedMuscles: [MuscleGroup]
-                if !parsedMuscles.isEmpty {
-                    targetedMuscles = parsedMuscles
-                } else if let ex = matchedExercise, !ex.targetedMuscles.isEmpty {
-                    targetedMuscles = ex.targetedMuscles
-                } else {
-                    targetedMuscles = [MuscleGroup.other]
-                }
-                let repsRaw = s.reps.trimmingCharacters(in: .whitespacesAndNewlines)
-                let repsFinal = repsRaw.isEmpty ? "8-12" : repsRaw
-                return TemplateSlot(
-                    label: s.label,
-                    targetedMuscles: targetedMuscles,
-                    exerciseRole: matchedExercise?.exerciseRole,
-                    movementPattern: matchedExercise?.movementPattern,
-                    defaultExerciseId: matchedExercise?.id,
-                    recommendedSets: min(max(1, s.sets), 10),
-                    recommendedReps: repsFinal
+        let slotSources: [WorkoutSplitProposalSlotItem] = {
+            if !day.slots.isEmpty { return day.slots }
+            return day.exercises.compactMap { ex in
+                let n = ex.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !n.isEmpty else { return nil }
+                let sets = min(max(1, ex.sets), 10)
+                let repsRaw = ex.reps.trimmingCharacters(in: .whitespacesAndNewlines)
+                let reps = repsRaw.isEmpty ? "8-12" : repsRaw
+                return WorkoutSplitProposalSlotItem(
+                    label: n,
+                    targetMuscleNames: [],
+                    sets: sets,
+                    reps: reps,
+                    suggestedExerciseName: n,
+                    suggestedExerciseOverrideId: ex.libraryExerciseOverrideId
                 )
             }
+        }()
+        guard !slotSources.isEmpty else { return nil }
 
-            let name = uniqueFlexWorkoutName(day.name)
-            let id = createWorkoutWithFlexibleSlots(name: name, slots: templateSlots)
-            entries.append(.workout(id))
-        }
-        reorderWorkoutsPlacingIdsFirst(entries.map(\.libraryWorkoutId))
-        saveWorkouts()
-        if updateTrainingProgram, !entries.isEmpty {
-            applyTrainingProgramSuggestion(
-                cycleEntries: entries,
-                sessionsPerWeek: proposal.sessionsPerWeek,
-                preferredWeekdays: proposal.preferredWeekdays,
-                anchorDate: anchorDate
+        let templateSlots: [TemplateSlot] = slotSources.map { s in
+            let parsedMuscles = ExerciseNameResolution.resolveMuscleGroups(from: s.targetMuscleNames)
+            let matchedExercise: Exercise? = {
+                if let oid = s.suggestedExerciseOverrideId,
+                   let ex = globalExercises.first(where: { $0.id == oid }) {
+                    return ex
+                }
+                guard let raw = s.suggestedExerciseName?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+                    return nil
+                }
+                let musclesForNew = parsedMuscles.isEmpty ? [MuscleGroup.other] : parsedMuscles
+                return resolveOrCreateExercise(
+                    planName: raw,
+                    overrideId: nil,
+                    musclesIfCreatingCustom: musclesForNew
+                )
+            }()
+            let targetedMuscles: [MuscleGroup]
+            if !parsedMuscles.isEmpty {
+                targetedMuscles = parsedMuscles
+            } else if let ex = matchedExercise, !ex.targetedMuscles.isEmpty {
+                targetedMuscles = ex.targetedMuscles
+            } else {
+                targetedMuscles = [MuscleGroup.other]
+            }
+            let repsRaw = s.reps.trimmingCharacters(in: .whitespacesAndNewlines)
+            let repsFinal = repsRaw.isEmpty ? "8-12" : repsRaw
+            return TemplateSlot(
+                label: s.label,
+                targetedMuscles: targetedMuscles,
+                exerciseRole: matchedExercise?.exerciseRole,
+                movementPattern: matchedExercise?.movementPattern,
+                defaultExerciseId: matchedExercise?.id,
+                recommendedSets: min(max(1, s.sets), 10),
+                recommendedReps: repsFinal
             )
         }
+        return templateSlots
+    }
+
+    /// Creates one flexible-slot library workout from a proposal day. Returns nil when there is nothing to materialize.
+    @discardableResult
+    private func createFlexWorkoutFromProposalDay(
+        _ day: WorkoutSplitProposalDay,
+        createdByPlanKey: inout [String: Exercise]
+    ) -> UUID? {
+        guard let templateSlots = buildTemplateSlots(for: day, createdByPlanKey: &createdByPlanKey) else { return nil }
+        let name = uniqueFlexWorkoutName(day.name)
+        return createWorkoutWithFlexibleSlots(name: name, slots: templateSlots)
+    }
+
+    /// Creates library workouts for every `BlockWeeklyTemplate` in `program` (all blocks), keyed by template id.
+    func materializeDynamicProgramWorkouts(for program: DynamicProgram) -> [UUID: UUID] {
+        var createdByPlanKey: [String: Exercise] = [:]
+        var map: [UUID: UUID] = [:]
+        var orderedLibraryIds: [UUID] = []
+        for block in program.blocks {
+            for template in block.weeklyTemplates {
+                let day = SplitBuilderEditableDay(
+                    id: template.id,
+                    name: template.dayName,
+                    focus: template.focus,
+                    slots: template.slots
+                ).toProposalDay()
+                guard let wid = createFlexWorkoutFromProposalDay(day, createdByPlanKey: &createdByPlanKey) else { continue }
+                map[template.id] = wid
+                orderedLibraryIds.append(wid)
+            }
+        }
+        reorderWorkoutsPlacingIdsFirst(orderedLibraryIds)
+        saveWorkouts()
+        return map
+    }
+
+    /// Materializes templates, persists `DynamicProgramState`, and syncs the active block’s rotation into `trainingProgram`.
+    @discardableResult
+    func applyDynamicProgram(_ program: DynamicProgram, anchorDate: Date = Date()) -> Bool {
+        let cal = Calendar.current
+        let anchorStart = cal.startOfDay(for: anchorDate)
+        let map = materializeDynamicProgramWorkouts(for: program)
+        let templateIds = program.blocks.flatMap(\.weeklyTemplates).map(\.id)
+        guard !templateIds.isEmpty, templateIds.allSatisfy({ map[$0] != nil }) else { return false }
+        let state = DynamicProgramState(
+            program: program,
+            anchorDate: anchorStart,
+            materializedTemplateWorkoutIds: map
+        )
+        setDynamicProgramState(state)
+        return true
     }
 
     func uniqueFlexWorkoutName(_ base: String) -> String {
@@ -636,7 +696,67 @@ final class DataManager {
             }
             return .unscheduled
         }
-        return TrainingScheduleEngine(calendar: cal).resolve(date: date, program: trainingProgram)
+
+        let engine = TrainingScheduleEngine(calendar: cal)
+        if let overridden = engine.resolveOverriddenDay(date: date, program: trainingProgram) {
+            return overridden
+        }
+
+        if let dyn = dynamicProgramState {
+            let pe = PeriodizationEngine(calendar: cal)
+            let rd = pe.resolvedTemplateDay(on: date, state: dyn)
+            if cal.isDate(dateStart, inSameDayAs: todayStart) {
+                postDynamicProgramBlockTransitionIfNeeded(engine: pe, state: dyn, calendar: cal)
+            }
+            switch rd {
+            case .rest:
+                return .rest
+            case .unscheduled:
+                return .unscheduled
+            case .training(let template), .flex(let template):
+                if let wid = dyn.materializedTemplateWorkoutIds[template.id] {
+                    return .workout(.workout(wid))
+                }
+                return .unscheduled
+            }
+        }
+
+        return engine.defaultPlan(for: date, program: trainingProgram)
+    }
+
+    /// Block metadata for the given calendar day when a dynamic program is active (training day only).
+    func activeBlockContext(on date: Date = Date(), calendar: Calendar = .current) -> BlockContext? {
+        guard let state = dynamicProgramState else { return nil }
+        return PeriodizationEngine(calendar: calendar).blockContext(on: date, state: state)
+    }
+
+    /// Completed vs planned **training sessions** in the active block through today (for Home progress UI).
+    func dynamicProgramBlockSessionProgress(calendar: Calendar = .current) -> (completed: Int, planned: Int)? {
+        guard let state = dynamicProgramState else { return nil }
+        let cal = calendar
+        let engine = PeriodizationEngine(calendar: cal)
+        let today = cal.startOfDay(for: Date())
+        guard let placement = engine.blockPlacement(on: today, state: state) else { return nil }
+        let blockStart = engine.blockStartDate(blockIndex: placement.index, state: state)
+        let blockEnd = min(engine.blockEndDate(blockIndex: placement.index, state: state), today)
+        var completed = 0
+        var planned = 0
+        var walk = blockStart
+        while walk <= blockEnd {
+            let resolved = engine.resolvedTemplateDay(on: walk, state: state)
+            switch resolved {
+            case .training, .flex:
+                planned += 1
+                if primaryCompletedSession(on: walk, calendar: cal) != nil {
+                    completed += 1
+                }
+            case .rest, .unscheduled:
+                break
+            }
+            guard let nx = cal.date(byAdding: .day, value: 1, to: walk) else { break }
+            walk = nx
+        }
+        return (completed, max(1, planned))
     }
 
     /// Most recent completed session whose end (or start) falls on this local calendar day.
@@ -1258,7 +1378,24 @@ final class DataManager {
 
     /// Replaces the active dynamic program (or clears when `nil`).
     func setDynamicProgramState(_ state: DynamicProgramState?) {
+        lastNotifiedDynamicProgramId = nil
+        lastNotifiedDynamicBlockId = nil
         dynamicProgramState = state
+        saveDynamicProgramState()
+    }
+
+    /// Marks a calendar day as busy for the active dynamic program (compress / shift / flex policies).
+    func setDynamicProgramBusyDay(dayKey: String, isBusy: Bool, calendar: Calendar = .current) {
+        guard var dyn = dynamicProgramState else { return }
+        let adapter = ScheduleAdaptationService(calendar: calendar)
+        let engine = PeriodizationEngine(calendar: calendar)
+        adapter.setBusyDay(dayKey: dayKey, isBusy: isBusy, state: &dyn)
+        if isBusy, dyn.program.busyDayPolicy == .shift,
+           let d = TrainingProgramState.date(fromDayKey: dayKey, calendar: calendar),
+           let placement = engine.blockPlacement(on: d, state: dyn) {
+            adapter.extendBlockShift(blockId: placement.block.id, additionalDays: 1, state: &dyn)
+        }
+        dynamicProgramState = dyn
         saveDynamicProgramState()
     }
 
@@ -1274,6 +1411,27 @@ final class DataManager {
         let engine = PeriodizationEngine(calendar: calendar)
         if let placement = engine.blockPlacement(on: Date(), state: s) {
             let templates = placement.block.weeklyTemplates
+            let refs: [WorkoutPlanRef] = templates.compactMap { t in
+                guard let wid = s.materializedTemplateWorkoutIds[t.id] else { return nil }
+                return .workout(wid)
+            }
+            if !templates.isEmpty, refs.count == templates.count {
+                p.cycleEntries = refs
+                p.cyclePhaseOffset = 0
+            }
+        }
+        // When today falls before the anchor or after the program end, `blockPlacement` is nil and
+        // cycle entries would otherwise stay empty while the calendar still resolves from `dynamicProgramState`.
+        if p.cycleEntries.isEmpty, !s.program.blocks.isEmpty {
+            let anchorStart = calendar.startOfDay(for: s.anchorDate)
+            let todayStart = calendar.startOfDay(for: Date())
+            let fallbackBlock: ProgramBlock
+            if todayStart < anchorStart {
+                fallbackBlock = s.program.blocks[0]
+            } else {
+                fallbackBlock = s.program.blocks[s.program.blocks.count - 1]
+            }
+            let templates = fallbackBlock.weeklyTemplates
             let refs: [WorkoutPlanRef] = templates.compactMap { t in
                 guard let wid = s.materializedTemplateWorkoutIds[t.id] else { return nil }
                 return .workout(wid)
@@ -1400,12 +1558,37 @@ final class DataManager {
     func reconcileSkippedCycleTrainingDays(calendar: Calendar = .current) {
         let cal = calendar
         if var dyn = dynamicProgramState {
-            var adapter = ScheduleAdaptationService(calendar: cal)
+            let adapter = ScheduleAdaptationService(calendar: cal)
+            let engine = PeriodizationEngine(calendar: cal)
+            let todayStart = cal.startOfDay(for: Date())
+            let yesterday = cal.date(byAdding: .day, value: -1, to: todayStart)
+
+            let oldMissed = dyn.missedSessionDayKeys
+            if let y = yesterday {
+                adapter.mergeDetectedMisses(through: y, state: &dyn, completedSessions: completedSessions)
+            }
+            let newMisses = dyn.missedSessionDayKeys.subtracting(oldMissed)
+            if dyn.program.busyDayPolicy == .shift {
+                for key in newMisses {
+                    if let d = TrainingProgramState.date(fromDayKey: key, calendar: cal),
+                       let placement = engine.blockPlacement(on: d, state: dyn) {
+                        adapter.extendBlockShift(blockId: placement.block.id, additionalDays: 1, state: &dyn)
+                    }
+                }
+            }
+
+            if let placement = engine.blockPlacement(on: todayStart, state: dyn), placement.index > 0 {
+                for i in 0 ..< placement.index {
+                    dyn.completedBlockIds.insert(dyn.program.blocks[i].id)
+                }
+            }
+
             adapter.mergeSkippedRotationKeysThroughYesterday(state: &dyn, completedSessions: completedSessions)
             dynamicProgramState = dyn
             syncTrainingProgramFromDynamicProgram(calendar: cal)
             saveTrainingProgram()
             saveDynamicProgramStateBlobOnly()
+            postDynamicProgramBlockTransitionIfNeeded(engine: engine, state: dyn, calendar: cal)
             return
         }
         guard !trainingProgram.cycleEntries.isEmpty else {
@@ -1544,6 +1727,35 @@ final class DataManager {
         saveExerciseLocalDisplayNames()
         reconcileSkippedCycleTrainingDays()
         publishWidgetSnapshot()
+    }
+
+    private func postDynamicProgramBlockTransitionIfNeeded(
+        engine: PeriodizationEngine,
+        state: DynamicProgramState,
+        calendar: Calendar
+    ) {
+        guard state.program.blocks.count > 1 else { return }
+        let todayStart = calendar.startOfDay(for: Date())
+        guard let placement = engine.blockPlacement(on: todayStart, state: state) else { return }
+        if lastNotifiedDynamicProgramId != state.program.id {
+            lastNotifiedDynamicProgramId = state.program.id
+            lastNotifiedDynamicBlockId = placement.block.id
+            return
+        }
+        if let prev = lastNotifiedDynamicBlockId, prev != placement.block.id {
+            lastNotifiedDynamicBlockId = placement.block.id
+            NotificationCenter.default.post(
+                name: .fitlogDynamicProgramBlockChanged,
+                object: nil,
+                userInfo: [
+                    "newBlockName": placement.block.name,
+                    "newBlockIndex": placement.index + 1,
+                    "blockCount": state.program.blocks.count,
+                ]
+            )
+        } else if lastNotifiedDynamicBlockId == nil {
+            lastNotifiedDynamicBlockId = placement.block.id
+        }
     }
 
     // MARK: - Body metrics & progress photos

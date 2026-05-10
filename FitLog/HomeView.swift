@@ -38,12 +38,17 @@ struct HomeView: View {
     @State private var workoutSearchText = ""
     @State private var showNewExercise = false
     @State private var homeFirstPaintSkeleton = true
-
-    private var scheduleEngine: TrainingScheduleEngine { TrainingScheduleEngine(calendar: .current) }
+    @State private var homeBlockTransitionToast: String?
+    @State private var homeBlockTransitionToastSerial = 0
 
     private var homeRefreshKey: String {
         let cycleSig = dataVM.trainingProgram.cycleEntries.map(\.cacheKey).joined(separator: ",")
-        return "\(dayMonitor.currentDayKey)-\(dataVM.completedSessions.count)-\(cycleSig)-\(dataVM.trainingProgram.anchorDayKey)-\(dataVM.trainingProgram.dayOverrides.count)-\(dataVM.trainingProgram.weekOverrides.count)-\(userPreferences.dismissedProgramAssignmentBanner)"
+        let dynSig: String = {
+            guard let d = dataVM.dynamicProgramState else { return "dyn:none" }
+            let shiftSig = d.blockShiftDays.map { "\($0.key.uuidString):\($0.value)" }.sorted().joined(separator: ",")
+            return "dyn:\(d.program.id.uuidString)-\(Int(d.anchorDate.timeIntervalSince1970))-\(d.materializedTemplateWorkoutIds.count)-\(d.busyDayKeys.count)-\(d.missedSessionDayKeys.count)-\(shiftSig)"
+        }()
+        return "\(dayMonitor.currentDayKey)-\(dataVM.completedSessions.count)-\(cycleSig)-\(dataVM.trainingProgram.anchorDayKey)-\(dataVM.trainingProgram.dayOverrides.count)-\(dataVM.trainingProgram.weekOverrides.count)-\(userPreferences.dismissedProgramAssignmentBanner)-\(dynSig)"
     }
 
     private var workoutSearchTrimmed: String {
@@ -65,6 +70,7 @@ struct HomeView: View {
         !userPreferences.dismissedProgramAssignmentBanner
             && !dataVM.userWorkouts.isEmpty
             && dataVM.trainingProgram.cycleEntries.isEmpty
+            && dataVM.dynamicProgramState == nil
     }
 
     private var homeShowsWorkoutPreviewOnly: Bool {
@@ -143,7 +149,7 @@ struct HomeView: View {
     }()
 
     private func refreshCachedHomeData() {
-        cachedTodayPlan = scheduleEngine.resolve(date: Date(), program: dataVM.trainingProgram)
+        cachedTodayPlan = dataVM.resolvedScheduleDay(for: Date(), calendar: .current)
         cachedWeekGlance = dataVM.weekAtAGlance(referenceDate: Date(), calendar: .current)
         cachedProgressSummary = dataVM.homeProgressSummary(referenceDate: Date(), calendar: .current)
         cachedWeeklyRecap = dataVM.weeklyRecapSummary()
@@ -215,6 +221,20 @@ struct HomeView: View {
         @Bindable var dm = dataVM
         return NavigationStack {
             List {
+                if let homeBlockTransitionToast {
+                    Section {
+                        Text(homeBlockTransitionToast)
+                            .font(.caption)
+                            .foregroundStyle(.primary)
+                            .padding(10)
+                            .frame(maxWidth: .infinity)
+                            .background(RoundedRectangle(cornerRadius: 10).fill(Color.accentColor.opacity(0.15)))
+                            .accessibilityLabel(homeBlockTransitionToast)
+                    }
+                    .listRowInsets(homeDashboardListInsets)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                }
                 Section {
                     if currentVM.isInProgress {
                         activeWorkoutIndicatorCard
@@ -264,6 +284,16 @@ struct HomeView: View {
                         .listRowInsets(homeDashboardListInsets)
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
+                    if let dyn = dataVM.dynamicProgramState {
+                        dynamicProgramActiveSummaryRow(programName: dyn.program.name, blockCount: dyn.program.blocks.count)
+                            .listRowInsets(homeDashboardListInsets)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                        dynamicProgramProgressAndScheduleCard(state: dyn)
+                            .listRowInsets(homeDashboardListInsets)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
                 } header: {
                     Text("Program")
                         .font(.subheadline)
@@ -375,7 +405,7 @@ struct HomeView: View {
                             newWorkoutLaunchHint = nil
                             showNewWorkout = true
                         }
-                        Button("Build split", systemImage: "rectangle.stack.badge.plus") {
+                        Button("Build program", systemImage: "rectangle.stack.badge.plus") {
                             showSplitBuilder = true
                         }
                         NavigationLink {
@@ -409,6 +439,20 @@ struct HomeView: View {
                     newWorkoutLaunchHint = nil
                 }
                 showNewWorkout = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fitlogDynamicProgramBlockChanged)) { note in
+                let name = (note.userInfo?["newBlockName"] as? String) ?? "Next block"
+                let idx = (note.userInfo?["newBlockIndex"] as? Int) ?? 0
+                let total = (note.userInfo?["blockCount"] as? Int) ?? 0
+                homeBlockTransitionToastSerial += 1
+                let serial = homeBlockTransitionToastSerial
+                homeBlockTransitionToast = total > 0 ? "Now in block \(idx) of \(total): \(name)" : "New training phase: \(name)"
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    if serial == homeBlockTransitionToastSerial {
+                        homeBlockTransitionToast = nil
+                    }
+                }
             }
             .sheet(isPresented: $showSplitBuilder) {
                 SplitBuilderView()
@@ -518,7 +562,31 @@ struct HomeView: View {
         .accessibilityHint("Opens the current workout")
     }
 
-    /// Between “today / progress” and the workout list: planning is separate from day-to-day lifts.
+    private func dynamicProgramActiveSummaryRow(programName: String, blockCount: Int) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title3)
+                .foregroundStyle(FitlogPalette.success)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Active dynamic program")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(programName)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+                Text("\(blockCount) blocks · matches Plan and Today above")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 16))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Active dynamic program \(programName), \(blockCount) blocks")
+    }
+
     private var aiSplitProgramRow: some View {
         Button {
             showSplitBuilder = true
@@ -528,10 +596,10 @@ struct HomeView: View {
                     .font(.title2)
                     .foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Build a workout split")
+                    Text("Build a program")
                         .font(.headline)
                         .foregroundStyle(.primary)
-                    Text("Use AI or build manually with balance checks")
+                    Text("Goals, phases, schedule, then save to Plan")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.leading)
@@ -547,7 +615,128 @@ struct HomeView: View {
             .clipShape(RoundedRectangle(cornerRadius: 20))
         }
         .buttonStyle(.plain)
-        .accessibilityHint("Opens the split builder")
+        .accessibilityHint("Opens the program builder")
+    }
+
+    private func dynamicProgramProgressAndScheduleCard(state: DynamicProgramState) -> some View {
+        let cal = Calendar.current
+        let pe = PeriodizationEngine(calendar: cal)
+        let today = cal.startOfDay(for: Date())
+        let placement = pe.blockPlacement(on: today, state: state)
+        let sessionProgress = dataVM.dynamicProgramBlockSessionProgress(calendar: cal)
+        let nextBlockLine: String? = {
+            guard let placement else { return nil }
+            let nextIdx = placement.index + 1
+            guard state.program.blocks.indices.contains(nextIdx) else { return nil }
+            let nb = state.program.blocks[nextIdx]
+            return "Up next: \(nb.name) (\(nb.durationWeeks) wk)"
+        }()
+        return VStack(alignment: .leading, spacing: 10) {
+            Label("Block & schedule", systemImage: "chart.bar.doc.horizontal")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            if let placement {
+                HStack(alignment: .center, spacing: 14) {
+                    if let pr = sessionProgress, pr.planned > 0 {
+                        dynamicProgramSessionProgressRing(completed: pr.completed, planned: pr.planned)
+                            .accessibilityLabel("Sessions completed in this block through today, \(pr.completed) of \(pr.planned)")
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        if state.program.blocks.count > 1 {
+                            Text("Block \(placement.index + 1) of \(state.program.blocks.count): \(placement.block.name)")
+                                .font(.headline)
+                            Text("Week \(placement.weekInBlock + 1) of \(placement.block.durationWeeks) in this phase")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text(placement.block.name)
+                                .font(.headline)
+                            Text("Week \(placement.weekInBlock + 1) of \(placement.block.durationWeeks)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        if let nextBlockLine {
+                            Text(nextBlockLine)
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .accessibilityLabel(nextBlockLine)
+                        }
+                    }
+                }
+            } else {
+                Text("Program starts \(state.anchorDate.formatted(date: .abbreviated, time: .omitted))")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Divider()
+            Text(dynamicProgramScheduleAdaptationSummary(state))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(dynamicProgramProgressAccessibility(state: state, placement: placement, sessionProgress: sessionProgress))
+    }
+
+    private func dynamicProgramSessionProgressRing(completed: Int, planned: Int) -> some View {
+        let total = max(1, planned)
+        let frac = min(1, max(0, Double(completed) / Double(total)))
+        return ZStack {
+            Circle()
+                .stroke(Color.secondary.opacity(0.22), lineWidth: 6)
+            Circle()
+                .trim(from: 0, to: frac)
+                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Text("\(completed)/\(planned)")
+                .font(.caption2.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.primary)
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
+                .padding(4)
+        }
+        .frame(width: 52, height: 52)
+    }
+
+    private func dynamicProgramScheduleAdaptationSummary(_ state: DynamicProgramState) -> String {
+        let busy = state.busyDayKeys.count
+        let missed = state.missedSessionDayKeys.count
+        let policy = state.program.busyDayPolicy
+        let policyLine: String = {
+            switch policy {
+            case .compress: return "Busy-day policy: compress remaining sessions in the week."
+            case .shift: return "Busy-day policy: shift the active block when life gets in the way."
+            case .flexDay: return "Busy-day policy: swap in lighter flex sessions on marked days."
+            case .skip: return "Busy-day policy: skip — rotation stays on the default cadence."
+            }
+        }()
+        var parts: [String] = [policyLine]
+        if busy > 0 { parts.append("\(busy) busy day(s) on your calendar.") }
+        if missed > 0 { parts.append("\(missed) missed training day(s) recorded for adaptation.") }
+        if busy == 0, missed == 0 {
+            parts.append("No busy flags or missed sessions tracked yet.")
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private func dynamicProgramProgressAccessibility(
+        state: DynamicProgramState,
+        placement: (index: Int, block: ProgramBlock, weekInBlock: Int)?,
+        sessionProgress: (completed: Int, planned: Int)?
+    ) -> String {
+        var parts: [String] = ["Block and schedule summary for \(state.program.name)"]
+        if let placement {
+            parts.append("\(placement.block.name), week \(placement.weekInBlock + 1)")
+        }
+        if let pr = sessionProgress {
+            parts.append("\(pr.completed) of \(pr.planned) planned sessions in this block logged through today")
+        }
+        parts.append(dynamicProgramScheduleAdaptationSummary(state))
+        return parts.joined(separator: " ")
     }
 
     private func weeklyRecapCard(_ recap: DataManager.WeeklyRecapSummary) -> some View {

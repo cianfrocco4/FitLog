@@ -23,6 +23,23 @@ struct PeriodizationEngine: Sendable {
         return block.durationWeeks * 7 + shiftDays
     }
 
+    /// Start of the `blockIndex` block on the program timeline (start-of-day).
+    func blockStartDate(blockIndex: Int, state: DynamicProgramState) -> Date {
+        let anchor = calendar.startOfDay(for: state.anchorDate)
+        var cursor = 0
+        for i in 0 ..< blockIndex {
+            cursor += effectiveBlockLengthDays(for: state.program.blocks[i], state: state)
+        }
+        return calendar.date(byAdding: .day, value: cursor, to: anchor) ?? anchor
+    }
+
+    /// Last calendar day of the block (inclusive).
+    func blockEndDate(blockIndex: Int, state: DynamicProgramState) -> Date {
+        let start = blockStartDate(blockIndex: blockIndex, state: state)
+        let len = effectiveBlockLengthDays(for: state.program.blocks[blockIndex], state: state)
+        return calendar.date(byAdding: .day, value: max(0, len - 1), to: start) ?? start
+    }
+
     /// Block index and block for `date`, plus zero-based week index inside that block.
     func blockPlacement(
         on date: Date,
@@ -99,18 +116,56 @@ struct PeriodizationEngine: Sendable {
         case .unscheduled, .rest:
             return base
         case .training(let template):
-            guard state.busyDayKeys.contains(key) else { return base }
-
-            switch state.program.busyDayPolicy {
-            case .flexDay:
-                return .flex(Self.flexVariant(from: template))
-            case .compress, .shift, .skip:
-                return .rest
+            if state.busyDayKeys.contains(key) {
+                switch state.program.busyDayPolicy {
+                case .flexDay:
+                    return .flex(Self.flexVariant(from: template))
+                case .compress, .shift, .skip:
+                    return .rest
+                }
             }
+            // Compress: when a training day in this ISO week was marked busy, add a light volume bump to remaining sessions.
+            if state.program.busyDayPolicy == .compress,
+               compressVolumeActiveInWeek(containing: date, state: state) {
+                return .training(Self.augmentSetsForCompress(template))
+            }
+            return base
 
         case .flex:
             return base
         }
+    }
+
+    /// True when at least one **default training day** in the same ISO week as `date` is marked busy (lost session that week).
+    func compressVolumeActiveInWeek(containing date: Date, state: DynamicProgramState) -> Bool {
+        let trainingKeys = trainingDayKeysInWeek(
+            containing: date,
+            sessionsPerWeek: state.program.defaultSessionsPerWeek,
+            preferredWeekdays: state.program.preferredWeekdays
+        )
+        return trainingKeys.contains { state.busyDayKeys.contains($0) }
+    }
+
+    /// +1 working set per slot (capped) so remaining days absorb a bit of the missed busy-day volume.
+    private static func augmentSetsForCompress(_ template: BlockWeeklyTemplate) -> BlockWeeklyTemplate {
+        let slots = template.slots.map { slot -> SplitBuilderEditableSlot in
+            let bumped = min(10, slot.sets + 1)
+            return SplitBuilderEditableSlot(
+                id: slot.id,
+                label: slot.label,
+                targetMuscleNames: slot.targetMuscleNames,
+                sets: bumped,
+                reps: slot.reps,
+                suggestedExerciseName: slot.suggestedExerciseName,
+                suggestedExerciseOverrideId: slot.suggestedExerciseOverrideId
+            )
+        }
+        return BlockWeeklyTemplate(
+            id: template.id,
+            dayName: template.dayName,
+            focus: template.focus,
+            slots: slots
+        )
     }
 
     /// Context for progression heuristics when `date` is a training day inside a block.
@@ -130,7 +185,8 @@ struct PeriodizationEngine: Sendable {
             volumeMultiplier: block.volumeMultiplier,
             progressionStrategy: block.progressionStrategy,
             weekIndexInBlock: placement.weekInBlock,
-            isDeloadBlock: block.isDeloadBlock
+            isDeloadBlock: block.isDeloadBlock,
+            blockDurationWeeks: block.durationWeeks
         )
     }
 
@@ -152,8 +208,9 @@ struct PeriodizationEngine: Sendable {
         }
         let focus = template.focus.trimmingCharacters(in: .whitespacesAndNewlines)
         let suffix = focus.isEmpty ? "Recovery" : "Recovery — \(focus)"
+        // Reuse the template id so `materializedTemplateWorkoutIds` still resolves after busy-day flex.
         return BlockWeeklyTemplate(
-            id: UUID(),
+            id: template.id,
             dayName: template.dayName + " (Flex)",
             focus: suffix,
             slots: slots

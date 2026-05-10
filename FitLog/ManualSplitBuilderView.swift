@@ -623,6 +623,38 @@ struct ManualSplitBuilderView: View {
             )
         }
 
+        if updateTrainingProgram {
+            let templates = editableDays.map { day in
+                BlockWeeklyTemplate(
+                    id: day.id,
+                    dayName: day.name,
+                    focus: day.focus,
+                    slots: day.slots
+                )
+            }
+            let block = ProgramBlock(
+                name: "Manual program",
+                focus: BlockFocus(kind: .general, emphasisLabel: ""),
+                durationWeeks: 8,
+                weeklyTemplates: templates,
+                progressionStrategy: .doubleProgression
+            )
+            let programName = "Manual — \(Date().formatted(date: .abbreviated, time: .omitted))"
+            let program = DynamicProgram(
+                name: programName,
+                blocks: [block],
+                defaultSessionsPerWeek: effectiveSessions,
+                preferredWeekdays: Array(selectedWeekdays).sorted(),
+                busyDayPolicy: .skip
+            )
+            let anchorStart = Calendar.current.startOfDay(for: anchorDate)
+            if dataVM.applyDynamicProgram(program, anchorDate: anchorStart) {
+                applySuccessMessage = "Created \(templates.count) workout template\(templates.count == 1 ? "" : "s"). Your Plan tab now follows this dynamic program."
+                showApplySuccess = true
+                return
+            }
+        }
+
         let p = SplitBuilderApplyService.apply(
             days: editableDays,
             dataVM: dataVM,

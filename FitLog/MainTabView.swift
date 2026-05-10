@@ -111,7 +111,7 @@ struct MainTabView: View {
                     break
                 case .coachAISplit:
                     rootTab = .coach
-                    coachDeepLink = .openAISplitBuilder(prefill: nil)
+                    coachDeepLink = .openDynamicProgramBuilder(prefill: nil)
                 case .homeNewWorkoutTemplates:
                     rootTab = .home
                     NotificationCenter.default.post(

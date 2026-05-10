@@ -1663,7 +1663,8 @@ struct CurrentWorkoutPullUpSheet: View {
             ProgressionAdvisor.suggest(
                 for: log,
                 lastWorkingSets: lastWorkingSets,
-                exerciseRole: dataVM.globalExercises.first(where: { $0.id == id })?.exerciseRole ?? .accessory
+                exerciseRole: dataVM.globalExercises.first(where: { $0.id == id })?.exerciseRole ?? .accessory,
+                blockContext: dataVM.activeBlockContext()
             )
         }
         let prevSessionSets = lastWorkingSets.filter { $0.countsTowardLoadPRMetrics }.prefix(3).map { $0 }

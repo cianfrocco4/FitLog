@@ -12,7 +12,8 @@ struct TrainingScheduleEngine {
         self.calendar = calendar
     }
 
-    func resolve(date: Date, program: TrainingProgramState) -> ResolvedScheduleDay {
+    /// When non-nil, day/week overrides fully determine the day (rest or a specific workout).
+    func resolveOverriddenDay(date: Date, program: TrainingProgramState) -> ResolvedScheduleDay? {
         let dk = TrainingProgramState.dayKey(for: date, calendar: calendar)
         if let o = program.dayOverrides[dk] {
             switch o.intent {
@@ -41,6 +42,13 @@ struct TrainingScheduleEngine {
             }
         }
 
+        return nil
+    }
+
+    func resolve(date: Date, program: TrainingProgramState) -> ResolvedScheduleDay {
+        if let overridden = resolveOverriddenDay(date: date, program: program) {
+            return overridden
+        }
         return defaultPlan(for: date, program: program)
     }
 

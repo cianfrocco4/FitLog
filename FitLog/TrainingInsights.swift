@@ -397,6 +397,22 @@ extension DataManager {
         guard let exerciseId = workoutExercise.exerciseId else { return nil }
         let repRange = parseRepRange(workoutExercise.recommendedReps)
         let recommendedSets = max(1, workoutExercise.recommendedSets)
+        let blockCtx = activeBlockContext()
+        let stepScale: Double = {
+            guard let b = blockCtx else { return 1.0 }
+            if b.isDeloadBlock { return 0.65 }
+            return max(0.72, min(1.12, b.volumeMultiplier))
+        }()
+        let blockRationaleSuffix: String = {
+            guard let b = blockCtx else { return "" }
+            if b.isDeloadBlock { return " Deload phase — smaller jumps fit better." }
+            switch b.progressionStrategy {
+            case .linear: return " Linear progression phase — prioritize quality reps."
+            case .undulating: return " Varied loading phase."
+            case .autoregulated: return " Autoregulated phase — adjust by feel."
+            case .doubleProgression: return ""
+            }
+        }()
 
         let recentLogs: [(Date, ExerciseLog)] = completedSessions
             .compactMap { session in
@@ -421,19 +437,21 @@ extension DataManager {
         let performedSets = topWeightSets.count
 
         let resolvedExercise = workoutExercise.snapshot.flatMap { resolveExercise(for: $0) }
-        let step: Double = {
+        let baseStep: Double = {
             if let resolvedExercise, resolvedExercise.exerciseRole == .isolation {
                 return 2.5
             }
             return topWeight >= 60 ? 5 : 2.5
         }()
+        let scaledStep = baseStep * stepScale
+        let step = max(2.5, ((scaledStep / 2.5).rounded() * 2.5))
 
         if let repRange, avgTopReps >= Double(repRange.high), performedSets >= min(recommendedSets, topWeightSets.count) {
             return ProgressionSuggestion(
                 direction: .increase,
                 suggestedWeight: max(0, topWeight + step),
                 targetReps: "\(repRange.low)-\(repRange.high)",
-                rationale: "You hit the top of your rep target on your latest working sets."
+                rationale: "You hit the top of your rep target on your latest working sets.\(blockRationaleSuffix)"
             )
         }
 
@@ -442,7 +460,7 @@ extension DataManager {
                 direction: .decrease,
                 suggestedWeight: max(0, topWeight - step),
                 targetReps: "\(repRange.low)-\(repRange.high)",
-                rationale: "Recent reps were below target. A small load reduction can improve quality reps."
+                rationale: "Recent reps were below target. A small load reduction can improve quality reps.\(blockRationaleSuffix)"
             )
         }
 
@@ -456,7 +474,7 @@ extension DataManager {
             direction: .hold,
             suggestedWeight: topWeight,
             targetReps: repsText,
-            rationale: "Build consistency at this load, then progress once reps are stable at the top of range."
+            rationale: "Build consistency at this load, then progress once reps are stable at the top of range.\(blockRationaleSuffix)"
         )
     }
 

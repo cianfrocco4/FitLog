@@ -2,8 +2,7 @@
 //  SplitBuilderView.swift
 //  FitLog
 //
-//  Unified split-builder entry point: users choose AI assistance or manual control,
-//  then both paths persist through the same flexible-workout split proposal model.
+//  Presents the dynamic program wizard (single entry point for building programs).
 //
 
 import SwiftUI
@@ -16,147 +15,30 @@ struct SplitBuilderView: View {
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
     @Environment(\.fitlogAISplitCoachPrefill) private var coachPrefill
 
-    @State private var selectedPath: SplitBuilderPath?
-    @State private var showPresetBrowser = false
-    @State private var presetDays: [SplitBuilderEditableDay] = []
-    @State private var presetSessions: Int = 3
-    @State private var presetWeekdays: [Int] = []
-    @State private var presetName: String = ""
-
-    private enum SplitBuilderPath: Identifiable {
-        case ai
-        case manual
-        case preset
-
-        var id: String {
-            switch self {
-            case .ai: return "ai"
-            case .manual: return "manual"
-            case .preset: return "preset"
-            }
-        }
-    }
+    @State private var viewModel = DynamicProgramBuilderViewModel()
+    @State private var didMergeCoachPrefill = false
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    Text("Choose how you want to start. Both paths create editable training days, run balance checks, and can update your Plan calendar.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                Section("Build a split") {
-                    pathButton(
-                        title: "AI builds it with me",
-                        subtitle: "Answer a few questions, generate a complete split, then edit every day and slot before applying.",
-                        systemImage: "sparkles",
-                        path: .ai
-                    )
-                    pathButton(
-                        title: "Build manually",
-                        subtitle: "Start from blank, PPL, upper/lower, full-body, or muscle-group presets with the same analyzer.",
-                        systemImage: "rectangle.stack.badge.plus",
-                        path: .manual
-                    )
-                    Button {
-                        showPresetBrowser = true
-                    } label: {
-                        HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: "square.stack.3d.up")
-                                .font(.title2)
-                                .foregroundStyle(Color.accentColor)
-                                .frame(width: 30)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Use saved preset")
-                                    .font(.headline)
-                                    .foregroundStyle(.primary)
-                                Text("Load a previously saved split configuration and customize it.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .navigationTitle("Build a split")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
-                }
-            }
-            .navigationDestination(item: $selectedPath) { path in
-                switch path {
-                case .ai:
-                    AISplitBuilderView()
-                        .environment(dataVM)
-                        .environment(currentVM)
-                        .environmentObject(aiService)
-                        .environment(\.fitlogRootTabSelection, rootTabSelection)
-                        .environment(\.fitlogAISplitCoachPrefill, coachPrefill)
-                        .toolbar(.hidden, for: .navigationBar)
-                case .manual:
-                    ManualSplitBuilderView()
-                        .environment(dataVM)
-                        .environment(\.fitlogRootTabSelection, rootTabSelection)
-                        .toolbar(.hidden, for: .navigationBar)
-                case .preset:
-                    ManualSplitBuilderView(
-                        preloadedDays: presetDays,
-                        preloadedSessions: presetSessions,
-                        preloadedWeekdays: presetWeekdays
-                    )
-                    .environment(dataVM)
-                    .environment(\.fitlogRootTabSelection, rootTabSelection)
-                    .toolbar(.hidden, for: .navigationBar)
-                }
-            }
-            .sheet(isPresented: $showPresetBrowser) {
-                SplitPresetBrowser { name, days, sessions, weekdays in
-                    presetName = name
-                    presetDays = days
-                    presetSessions = sessions
-                    presetWeekdays = weekdays
-                    selectedPath = .preset
-                }
+            DynamicProgramBuilderView(viewModel: viewModel)
                 .environment(dataVM)
-            }
-        }
-    }
-
-    private func pathButton(title: String, subtitle: String, systemImage: String, path: SplitBuilderPath) -> some View {
-        Button {
-            selectedPath = path
-        } label: {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: systemImage)
-                    .font(.title2)
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 30)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                .environment(currentVM)
+                .environmentObject(aiService)
+                .environment(\.fitlogRootTabSelection, rootTabSelection)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Close") { dismiss() }
+                            .accessibilityHint("Closes the program builder")
+                    }
                 }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.vertical, 4)
+                .onAppear {
+                    guard !didMergeCoachPrefill else { return }
+                    if let prefill = coachPrefill?.trimmingCharacters(in: .whitespacesAndNewlines), !prefill.isEmpty {
+                        didMergeCoachPrefill = true
+                        let existing = viewModel.request.splitInput.additionalNotes
+                        viewModel.request.splitInput.additionalNotes = existing.isEmpty ? prefill : "\(existing)\n\(prefill)"
+                    }
+                }
         }
-        .buttonStyle(.plain)
     }
 }

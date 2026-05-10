@@ -16,6 +16,18 @@ enum BlockFocusKind: String, Codable, CaseIterable, Sendable {
     case endurance
     case deload
     case general
+
+    /// Plain-language label for the program wizard (avoid jargon like “hypertrophy”).
+    var userFriendlyShortLabel: String {
+        switch self {
+        case .hypertrophy: return "Build muscle"
+        case .strength: return "Get stronger"
+        case .power: return "Power & explosiveness"
+        case .endurance: return "Endurance & conditioning"
+        case .deload: return "Recovery / easier week"
+        case .general: return "Balanced / general fitness"
+        }
+    }
 }
 
 struct BlockFocus: Codable, Equatable, Hashable, Sendable {
@@ -218,7 +230,7 @@ enum ResolvedProgramTemplateDay: Equatable, Sendable {
     case flex(BlockWeeklyTemplate)
 }
 
-// MARK: - In-workout progression context (wired in a later task)
+// MARK: - In-workout progression context
 
 struct BlockContext: Equatable, Sendable {
     let blockId: UUID
@@ -227,4 +239,6 @@ struct BlockContext: Equatable, Sendable {
     let progressionStrategy: ProgressionStrategy
     let weekIndexInBlock: Int
     let isDeloadBlock: Bool
+    /// Planned block length in weeks (from `ProgramBlock.durationWeeks`).
+    let blockDurationWeeks: Int
 }

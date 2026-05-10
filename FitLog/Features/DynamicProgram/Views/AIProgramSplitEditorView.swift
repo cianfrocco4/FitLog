@@ -1,8 +1,9 @@
 //
-//  AISplitBuilderView.swift
+//  AIProgramSplitEditorView.swift
 //  FitLog
 //
-//  Wizard + preview for AI-generated workout splits (Chat Completions JSON).
+//  Classic AI split wizard + preview (Chat Completions JSON). Kept for full slot/day editing
+//  and apply-to-plan parity; primary entry is DynamicProgramBuilderView.
 //  Wizard defaults persist via SplitBuilderPreferencesStore (UserDefaults, versioned).
 //
 
@@ -142,7 +143,7 @@ private enum ExerciseSuggestContext: Identifiable {
 
 // MARK: - View
 
-struct AISplitBuilderView: View {
+struct AIProgramSplitEditorView: View {
     @Environment(DataManager.self) private var dataVM
     @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
     @EnvironmentObject private var aiService: AIService
@@ -463,26 +464,25 @@ struct AISplitBuilderView: View {
     }
 
     private func persistWizardState() {
-        let state = SplitBuilderPreferencesStore.State(
-            primaryGoalRaw: primaryGoal.rawValue,
-            equipmentRaw: equipment.rawValue,
-            splitPreferenceRaw: splitPreference.rawValue,
-            experienceRaw: experience.rawValue,
-            sessionsPerWeek: sessionsPerWeek,
-            selectedWeekdayNumbers: Array(selectedWeekdays).sorted(),
-            updateTrainingProgram: updateTrainingProgram,
-            limitationsNotes: limitationsNotes,
-            additionalNotes: additionalNotes,
-            sessionDurationRaw: sessionDuration.rawValue,
-            intensityStyleRaw: intensityStyle.rawValue,
-            progressionStyleRaw: progressionStyle.rawValue,
-            priorityMusclesOrLiftsNotes: priorityMusclesNotes,
-            recoveryContextNotes: recoveryNotes,
-            deloadPreferenceRaw: deloadPreference.rawValue,
-            variationModeRaw: variationMode.rawValue,
-            customRotationLength: boundedCustomRotationLength,
-            variationNotes: variationNotes
-        )
+        var state = SplitBuilderPreferencesStore.load()
+        state.primaryGoalRaw = primaryGoal.rawValue
+        state.equipmentRaw = equipment.rawValue
+        state.splitPreferenceRaw = splitPreference.rawValue
+        state.experienceRaw = experience.rawValue
+        state.sessionsPerWeek = sessionsPerWeek
+        state.selectedWeekdayNumbers = Array(selectedWeekdays).sorted()
+        state.updateTrainingProgram = updateTrainingProgram
+        state.limitationsNotes = limitationsNotes
+        state.additionalNotes = additionalNotes
+        state.sessionDurationRaw = sessionDuration.rawValue
+        state.intensityStyleRaw = intensityStyle.rawValue
+        state.progressionStyleRaw = progressionStyle.rawValue
+        state.priorityMusclesOrLiftsNotes = priorityMusclesNotes
+        state.recoveryContextNotes = recoveryNotes
+        state.deloadPreferenceRaw = deloadPreference.rawValue
+        state.variationModeRaw = variationMode.rawValue
+        state.customRotationLength = boundedCustomRotationLength
+        state.variationNotes = variationNotes
         SplitBuilderPreferencesStore.save(state)
     }
 

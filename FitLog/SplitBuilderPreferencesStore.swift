@@ -21,7 +21,7 @@ import Foundation
 enum SplitBuilderPreferencesStore {
 
     /// Bump when adding non-optional fields or changing semantics; implement migration from previous.
-    private static let currentSchemaVersion = 1
+    private static let currentSchemaVersion = 2
     private static let envelopeKey = "fitlog.splitBuilder.wizardEnvelope.v1"
 
     struct State: Equatable {
@@ -43,6 +43,12 @@ enum SplitBuilderPreferencesStore {
         var variationModeRaw: String?
         var customRotationLength: Int?
         var variationNotes: String?
+        /// Dynamic / periodized program builder extras (optional for backward compatibility).
+        var programName: String?
+        var isPeriodizedProgram: Bool?
+        var busyDayPolicyRaw: String?
+        /// JSON array of `PersistedDynamicBlockSpec` for wizard block rows.
+        var dynamicBlockSpecsJSON: String?
 
         static let `default` = State(
             primaryGoalRaw: nil,
@@ -62,7 +68,11 @@ enum SplitBuilderPreferencesStore {
             deloadPreferenceRaw: nil,
             variationModeRaw: nil,
             customRotationLength: nil,
-            variationNotes: nil
+            variationNotes: nil,
+            programName: nil,
+            isPeriodizedProgram: nil,
+            busyDayPolicyRaw: nil,
+            dynamicBlockSpecsJSON: nil
         )
     }
 
@@ -86,6 +96,10 @@ enum SplitBuilderPreferencesStore {
         var variationModeRaw: String?
         var customRotationLength: Int?
         var variationNotes: String?
+        var programName: String?
+        var isPeriodizedProgram: Bool?
+        var busyDayPolicyRaw: String?
+        var dynamicBlockSpecsJSON: String?
     }
 
     static func load() -> State {
@@ -93,7 +107,7 @@ enum SplitBuilderPreferencesStore {
         let dec = JSONDecoder()
         guard let env = try? dec.decode(EnvelopeV1.self, from: data) else { return .default }
         switch env.schemaVersion {
-        case 1:
+        case 1, 2:
             return State(
                 primaryGoalRaw: env.primaryGoalRaw,
                 equipmentRaw: env.equipmentRaw,
@@ -112,7 +126,11 @@ enum SplitBuilderPreferencesStore {
                 deloadPreferenceRaw: env.deloadPreferenceRaw,
                 variationModeRaw: env.variationModeRaw,
                 customRotationLength: env.customRotationLength,
-                variationNotes: env.variationNotes
+                variationNotes: env.variationNotes,
+                programName: env.programName,
+                isPeriodizedProgram: env.isPeriodizedProgram,
+                busyDayPolicyRaw: env.busyDayPolicyRaw,
+                dynamicBlockSpecsJSON: env.dynamicBlockSpecsJSON
             )
         default:
             // Future: migrate from unknown version or legacy keys
@@ -140,7 +158,11 @@ enum SplitBuilderPreferencesStore {
             deloadPreferenceRaw: state.deloadPreferenceRaw,
             variationModeRaw: state.variationModeRaw,
             customRotationLength: state.customRotationLength,
-            variationNotes: state.variationNotes
+            variationNotes: state.variationNotes,
+            programName: state.programName,
+            isPeriodizedProgram: state.isPeriodizedProgram,
+            busyDayPolicyRaw: state.busyDayPolicyRaw,
+            dynamicBlockSpecsJSON: state.dynamicBlockSpecsJSON
         )
         guard let data = try? JSONEncoder().encode(env) else { return }
         UserDefaults.standard.set(data, forKey: envelopeKey)

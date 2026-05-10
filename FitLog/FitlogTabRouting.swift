@@ -20,12 +20,14 @@ enum FitlogRootTab: Int, Hashable {
 extension Notification.Name {
     /// Home / onboarding asks Plan to present the program builder sheet.
     static let fitlogOpenProgramBuilder = Notification.Name("fitlogOpenProgramBuilder")
+    /// Posted when the calendar “today” moves into a new dynamic program block (multi-block programs).
+    static let fitlogDynamicProgramBlockChanged = Notification.Name("fitlogDynamicProgramBlockChanged")
 }
 
 enum FitlogCoachDeepLink: Equatable {
     case idle
-    /// Prefill is merged into the AI path’s “Additional notes” field.
-    case openAISplitBuilder(prefill: String?)
+    /// Opens the program builder wizard; prefill is merged into “Additional notes” on the generation request.
+    case openDynamicProgramBuilder(prefill: String?)
 }
 
 private struct FitlogRootTabSelectionKey: EnvironmentKey {
@@ -47,13 +49,13 @@ extension EnvironmentValues {
         set { self[FitlogRootTabSelectionKey.self] = newValue }
     }
 
-    /// Switch Coach tab and optionally present the split builder with prefilled plan context.
+    /// Switch Coach tab and optionally present the program builder with prefilled plan context.
     var fitlogCoachDeepLink: Binding<FitlogCoachDeepLink> {
         get { self[FitlogCoachDeepLinkKey.self] }
         set { self[FitlogCoachDeepLinkKey.self] = newValue }
     }
 
-    /// Merged into the AI path’s “Additional notes” once when non-nil (Plan / Coach deep link).
+    /// Merged into the program builder’s “Additional notes” once when non-nil (Plan / Coach deep link).
     var fitlogAISplitCoachPrefill: String? {
         get { self[FitlogAISplitCoachPrefillKey.self] }
         set { self[FitlogAISplitCoachPrefillKey.self] = newValue }

@@ -35,6 +35,8 @@ struct PlanCalendarView: View {
     @State private var showProgramBuilder = false
     @State private var resolvedDayCache: [String: ResolvedScheduleDay] = [:]
     @State private var pendingWorkoutReplace: PendingWorkoutReplace?
+    @State private var blockTransitionToast: String?
+    @State private var blockTransitionToastSerial = 0
 
     private var calendar: Calendar { .current }
 
@@ -44,7 +46,12 @@ struct PlanCalendarView: View {
         let cycleSig = p.cycleEntries.map(\.cacheKey).joined(separator: ",")
         let weekdaysSig = p.preferredWeekdays.map(String.init).joined(separator: ",")
         let skipSig = p.skippedCycleTrainingDayKeys.joined(separator: ",")
-        return "\(dayMonitor.currentDayKey)-\(cycleSig)-\(p.sessionsPerWeek)-\(weekdaysSig)-\(p.anchorDayKey)-\(p.cyclePhaseOffset)-\(skipSig)-\(p.dayOverrides.count)-\(p.weekOverrides.count)-\(p.frozenCalendarDays.count)-\(dataVM.completedSessions.count)"
+        let dynSig: String = {
+            guard let d = dataVM.dynamicProgramState else { return "dyn:none" }
+            let shiftSig = d.blockShiftDays.map { "\($0.key.uuidString):\($0.value)" }.sorted().joined(separator: ",")
+            return "dyn:\(d.program.id.uuidString)-\(Int(d.anchorDate.timeIntervalSince1970))-\(d.materializedTemplateWorkoutIds.count)-\(d.program.blocks.count)-\(d.busyDayKeys.count)-\(d.missedSessionDayKeys.count)-\(shiftSig)"
+        }()
+        return "\(dayMonitor.currentDayKey)-\(cycleSig)-\(p.sessionsPerWeek)-\(weekdaysSig)-\(p.anchorDayKey)-\(p.cyclePhaseOffset)-\(skipSig)-\(p.dayOverrides.count)-\(p.weekOverrides.count)-\(p.frozenCalendarDays.count)-\(dataVM.completedSessions.count)-\(dynSig)"
     }
 
     private func rebuildResolvedDayCache() {
@@ -74,6 +81,17 @@ struct PlanCalendarView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     monthHeader
+                    if let blockTransitionToast {
+                        Text(blockTransitionToast)
+                            .font(.caption)
+                            .foregroundStyle(.primary)
+                            .padding(10)
+                            .frame(maxWidth: .infinity)
+                            .background(RoundedRectangle(cornerRadius: 10).fill(Color.accentColor.opacity(0.15)))
+                            .padding(.horizontal)
+                            .accessibilityLabel(blockTransitionToast)
+                    }
+                    dynamicProgramStatusBanner
                     weekStrip
                     weekdayHeader
                     calendarGridContent
@@ -105,10 +123,27 @@ struct PlanCalendarView: View {
             .onReceive(NotificationCenter.default.publisher(for: .fitlogOpenProgramBuilder)) { _ in
                 showProgramBuilder = true
             }
+            .onReceive(NotificationCenter.default.publisher(for: .fitlogDynamicProgramBlockChanged)) { note in
+                let name = (note.userInfo?["newBlockName"] as? String) ?? "Next block"
+                let idx = (note.userInfo?["newBlockIndex"] as? Int) ?? 0
+                let total = (note.userInfo?["blockCount"] as? Int) ?? 0
+                blockTransitionToastSerial += 1
+                let serial = blockTransitionToastSerial
+                blockTransitionToast = total > 0 ? "Now in block \(idx) of \(total): \(name)" : "New training phase: \(name)"
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    if serial == blockTransitionToastSerial {
+                        blockTransitionToast = nil
+                    }
+                }
+            }
             .task(id: calendarRefreshKey) {
                 rebuildResolvedDayCache()
             }
             .onChange(of: dataVM.trainingProgram) { _, _ in
+                rebuildResolvedDayCache()
+            }
+            .onChange(of: dataVM.dynamicProgramState) { _, _ in
                 rebuildResolvedDayCache()
             }
             .onChange(of: visibleMonth) { _, _ in
@@ -129,11 +164,11 @@ struct PlanCalendarView: View {
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
-                        openCoachSplitBuilderWithPlanContext()
+                        openCoachDynamicProgramBuilderWithPlanContext()
                     } label: {
-                        Label("Split", systemImage: "sparkles")
+                        Label("Build program", systemImage: "calendar.badge.clock")
                     }
-                    .accessibilityHint("Opens Coach with your current plan in the split builder")
+                    .accessibilityHint("Opens Coach with the program builder and your current plan context")
                     Button {
                         jumpToTodayMonth()
                     } label: {
@@ -160,14 +195,14 @@ struct PlanCalendarView: View {
             }
             .sheet(isPresented: $showProgramBuilder) {
                 ProgramBuilderSheet(
-                    onBuildSplit: {
+                    onBuildProgram: {
                         showProgramBuilder = false
-                        openCoachSplitBuilderWithPlanContext()
+                        openCoachDynamicProgramBuilderWithPlanContext()
                     }
                 )
-                .environment(dataVM)
-                .environment(currentVM)
-                .environmentObject(aiService)
+                    .environment(dataVM)
+                    .environment(currentVM)
+                    .environmentObject(aiService)
             }
             .workoutReplaceConflictConfirmation(currentVM: currentVM, pending: $pendingWorkoutReplace)
         }
@@ -184,9 +219,9 @@ struct PlanCalendarView: View {
         visibleMonth = calendar.date(byAdding: .month, value: months, to: visibleMonth) ?? visibleMonth
     }
 
-    private func openCoachSplitBuilderWithPlanContext() {
+    private func openCoachDynamicProgramBuilderWithPlanContext() {
         FitlogHaptics.lightImpact()
-        coachDeepLink.wrappedValue = .openAISplitBuilder(prefill: dataVM.planCycleContextLineForCoach())
+        coachDeepLink.wrappedValue = .openDynamicProgramBuilder(prefill: dataVM.planCycleContextLineForCoach())
         rootTabSelection?.wrappedValue = .coach
     }
 
@@ -373,6 +408,85 @@ struct PlanCalendarView: View {
         }
     }
 
+    @ViewBuilder
+    private var dynamicProgramStatusBanner: some View {
+        if let dyn = dataVM.dynamicProgramState {
+            let pe = PeriodizationEngine(calendar: calendar)
+            let today = calendar.startOfDay(for: Date())
+            let placement = pe.blockPlacement(on: today, state: dyn)
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: "calendar.badge.clock")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Dynamic program")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(dyn.program.name)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    if dyn.program.blocks.count > 1, let placement {
+                        Text("Block \(placement.index + 1) of \(dyn.program.blocks.count) · Week \(placement.weekInBlock + 1)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                Spacer(minLength: 8)
+                Text("\(dyn.program.blocks.count) blocks")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(.secondarySystemGroupedBackground))
+            )
+            .padding(.horizontal)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(dynamicProgramBannerAccessibility(dyn: dyn, placement: placement))
+        }
+    }
+
+    private func dynamicProgramBannerAccessibility(dyn: DynamicProgramState, placement: (index: Int, block: ProgramBlock, weekInBlock: Int)?) -> String {
+        var parts = ["Dynamic program", dyn.program.name, "\(dyn.program.blocks.count) blocks"]
+        if dyn.program.blocks.count > 1, let placement {
+            parts.append("Block \(placement.index + 1) of \(dyn.program.blocks.count), week \(placement.weekInBlock + 1)")
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    private func previousGridDate(from index: Int, daysInGrid: [Date?]) -> Date? {
+        guard index > 0 else { return nil }
+        for j in stride(from: index - 1, through: 0, by: -1) {
+            if let d = daysInGrid[j] { return d }
+        }
+        return nil
+    }
+
+    /// Subtle tint for calendar cells inside a dynamic-program block (multi-block programs).
+    private func dynamicCalendarBlockAccent(for date: Date) -> Color? {
+        guard let dyn = dataVM.dynamicProgramState, dyn.program.blocks.count > 1 else { return nil }
+        let pe = PeriodizationEngine(calendar: calendar)
+        guard let placement = pe.blockPlacement(on: date, state: dyn) else { return nil }
+        let palette: [Color] = [.orange, .mint, .indigo, .pink, .teal]
+        return palette[abs(placement.block.id.hashValue) % palette.count]
+    }
+
+    /// Accent + label when a new program block starts relative to the previous visible grid cell (multi-block programs only).
+    private func dynamicBlockBoundary(at date: Date, gridIndex: Int, daysInGrid: [Date?]) -> (accent: Color, blockName: String)? {
+        guard let dyn = dataVM.dynamicProgramState, dyn.program.blocks.count > 1 else { return nil }
+        let pe = PeriodizationEngine(calendar: calendar)
+        guard let current = pe.blockPlacement(on: date, state: dyn) else { return nil }
+        guard let prevDate = previousGridDate(from: gridIndex, daysInGrid: daysInGrid) else { return nil }
+        guard let previous = pe.blockPlacement(on: prevDate, state: dyn) else { return nil }
+        guard previous.block.id != current.block.id else { return nil }
+        let palette: [Color] = [.orange, .mint, .indigo, .pink, .teal]
+        let accent = palette[abs(current.block.id.hashValue) % palette.count]
+        return (accent, current.block.name)
+    }
+
     private var monthHeader: some View {
         HStack {
             Button {
@@ -408,9 +522,9 @@ struct PlanCalendarView: View {
     private var calendarGridContent: some View {
         let days = daysInMonthGrid(for: visibleMonth)
         return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
-            ForEach(Array(days.enumerated()), id: \.offset) { _, cell in
+            ForEach(Array(days.enumerated()), id: \.offset) { offset, cell in
                 if let date = cell {
-                    dayCell(date: date)
+                    dayCell(date: date, gridIndex: offset, daysInGrid: days)
                 } else {
                     Color.clear
                         .aspectRatio(1, contentMode: .fit)
@@ -420,14 +534,23 @@ struct PlanCalendarView: View {
         .padding(8)
     }
 
-    private func dayCell(date: Date) -> some View {
+    private func dayCell(date: Date, gridIndex: Int, daysInGrid: [Date?]) -> some View {
         let resolved = cachedResolve(date: date)
         let isToday = calendar.isDateInToday(date)
         let isPastDay = calendar.startOfDay(for: date) < calendar.startOfDay(for: Date())
         let subtitle = dayPlanSubtitle(date: date, resolved: resolved)
         let status = dayStatus(date: date, resolved: resolved)
+        let blockBoundary = dynamicBlockBoundary(at: date, gridIndex: gridIndex, daysInGrid: daysInGrid)
+        let blockAccent = dynamicCalendarBlockAccent(for: date)
 
         return VStack(alignment: .leading, spacing: 4) {
+            if let boundary = blockBoundary {
+                Text(boundary.blockName)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(boundary.accent)
+                    .lineLimit(1)
+                    .accessibilityLabel("Block \(boundary.blockName) starts")
+            }
             HStack(alignment: .firstTextBaseline) {
                 ZStack {
                     if isToday {
@@ -458,14 +581,33 @@ struct PlanCalendarView: View {
         }
         .frame(maxWidth: .infinity, minHeight: 56, alignment: .topLeading)
         .padding(6)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(isToday ? Color.accentColor.opacity(0.08) : Color(.secondarySystemGroupedBackground))
-        )
+        .background {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(.secondarySystemGroupedBackground))
+                if let blockAccent {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(blockAccent.opacity(0.07))
+                }
+                if isToday {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.accentColor.opacity(0.08))
+                }
+            }
+        }
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(isToday ? Color.accentColor.opacity(0.45) : Color.clear, lineWidth: isToday ? 1.5 : 0)
         )
+        .overlay(alignment: .leading) {
+            if let boundary = blockBoundary {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(boundary.accent)
+                    .frame(width: 3)
+                    .padding(.vertical, 4)
+                    .accessibilityHidden(true)
+            }
+        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDayLabel(date: date, isToday: isToday, subtitle: subtitle, status: status))
         .contentShape(Rectangle())
@@ -607,6 +749,26 @@ struct DayPlanSheet: View {
                     }
                 }
 
+                if dm.dynamicProgramState != nil,
+                   calendar.startOfDay(for: date) >= calendar.startOfDay(for: Date()) {
+                    Section("Dynamic program") {
+                        Toggle(
+                            "Low availability (busy day)",
+                            isOn: Binding(
+                                get: { dm.dynamicProgramState?.busyDayKeys.contains(dayKey) ?? false },
+                                set: { dm.setDynamicProgramBusyDay(dayKey: dayKey, isBusy: $0) }
+                            )
+                        )
+                        .accessibilityHint("Marks this day as lower time so your periodized plan can compress, shift, or swap sessions based on your busy-day policy.")
+
+                        if let pol = dm.dynamicProgramState?.program.busyDayPolicy {
+                            Text(dynamicProgramBusyPolicyFootnote(pol))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
                 if calendar.startOfDay(for: date) >= calendar.startOfDay(for: Date()),
                    case .workout(let ref) = dataVM.resolvedScheduleDay(for: date, calendar: calendar) {
                     Section {
@@ -706,6 +868,19 @@ struct DayPlanSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private func dynamicProgramBusyPolicyFootnote(_ policy: BusyDayPolicy) -> String {
+        switch policy {
+        case .compress:
+            return "Busy training days become rest; other sessions in the same week may absorb a little extra volume."
+        case .shift:
+            return "Busy training days become rest and the active block can extend so you don’t lose the whole phase."
+        case .flexDay:
+            return "Busy training days swap to a lighter flex template when possible."
+        case .skip:
+            return "Busy training days become rest; the rotation stays on the default cadence."
+        }
     }
 
     private var planWorkoutIdForLink: UUID? {
@@ -883,7 +1058,7 @@ private struct WeekdayRow: View {
 // MARK: - Program builder (schedule + training order)
 
 struct ProgramBuilderSheet: View {
-    var onBuildSplit: () -> Void
+    var onBuildProgram: () -> Void
 
     @Environment(DataManager.self) var dataVM
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
@@ -899,10 +1074,35 @@ struct ProgramBuilderSheet: View {
 
     private var program: TrainingProgramState { dataVM.trainingProgram }
 
+    private var hasActiveDynamicProgram: Bool { dataVM.dynamicProgramState != nil }
+
     var body: some View {
         NavigationStack {
             List {
-                if program.cycleEntries.isEmpty, !dataVM.userWorkouts.isEmpty {
+                if hasActiveDynamicProgram, program.cycleEntries.isEmpty {
+                    Section {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label(
+                                "Your generated program controls this lineup on the calendar.",
+                                systemImage: "rectangle.stack.fill"
+                            )
+                            .font(.subheadline)
+                            Text("Open Program builder to change phases, templates, or regenerate.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Button {
+                                dismiss()
+                                onBuildProgram()
+                            } label: {
+                                Label("Open program builder", systemImage: "calendar.badge.clock")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .accessibilityHint("Opens Coach to edit your generated program")
+                        }
+                    } header: {
+                        Text("Program lineup")
+                    }
+                } else if program.cycleEntries.isEmpty, !dataVM.userWorkouts.isEmpty {
                     Section {
                         Label(
                             "Add workouts to the list below so the calendar knows what to schedule on training days.",
@@ -940,10 +1140,11 @@ struct ProgramBuilderSheet: View {
                 Section {
                     Button {
                         dismiss()
-                        onBuildSplit()
+                        onBuildProgram()
                     } label: {
-                        Label("Build split", systemImage: "sparkles")
+                        Label("Open program builder", systemImage: "calendar.badge.clock")
                     }
+                    .accessibilityHint("Opens Coach to build a single- or multi-phase program with AI or local presets")
                 } header: {
                     Text("Quick actions")
                 }
@@ -975,9 +1176,9 @@ struct ProgramBuilderSheet: View {
                         dataVM.setTrainingCycleEntries(entries)
                     }
                 } header: {
-                    Text("Training day order (\(program.cycleEntries.count))")
+                    Text(programBuilderTrainingDayOrderHeader)
                 } footer: {
-                    Text("This is the repeating lineup (e.g. Push → Pull → Legs). Open a row to edit exercises. Duplicate adds another step.")
+                    Text(programBuilderTrainingDayOrderFooter)
                         .font(.caption)
                 }
 
@@ -1062,6 +1263,21 @@ struct ProgramBuilderSheet: View {
                 clearRotationUndoTask?.cancel()
             }
         }
+    }
+
+    private var programBuilderTrainingDayOrderHeader: String {
+        let n = program.cycleEntries.count
+        if hasActiveDynamicProgram {
+            return "Training day order (\(n)) — from your program"
+        }
+        return "Training day order (\(n))"
+    }
+
+    private var programBuilderTrainingDayOrderFooter: String {
+        if hasActiveDynamicProgram {
+            return "This lineup mirrors your generated program’s current block. Use Program builder in Coach for block-level changes; you can still reorder or duplicate days here for the repeating rotation."
+        }
+        return "This is the repeating lineup (e.g. Push → Pull → Legs). Open a row to edit exercises. Duplicate adds another step."
     }
 
     private func syncScheduleStateFromProgram() {
