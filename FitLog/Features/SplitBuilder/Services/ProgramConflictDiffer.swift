@@ -27,7 +27,7 @@ enum ProgramConflictDiffer {
     static func diff(
         proposedDays: [SplitBuilderEditableDay],
         currentProgram: TrainingProgramState,
-        currentWorkouts: [UUID: Workout]
+        currentWorkouts: [Workout]
     ) -> SplitConflictDiff {
         let willReplaceCycle = !currentProgram.cycleEntries.isEmpty
         let currentCycleCount = currentProgram.cycleEntries.count
@@ -36,7 +36,7 @@ enum ProgramConflictDiffer {
         for day in proposedDays {
             let templateName = day.name
             // Check if a similar template already exists
-            let existingMatch = currentWorkouts.values.first { w in
+            let existingMatch = currentWorkouts.first { w in
                 w.name.lowercased() == templateName.lowercased()
             }
             decisions.append(

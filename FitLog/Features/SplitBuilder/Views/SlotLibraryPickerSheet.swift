@@ -139,16 +139,4 @@ struct SlotLibraryPickerSheet: View {
     }
 }
 
-#Preview {
-    let dataVM = DataManager.preview
-    SlotLibraryPickerSheet(
-        slot: SplitBuilderEditableSlot(
-            label: "Bench Press",
-            targetMuscleNames: [MuscleGroup.chest.rawValue, MuscleGroup.triceps.rawValue],
-            sets: 3,
-            reps: "8-12"
-        ),
-        onSelect: { _ in }
-    )
-    .environment(dataVM)
-}
+// Preview disabled - requires ModelContainer setup

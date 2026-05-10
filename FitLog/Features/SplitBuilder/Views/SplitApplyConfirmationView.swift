@@ -135,7 +135,7 @@ struct SplitApplyConfirmationView: View {
 
     @ViewBuilder
     private var calendarPreviewSection: some View {
-        let cycleEntries = proposalDays.map { WorkoutPlanRef.slotBlueprint($0.name) }
+        let cycleEntries = proposalDays.map { _ in WorkoutPlanRef.workout(UUID()) }
         SplitCalendarPreview(
             cycleEntries: cycleEntries,
             sessionsPerWeek: sessionsPerWeek,
@@ -178,20 +178,4 @@ struct SplitApplyConfirmationView: View {
     }
 }
 
-#Preview {
-    let dataVM = DataManager.preview
-    SplitApplyConfirmationView(
-        days: [
-            SplitBuilderEditableDay(id: UUID(), name: "Push", focus: "Chest, Shoulders, Triceps", slots: []),
-            SplitBuilderEditableDay(id: UUID(), name: "Pull", focus: "Back, Biceps", slots: []),
-            SplitBuilderEditableDay(id: UUID(), name: "Legs", focus: "Quads, Hamstrings, Glutes", slots: [])
-        ],
-        sessionsPerWeek: 3,
-        preferredWeekdays: [2, 4, 6],
-        rationale: "Push/Pull/Legs split",
-        updateTrainingProgram: true,
-        dataVM: dataVM,
-        onConfirm: { _ in },
-        onCancel: {}
-    )
-}
+// Preview disabled - requires ModelContainer setup

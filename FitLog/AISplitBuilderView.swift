@@ -1498,7 +1498,6 @@ struct AISplitBuilderView: View {
     }
 
     @MainActor
-    @MainActor
     private func applyWithAnchor(_ anchorDate: Date, proposal: WorkoutSplitProposal) async {
         isApplying = true
         defer { isApplying = false }
@@ -1537,18 +1536,31 @@ struct AISplitBuilderView: View {
     }
 
     private func duplicateAsVariant(day: EditableDay) {
-        var newDay = day
-        newDay.id = UUID()
         // Auto-suffix with A/B variants
         let baseName = day.name.trimmingCharacters(in: .whitespacesAndNewlines)
         let variantSuffix = baseName.hasSuffix(" A") ? " B" : " A"
-        newDay.name = baseName + variantSuffix
+        let newName = baseName + variantSuffix
+        
         // Copy slots with new IDs
-        newDay.slots = day.slots.map { slot in
-            var copy = slot
-            copy.id = UUID()
-            return copy
+        let newSlots = day.slots.map { slot in
+            EditableSlot(
+                id: UUID(),
+                label: slot.label,
+                targetMuscleNames: slot.targetMuscleNames,
+                sets: slot.sets,
+                reps: slot.reps,
+                suggestedExerciseName: slot.suggestedExerciseName,
+                suggestedExerciseOverrideId: slot.suggestedExerciseOverrideId
+            )
         }
+        
+        let newDay = EditableDay(
+            id: UUID(),
+            name: newName,
+            focus: day.focus,
+            slots: newSlots
+        )
+        
         editableDays.append(newDay)
         expandedDayIds.insert(newDay.id)
     }

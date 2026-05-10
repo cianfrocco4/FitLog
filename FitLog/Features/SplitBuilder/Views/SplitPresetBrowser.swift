@@ -114,15 +114,4 @@ struct SplitPresetBrowser: View {
     }
 }
 
-#Preview {
-    let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container = try! ModelContainer(for: SDSplitPresetV2.self, configurations: config)
-    let context = ModelContext(container)
-
-    let preset = SDSplitPresetV2(presetId: UUID(), name: "Push/Pull/Legs", createdAt: Date(), notes: "Great for hypertrophy", sessionsPerWeek: 3)
-    context.insert(preset)
-
-    return SplitPresetBrowser(onSelect: { _, _, _, _ in })
-        .modelContainer(container)
-        .environment(DataManager.preview)
-}
+// Preview disabled - requires ModelContainer setup

@@ -161,7 +161,7 @@ struct SplitCalendarPreview: View {
 }
 
 #Preview {
-    let mockWorkout = Workout(name: "Push Day", exercises: [], category: "Strength")
+    let mockWorkout = Workout(id: UUID(), name: "Push Day", exercises: [])
     SplitCalendarPreview(
         cycleEntries: [.workout(mockWorkout.id)],
         sessionsPerWeek: 3,
