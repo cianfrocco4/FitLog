@@ -385,6 +385,33 @@ final class DynamicProgramBuilderViewModel {
         }
     }
 
+    /// Loads a persisted active program into the wizard preview step for editing and re-apply.
+    func hydrate(from state: DynamicProgramState) {
+        generatedProgram = state.program
+        programAnchorDate = state.anchorDate
+        request.programName = state.program.name
+        request.splitInput.sessionsPerWeek = state.program.defaultSessionsPerWeek
+        request.splitInput.preferredWeekdays = state.program.preferredWeekdays
+        request.busyDayPolicy = state.program.busyDayPolicy
+        request.isPeriodized = state.program.blocks.count > 1
+        request.blockSpecs = state.program.blocks.map { block in
+            DynamicBlockGenerationSpec(
+                title: block.name,
+                focus: block.focus,
+                durationWeeks: block.durationWeeks,
+                progressionStrategy: block.progressionStrategy,
+                volumeMultiplier: block.volumeMultiplier,
+                isDeloadBlock: block.isDeloadBlock
+            )
+        }
+        syncProgramStructureUIAfterLoadingPreferences()
+        errorMessage = nil
+        applyErrorMessage = nil
+        editableBlockIndex = 0
+        rebuildEditableDaysFromProgram()
+        wizardStep = .generatePreview
+    }
+
     func generate(aiService: AIService, dataManager: DataManager) async {
         errorMessage = nil
         isGenerating = true

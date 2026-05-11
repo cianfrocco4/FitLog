@@ -21,6 +21,7 @@ struct HomeView: View {
     @State private var showNewWorkout = false
     @State private var newWorkoutLaunchHint: NewWorkoutLaunchHint?
     @State private var showSplitBuilder = false
+    @State private var showActiveProgramDetail = false
     @State private var workoutToRename: Workout?
     @State private var renameText = ""
     @State private var pendingWorkoutReplace: PendingWorkoutReplace?
@@ -280,16 +281,48 @@ struct HomeView: View {
                 }
 
                 Section {
-                    aiSplitProgramRow
+                    if let dyn = dataVM.dynamicProgramState {
+                        Button {
+                            showActiveProgramDetail = true
+                        } label: {
+                            homeYourProgramRow
+                        }
+                        .buttonStyle(.plain)
                         .listRowInsets(homeDashboardListInsets)
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
-                    if let dyn = dataVM.dynamicProgramState {
-                        dynamicProgramActiveSummaryRow(programName: dyn.program.name, blockCount: dyn.program.blocks.count)
-                            .listRowInsets(homeDashboardListInsets)
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                        dynamicProgramProgressAndScheduleCard(state: dyn)
+
+                        Button {
+                            showSplitBuilder = true
+                        } label: {
+                            homeBuildNewProgramRow
+                        }
+                        .buttonStyle(.bordered)
+                        .listRowInsets(homeDashboardListInsets)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+
+                        Button {
+                            showActiveProgramDetail = true
+                        } label: {
+                            dynamicProgramActiveSummaryRow(programName: dyn.program.name, blockCount: dyn.program.blocks.count)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(homeDashboardListInsets)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+
+                        Button {
+                            showActiveProgramDetail = true
+                        } label: {
+                            dynamicProgramProgressAndScheduleCard(state: dyn)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(homeDashboardListInsets)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                    } else {
+                        aiSplitProgramRow
                             .listRowInsets(homeDashboardListInsets)
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
@@ -460,6 +493,12 @@ struct HomeView: View {
                     .environment(currentVM)
                     .environmentObject(aiService)
             }
+            .sheet(isPresented: $showActiveProgramDetail) {
+                ActiveProgramDetailView()
+                    .environment(dataVM)
+                    .environment(currentVM)
+                    .environmentObject(aiService)
+            }
             .sheet(isPresented: $showNewExercise) {
                 NewExerciseSheet()
                     .environment(dataVM)
@@ -587,12 +626,53 @@ struct HomeView: View {
         .accessibilityLabel("Active dynamic program \(programName), \(blockCount) blocks")
     }
 
+    private var homeYourProgramRow: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "rectangle.stack.badge.checkmark")
+                .font(.title2)
+                .foregroundStyle(.tint)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Your program")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text("View, edit schedule, or open templates")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Opens your active program details")
+    }
+
+    private var homeBuildNewProgramRow: some View {
+        HStack {
+            Image(systemName: "plus.circle")
+                .foregroundStyle(.secondary)
+            Text("Build a new program")
+                .font(.subheadline.weight(.semibold))
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityHint("Opens the program builder to create a different program")
+    }
+
     private var aiSplitProgramRow: some View {
         Button {
             showSplitBuilder = true
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: "sparkles")
+                Image(systemName: "rectangle.stack")
                     .font(.title2)
                     .foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 4) {

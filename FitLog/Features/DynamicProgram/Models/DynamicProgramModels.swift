@@ -135,7 +135,7 @@ struct ProgramBlock: Identifiable, Codable, Equatable, Sendable {
 
 // MARK: - Full program
 
-struct DynamicProgram: Identifiable, Codable, Equatable, Sendable {
+struct DynamicProgram: Identifiable, Equatable, Sendable, Codable {
     let id: UUID
     var name: String
     var createdAt: Date
@@ -144,6 +144,12 @@ struct DynamicProgram: Identifiable, Codable, Equatable, Sendable {
     /// Empty = Mon–Fri pool (same as `TrainingProgramState.preferredWeekdays`).
     var preferredWeekdays: [Int]
     var busyDayPolicy: BusyDayPolicy
+    /// Whether the program was produced via the AI pipeline (vs local presets when AI is not configured).
+    var generatedWithAI: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, createdAt, blocks, defaultSessionsPerWeek, preferredWeekdays, busyDayPolicy, generatedWithAI
+    }
 
     init(
         id: UUID = UUID(),
@@ -152,7 +158,8 @@ struct DynamicProgram: Identifiable, Codable, Equatable, Sendable {
         blocks: [ProgramBlock],
         defaultSessionsPerWeek: Int,
         preferredWeekdays: [Int] = [],
-        busyDayPolicy: BusyDayPolicy = .skip
+        busyDayPolicy: BusyDayPolicy = .skip,
+        generatedWithAI: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -161,6 +168,31 @@ struct DynamicProgram: Identifiable, Codable, Equatable, Sendable {
         self.defaultSessionsPerWeek = min(max(1, defaultSessionsPerWeek), 7)
         self.preferredWeekdays = preferredWeekdays.filter { $0 >= 1 && $0 <= 7 }.sorted()
         self.busyDayPolicy = busyDayPolicy
+        self.generatedWithAI = generatedWithAI
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        blocks = try c.decode([ProgramBlock].self, forKey: .blocks)
+        defaultSessionsPerWeek = try c.decode(Int.self, forKey: .defaultSessionsPerWeek)
+        preferredWeekdays = try c.decode([Int].self, forKey: .preferredWeekdays)
+        busyDayPolicy = try c.decode(BusyDayPolicy.self, forKey: .busyDayPolicy)
+        generatedWithAI = try c.decodeIfPresent(Bool.self, forKey: .generatedWithAI) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(createdAt, forKey: .createdAt)
+        try c.encode(blocks, forKey: .blocks)
+        try c.encode(defaultSessionsPerWeek, forKey: .defaultSessionsPerWeek)
+        try c.encode(preferredWeekdays, forKey: .preferredWeekdays)
+        try c.encode(busyDayPolicy, forKey: .busyDayPolicy)
+        try c.encode(generatedWithAI, forKey: .generatedWithAI)
     }
 
     /// Sum of planned block weeks (ignores runtime shifts).

@@ -33,6 +33,7 @@ struct PlanCalendarView: View {
     @State private var daySheetDate: Date?
     @State private var weekEditAnchor: Date?
     @State private var showProgramBuilder = false
+    @State private var showActiveProgramDetail = false
     @State private var resolvedDayCache: [String: ResolvedScheduleDay] = [:]
     @State private var pendingWorkoutReplace: PendingWorkoutReplace?
     @State private var blockTransitionToast: String?
@@ -198,8 +199,18 @@ struct PlanCalendarView: View {
                     onBuildProgram: {
                         showProgramBuilder = false
                         openCoachDynamicProgramBuilderWithPlanContext()
+                    },
+                    onViewActiveProgram: {
+                        showProgramBuilder = false
+                        showActiveProgramDetail = true
                     }
                 )
+                    .environment(dataVM)
+                    .environment(currentVM)
+                    .environmentObject(aiService)
+            }
+            .sheet(isPresented: $showActiveProgramDetail) {
+                ActiveProgramDetailView()
                     .environment(dataVM)
                     .environment(currentVM)
                     .environmentObject(aiService)
@@ -414,38 +425,48 @@ struct PlanCalendarView: View {
             let pe = PeriodizationEngine(calendar: calendar)
             let today = calendar.startOfDay(for: Date())
             let placement = pe.blockPlacement(on: today, state: dyn)
-            HStack(alignment: .center, spacing: 10) {
-                Image(systemName: "calendar.badge.clock")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Dynamic program")
-                        .font(.caption.weight(.semibold))
+            Button {
+                FitlogHaptics.lightImpact()
+                showActiveProgramDetail = true
+            } label: {
+                HStack(alignment: .center, spacing: 10) {
+                    Image(systemName: "calendar.badge.clock")
+                        .font(.body.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    Text(dyn.program.name)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    if dyn.program.blocks.count > 1, let placement {
-                        Text("Block \(placement.index + 1) of \(dyn.program.blocks.count) · Week \(placement.weekInBlock + 1)")
-                            .font(.caption2)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Dynamic program")
+                            .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
-                            .lineLimit(2)
+                        Text(dyn.program.name)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        if dyn.program.blocks.count > 1, let placement {
+                            Text("Block \(placement.index + 1) of \(dyn.program.blocks.count) · Week \(placement.weekInBlock + 1)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
                     }
+                    Spacer(minLength: 8)
+                    Text("\(dyn.program.blocks.count) blocks")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
                 }
-                Spacer(minLength: 8)
-                Text("\(dyn.program.blocks.count) blocks")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(.secondarySystemGroupedBackground))
+                )
+                .padding(.horizontal)
             }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(.secondarySystemGroupedBackground))
-            )
-            .padding(.horizontal)
+            .buttonStyle(.plain)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(dynamicProgramBannerAccessibility(dyn: dyn, placement: placement))
+            .accessibilityHint("Opens your active program details")
         }
     }
 
@@ -1059,6 +1080,8 @@ private struct WeekdayRow: View {
 
 struct ProgramBuilderSheet: View {
     var onBuildProgram: () -> Void
+    /// When set, shown as a quick action while a dynamic program is active (Plan tab).
+    var onViewActiveProgram: (() -> Void)? = nil
 
     @Environment(DataManager.self) var dataVM
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
@@ -1138,6 +1161,15 @@ struct ProgramBuilderSheet: View {
                 }
 
                 Section {
+                    if hasActiveDynamicProgram, let onView = onViewActiveProgram {
+                        Button {
+                            dismiss()
+                            onView()
+                        } label: {
+                            Label("View active program", systemImage: "rectangle.stack.badge.checkmark")
+                        }
+                        .accessibilityHint("Shows your applied program, schedule, and templates")
+                    }
                     Button {
                         dismiss()
                         onBuildProgram()

@@ -1399,6 +1399,41 @@ final class DataManager {
         saveDynamicProgramState()
     }
 
+    /// Updates the active dynamic program’s display name and persists.
+    func updateDynamicProgramName(_ name: String) {
+        guard var dyn = dynamicProgramState else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        dyn.program.name = trimmed
+        dynamicProgramState = dyn
+        saveDynamicProgramState()
+    }
+
+    /// Updates sessions per week and preferred weekdays on the embedded `DynamicProgram`.
+    func updateDynamicProgramSchedule(sessionsPerWeek: Int, preferredWeekdays: [Int]) {
+        guard var dyn = dynamicProgramState else { return }
+        dyn.program.defaultSessionsPerWeek = min(max(1, sessionsPerWeek), 7)
+        dyn.program.preferredWeekdays = preferredWeekdays.filter { $0 >= 1 && $0 <= 7 }.sorted()
+        dynamicProgramState = dyn
+        saveDynamicProgramState()
+    }
+
+    /// Updates busy-day policy on the active dynamic program.
+    func updateDynamicProgramBusyDayPolicy(_ policy: BusyDayPolicy) {
+        guard var dyn = dynamicProgramState else { return }
+        dyn.program.busyDayPolicy = policy
+        dynamicProgramState = dyn
+        saveDynamicProgramState()
+    }
+
+    /// Updates the program timeline anchor (start of program in calendar terms).
+    func updateDynamicProgramAnchorDate(_ date: Date, calendar: Calendar = .current) {
+        guard var dyn = dynamicProgramState else { return }
+        dyn.anchorDate = calendar.startOfDay(for: date)
+        dynamicProgramState = dyn
+        saveDynamicProgramState()
+    }
+
     /// Copies `DynamicProgram` schedule and optional materialized cycle into `trainingProgram`.
     private func syncTrainingProgramFromDynamicProgram(calendar: Calendar = .current) {
         guard let s = dynamicProgramState else { return }

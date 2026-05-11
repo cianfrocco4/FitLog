@@ -19,18 +19,24 @@ extension AIService {
 
         if !isConfigured {
             let proposal = DynamicProgramMapper.localWorkoutSplitProposal(from: request.splitInput, library: exerciseLibrary)
+            var program: DynamicProgram
             if multi {
-                return DynamicProgramMapper.multiBlock(from: proposal, request: request)
+                program = DynamicProgramMapper.multiBlock(from: proposal, request: request)
+            } else {
+                program = DynamicProgramMapper.singleBlock(from: proposal, request: request)
             }
-            return DynamicProgramMapper.singleBlock(from: proposal, request: request)
+            program.generatedWithAI = false
+            return program
         }
 
         if multi {
-            return try await generateDynamicProgramMultiBlockAI(
+            var program = try await generateDynamicProgramMultiBlockAI(
                 request: request,
                 allowedExerciseNames: allowedExerciseNames,
                 existingWorkoutTemplateNames: existingWorkoutTemplateNames
             )
+            program.generatedWithAI = true
+            return program
         }
 
         let proposal = try await generateWorkoutSplitProposal(
@@ -38,7 +44,9 @@ extension AIService {
             allowedExerciseNames: allowedExerciseNames,
             existingWorkoutTemplateNames: existingWorkoutTemplateNames
         )
-        return DynamicProgramMapper.singleBlock(from: proposal, request: request)
+        var program = DynamicProgramMapper.singleBlock(from: proposal, request: request)
+        program.generatedWithAI = true
+        return program
     }
 
     private func generateDynamicProgramMultiBlockAI(
@@ -97,7 +105,8 @@ extension AIService {
             blocks: blocks,
             defaultSessionsPerWeek: sessionsPerWeek,
             preferredWeekdays: preferredWeekdays,
-            busyDayPolicy: request.busyDayPolicy
+            busyDayPolicy: request.busyDayPolicy,
+            generatedWithAI: true
         )
     }
 }

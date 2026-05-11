@@ -8,6 +8,9 @@
 import SwiftUI
 
 struct SplitBuilderView: View {
+    /// When set, opens the wizard on the preview step with this program loaded (edit / re-apply).
+    var hydrateFromState: DynamicProgramState? = nil
+
     @Environment(DataManager.self) private var dataVM
     @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
     @EnvironmentObject private var aiService: AIService
@@ -17,6 +20,7 @@ struct SplitBuilderView: View {
 
     @State private var viewModel = DynamicProgramBuilderViewModel()
     @State private var didMergeCoachPrefill = false
+    @State private var didHydrateFromSavedState = false
 
     var body: some View {
         NavigationStack {
@@ -32,6 +36,10 @@ struct SplitBuilderView: View {
                     }
                 }
                 .onAppear {
+                    if !didHydrateFromSavedState, let snapshot = hydrateFromState {
+                        didHydrateFromSavedState = true
+                        viewModel.hydrate(from: snapshot)
+                    }
                     guard !didMergeCoachPrefill else { return }
                     if let prefill = coachPrefill?.trimmingCharacters(in: .whitespacesAndNewlines), !prefill.isEmpty {
                         didMergeCoachPrefill = true
