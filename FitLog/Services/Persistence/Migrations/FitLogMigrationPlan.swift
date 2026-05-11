@@ -4,13 +4,10 @@
 //
 //  Custom SwiftData migration from V1 (JSON-blob @Models) to V2 (normalized graph).
 //
-//  **V2 minor / additive changes:** `FitLogSchemaV2.versionIdentifier` must stay aligned with the
-//  newest store version that has a migration path in `schemas` + `stages`. Adding `@Model` types
-//  or columns at the *same* `versionIdentifier` is handled by SwiftData’s automatic lightweight
-//  migration. To bump the V2 triple (e.g. 2.0.1 → 2.1.0), add a frozen prior `VersionedSchema` plus
-//  `MigrationStage.lightweight(fromVersion:toVersion:)` (or `.custom`) before changing the live
-//  schema’s `versionIdentifier`, otherwise on-disk `ModelContainer` creation fails and users lose
-//  access to their store.
+//  **V2→V3:** `FitLogSchemaV2` is frozen at `2.0.1` (18 models). New `@Model` types (e.g.
+//  `SDDynamicProgramV2`) live on `FitLogSchemaV3` (`3.0.0`) with `MigrationStage.lightweight`
+//  from V2 to V3. With `SchemaMigrationPlan` attached, additive models must not be declared only
+//  on the same `versionIdentifier` as the on-disk store — that fails `ModelContainer` open.
 //
 //  Strategy:
 //    willMigrate  — runs against the V1 context; reads all rows via their
@@ -33,12 +30,19 @@ private let log = Logger(
 
 enum FitLogMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [FitLogSchemaV1.self, FitLogSchemaV2.self]
+        [FitLogSchemaV1.self, FitLogSchemaV2.self, FitLogSchemaV3.self]
     }
 
     static var stages: [MigrationStage] {
-        [migrateV1ToV2]
+        [migrateV1ToV2, migrateV2ToV3]
     }
+
+    // MARK: - V2 → V3 (lightweight: adds `SDDynamicProgramV2` entity for existing 2.0.1 stores)
+
+    private static let migrateV2ToV3 = MigrationStage.lightweight(
+        fromVersion: FitLogSchemaV2.self,
+        toVersion: FitLogSchemaV3.self
+    )
 
     // MARK: - V1 → V2
 

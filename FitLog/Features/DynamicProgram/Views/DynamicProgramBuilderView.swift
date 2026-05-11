@@ -796,7 +796,7 @@ struct DynamicProgramBuilderView: View {
 }
 
 #Preview("Light") {
-    let schema = Schema(versionedSchema: FitLogSchemaV2.self)
+    let schema = Schema(versionedSchema: FitLogSchemaV3.self)
     let config = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
     let container = try! ModelContainer(for: schema, migrationPlan: FitLogMigrationPlan.self, configurations: config)
     let data = DataManager(modelContainer: container)
@@ -809,7 +809,7 @@ struct DynamicProgramBuilderView: View {
 }
 
 #Preview("Dark", traits: .sizeThatFitsLayout) {
-    let schema = Schema(versionedSchema: FitLogSchemaV2.self)
+    let schema = Schema(versionedSchema: FitLogSchemaV3.self)
     let config = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
     let container = try! ModelContainer(for: schema, migrationPlan: FitLogMigrationPlan.self, configurations: config)
     let data = DataManager(modelContainer: container)

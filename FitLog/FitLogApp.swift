@@ -34,7 +34,7 @@ struct FitLogApp: App {
             // Explicit `.none` avoids CloudKit-backed store wiring that can fail schema open on some environments.
             let config = ModelConfiguration(url: storeURL, cloudKitDatabase: .none)
             // Must use `Schema(versionedSchema:)` so the store version matches `SchemaMigrationPlan` / `VersionedSchema` (not the default 1.0.0 from `Schema([types])`).
-            let schema = Schema(versionedSchema: FitLogSchemaV2.self)
+            let schema = Schema(versionedSchema: FitLogSchemaV3.self)
             container = try ModelContainer(
                 for: schema,
                 migrationPlan: FitLogMigrationPlan.self,
@@ -45,7 +45,7 @@ struct FitLogApp: App {
             // Fallback: in-memory store so the app can show `FitLogRecoverySheet` with the **disk** error.
             // Never clear `migError` here — doing so showed an empty database with no explanation after a
             // failed on-disk migration (e.g. missing migration stage for a schema version bump).
-            let schema = Schema(versionedSchema: FitLogSchemaV2.self)
+            let schema = Schema(versionedSchema: FitLogSchemaV3.self)
             let memWithPlan = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
             let memNoPlan = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
             if let c = try? ModelContainer(
@@ -155,7 +155,7 @@ struct FitLogApp: App {
 
         Self.removePersistedStoreArtifacts()
 
-        let schema = Schema(versionedSchema: FitLogSchemaV2.self)
+        let schema = Schema(versionedSchema: FitLogSchemaV3.self)
         let config = ModelConfiguration(url: Self.persistedStoreURL(), cloudKitDatabase: .none)
         guard let freshContainer = try? ModelContainer(
             for: schema,
@@ -188,7 +188,7 @@ struct FitLogApp: App {
     /// Wipes the on-disk store (including WAL/SHM), opens an empty database, and rebinds app state so the user can continue without restarting.
     private func resetAndRelaunch() {
         Self.removePersistedStoreArtifacts()
-        let schema = Schema(versionedSchema: FitLogSchemaV2.self)
+        let schema = Schema(versionedSchema: FitLogSchemaV3.self)
         let config = ModelConfiguration(url: Self.persistedStoreURL(), cloudKitDatabase: .none)
         guard let freshContainer = try? ModelContainer(
             for: schema,

@@ -1,20 +1,20 @@
 //
-//  FitLogSchemaV2.swift
+//  FitLogSchemaV3.swift
 //  FitLog
 //
-//  Aggregates all V2 @Model types under a VersionedSchema namespace.
+//  Current live SwiftData schema. Superset of frozen `FitLogSchemaV2` plus additive models.
 //
 
 import SwiftData
 
-/// **Frozen** V2 schema at `2.0.1` — matches stores shipped from `main` before dynamic programs.
-/// Live app code opens `FitLogSchemaV3` with `FitLogMigrationPlan` (includes
-/// `MigrationStage.lightweight` from this version to V3). Do not add new `@Model` types here; add them
-/// on V3 and extend the migration plan instead.
+/// Live schema for the app: open with `Schema(versionedSchema: FitLogSchemaV3.self)` and
+/// `migrationPlan: FitLogMigrationPlan.self`. Migrates from frozen V2 via a lightweight stage.
 ///
-/// `versionIdentifier` must not change: `FitLogMigrationPlan` stages reference this version.
-enum FitLogSchemaV2: VersionedSchema {
-    static var versionIdentifier: Schema.Version { Schema.Version(2, 0, 1) }
+/// **Policy:** New `@Model` types or breaking property changes require a new `VersionedSchema`
+/// version and an explicit `MigrationStage` in `FitLogMigrationPlan` — do not add models only here
+/// while reusing an older `versionIdentifier` on a prior schema enum.
+enum FitLogSchemaV3: VersionedSchema {
+    static var versionIdentifier: Schema.Version { Schema.Version(3, 0, 0) }
 
     static var models: [any PersistentModel.Type] {
         [
@@ -48,6 +48,9 @@ enum FitLogSchemaV2: VersionedSchema {
 
             // Personal records
             SDPersonalRecordV2.self,
+
+            // Dynamic periodized program (JSON blob) — added in V3 lightweight migration
+            SDDynamicProgramV2.self,
         ]
     }
 }
