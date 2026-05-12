@@ -113,6 +113,15 @@ struct DynamicProgramBuilderView: View {
         return max(1, sel.count)
     }
 
+    private var builderModeHelp: String {
+        switch viewModel.builderMode {
+        case .aiGenerate:
+            return "AI (when configured) or local presets draft your rotation. Everything stays editable before you save to Plan."
+        case .manualBuild:
+            return "Creates a blank rotation from your schedule so you can add exercises without calling AI. Switch modes anytime — your edits are kept."
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             wizardStepIndicator
@@ -217,6 +226,19 @@ struct DynamicProgramBuilderView: View {
         .onDisappear {
             viewModel.persistPreferencesToStore()
         }
+        .onChange(of: viewModel.builderMode) { _, _ in
+            viewModel.builderModeChangeCount += 1
+            viewModel.persistPreferencesToStore()
+            if viewModel.wizardStep == .generatePreview {
+                viewModel.ensureManualDraftIfNeeded()
+            }
+        }
+        .onChange(of: viewModel.wizardStep) { _, newStep in
+            if newStep == .generatePreview {
+                viewModel.ensureManualDraftIfNeeded()
+            }
+        }
+        .sensoryFeedback(.selection, trigger: viewModel.builderModeChangeCount)
     }
 
     // MARK: - Step chrome
@@ -261,6 +283,7 @@ struct DynamicProgramBuilderView: View {
                 }
                 .fontWeight(.semibold)
                 .accessibilityHint("Go to next step")
+                .keyboardShortcut(.rightArrow, modifiers: .command)
             }
         }
     }
@@ -269,6 +292,24 @@ struct DynamicProgramBuilderView: View {
 
     private var goalsStep: some View {
         Form {
+            Section {
+                Picker("Program build style", selection: $viewModel.builderMode) {
+                    ForEach(DynamicProgramBuilderViewModel.ProgramBuilderMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityLabel("Program build style")
+                .accessibilityHint("Choose AI-assisted generation or a manual blank program. Your answers on every step are preserved when you switch.")
+
+                Text(builderModeHelp)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } header: {
+                Text("Builder")
+            }
+
             Section {
                 TextField("Program name", text: $viewModel.request.programName)
                     .textInputAutocapitalization(.words)
@@ -693,29 +734,43 @@ struct DynamicProgramBuilderView: View {
 
     private var generatePreviewStep: some View {
         Form {
-            Section {
-                Button {
-                    Task { await viewModel.generate(aiService: aiService, dataManager: dataManager) }
-                } label: {
-                    if viewModel.isGenerating {
-                        HStack {
-                            ProgressView()
-                                .accessibilityLabel("Generating program")
-                            Text("Generating…")
+            if viewModel.builderMode == .aiGenerate {
+                Section {
+                    Button {
+                        Task { await viewModel.generate(aiService: aiService, dataManager: dataManager) }
+                    } label: {
+                        if viewModel.isGenerating {
+                            HStack {
+                                ProgressView()
+                                    .accessibilityLabel("Generating program")
+                                Text("Generating…")
+                            }
+                        } else {
+                            Text(aiService.isConfigured ? "Generate with AI" : "Build from local presets")
                         }
+                    }
+                    .disabled(viewModel.isGenerating)
+                    .accessibilityLabel(viewModel.isGenerating ? "Generating program" : (aiService.isConfigured ? "Generate with AI" : "Build from local presets"))
+                    .accessibilityHint(aiService.isConfigured ? "Calls the AI to propose a split, then builds a dynamic program from it." : "Builds a program from FitLog’s built-in rotation templates using your schedule and split style.")
+                    .accessibilityAddTraits(.isButton)
+                } footer: {
+                    if aiService.isConfigured {
+                        Text("If the AI is unavailable, configure a proxy or API key in Settings.")
                     } else {
-                        Text(aiService.isConfigured ? "Generate with AI" : "Build from local presets")
+                        Text("No AI client is configured — generation uses your library and local templates. Add an API key anytime to unlock AI drafts.")
                     }
                 }
-                .disabled(viewModel.isGenerating)
-                .accessibilityLabel(viewModel.isGenerating ? "Generating program" : (aiService.isConfigured ? "Generate with AI" : "Build from local presets"))
-                .accessibilityHint(aiService.isConfigured ? "Calls the AI to propose a split, then builds a dynamic program from it." : "Builds a program from FitLog’s built-in rotation templates using your schedule and split style.")
-                .accessibilityAddTraits(.isButton)
-            } footer: {
-                if aiService.isConfigured {
-                    Text("If the AI is unavailable, configure a proxy or API key in Settings.")
-                } else {
-                    Text("No AI client is configured — generation uses your library and local templates. Add an API key anytime to unlock AI drafts.")
+            } else {
+                Section {
+                    Label("Manual program draft", systemImage: "square.and.pencil")
+                        .font(.subheadline.weight(.semibold))
+                        .accessibilityLabel("Manual program draft")
+
+                    Text("A blank rotation is created when you open this step. Add slots and assign exercises below, then run checks before saving to Plan.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel("Manual mode uses a blank rotation you fill in yourself without calling AI.")
                 }
             }
 
@@ -730,11 +785,29 @@ struct DynamicProgramBuilderView: View {
             }
 
             if let program = viewModel.generatedProgram {
+                Section("Checks") {
+                    ProgramValidationBanner(result: viewModel.programValidationResult)
+                }
+
                 Section("Timeline") {
                     DynamicProgramTimelineView(program: program, anchorDate: viewModel.programAnchorDate, builderViewModel: viewModel)
                         .frame(minHeight: 220)
                 }
                 .accessibilityElement(children: .contain)
+
+                Section("Calendar overview") {
+                    ProgramCalendarPreviewView(
+                        program: program,
+                        anchorDate: viewModel.programAnchorDate,
+                        weeklySetTotalsByBlock: ProgramCalendarPreviewView.weeklySetTotalsPerBlock(program: program)
+                    )
+                    .frame(minHeight: 200)
+                }
+                .accessibilityElement(children: .contain)
+
+                if viewModel.builderMode == .manualBuild {
+                    ManualBlockEditorView(viewModel: viewModel)
+                }
 
                 if !viewModel.generationBalanceWarnings.isEmpty {
                     Section("Balance checks") {
@@ -752,7 +825,11 @@ struct DynamicProgramBuilderView: View {
                     LabeledContent("Name", value: program.name)
                     LabeledContent("Blocks", value: "\(program.blocks.count)")
                     LabeledContent("Sessions / week", value: "\(program.defaultSessionsPerWeek)")
-                    if viewModel.lastGenerationUsedLocalPresets {
+                    if viewModel.builderMode == .manualBuild {
+                        Label("Manual builder", systemImage: "hand.draw")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if viewModel.lastGenerationUsedLocalPresets {
                         Label("Local preset build", systemImage: "books.vertical")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -775,7 +852,11 @@ struct DynamicProgramBuilderView: View {
                     } label: {
                         Text("Review & save to plan")
                     }
-                    .disabled(viewModel.isApplying || viewModel.flattenedEditableDaysForConfirmation().isEmpty)
+                    .disabled(
+                        viewModel.isApplying
+                            || viewModel.flattenedEditableDaysForConfirmation().isEmpty
+                            || !viewModel.programValidationResult.canSaveToPlan
+                    )
                     .accessibilityLabel("Review and save to plan")
                     .accessibilityHint("Shows a confirmation screen, then creates workout templates and sets this dynamic program as your active plan.")
                     .accessibilityAddTraits(.isButton)

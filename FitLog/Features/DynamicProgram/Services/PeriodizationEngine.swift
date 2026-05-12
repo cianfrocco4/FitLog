@@ -150,21 +150,14 @@ struct PeriodizationEngine: Sendable {
     private static func augmentSetsForCompress(_ template: BlockWeeklyTemplate) -> BlockWeeklyTemplate {
         let slots = template.slots.map { slot -> SplitBuilderEditableSlot in
             let bumped = min(10, slot.sets + 1)
-            return SplitBuilderEditableSlot(
-                id: slot.id,
-                label: slot.label,
-                targetMuscleNames: slot.targetMuscleNames,
-                sets: bumped,
-                reps: slot.reps,
-                suggestedExerciseName: slot.suggestedExerciseName,
-                suggestedExerciseOverrideId: slot.suggestedExerciseOverrideId
-            )
+            return slot.updatingSets(bumped)
         }
         return BlockWeeklyTemplate(
             id: template.id,
             dayName: template.dayName,
             focus: template.focus,
-            slots: slots
+            slots: slots,
+            dayNotes: template.dayNotes
         )
     }
 
@@ -196,15 +189,7 @@ struct PeriodizationEngine: Sendable {
     static func flexVariant(from template: BlockWeeklyTemplate) -> BlockWeeklyTemplate {
         let slots = template.slots.map { slot -> SplitBuilderEditableSlot in
             let reduced = max(1, Int((Double(slot.sets) * 0.5).rounded(.up)))
-            return SplitBuilderEditableSlot(
-                id: UUID(),
-                label: slot.label,
-                targetMuscleNames: slot.targetMuscleNames,
-                sets: min(reduced, slot.sets),
-                reps: slot.reps,
-                suggestedExerciseName: slot.suggestedExerciseName,
-                suggestedExerciseOverrideId: slot.suggestedExerciseOverrideId
-            )
+            return slot.withNewSlotId().updatingSets(min(reduced, slot.sets))
         }
         let focus = template.focus.trimmingCharacters(in: .whitespacesAndNewlines)
         let suffix = focus.isEmpty ? "Recovery" : "Recovery — \(focus)"
@@ -213,7 +198,8 @@ struct PeriodizationEngine: Sendable {
             id: template.id,
             dayName: template.dayName + " (Flex)",
             focus: suffix,
-            slots: slots
+            slots: slots,
+            dayNotes: template.dayNotes
         )
     }
 

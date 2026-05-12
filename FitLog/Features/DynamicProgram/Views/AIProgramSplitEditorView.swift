@@ -143,6 +143,7 @@ private enum ExerciseSuggestContext: Identifiable {
 
 // MARK: - View
 
+@available(*, deprecated, message: "Use SplitBuilderView and DynamicProgramBuilderView for the unified program builder.")
 struct AIProgramSplitEditorView: View {
     @Environment(DataManager.self) private var dataVM
     @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM

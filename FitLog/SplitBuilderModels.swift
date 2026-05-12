@@ -16,6 +16,28 @@ struct SplitBuilderEditableSlot: Identifiable, Equatable, Codable, Hashable {
     var suggestedExerciseName: String?
     var suggestedExerciseOverrideId: UUID?
 
+    /// Rich prescription pattern; `nil` means classic fixed sets/reps only.
+    var setScheme: SetScheme?
+    /// Superset / circuit linkage within the same template day.
+    var grouping: ExerciseGrouping?
+    /// Overrides block-level progression when non-nil and not `.inheritFromBlock`.
+    var progressionRule: SlotProgressionRule?
+    /// Target rest between sets (seconds), optional.
+    var restSeconds: Int?
+    /// Coaching cues / notes for this slot.
+    var notes: String?
+    /// Free-form equipment tags (e.g. “cable”, “dumbbell”).
+    var equipmentTags: [String]?
+    /// True when this slot represents warm-up work for the main lift.
+    var isWarmUp: Bool
+    /// Alternative library exercise IDs the user accepts as swaps.
+    var substitutionExerciseIds: [UUID]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, label, targetMuscleNames, sets, reps, suggestedExerciseName, suggestedExerciseOverrideId
+        case setScheme, grouping, progressionRule, restSeconds, notes, equipmentTags, isWarmUp, substitutionExerciseIds
+    }
+
     init(
         id: UUID = UUID(),
         label: String,
@@ -23,7 +45,15 @@ struct SplitBuilderEditableSlot: Identifiable, Equatable, Codable, Hashable {
         sets: Int,
         reps: String,
         suggestedExerciseName: String? = nil,
-        suggestedExerciseOverrideId: UUID? = nil
+        suggestedExerciseOverrideId: UUID? = nil,
+        setScheme: SetScheme? = nil,
+        grouping: ExerciseGrouping? = nil,
+        progressionRule: SlotProgressionRule? = nil,
+        restSeconds: Int? = nil,
+        notes: String? = nil,
+        equipmentTags: [String]? = nil,
+        isWarmUp: Bool = false,
+        substitutionExerciseIds: [UUID]? = nil
     ) {
         self.id = id
         self.label = label
@@ -32,6 +62,117 @@ struct SplitBuilderEditableSlot: Identifiable, Equatable, Codable, Hashable {
         self.reps = reps
         self.suggestedExerciseName = suggestedExerciseName
         self.suggestedExerciseOverrideId = suggestedExerciseOverrideId
+        self.setScheme = setScheme
+        self.grouping = grouping
+        self.progressionRule = progressionRule
+        self.restSeconds = restSeconds
+        self.notes = notes
+        self.equipmentTags = equipmentTags
+        self.isWarmUp = isWarmUp
+        self.substitutionExerciseIds = substitutionExerciseIds
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        label = try c.decode(String.self, forKey: .label)
+        targetMuscleNames = try c.decode([String].self, forKey: .targetMuscleNames)
+        sets = try c.decode(Int.self, forKey: .sets)
+        reps = try c.decode(String.self, forKey: .reps)
+        suggestedExerciseName = try c.decodeIfPresent(String.self, forKey: .suggestedExerciseName)
+        suggestedExerciseOverrideId = try c.decodeIfPresent(UUID.self, forKey: .suggestedExerciseOverrideId)
+        setScheme = try c.decodeIfPresent(SetScheme.self, forKey: .setScheme)
+        grouping = try c.decodeIfPresent(ExerciseGrouping.self, forKey: .grouping)
+        progressionRule = try c.decodeIfPresent(SlotProgressionRule.self, forKey: .progressionRule)
+        restSeconds = try c.decodeIfPresent(Int.self, forKey: .restSeconds)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes)
+        equipmentTags = try c.decodeIfPresent([String].self, forKey: .equipmentTags)
+        isWarmUp = try c.decodeIfPresent(Bool.self, forKey: .isWarmUp) ?? false
+        substitutionExerciseIds = try c.decodeIfPresent([UUID].self, forKey: .substitutionExerciseIds)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(label, forKey: .label)
+        try c.encode(targetMuscleNames, forKey: .targetMuscleNames)
+        try c.encode(sets, forKey: .sets)
+        try c.encode(reps, forKey: .reps)
+        try c.encodeIfPresent(suggestedExerciseName, forKey: .suggestedExerciseName)
+        try c.encodeIfPresent(suggestedExerciseOverrideId, forKey: .suggestedExerciseOverrideId)
+        try c.encodeIfPresent(setScheme, forKey: .setScheme)
+        try c.encodeIfPresent(grouping, forKey: .grouping)
+        try c.encodeIfPresent(progressionRule, forKey: .progressionRule)
+        try c.encodeIfPresent(restSeconds, forKey: .restSeconds)
+        try c.encodeIfPresent(notes, forKey: .notes)
+        try c.encodeIfPresent(equipmentTags, forKey: .equipmentTags)
+        try c.encode(isWarmUp, forKey: .isWarmUp)
+        try c.encodeIfPresent(substitutionExerciseIds, forKey: .substitutionExerciseIds)
+    }
+
+    /// Copy with a new template row with a fresh id (same prescription metadata).
+    func withNewSlotId(_ newId: UUID = UUID()) -> SplitBuilderEditableSlot {
+        SplitBuilderEditableSlot(
+            id: newId,
+            label: label,
+            targetMuscleNames: targetMuscleNames,
+            sets: sets,
+            reps: reps,
+            suggestedExerciseName: suggestedExerciseName,
+            suggestedExerciseOverrideId: suggestedExerciseOverrideId,
+            setScheme: setScheme,
+            grouping: grouping,
+            progressionRule: progressionRule,
+            restSeconds: restSeconds,
+            notes: notes,
+            equipmentTags: equipmentTags,
+            isWarmUp: isWarmUp,
+            substitutionExerciseIds: substitutionExerciseIds
+        )
+    }
+
+    /// Same slot id and metadata; only `sets` changes (e.g. compress-week bump).
+    func updatingSets(_ newSets: Int) -> SplitBuilderEditableSlot {
+        SplitBuilderEditableSlot(
+            id: id,
+            label: label,
+            targetMuscleNames: targetMuscleNames,
+            sets: newSets,
+            reps: reps,
+            suggestedExerciseName: suggestedExerciseName,
+            suggestedExerciseOverrideId: suggestedExerciseOverrideId,
+            setScheme: setScheme,
+            grouping: grouping,
+            progressionRule: progressionRule,
+            restSeconds: restSeconds,
+            notes: notes,
+            equipmentTags: equipmentTags,
+            isWarmUp: isWarmUp,
+            substitutionExerciseIds: substitutionExerciseIds
+        )
+    }
+
+    /// After duplicating a day’s slots with fresh ids, remap superset / circuit partner references.
+    func remappingGroupingPartnerIds(using idMap: [UUID: UUID]) -> SplitBuilderEditableSlot {
+        guard var g = grouping, !g.partnerSlotIds.isEmpty else { return self }
+        g.partnerSlotIds = g.partnerSlotIds.compactMap { idMap[$0] }
+        return SplitBuilderEditableSlot(
+            id: id,
+            label: label,
+            targetMuscleNames: targetMuscleNames,
+            sets: sets,
+            reps: reps,
+            suggestedExerciseName: suggestedExerciseName,
+            suggestedExerciseOverrideId: suggestedExerciseOverrideId,
+            setScheme: setScheme,
+            grouping: g,
+            progressionRule: progressionRule,
+            restSeconds: restSeconds,
+            notes: notes,
+            equipmentTags: equipmentTags,
+            isWarmUp: isWarmUp,
+            substitutionExerciseIds: substitutionExerciseIds
+        )
     }
 }
 
@@ -40,12 +181,15 @@ struct SplitBuilderEditableDay: Identifiable, Equatable, Codable, Hashable {
     var name: String
     var focus: String
     var slots: [SplitBuilderEditableSlot]
+    /// Optional day-level coaching notes (maps to `BlockWeeklyTemplate.dayNotes`).
+    var dayNotes: String?
 
-    init(id: UUID = UUID(), name: String, focus: String, slots: [SplitBuilderEditableSlot]) {
+    init(id: UUID = UUID(), name: String, focus: String, slots: [SplitBuilderEditableSlot], dayNotes: String? = nil) {
         self.id = id
         self.name = name
         self.focus = focus
         self.slots = slots
+        self.dayNotes = dayNotes
     }
 }
 
@@ -54,6 +198,7 @@ extension SplitBuilderEditableDay {
         self.id = UUID()
         self.name = proposalDay.name
         self.focus = proposalDay.focus ?? ""
+        self.dayNotes = nil
         if !proposalDay.slots.isEmpty {
             self.slots = proposalDay.slots.map {
                 SplitBuilderEditableSlot(
@@ -402,17 +547,7 @@ enum SplitBuilderSharedFactory {
     }
 
     private static func freshSlots(from slots: [SplitBuilderEditableSlot]) -> [SplitBuilderEditableSlot] {
-        slots.map {
-            SplitBuilderEditableSlot(
-                id: UUID(),
-                label: $0.label,
-                targetMuscleNames: $0.targetMuscleNames,
-                sets: $0.sets,
-                reps: $0.reps,
-                suggestedExerciseName: $0.suggestedExerciseName,
-                suggestedExerciseOverrideId: $0.suggestedExerciseOverrideId
-            )
-        }
+        slots.map { $0.withNewSlotId() }
     }
 
     private static func day(name: String, focus: String, focus creationFocus: WorkoutCreationFocus, library: [Exercise]) -> SplitBuilderEditableDay {

@@ -83,17 +83,21 @@ struct BlockWeeklyTemplate: Identifiable, Codable, Equatable, Hashable, Sendable
     var dayName: String
     var focus: String
     var slots: [SplitBuilderEditableSlot]
+    /// Optional coaching / day-level notes (manual builder).
+    var dayNotes: String?
 
     init(
         id: UUID = UUID(),
         dayName: String,
         focus: String,
-        slots: [SplitBuilderEditableSlot]
+        slots: [SplitBuilderEditableSlot],
+        dayNotes: String? = nil
     ) {
         self.id = id
         self.dayName = dayName
         self.focus = focus
         self.slots = slots
+        self.dayNotes = dayNotes
     }
 }
 
@@ -112,6 +116,20 @@ struct ProgramBlock: Identifiable, Codable, Equatable, Sendable {
     /// 1.0 = normal; use <1 for deload intensity.
     var volumeMultiplier: Double
 
+    /// 1-based week index inside the block treated as deload, if any.
+    var deloadWeekNumber: Int?
+    /// Block-level coaching / structure notes.
+    var notes: String?
+    /// Optional warm-up slots applied before main template work (manual builder).
+    var warmUpTemplate: [SplitBuilderEditableSlot]?
+    /// Optional cooldown / mobility slots (manual builder).
+    var cooldownTemplate: [SplitBuilderEditableSlot]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, focus, durationWeeks, weeklyTemplates, progressionStrategy, isDeloadBlock, volumeMultiplier
+        case deloadWeekNumber, notes, warmUpTemplate, cooldownTemplate
+    }
+
     init(
         id: UUID = UUID(),
         name: String,
@@ -120,7 +138,11 @@ struct ProgramBlock: Identifiable, Codable, Equatable, Sendable {
         weeklyTemplates: [BlockWeeklyTemplate],
         progressionStrategy: ProgressionStrategy = .doubleProgression,
         isDeloadBlock: Bool = false,
-        volumeMultiplier: Double = 1.0
+        volumeMultiplier: Double = 1.0,
+        deloadWeekNumber: Int? = nil,
+        notes: String? = nil,
+        warmUpTemplate: [SplitBuilderEditableSlot]? = nil,
+        cooldownTemplate: [SplitBuilderEditableSlot]? = nil
     ) {
         self.id = id
         self.name = name
@@ -130,6 +152,42 @@ struct ProgramBlock: Identifiable, Codable, Equatable, Sendable {
         self.progressionStrategy = progressionStrategy
         self.isDeloadBlock = isDeloadBlock
         self.volumeMultiplier = volumeMultiplier
+        self.deloadWeekNumber = deloadWeekNumber
+        self.notes = notes
+        self.warmUpTemplate = warmUpTemplate
+        self.cooldownTemplate = cooldownTemplate
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        focus = try c.decode(BlockFocus.self, forKey: .focus)
+        durationWeeks = try c.decode(Int.self, forKey: .durationWeeks)
+        weeklyTemplates = try c.decode([BlockWeeklyTemplate].self, forKey: .weeklyTemplates)
+        progressionStrategy = try c.decode(ProgressionStrategy.self, forKey: .progressionStrategy)
+        isDeloadBlock = try c.decode(Bool.self, forKey: .isDeloadBlock)
+        volumeMultiplier = try c.decode(Double.self, forKey: .volumeMultiplier)
+        deloadWeekNumber = try c.decodeIfPresent(Int.self, forKey: .deloadWeekNumber)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes)
+        warmUpTemplate = try c.decodeIfPresent([SplitBuilderEditableSlot].self, forKey: .warmUpTemplate)
+        cooldownTemplate = try c.decodeIfPresent([SplitBuilderEditableSlot].self, forKey: .cooldownTemplate)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(focus, forKey: .focus)
+        try c.encode(durationWeeks, forKey: .durationWeeks)
+        try c.encode(weeklyTemplates, forKey: .weeklyTemplates)
+        try c.encode(progressionStrategy, forKey: .progressionStrategy)
+        try c.encode(isDeloadBlock, forKey: .isDeloadBlock)
+        try c.encode(volumeMultiplier, forKey: .volumeMultiplier)
+        try c.encodeIfPresent(deloadWeekNumber, forKey: .deloadWeekNumber)
+        try c.encodeIfPresent(notes, forKey: .notes)
+        try c.encodeIfPresent(warmUpTemplate, forKey: .warmUpTemplate)
+        try c.encodeIfPresent(cooldownTemplate, forKey: .cooldownTemplate)
     }
 }
 

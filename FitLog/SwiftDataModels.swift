@@ -26,11 +26,13 @@ struct VersionedPayload<T: Codable>: Codable {
 ///   2 – unified workout library (SlotBlueprint, single WorkoutPlanRef.workout, backups omit templates)
 ///   3 – library workouts use slot blueprints only (concrete rows migrated to flexible + defaultExerciseId)
 ///   4 – `SDWorkoutSession.sessionNotes` added as a native column (workout-level notes persist after save)
+///   5 – `DynamicProgramState` JSON: extended `SplitBuilderEditableSlot` / `ProgramBlock` / `BlockWeeklyTemplate`
+///       (manual builder fields); decode uses `decodeIfPresent` for backward compatibility.
 ///
 /// **AI split builder wizard defaults** use a separate, versioned UserDefaults envelope
 /// (`SplitBuilderPreferencesStore`) — not `VersionedPayload` / SwiftData — so workout and program
 /// data are unaffected if wizard prefs are reset or migrated independently.
-let currentSchemaVersion = 4
+let currentSchemaVersion = 5
 
 /// Encode a value wrapped in a VersionedPayload.
 func versionedEncode<T: Codable>(_ value: T) -> Data {

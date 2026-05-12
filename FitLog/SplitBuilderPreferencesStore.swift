@@ -21,7 +21,7 @@ import Foundation
 enum SplitBuilderPreferencesStore {
 
     /// Bump when adding non-optional fields or changing semantics; implement migration from previous.
-    private static let currentSchemaVersion = 2
+    private static let currentSchemaVersion = 3
     private static let envelopeKey = "fitlog.splitBuilder.wizardEnvelope.v1"
 
     struct State: Equatable {
@@ -49,6 +49,8 @@ enum SplitBuilderPreferencesStore {
         var busyDayPolicyRaw: String?
         /// JSON array of `PersistedDynamicBlockSpec` for wizard block rows.
         var dynamicBlockSpecsJSON: String?
+        /// `"ai"` or `"manual"` for unified program builder mode.
+        var programBuilderModeRaw: String?
 
         static let `default` = State(
             primaryGoalRaw: nil,
@@ -72,7 +74,8 @@ enum SplitBuilderPreferencesStore {
             programName: nil,
             isPeriodizedProgram: nil,
             busyDayPolicyRaw: nil,
-            dynamicBlockSpecsJSON: nil
+            dynamicBlockSpecsJSON: nil,
+            programBuilderModeRaw: nil
         )
     }
 
@@ -100,6 +103,7 @@ enum SplitBuilderPreferencesStore {
         var isPeriodizedProgram: Bool?
         var busyDayPolicyRaw: String?
         var dynamicBlockSpecsJSON: String?
+        var programBuilderModeRaw: String?
     }
 
     static func load() -> State {
@@ -107,7 +111,7 @@ enum SplitBuilderPreferencesStore {
         let dec = JSONDecoder()
         guard let env = try? dec.decode(EnvelopeV1.self, from: data) else { return .default }
         switch env.schemaVersion {
-        case 1, 2:
+        case 1, 2, 3:
             return State(
                 primaryGoalRaw: env.primaryGoalRaw,
                 equipmentRaw: env.equipmentRaw,
@@ -130,7 +134,8 @@ enum SplitBuilderPreferencesStore {
                 programName: env.programName,
                 isPeriodizedProgram: env.isPeriodizedProgram,
                 busyDayPolicyRaw: env.busyDayPolicyRaw,
-                dynamicBlockSpecsJSON: env.dynamicBlockSpecsJSON
+                dynamicBlockSpecsJSON: env.dynamicBlockSpecsJSON,
+                programBuilderModeRaw: env.programBuilderModeRaw
             )
         default:
             // Future: migrate from unknown version or legacy keys
@@ -162,7 +167,8 @@ enum SplitBuilderPreferencesStore {
             programName: state.programName,
             isPeriodizedProgram: state.isPeriodizedProgram,
             busyDayPolicyRaw: state.busyDayPolicyRaw,
-            dynamicBlockSpecsJSON: state.dynamicBlockSpecsJSON
+            dynamicBlockSpecsJSON: state.dynamicBlockSpecsJSON,
+            programBuilderModeRaw: state.programBuilderModeRaw
         )
         guard let data = try? JSONEncoder().encode(env) else { return }
         UserDefaults.standard.set(data, forKey: envelopeKey)

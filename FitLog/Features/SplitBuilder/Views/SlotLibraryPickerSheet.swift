@@ -9,12 +9,14 @@ import SwiftUI
 
 struct SlotLibraryPickerSheet: View {
     @Environment(DataManager.self) var dataVM
+    @EnvironmentObject private var aiService: AIService
     @Environment(\.dismiss) private var dismiss
 
     let slot: SplitBuilderEditableSlot
     let onSelect: (Exercise) -> Void
 
     @State private var searchText = ""
+    @State private var showNewExercise = false
 
     private var scoredExercises: [(exercise: Exercise, score: Int)] {
         let slotMuscles = Set(slot.targetMuscleNames.compactMap { MuscleGroup(rawValue: $0) })
@@ -100,12 +102,12 @@ struct SlotLibraryPickerSheet: View {
 
                 Section {
                     Button {
-                        // TODO: Open custom exercise creation flow
-                        dismiss()
+                        showNewExercise = true
                     } label: {
                         Label("Create new exercise", systemImage: "plus.circle")
                             .foregroundStyle(.blue)
                     }
+                    .accessibilityHint("Opens the custom exercise form; when you save, the exercise is selected for this slot.")
                 }
             }
             .searchable(text: $searchText, prompt: "Search exercises")
@@ -115,6 +117,14 @@ struct SlotLibraryPickerSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
+            }
+            .sheet(isPresented: $showNewExercise) {
+                NewExerciseSheet { exercise in
+                    onSelect(exercise)
+                    dismiss()
+                }
+                .environment(dataVM)
+                .environmentObject(aiService)
             }
         }
     }

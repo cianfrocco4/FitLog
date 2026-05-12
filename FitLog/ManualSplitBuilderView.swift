@@ -15,6 +15,7 @@ private enum ManualSplitStep {
 
 struct ManualSplitBuilderView: View {
     @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var aiService: AIService
     @Environment(\.dismiss) private var dismiss
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
     @Environment(\.modelContext) private var modelContext
@@ -188,6 +189,7 @@ struct ManualSplitBuilderView: View {
                 slotPickerDayBinding = nil
             }
             .environment(dataVM)
+            .environmentObject(aiService)
         }
         .sheet(item: Binding(
             get: { musclePickerSlot.map { MusclePickerIdentity(slot: $0) } },
@@ -629,7 +631,8 @@ struct ManualSplitBuilderView: View {
                     id: day.id,
                     dayName: day.name,
                     focus: day.focus,
-                    slots: day.slots
+                    slots: day.slots,
+                    dayNotes: day.dayNotes
                 )
             }
             let block = ProgramBlock(

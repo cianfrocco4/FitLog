@@ -35,6 +35,7 @@ struct DynamicProgramGeneratedTemplateEditor: View {
                 Section {
                     DynamicProgramBlockTemplateEditorSection(
                         days: viewModel.bindingForBlockDays(viewModel.editableBlockIndex),
+                        enableManualSlotChrome: viewModel.builderMode == .manualBuild,
                         onStructuralChange: {
                             viewModel.refreshGenerationBalanceWarnings()
                         },

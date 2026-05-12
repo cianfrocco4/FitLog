@@ -84,8 +84,27 @@ final class DynamicProgramBuilderViewModel {
         }
     }
 
+    /// Unified builder: AI-assisted generation vs fully manual skeleton.
+    enum ProgramBuilderMode: String, CaseIterable, Identifiable, Sendable {
+        case aiGenerate
+        case manualBuild
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .aiGenerate: return "AI generate"
+            case .manualBuild: return "Build manually"
+            }
+        }
+    }
+
     var request: DynamicProgramGenerationRequest
     var wizardStep: WizardStep = .goals
+    /// Persisted via `SplitBuilderPreferencesStore`.
+    var builderMode: ProgramBuilderMode = .aiGenerate
+    /// For `.sensoryFeedback` when switching builder mode.
+    var builderModeChangeCount = 0
 
     var generatedProgram: DynamicProgram?
     var errorMessage: String?
@@ -199,6 +218,10 @@ final class DynamicProgramBuilderViewModel {
             }
         }
         syncProgramStructureUIAfterLoadingPreferences()
+        if let raw = s.programBuilderModeRaw?.lowercased() {
+            if raw == "manual" { builderMode = .manualBuild }
+            else { builderMode = .aiGenerate }
+        }
     }
 
     func persistPreferencesToStore() {
@@ -226,6 +249,7 @@ final class DynamicProgramBuilderViewModel {
         state.isPeriodizedProgram = request.isPeriodized
         state.busyDayPolicyRaw = request.busyDayPolicy.rawValue
         state.dynamicBlockSpecsJSON = specsJSON
+        state.programBuilderModeRaw = builderMode == .manualBuild ? "manual" : "ai"
         SplitBuilderPreferencesStore.save(state)
     }
 
@@ -410,6 +434,7 @@ final class DynamicProgramBuilderViewModel {
         editableBlockIndex = 0
         rebuildEditableDaysFromProgram()
         wizardStep = .generatePreview
+        builderMode = state.program.generatedWithAI ? .aiGenerate : .manualBuild
     }
 
     func generate(aiService: AIService, dataManager: DataManager) async {
@@ -458,7 +483,7 @@ final class DynamicProgramBuilderViewModel {
         editableBlockIndex = min(max(0, editableBlockIndex), prog.blocks.count - 1)
         perBlockEditableDays = prog.blocks.map { block in
             block.weeklyTemplates.map { t in
-                SplitBuilderEditableDay(id: t.id, name: t.dayName, focus: t.focus, slots: t.slots)
+                SplitBuilderEditableDay(id: t.id, name: t.dayName, focus: t.focus, slots: t.slots, dayNotes: t.dayNotes)
             }
         }
         refreshGenerationBalanceWarnings()
@@ -487,7 +512,7 @@ final class DynamicProgramBuilderViewModel {
         for i in prog.blocks.indices {
             guard perBlockEditableDays.indices.contains(i) else { continue }
             prog.blocks[i].weeklyTemplates = perBlockEditableDays[i].map { d in
-                BlockWeeklyTemplate(id: d.id, dayName: d.name, focus: d.focus, slots: d.slots)
+                BlockWeeklyTemplate(id: d.id, dayName: d.name, focus: d.focus, slots: d.slots, dayNotes: d.dayNotes)
             }
         }
         generatedProgram = prog
@@ -541,9 +566,25 @@ final class DynamicProgramBuilderViewModel {
         return SplitProposalProgramAnalyzer.warnings(stats: stats, days: days, context: ctx)
     }
 
+    /// Validation for save / apply (blocking vs warnings).
+    var programValidationResult: ProgramValidationResult {
+        ProgramValidationResult.evaluate(
+            programName: request.programName,
+            program: generatedProgram,
+            perBlockEditableDays: perBlockEditableDays,
+            balanceWarnings: generationBalanceWarnings,
+            isManualMode: builderMode == .manualBuild
+        )
+    }
+
     func applyToPlan(dataManager: DataManager, anchorDate: Date? = nil) {
         persistPerBlockTemplatesIntoProgram()
         guard let program = generatedProgram else { return }
+        let validation = programValidationResult
+        guard validation.canSaveToPlan else {
+            applyErrorMessage = validation.blockingIssues.first ?? "Fix validation issues before saving."
+            return
+        }
         let anchor = anchorDate.map { Calendar.current.startOfDay(for: $0) } ?? programAnchorDate
         applyErrorMessage = nil
         isApplying = true
@@ -557,6 +598,108 @@ final class DynamicProgramBuilderViewModel {
         applySuccessCount += 1
         applySavedDetail = "Templates were added to your workout list and your Plan rotation matches the current program block."
         showApplySavedAlert = true
+    }
+
+    /// Ensures manual mode has an editable in-memory program (blank skeleton) without calling AI.
+    func ensureManualDraftIfNeeded() {
+        guard builderMode == .manualBuild else { return }
+        guard generatedProgram == nil else { return }
+        if request.blockSpecs.isEmpty {
+            applyProgramStructureSelections()
+        }
+        generatedProgram = DynamicProgramMapper.blankProgram(from: request)
+        lastGenerationUsedLocalPresets = true
+        errorMessage = nil
+        editableBlockIndex = 0
+        rebuildEditableDaysFromProgram()
+    }
+
+    /// Inserts a duplicate of the block at `index` with fresh template and slot ids.
+    func duplicateProgramBlock(at index: Int) {
+        guard var prog = generatedProgram, prog.blocks.indices.contains(index) else { return }
+        persistPerBlockTemplatesIntoProgram()
+        let b = prog.blocks[index]
+        let warmup = b.warmUpTemplate.map { $0.map { $0.withNewSlotId() } }
+        let cooldown = b.cooldownTemplate.map { $0.map { $0.withNewSlotId() } }
+        let copy = ProgramBlock(
+            id: UUID(),
+            name: duplicateBlockName(from: b.name),
+            focus: b.focus,
+            durationWeeks: b.durationWeeks,
+            weeklyTemplates: DynamicProgramMapper.duplicateWeeklyTemplates(b.weeklyTemplates),
+            progressionStrategy: b.progressionStrategy,
+            isDeloadBlock: b.isDeloadBlock,
+            volumeMultiplier: b.volumeMultiplier,
+            deloadWeekNumber: b.deloadWeekNumber,
+            notes: b.notes,
+            warmUpTemplate: warmup,
+            cooldownTemplate: cooldown
+        )
+        prog.blocks.insert(copy, at: index + 1)
+        generatedProgram = prog
+        rebuildEditableDaysFromProgram()
+        selectEditableBlock(index + 1)
+    }
+
+    /// Replaces the block at `index` rotation with a deep copy of the previous block’s templates.
+    func copyWeeklyTemplatesFromPreviousBlock(into index: Int) {
+        guard index > 0, var prog = generatedProgram, prog.blocks.indices.contains(index) else { return }
+        persistPerBlockTemplatesIntoProgram()
+        let prev = prog.blocks[index - 1]
+        prog.blocks[index].weeklyTemplates = DynamicProgramMapper.duplicateWeeklyTemplates(prev.weeklyTemplates)
+        generatedProgram = prog
+        rebuildEditableDaysFromProgram()
+        selectEditableBlock(index)
+    }
+
+    /// Replaces the block’s rotation with a single template day built from a library workout.
+    func importRotationFromWorkout(_ workout: Workout, blockIndex: Int, exerciseLibrary: [Exercise]) {
+        guard var prog = generatedProgram, prog.blocks.indices.contains(blockIndex) else { return }
+        persistPerBlockTemplatesIntoProgram()
+        var slots: [SplitBuilderEditableSlot] = []
+        slots.reserveCapacity(workout.exercises.count)
+        for row in workout.exercises {
+            switch row.resolution {
+            case .concrete(let snap):
+                let ex = exerciseLibrary.first(where: { $0.id == snap.exerciseId })
+                let muscles = ex?.targetedMuscles.map(\.rawValue) ?? [MuscleGroup.other.rawValue]
+                slots.append(
+                    SplitBuilderEditableSlot(
+                        label: snap.nameAtTimeOfLog,
+                        targetMuscleNames: muscles,
+                        sets: row.recommendedSets,
+                        reps: row.recommendedReps,
+                        suggestedExerciseName: ex?.name ?? snap.nameAtTimeOfLog,
+                        suggestedExerciseOverrideId: snap.exerciseId
+                    )
+                )
+            case .flexible(let bp):
+                let muscles = bp.targetedMuscles.map(\.rawValue)
+                let ex = bp.defaultExerciseId.flatMap { id in exerciseLibrary.first(where: { $0.id == id }) }
+                slots.append(
+                    SplitBuilderEditableSlot(
+                        label: bp.label,
+                        targetMuscleNames: muscles.isEmpty ? [MuscleGroup.other.rawValue] : muscles,
+                        sets: row.recommendedSets,
+                        reps: row.recommendedReps,
+                        suggestedExerciseName: ex?.name,
+                        suggestedExerciseOverrideId: bp.defaultExerciseId
+                    )
+                )
+            }
+        }
+        let day = BlockWeeklyTemplate(dayName: workout.name, focus: "", slots: slots)
+        prog.blocks[blockIndex].weeklyTemplates = [day]
+        generatedProgram = prog
+        rebuildEditableDaysFromProgram()
+        selectEditableBlock(blockIndex)
+    }
+
+    private func duplicateBlockName(from name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = trimmed.isEmpty ? "Block" : trimmed
+        if base.lowercased().hasSuffix(" copy") { return base }
+        return "\(base) copy"
     }
 
     // MARK: - Private

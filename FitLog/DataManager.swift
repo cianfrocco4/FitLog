@@ -631,7 +631,8 @@ final class DataManager {
                     id: template.id,
                     name: template.dayName,
                     focus: template.focus,
-                    slots: template.slots
+                    slots: template.slots,
+                    dayNotes: template.dayNotes
                 ).toProposalDay()
                 guard let wid = createFlexWorkoutFromProposalDay(day, createdByPlanKey: &createdByPlanKey) else { continue }
                 map[template.id] = wid

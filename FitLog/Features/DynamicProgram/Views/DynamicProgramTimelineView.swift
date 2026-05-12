@@ -73,6 +73,16 @@ struct DynamicProgramTimelineView: View {
         let pe = PeriodizationEngine(calendar: calendar)
         let state = previewState
         let weekLabel = weekCalendarLabel(blockIndex: blockIndex, weekIndex1Based: weekIndex, engine: pe, state: state)
+        let names = block.weeklyTemplates.map(\.dayName).joined(separator: " · ")
+        let slotLines = block.weeklyTemplates.flatMap(\.slots)
+        let exercisePreview = slotLines.prefix(14).map { slot -> String in
+            if let n = slot.suggestedExerciseName?.trimmingCharacters(in: .whitespacesAndNewlines), !n.isEmpty { return n }
+            let lab = slot.label.trimmingCharacters(in: .whitespacesAndNewlines)
+            return lab.isEmpty ? "Slot" : lab
+        }
+        let previewText = exercisePreview.joined(separator: ", ")
+        let rotationA11y = names.isEmpty ? "No templates" : names
+        let exerciseA11y = previewText.isEmpty ? "" : ", exercises: \(previewText)"
         return VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Week \(weekIndex)")
@@ -86,11 +96,18 @@ struct DynamicProgramTimelineView: View {
             }
             .accessibilityElement(children: .combine)
 
-            let names = block.weeklyTemplates.map(\.dayName).joined(separator: " · ")
-            Text(names.isEmpty ? "No templates" : names)
-                .font(.caption)
-                .foregroundStyle(.primary)
-                .lineLimit(3)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(names.isEmpty ? "No templates" : names)
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                if !previewText.isEmpty {
+                    Text(previewText)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(8)
@@ -99,7 +116,7 @@ struct DynamicProgramTimelineView: View {
                 .fill(Color(.tertiarySystemGroupedBackground))
         )
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Week \(weekIndex)\(weekLabel.map { ", \($0)" } ?? ""), rotation: \(namesLabel(block: block))")
+        .accessibilityLabel("Week \(weekIndex)\(weekLabel.map { ", \($0)" } ?? ""), rotation: \(rotationA11y)\(exerciseA11y)")
     }
 
     private func weekCalendarLabel(blockIndex: Int, weekIndex1Based: Int, engine: PeriodizationEngine, state: DynamicProgramState) -> String? {
@@ -109,10 +126,6 @@ struct DynamicProgramTimelineView: View {
         guard let weekEnd = calendar.date(byAdding: .day, value: 6, to: weekStart) else { return nil }
         let f = Self.weekRangeFormatter
         return "\(f.string(from: weekStart)) – \(f.string(from: weekEnd))"
-    }
-
-    private func namesLabel(block: ProgramBlock) -> String {
-        block.weeklyTemplates.map(\.dayName).joined(separator: ", ")
     }
 
     private static let weekRangeFormatter: DateFormatter = {
