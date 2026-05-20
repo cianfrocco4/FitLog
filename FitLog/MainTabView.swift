@@ -14,6 +14,7 @@ struct MainTabView: View {
     @EnvironmentObject var dayMonitor: CalendarDayMonitor
     @EnvironmentObject var userPreferences: UserPreferences
     @State private var showCurrentWorkoutPullUp = false
+    @State private var workoutSheetDetent: PresentationDetent = .large
     @State private var showOnboarding = false
     @State private var rootTab: FitlogRootTab = .home
     @State private var coachDeepLink: FitlogCoachDeepLink = .idle
@@ -89,11 +90,23 @@ struct MainTabView: View {
             }
         }
         .sheet(isPresented: $showCurrentWorkoutPullUp) {
-            CurrentWorkoutPullUpSheet()
+            CurrentWorkoutPullUpSheet(sheetDetent: $workoutSheetDetent)
                 .environment(currentVM)
                 .environment(dataVM)
                 .environmentObject(aiService)
                 .environmentObject(userPreferences)
+                .presentationDetents(
+                    [.fraction(0.14), .fraction(0.42), .large],
+                    selection: $workoutSheetDetent
+                )
+                .presentationDragIndicator(.visible)
+                .presentationBackgroundInteraction(.enabled(upThrough: .fraction(0.42)))
+                .interactiveDismissDisabled()
+        }
+        .onChange(of: showCurrentWorkoutPullUp) { _, isOpen in
+            if isOpen {
+                workoutSheetDetent = .large
+            }
         }
         .sheet(item: Binding(
             get: { currentVM.pendingWorkoutCompletionSummary },

@@ -346,6 +346,7 @@ struct LogSetView: View {
                         Picker("Set type", selection: $setTypeChoice) {
                             Text(ExerciseSetType.working.logPickerLabel).tag(ExerciseSetType.working)
                             Text(ExerciseSetType.warmup.logPickerLabel).tag(ExerciseSetType.warmup)
+                            Text(ExerciseSetType.amrap.logPickerLabel).tag(ExerciseSetType.amrap)
                             Text(ExerciseSetType.failure.logPickerLabel).tag(ExerciseSetType.failure)
                             Text(ExerciseSetType.timed.logPickerLabel).tag(ExerciseSetType.timed)
                         }

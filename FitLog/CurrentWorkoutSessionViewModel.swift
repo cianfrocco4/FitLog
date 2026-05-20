@@ -39,6 +39,8 @@ final class CurrentWorkoutSessionViewModel {
 
     var currentSession: WorkoutSession?
     var remainingRestTime: Int = 0
+    /// Total seconds when the current rest countdown started (for UI progress rings). 0 when idle.
+    var restCountdownTotalSeconds: Int = 0
     /// Set to true when a rest countdown naturally reaches zero (not when cancelled).
     var showRestCompleteAlert: Bool = false
     /// Cleared when consumed by `CurrentWorkoutPullUpSheet` on appear.
@@ -674,6 +676,7 @@ final class CurrentWorkoutSessionViewModel {
         } else {
             clearRestCompletionNotification()
         }
+        saveActiveSession()
     }
 
     /// Updates weight/reps (and optional type) on an existing logged set (inline edit). Does not re-run PR detection or rest timer.
@@ -692,6 +695,7 @@ final class CurrentWorkoutSessionViewModel {
         }
         currentSession = session
         recordWorkoutActivity()
+        saveActiveSession()
     }
 
     private func prioritizedPREvent(from events: [PersonalRecordEvent]) -> PersonalRecordEvent? {
@@ -710,9 +714,13 @@ final class CurrentWorkoutSessionViewModel {
         restTimer?.invalidate()
         restTimer = nil
         remainingRestTime = max(0, seconds)
+        restCountdownTotalSeconds = seconds
         showRestCompleteAlert = false
 
-        guard seconds > 0 else { return }
+        guard seconds > 0 else {
+            restCountdownTotalSeconds = 0
+            return
+        }
 
         let workoutTitle = currentSession?.workout.name ?? "Workout"
         Task { @MainActor in
@@ -737,6 +745,7 @@ final class CurrentWorkoutSessionViewModel {
             if self.remainingRestTime <= 0 {
                 self.restTimer?.invalidate()
                 self.restTimer = nil
+                self.restCountdownTotalSeconds = 0
                 Task { @MainActor in
                     RestTimerLiveActivityCoordinator.shared.endRestActivity()
                 }
@@ -759,6 +768,7 @@ final class CurrentWorkoutSessionViewModel {
         restTimer?.invalidate()
         restTimer = nil
         remainingRestTime = 0
+        restCountdownTotalSeconds = 0
         showRestCompleteAlert = false
         clearRestCompletionNotification()
         Task { @MainActor in
@@ -776,6 +786,7 @@ final class CurrentWorkoutSessionViewModel {
             return
         }
         remainingRestTime = capped
+        restCountdownTotalSeconds = max(restCountdownTotalSeconds, capped)
         clearRestCompletionNotification()
         scheduleRestNotification(seconds: capped)
         let title = currentSession?.workout.name ?? "Workout"
@@ -817,6 +828,7 @@ final class CurrentWorkoutSessionViewModel {
         session.exerciseLogs[toExerciseIndex].loggedSets.append(emptySet)
         currentSession = session
         recordWorkoutActivity()
+        saveActiveSession()
     }
 
     func deleteSet(exerciseIndex: Int, setIndex: Int) {
@@ -831,6 +843,23 @@ final class CurrentWorkoutSessionViewModel {
         }
         currentSession = session
         recordWorkoutActivity()
+        saveActiveSession()
+    }
+
+    /// Restores a set after swipe-delete undo (inserts at clamped index).
+    func insertLoggedSet(_ set: LoggedSet, exerciseIndex: Int, at setIndex: Int) {
+        guard var session = currentSession, exerciseIndex < session.exerciseLogs.count else { return }
+        var sets = session.exerciseLogs[exerciseIndex].loggedSets
+        let i = min(max(0, setIndex), sets.count)
+        sets.insert(set, at: i)
+        session.exerciseLogs[exerciseIndex].loggedSets = sets
+        if let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exerciseId,
+           !session.activeExerciseIds.contains(exId) {
+            session.activeExerciseIds.insert(exId, at: 0)
+        }
+        currentSession = session
+        recordWorkoutActivity()
+        saveActiveSession()
     }
     
     func appDidEnterBackground() {

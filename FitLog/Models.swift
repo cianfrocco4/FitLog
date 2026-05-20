@@ -844,6 +844,7 @@ enum ExerciseSetType: String, Codable, CaseIterable, Equatable, Hashable {
     case dropSet
     case failure
     case timed
+    case amrap
 
     /// Short label for pickers and chips.
     var logPickerLabel: String {
@@ -853,6 +854,7 @@ enum ExerciseSetType: String, Codable, CaseIterable, Equatable, Hashable {
         case .dropSet: return "Drop set"
         case .failure: return "Failure"
         case .timed: return "Timed hold"
+        case .amrap: return "AMRAP"
         }
     }
 }
@@ -1155,6 +1157,7 @@ extension LoggedSet {
         case .dropSet: return "Drop"
         case .failure: return "Failure"
         case .timed: return "Timed"
+        case .amrap: return "AMRAP"
         }
     }
 

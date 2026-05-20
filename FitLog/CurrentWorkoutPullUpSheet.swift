@@ -425,6 +425,12 @@ private struct SwapSheetIndex: Identifiable {
 }
 
 struct CurrentWorkoutPullUpSheet: View {
+    @Binding private var sheetDetent: PresentationDetent
+
+    init(sheetDetent: Binding<PresentationDetent> = .constant(.large)) {
+        _sheetDetent = sheetDetent
+    }
+
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @Environment(DataManager.self) var dataVM
     @EnvironmentObject var aiService: AIService
@@ -441,22 +447,11 @@ struct CurrentWorkoutPullUpSheet: View {
     @State private var showDiscardWorkoutConfirmation = false
     @State private var showQuickAddExercise = false
     @State private var showFullAddExercise = false
-    @State private var showPRBanner = false
     @State private var showExerciseReorderSheet = false
     @State private var plateCalculatorInlinePick: PlateCalculatorInlinePick?
 
     /// Inline quick-log draft per exercise log (stable across reorder).
-    @State private var inlineWeightByLogId: [UUID: Double] = [:]
-    @State private var inlineRepsByLogId: [UUID: Int] = [:]
-    @State private var inlineWeightTextByLogId: [UUID: String] = [:]
-    @State private var inlineRepsTextByLogId: [UUID: String] = [:]
-    @State private var inlineInitializedLogIds: Set<UUID> = []
-    /// Reps-first logging: optional added load minus assisted (display units); persisted as signed net stored weight.
-    @State private var inlineBodyweightModeLogIds: Set<UUID> = []
-    @State private var inlineBodyweightAddedByLogId: [UUID: Double] = [:]
-    @State private var inlineBodyweightAssistedByLogId: [UUID: Double] = [:]
-    @State private var inlineBodyweightAddedTextByLogId: [UUID: String] = [:]
-    @State private var inlineBodyweightAssistedTextByLogId: [UUID: String] = [:]
+    @State private var draftStore = SetEntryDraftStore()
 
     /// Inline edit for an existing set (array indices; stable until list mutates).
     @State private var editingSetExerciseIndex: Int?
@@ -471,9 +466,6 @@ struct CurrentWorkoutPullUpSheet: View {
 
     /// Brief highlight on the most recently logged set (chronological list).
     @State private var highlightedLoggedSetId: UUID?
-    /// Optional RPE 6–10 for inline quick log (absent key = not recorded).
-    @State private var inlineRpeByLogId: [UUID: Double] = [:]
-    @State private var inlineRpeExpandedLogIds: Set<UUID> = []
     /// Collapsed by default so the expanded exercise shows a simple “log next set → sets” flow first.
     @State private var exerciseDetailMoreExpandedLogId: UUID?
     /// After a set is logged, show a transient "Add drop set" affordance for ~5 seconds.
@@ -483,6 +475,26 @@ struct CurrentWorkoutPullUpSheet: View {
     @State private var swapSheetExerciseIndex: Int?
     /// PR celebration overlay (replaces the simple in-list banner).
     @State private var celebratedPREvent: PersonalRecordEvent?
+    /// Swipe-delete undo (brief window).
+    @State private var pendingUndoSet: PendingUndoSet?
+    @State private var inlineLogSuccessTick = 0
+    @State private var exerciseSwipeTick = 0
+
+    private struct PendingUndoSet: Identifiable {
+        let id: UUID
+        let exerciseIndex: Int
+        let insertAt: Int
+        let set: LoggedSet
+
+        init(exerciseIndex: Int, insertAt: Int, set: LoggedSet) {
+            self.id = UUID()
+            self.exerciseIndex = exerciseIndex
+            self.insertAt = insertAt
+            self.set = set
+        }
+    }
+
+    private var isLargeSheet: Bool { sheetDetent == .large }
 
     private var activeSessionWorkout: Workout? {
         currentVM.currentSession?.workout
@@ -495,102 +507,8 @@ struct CurrentWorkoutPullUpSheet: View {
         return lib.hasFlexibleSlots
     }
 
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // Rest timer — compact strip
-                if currentVM.remainingRestTime > 0 {
-                    HStack(spacing: 12) {
-                        Image(systemName: "timer")
-                            .foregroundStyle(.orange)
-                        Text("Rest")
-                            .font(.subheadline.weight(.semibold))
-                        Text("\(currentVM.remainingRestTime)s")
-                            .font(.title3.weight(.bold).monospacedDigit())
-                            .foregroundStyle(.orange)
-                        Button("−15") {
-                            currentVM.adjustRestCountdown(by: -15)
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(.orange)
-                        .font(.caption.weight(.semibold))
-                        Button("+15") {
-                            currentVM.adjustRestCountdown(by: 15)
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(.orange)
-                        .font(.caption.weight(.semibold))
-                        Spacer()
-                        Button("Skip") {
-                            currentVM.cancelRestTimer()
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(.red)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(RoundedRectangle(cornerRadius: 14).fill(Color(.systemGray6)))
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
-                }
-                
-                // Compact workout header: name, elapsed, and pause/resume in one row.
-                if let session = currentVM.currentSession {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(session.workout.name)
-                                .font(.headline.weight(.semibold))
-                                .lineLimit(1)
-                            HStack(spacing: 5) {
-                                Image(systemName: "timer")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Text(currentVM.workoutElapsedFormatted)
-                                    .font(.subheadline.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        Spacer(minLength: 8)
-                        Button {
-                            if currentVM.isWorkoutPaused {
-                                currentVM.resumeWorkout()
-                            } else {
-                                currentVM.pauseWorkout()
-                            }
-                        } label: {
-                            Label(currentVM.isWorkoutPaused ? "Resume" : "Pause", systemImage: currentVM.isWorkoutPaused ? "play.fill" : "pause.fill")
-                                .labelStyle(.iconOnly)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .tint(currentVM.isWorkoutPaused ? .green : .orange)
-                        .accessibilityLabel(currentVM.isWorkoutPaused ? "Resume workout" : "Pause workout")
-                    }
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 12)
-                    .background(Color(.systemGray6))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .padding(.top, currentVM.remainingRestTime > 0 ? 0 : 16)
-                    .padding(.horizontal)
-
-                    sessionRunningStatsStrip(session: session)
-
-                    TextField("Workout notes (optional)", text: Binding(
-                        get: { currentVM.currentSession?.sessionNotes ?? "" },
-                        set: { currentVM.setSessionNotes($0) }
-                    ), axis: .vertical)
-                    .lineLimit(2...5)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.subheadline)
-                    .padding(.horizontal)
-                }
-
-                unresolvedSlotsBanner
-                restCompleteNextUpBanner
-
-                exercisePillStrip
-
-                ScrollViewReader { scrollProxy in
+    @ViewBuilder
+    private func largeSheetWorkoutList(scrollProxy: ScrollViewProxy) -> some View {
                     List {
                         Section {
                             Button {
@@ -722,6 +640,19 @@ struct CurrentWorkoutPullUpSheet: View {
                                             inlineSetEntryRow(exerciseIndex: index, log: log)
                                                 .moveDisabled(true)
                                                 .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                                                .simultaneousGesture(
+                                                    DragGesture(minimumDistance: 50)
+                                                        .onEnded { value in
+                                                            guard isLargeSheet, isExpanded else { return }
+                                                            let t = value.translation
+                                                            guard abs(t.width) > abs(t.height) else { return }
+                                                            if t.width < -55 {
+                                                                advanceExpandedExercise(by: 1)
+                                                            } else if t.width > 55 {
+                                                                advanceExpandedExercise(by: -1)
+                                                            }
+                                                        }
+                                                )
 
                                             currentAndPreviousSetsSection(
                                                 exerciseIndex: index,
@@ -759,18 +690,10 @@ struct CurrentWorkoutPullUpSheet: View {
                                                         .textFieldStyle(.roundedBorder)
                                                         .font(.subheadline)
                                                         .textInputAutocapitalization(.sentences)
-                                                        // Dictation mic — uses standard keyboard dictation (no extra permission needed)
-                                                        Button {
-                                                            // Trigger keyboard dictation by toggling focus; the keyboard dictation
-                                                            // button remains accessible to the user while the field is focused.
-                                                        } label: {
-                                                            Image(systemName: "mic.fill")
-                                                                .foregroundStyle(.tint)
-                                                                .frame(width: 36, height: 36)
-                                                        }
-                                                        .accessibilityLabel("Dictate note")
-                                                        .accessibilityHint("Tap the microphone key on the keyboard to start dictation")
                                                     }
+                                                    Text("Use the microphone key on the keyboard to dictate notes.")
+                                                        .font(.caption2)
+                                                        .foregroundStyle(.tertiary)
 
                                                     sessionRestOverrideEditor(exerciseIndex: index, log: log)
 
@@ -840,6 +763,9 @@ struct CurrentWorkoutPullUpSheet: View {
                     .scrollDismissesKeyboard(.interactively)
                     .keyboardDismissToolbar()
                     .onChange(of: expandedExerciseIndex) { _, newValue in
+                        if newValue != nil, sheetDetent != .large {
+                            sheetDetent = .large
+                        }
                         exerciseDetailMoreExpandedLogId = nil
                         initializeInlineDraftIfNeeded(forExpandedIndex: newValue)
                         guard let idx = newValue,
@@ -852,6 +778,99 @@ struct CurrentWorkoutPullUpSheet: View {
                             }
                         }
                     }
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Rest timer — compact strip
+                if currentVM.remainingRestTime > 0 {
+                    WorkoutRestTimerBar(
+                        remainingSeconds: currentVM.remainingRestTime,
+                        totalSeconds: max(currentVM.restCountdownTotalSeconds, currentVM.remainingRestTime),
+                        onAdjust: { currentVM.adjustRestCountdown(by: $0) },
+                        onSkip: { currentVM.cancelRestTimer() }
+                    )
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                }
+                
+                // Compact workout header: name, elapsed, and pause/resume in one row.
+                if let session = currentVM.currentSession {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(session.workout.name)
+                                .font(.headline.weight(.semibold))
+                                .lineLimit(1)
+                            HStack(spacing: 5) {
+                                Image(systemName: "timer")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(currentVM.workoutElapsedFormatted)
+                                    .font(.subheadline.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer(minLength: 8)
+                        Button {
+                            if currentVM.isWorkoutPaused {
+                                currentVM.resumeWorkout()
+                            } else {
+                                currentVM.pauseWorkout()
+                            }
+                        } label: {
+                            Label(currentVM.isWorkoutPaused ? "Resume" : "Pause", systemImage: currentVM.isWorkoutPaused ? "play.fill" : "pause.fill")
+                                .labelStyle(.iconOnly)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .tint(currentVM.isWorkoutPaused ? .green : .orange)
+                        .accessibilityLabel(currentVM.isWorkoutPaused ? "Resume workout" : "Pause workout")
+                    }
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 12)
+                    .background(Color(.systemGray6))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .padding(.top, currentVM.remainingRestTime > 0 ? 0 : 16)
+                    .padding(.horizontal)
+
+                    sessionRunningStatsStrip(session: session)
+
+                    TextField("Workout notes (optional)", text: Binding(
+                        get: { currentVM.currentSession?.sessionNotes ?? "" },
+                        set: { currentVM.setSessionNotes($0) }
+                    ), axis: .vertical)
+                    .lineLimit(2...5)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.subheadline)
+                    .padding(.horizontal)
+                }
+
+                unresolvedSlotsBanner
+                restCompleteNextUpBanner
+
+                if let logs = currentVM.currentSession?.exerciseLogs, logs.count >= 2 {
+                    WorkoutExercisePillStrip(
+                        logs: logs,
+                        expandedExerciseIndex: $expandedExerciseIndex,
+                        activeExerciseIdsCount: currentVM.currentSession?.activeExerciseIds.count ?? 0,
+                        displayName: { dataVM.displayName(for: $0) },
+                        isExerciseCompleted: { isExerciseCompleted($0) },
+                        isExerciseActive: { isExerciseActive($0) },
+                        onSelectExercise: { _ in
+                            if sheetDetent != .large {
+                                sheetDetent = .large
+                            }
+                        }
+                    )
+                }
+
+                if isLargeSheet {
+                ScrollViewReader { scrollProxy in
+                    largeSheetWorkoutList(scrollProxy: scrollProxy)
+                }
+                } else {
+                    compactWorkoutPeekPlaceholder
                 }
             }
             .navigationTitle("Current Workout")
@@ -906,12 +925,18 @@ struct CurrentWorkoutPullUpSheet: View {
                 }
             }
             .overlay(alignment: .bottom) {
-                if let event = celebratedPREvent {
-                    PRCelebrationOverlay(
-                        event: event,
-                        unit: userPreferences.weightDisplayUnit,
-                        onDismiss: { celebratedPREvent = nil }
-                    )
+                ZStack {
+                    if let event = celebratedPREvent {
+                        PRCelebrationOverlay(
+                            event: event,
+                            unit: userPreferences.weightDisplayUnit,
+                            onDismiss: { celebratedPREvent = nil }
+                        )
+                    }
+                    if let undo = pendingUndoSet {
+                        undoDeletionSnackBar(undo: undo)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                 }
             }
             .sheet(item: Binding(
@@ -970,14 +995,14 @@ struct CurrentWorkoutPullUpSheet: View {
                     onApplyDisplayWeight: { w in
                         let unit = userPreferences.weightDisplayUnit
                         let clamped = WeightStoreConversion.clampNonNegativeDisplay(w, unit: unit)
-                        if inlineBodyweightModeLogIds.contains(pick.logId) {
-                            inlineBodyweightAddedByLogId[pick.logId] = clamped
-                            inlineBodyweightAssistedByLogId[pick.logId] = 0
-                            inlineBodyweightAddedTextByLogId[pick.logId] = formattedInlineWeight(clamped)
-                            inlineBodyweightAssistedTextByLogId[pick.logId] = ""
+                        if draftStore.bodyweightModeLogIds.contains(pick.logId) {
+                            draftStore.bodyweightAddedByLogId[pick.logId] = clamped
+                            draftStore.bodyweightAssistedByLogId[pick.logId] = 0
+                            draftStore.bodyweightAddedTextByLogId[pick.logId] = formattedInlineWeight(clamped)
+                            draftStore.bodyweightAssistedTextByLogId[pick.logId] = ""
                         } else {
-                            inlineWeightByLogId[pick.logId] = clamped
-                            inlineWeightTextByLogId[pick.logId] = formattedInlineWeight(clamped)
+                            draftStore.weightByLogId[pick.logId] = clamped
+                            draftStore.weightTextByLogId[pick.logId] = formattedInlineWeight(clamped)
                         }
                     }
                 )
@@ -1025,7 +1050,63 @@ struct CurrentWorkoutPullUpSheet: View {
                 guard isShowing else { return }
                 handleRestCompleteAutoAdvance()
             }
+            .sensoryFeedback(.success, trigger: inlineLogSuccessTick)
+            .sensoryFeedback(.selection, trigger: exerciseSwipeTick)
         }
+    }
+
+    @ViewBuilder
+    private var compactWorkoutPeekPlaceholder: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "arrow.up.circle.fill")
+                .font(.system(size: 44))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.secondary)
+            Text("Swipe up for full log")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Text("Rest timer and exercise pills stay visible. Expand the sheet to log sets.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Compact workout view. Swipe the sheet up to expand and log sets.")
+    }
+
+    private func undoDeletionSnackBar(undo: PendingUndoSet) -> some View {
+        HStack(spacing: 14) {
+            Text("Set removed")
+                .font(.subheadline.weight(.semibold))
+            Spacer()
+            Button("Undo") {
+                currentVM.insertLoggedSet(undo.set, exerciseIndex: undo.exerciseIndex, at: undo.insertAt)
+                pendingUndoSet = nil
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityLabel("Undo delete set")
+            .accessibilityHint("Restores the set you removed")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .background(RoundedRectangle(cornerRadius: 16).fill(.regularMaterial))
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+    }
+
+    private func advanceExpandedExercise(by delta: Int) {
+        guard let logs = currentVM.currentSession?.exerciseLogs, let cur = expandedExerciseIndex else { return }
+        let next = cur + delta
+        guard next >= 0, next < logs.count else { return }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            expandedExerciseIndex = next
+        }
+        exerciseSwipeTick += 1
     }
 
     private var resolvedExercisesWithNoSets: [String] {
@@ -1069,18 +1150,7 @@ struct CurrentWorkoutPullUpSheet: View {
     }
 
     private func clearInlineDraft(for logId: UUID) {
-        inlineWeightByLogId.removeValue(forKey: logId)
-        inlineRepsByLogId.removeValue(forKey: logId)
-        inlineWeightTextByLogId.removeValue(forKey: logId)
-        inlineRepsTextByLogId.removeValue(forKey: logId)
-        inlineInitializedLogIds.remove(logId)
-        inlineRpeByLogId.removeValue(forKey: logId)
-        inlineRpeExpandedLogIds.remove(logId)
-        inlineBodyweightModeLogIds.remove(logId)
-        inlineBodyweightAddedByLogId.removeValue(forKey: logId)
-        inlineBodyweightAssistedByLogId.removeValue(forKey: logId)
-        inlineBodyweightAddedTextByLogId.removeValue(forKey: logId)
-        inlineBodyweightAssistedTextByLogId.removeValue(forKey: logId)
+        draftStore.clear(logId: logId)
     }
 
     /// Returns whether a pending focus was applied (so caller skips default auto-expand).
@@ -1178,33 +1248,38 @@ struct CurrentWorkoutPullUpSheet: View {
         let log = logs[idx]
         guard !log.workoutExercise.isSlotPlaceholder else { return }
         let lid = log.id
-        guard !inlineInitializedLogIds.contains(lid) else { return }
+        guard !draftStore.initializedLogIds.contains(lid) else { return }
         let (w, r) = prefillInlineWeightReps(for: log)
-        inlineRepsByLogId[lid] = r
+        draftStore.repsByLogId[lid] = r
         let unit = userPreferences.weightDisplayUnit
         if let last = log.loggedSets.last {
             let net = WeightStoreConversion.displayValue(storedPounds: last.weight, unit: unit)
             let netClamped = clampSignedNetDisplayForUser(net)
-            if netClamped <= 0 {
-                inlineBodyweightModeLogIds.insert(lid)
-                inlineBodyweightAddedByLogId[lid] = 0
-                inlineBodyweightAssistedByLogId[lid] = netClamped < 0
+            if netClamped <= 0 && shouldSuggestBodyweightMode(for: log) {
+                draftStore.bodyweightModeLogIds.insert(lid)
+                draftStore.bodyweightAddedByLogId[lid] = 0
+                draftStore.bodyweightAssistedByLogId[lid] = netClamped < 0
                     ? WeightStoreConversion.clampNonNegativeDisplay(-netClamped, unit: unit)
                     : 0
-                inlineWeightByLogId[lid] = 0
+                draftStore.weightByLogId[lid] = 0
             } else {
-                inlineWeightByLogId[lid] = WeightStoreConversion.clampNonNegativeDisplay(netClamped, unit: unit)
+                draftStore.weightByLogId[lid] = WeightStoreConversion.clampNonNegativeDisplay(netClamped, unit: unit)
             }
         } else {
-            inlineWeightByLogId[lid] = w
-            if w == 0 {
-                inlineBodyweightModeLogIds.insert(lid)
-                inlineBodyweightAddedByLogId[lid] = 0
-                inlineBodyweightAssistedByLogId[lid] = 0
+            draftStore.weightByLogId[lid] = w
+            let autoBodyweight = shouldSuggestBodyweightMode(for: log)
+            if autoBodyweight {
+                draftStore.bodyweightModeLogIds.insert(lid)
+                draftStore.bodyweightAddedByLogId[lid] = w
+                draftStore.bodyweightAssistedByLogId[lid] = 0
+                draftStore.weightByLogId[lid] = 0
+                draftStore.bodyweightAddedTextByLogId[lid] = formattedInlineWeight(w)
+                draftStore.bodyweightAssistedTextByLogId[lid] = ""
+                draftStore.weightTextByLogId[lid] = ""
             }
         }
         seedInlineText(for: lid)
-        inlineInitializedLogIds.insert(lid)
+        draftStore.initializedLogIds.insert(lid)
     }
 
     private func clampDisplayWeightForUser(_ w: Double) -> Double {
@@ -1216,18 +1291,18 @@ struct CurrentWorkoutPullUpSheet: View {
     }
 
     private func inlineNetDisplayWeight(for logId: UUID) -> Double {
-        if inlineBodyweightModeLogIds.contains(logId) {
+        if draftStore.bodyweightModeLogIds.contains(logId) {
             let added = WeightStoreConversion.clampNonNegativeDisplay(
-                inlineBodyweightAddedByLogId[logId] ?? 0,
+                draftStore.bodyweightAddedByLogId[logId] ?? 0,
                 unit: userPreferences.weightDisplayUnit
             )
             let assisted = WeightStoreConversion.clampNonNegativeDisplay(
-                inlineBodyweightAssistedByLogId[logId] ?? 0,
+                draftStore.bodyweightAssistedByLogId[logId] ?? 0,
                 unit: userPreferences.weightDisplayUnit
             )
             return clampSignedNetDisplayForUser(added - assisted)
         }
-        return clampDisplayWeightForUser(inlineWeightByLogId[logId] ?? 0)
+        return clampDisplayWeightForUser(draftStore.weightByLogId[logId] ?? 0)
     }
 
     private func inlineBodyweightNetCaption(logId: UUID, unitLabel: String) -> String? {
@@ -1260,21 +1335,21 @@ struct CurrentWorkoutPullUpSheet: View {
     }
 
     private func seedInlineText(for logId: UUID) {
-        inlineWeightTextByLogId[logId] = formattedInlineWeight(inlineWeightByLogId[logId] ?? 0)
-        inlineRepsTextByLogId[logId] = formattedInlineReps(inlineRepsByLogId[logId] ?? 0)
-        inlineBodyweightAddedTextByLogId[logId] = formattedInlineWeight(inlineBodyweightAddedByLogId[logId] ?? 0)
-        inlineBodyweightAssistedTextByLogId[logId] = formattedInlineWeight(inlineBodyweightAssistedByLogId[logId] ?? 0)
+        draftStore.weightTextByLogId[logId] = formattedInlineWeight(draftStore.weightByLogId[logId] ?? 0)
+        draftStore.repsTextByLogId[logId] = formattedInlineReps(draftStore.repsByLogId[logId] ?? 0)
+        draftStore.bodyweightAddedTextByLogId[logId] = formattedInlineWeight(draftStore.bodyweightAddedByLogId[logId] ?? 0)
+        draftStore.bodyweightAssistedTextByLogId[logId] = formattedInlineWeight(draftStore.bodyweightAssistedByLogId[logId] ?? 0)
     }
 
     private func inlineWeightTextBinding(logId: UUID) -> Binding<String> {
         Binding(
-            get: { inlineWeightTextByLogId[logId] ?? "" },
+            get: { draftStore.weightTextByLogId[logId] ?? "" },
             set: { raw in
-                inlineWeightTextByLogId[logId] = raw
+                draftStore.weightTextByLogId[logId] = raw
                 if let value = parseInlineDouble(raw) {
-                    inlineWeightByLogId[logId] = clampDisplayWeightForUser(value)
+                    draftStore.weightByLogId[logId] = clampDisplayWeightForUser(value)
                 } else if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    inlineWeightByLogId[logId] = 0
+                    draftStore.weightByLogId[logId] = 0
                 }
             }
         )
@@ -1282,13 +1357,13 @@ struct CurrentWorkoutPullUpSheet: View {
 
     private func inlineRepsTextBinding(logId: UUID) -> Binding<String> {
         Binding(
-            get: { inlineRepsTextByLogId[logId] ?? "" },
+            get: { draftStore.repsTextByLogId[logId] ?? "" },
             set: { raw in
-                inlineRepsTextByLogId[logId] = raw
+                draftStore.repsTextByLogId[logId] = raw
                 if let value = parseInlineInt(raw) {
-                    inlineRepsByLogId[logId] = min(50, max(0, value))
+                    draftStore.repsByLogId[logId] = min(50, max(0, value))
                 } else if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    inlineRepsByLogId[logId] = 0
+                    draftStore.repsByLogId[logId] = 0
                 }
             }
         )
@@ -1296,13 +1371,13 @@ struct CurrentWorkoutPullUpSheet: View {
 
     private func inlineBodyweightAddedTextBinding(logId: UUID, unit: WeightDisplayUnit) -> Binding<String> {
         Binding(
-            get: { inlineBodyweightAddedTextByLogId[logId] ?? "" },
+            get: { draftStore.bodyweightAddedTextByLogId[logId] ?? "" },
             set: { raw in
-                inlineBodyweightAddedTextByLogId[logId] = raw
+                draftStore.bodyweightAddedTextByLogId[logId] = raw
                 if let value = parseInlineDouble(raw) {
-                    inlineBodyweightAddedByLogId[logId] = WeightStoreConversion.clampNonNegativeDisplay(value, unit: unit)
+                    draftStore.bodyweightAddedByLogId[logId] = WeightStoreConversion.clampNonNegativeDisplay(value, unit: unit)
                 } else if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    inlineBodyweightAddedByLogId[logId] = 0
+                    draftStore.bodyweightAddedByLogId[logId] = 0
                 }
             }
         )
@@ -1310,13 +1385,13 @@ struct CurrentWorkoutPullUpSheet: View {
 
     private func inlineBodyweightAssistedTextBinding(logId: UUID, unit: WeightDisplayUnit) -> Binding<String> {
         Binding(
-            get: { inlineBodyweightAssistedTextByLogId[logId] ?? "" },
+            get: { draftStore.bodyweightAssistedTextByLogId[logId] ?? "" },
             set: { raw in
-                inlineBodyweightAssistedTextByLogId[logId] = raw
+                draftStore.bodyweightAssistedTextByLogId[logId] = raw
                 if let value = parseInlineDouble(raw) {
-                    inlineBodyweightAssistedByLogId[logId] = WeightStoreConversion.clampNonNegativeDisplay(value, unit: unit)
+                    draftStore.bodyweightAssistedByLogId[logId] = WeightStoreConversion.clampNonNegativeDisplay(value, unit: unit)
                 } else if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    inlineBodyweightAssistedByLogId[logId] = 0
+                    draftStore.bodyweightAssistedByLogId[logId] = 0
                 }
             }
         )
@@ -1407,7 +1482,7 @@ struct CurrentWorkoutPullUpSheet: View {
               logs[exerciseIndex].id == logId
         else { return }
         let exerciseLog = logs[exerciseIndex]
-        let r = inlineRepsByLogId[logId] ?? 0
+        let r = draftStore.repsByLogId[logId] ?? 0
         guard r > 0 else { return }
 
         let restBase = suggestedRestSecondsForNextSet(exerciseLog: exerciseLog, exerciseIndex: exerciseIndex)
@@ -1419,20 +1494,23 @@ struct CurrentWorkoutPullUpSheet: View {
             displayValue: wDisplay,
             unit: unit
         )
-        let rpeVal: Double? = inlineRpeByLogId[logId]
+        let rpeVal: Double? = draftStore.rpeByLogId[logId]
+        let chosenType = draftStore.setTypeByLogId[logId] ?? .working
+        let resolvedSetType: ExerciseSetType = chosenType == .dropSet ? .working : chosenType
 
         currentVM.logSet(
             exerciseIndex: exerciseIndex,
             weight: stored,
             reps: r,
             restTime: effectiveRest,
-            setType: .working,
+            setType: resolvedSetType,
             configuration: inlineConfiguration(for: exerciseLog),
             dropSegments: [],
             rpe: rpeVal
         )
         syncInlineDraftAfterLog(for: logId, exerciseIndex: exerciseIndex)
         triggerHighlightForLastSet(exerciseIndex: exerciseIndex)
+        inlineLogSuccessTick += 1
         // Show "Add drop" affordance for ~5 seconds (Task 14)
         dropPromptLogId = logId
         dropPromptExerciseIndex = exerciseIndex
@@ -1449,20 +1527,20 @@ struct CurrentWorkoutPullUpSheet: View {
         else { return }
         let unit = userPreferences.weightDisplayUnit
         let netDisplay = WeightStoreConversion.displayValue(storedPounds: last.weight, unit: unit)
-        if inlineBodyweightModeLogIds.contains(logId) {
+        if draftStore.bodyweightModeLogIds.contains(logId) {
             let clampedNet = clampSignedNetDisplayForUser(netDisplay)
             if clampedNet >= 0 {
-                inlineBodyweightAddedByLogId[logId] = WeightStoreConversion.clampNonNegativeDisplay(clampedNet, unit: unit)
-                inlineBodyweightAssistedByLogId[logId] = 0
+                draftStore.bodyweightAddedByLogId[logId] = WeightStoreConversion.clampNonNegativeDisplay(clampedNet, unit: unit)
+                draftStore.bodyweightAssistedByLogId[logId] = 0
             } else {
-                inlineBodyweightAddedByLogId[logId] = 0
-                inlineBodyweightAssistedByLogId[logId] = WeightStoreConversion.clampNonNegativeDisplay(-clampedNet, unit: unit)
+                draftStore.bodyweightAddedByLogId[logId] = 0
+                draftStore.bodyweightAssistedByLogId[logId] = WeightStoreConversion.clampNonNegativeDisplay(-clampedNet, unit: unit)
             }
-            inlineWeightByLogId[logId] = WeightStoreConversion.clampNonNegativeDisplay(max(0, clampedNet), unit: unit)
+            draftStore.weightByLogId[logId] = WeightStoreConversion.clampNonNegativeDisplay(max(0, clampedNet), unit: unit)
         } else {
-            inlineWeightByLogId[logId] = clampDisplayWeightForUser(netDisplay)
+            draftStore.weightByLogId[logId] = clampDisplayWeightForUser(netDisplay)
         }
-        inlineRepsByLogId[logId] = last.reps
+        draftStore.repsByLogId[logId] = last.reps
     }
 
     private func isSupersetLoggingContext(exerciseIndex: Int) -> Bool {
@@ -1636,12 +1714,95 @@ struct CurrentWorkoutPullUpSheet: View {
         .padding(.top, 6)
     }
 
+    private func inlineSetTypeBinding(logId: UUID) -> Binding<ExerciseSetType> {
+        Binding(
+            get: { draftStore.setTypeByLogId[logId] ?? .working },
+            set: { draftStore.setTypeByLogId[logId] = $0 }
+        )
+    }
+
+    private func inlineProgressionSuggestion(for log: ExerciseLog) -> InlineProgressionTarget? {
+        guard let exId = log.workoutExercise.exerciseId else { return nil }
+        let lastWorkingSets = ProgressionAdvisor.lastWorkingSets(
+            forExerciseId: exId,
+            from: dataVM.completedSessions,
+            limit: 5
+        )
+        return ProgressionAdvisor.suggest(
+            for: log,
+            lastWorkingSets: lastWorkingSets,
+            exerciseRole: dataVM.globalExercises.first(where: { $0.id == exId })?.exerciseRole ?? .accessory,
+            blockContext: dataVM.activeBlockContext()
+        )
+    }
+
+    private func shouldSuggestBodyweightMode(for log: ExerciseLog) -> Bool {
+        let name = dataVM.displayName(for: log.workoutExercise).lowercased()
+        let patterns = [
+            "pull-up", "pull up", "pullup",
+            "chin-up", "chin up", "chinup",
+            "push-up", "push up", "pushup",
+            "dip",
+            "muscle-up", "muscle up",
+            "bodyweight",
+            "plank",
+            "hanging",
+            "leg raise",
+            "burpee",
+            "inverted row",
+            "pistol squat",
+            "l-sit", "l sit",
+            "human flag",
+            "toes to bar", "toes-to-bar",
+            "ring row",
+            "body row",
+        ]
+        let nameMatch = patterns.contains { name.contains($0) }
+        guard nameMatch else { return false }
+
+        guard let exId = log.workoutExercise.exerciseId
+            ?? log.workoutExercise.snapshot?.exerciseId else { return true }
+        for session in dataVM.completedSessions {
+            for pastLog in session.exerciseLogs
+                where pastLog.workoutExercise.exerciseId == exId
+                || pastLog.workoutExercise.snapshot?.exerciseId == exId {
+                if pastLog.loggedSets.contains(where: { $0.weight > 0 }) {
+                    return false
+                }
+            }
+        }
+        return true
+    }
+
+    private func setInlineBodyweightMode(logId: UUID, enabled: Bool) {
+        if enabled {
+            draftStore.bodyweightModeLogIds.insert(logId)
+            let w = draftStore.weightByLogId[logId] ?? 0
+            draftStore.bodyweightAddedByLogId[logId] = w
+            draftStore.bodyweightAssistedByLogId[logId] = 0
+            draftStore.weightByLogId[logId] = 0
+            draftStore.bodyweightAddedTextByLogId[logId] = formattedInlineWeight(w)
+            draftStore.bodyweightAssistedTextByLogId[logId] = ""
+            draftStore.weightTextByLogId[logId] = ""
+        } else {
+            draftStore.bodyweightModeLogIds.remove(logId)
+            let added = draftStore.bodyweightAddedByLogId[logId] ?? 0
+            let assisted = draftStore.bodyweightAssistedByLogId[logId] ?? 0
+            draftStore.weightByLogId[logId] = clampDisplayWeightForUser(max(0, added - assisted))
+            draftStore.bodyweightAddedByLogId.removeValue(forKey: logId)
+            draftStore.bodyweightAssistedByLogId.removeValue(forKey: logId)
+            draftStore.weightTextByLogId[logId] = formattedInlineWeight(draftStore.weightByLogId[logId] ?? 0)
+            draftStore.bodyweightAddedTextByLogId.removeValue(forKey: logId)
+            draftStore.bodyweightAssistedTextByLogId.removeValue(forKey: logId)
+        }
+    }
+
     @ViewBuilder
     private func inlineSetEntryRow(exerciseIndex: Int, log: ExerciseLog) -> some View {
         let logId = log.id
         let unit = userPreferences.weightDisplayUnit
         let unitLabel = unit.shortLabel
-        let bwMode = inlineBodyweightModeLogIds.contains(logId)
+        let bwMode = draftStore.bodyweightModeLogIds.contains(logId)
         let weightTextBinding = inlineWeightTextBinding(logId: logId)
         let addedTextBinding = inlineBodyweightAddedTextBinding(logId: logId, unit: unit)
         let assistedTextBinding = inlineBodyweightAssistedTextBinding(logId: logId, unit: unit)
@@ -1658,7 +1819,7 @@ struct CurrentWorkoutPullUpSheet: View {
             displayValue: inlineNetDisplayWeight(for: logId),
             unit: unit
         )
-        let draftReps = inlineRepsByLogId[logId] ?? 0
+        let draftReps = draftStore.repsByLogId[logId] ?? 0
         let progressionSuggestion: InlineProgressionTarget? = exId.flatMap { id in
             ProgressionAdvisor.suggest(
                 for: log,
@@ -1668,6 +1829,12 @@ struct CurrentWorkoutPullUpSheet: View {
             )
         }
         let prevSessionSets = lastWorkingSets.filter { $0.countsTowardLoadPRMetrics }.prefix(3).map { $0 }
+        let effortValueSummary: String? = {
+            guard let rpeVal = draftStore.rpeByLogId[logId] else { return nil }
+            let d = userPreferences.effortInputStyle.displayValue(fromRPE: rpeVal)
+            if abs(d - Double(Int(d))) < 0.001 { return "\(Int(d))" }
+            return String(format: "%.1f", d)
+        }()
 
         VStack(alignment: .leading, spacing: 6) {
             // Suggested target chip
@@ -1677,19 +1844,33 @@ struct CurrentWorkoutPullUpSheet: View {
                     lastWeight: lastWorkingSets.first?.weight,
                     lastReps: lastWorkingSets.first?.reps,
                     effortStyle: userPreferences.effortInputStyle,
-                    unit: unit
-                ) {
+                    unit: unit,
+                    onTap: {
                     // Pre-fill the inline fields from the suggestion
                     let displayW = WeightStoreConversion.displayValue(storedPounds: suggestion.weight, unit: unit)
-                    inlineWeightByLogId[logId] = displayW
-                    inlineWeightTextByLogId[logId] = WeightStoreConversion.formatDisplay(displayW)
-                    inlineRepsByLogId[logId] = suggestion.reps
-                    inlineRepsTextByLogId[logId] = "\(suggestion.reps)"
+                    draftStore.weightByLogId[logId] = displayW
+                    draftStore.weightTextByLogId[logId] = WeightStoreConversion.formatDisplay(displayW)
+                    draftStore.repsByLogId[logId] = suggestion.reps
+                    draftStore.repsTextByLogId[logId] = "\(suggestion.reps)"
                     if let rpe = suggestion.rpe {
-                        inlineRpeByLogId[logId] = userPreferences.effortInputStyle.toRPE(rpe)
-                        inlineRpeExpandedLogIds.insert(logId)
+                        draftStore.rpeByLogId[logId] = userPreferences.effortInputStyle.toRPE(rpe)
+                        draftStore.rpeExpandedLogIds.insert(logId)
                     }
-                }
+                },
+                    onLogNow: {
+                        let displayW = WeightStoreConversion.displayValue(storedPounds: suggestion.weight, unit: unit)
+                        draftStore.weightByLogId[logId] = displayW
+                        draftStore.weightTextByLogId[logId] = WeightStoreConversion.formatDisplay(displayW)
+                        draftStore.repsByLogId[logId] = suggestion.reps
+                        draftStore.repsTextByLogId[logId] = "\(suggestion.reps)"
+                        if let rpe = suggestion.rpe {
+                            draftStore.rpeByLogId[logId] = userPreferences.effortInputStyle.toRPE(rpe)
+                        }
+                        fitlogDismissKeyboard()
+                        numericFieldFocus = nil
+                        inlineQuickLog(exerciseIndex: exerciseIndex, logId: logId)
+                    }
+                )
             }
             // Previous session strip
             if !prevSessionSets.isEmpty {
@@ -1709,33 +1890,41 @@ struct CurrentWorkoutPullUpSheet: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
-            Toggle("Bodyweight mode", isOn: Binding(
-                get: { inlineBodyweightModeLogIds.contains(logId) },
-                set: { on in
-                    if on {
-                        inlineBodyweightModeLogIds.insert(logId)
-                        let w = inlineWeightByLogId[logId] ?? 0
-                        inlineBodyweightAddedByLogId[logId] = w
-                        inlineBodyweightAssistedByLogId[logId] = 0
-                        inlineWeightByLogId[logId] = 0
-                        inlineBodyweightAddedTextByLogId[logId] = formattedInlineWeight(w)
-                        inlineBodyweightAssistedTextByLogId[logId] = ""
-                        inlineWeightTextByLogId[logId] = ""
+            WorkoutQuickSetTypeBar(selection: inlineSetTypeBinding(logId: logId))
+            WorkoutQuickActionsBar(
+                bodyweightMode: bwMode,
+                rpeExpanded: draftStore.rpeExpandedLogIds.contains(logId),
+                effortValueSummary: effortValueSummary,
+                effortKindLabel: userPreferences.effortInputStyle.label,
+                onToggleBodyweight: {
+                    setInlineBodyweightMode(logId: logId, enabled: !bwMode)
+                },
+                onToggleRPE: {
+                    if draftStore.rpeExpandedLogIds.contains(logId) {
+                        draftStore.rpeExpandedLogIds.remove(logId)
                     } else {
-                        inlineBodyweightModeLogIds.remove(logId)
-                        let added = inlineBodyweightAddedByLogId[logId] ?? 0
-                        let assisted = inlineBodyweightAssistedByLogId[logId] ?? 0
-                        inlineWeightByLogId[logId] = clampDisplayWeightForUser(max(0, added - assisted))
-                        inlineBodyweightAddedByLogId.removeValue(forKey: logId)
-                        inlineBodyweightAssistedByLogId.removeValue(forKey: logId)
-                        inlineWeightTextByLogId[logId] = formattedInlineWeight(inlineWeightByLogId[logId] ?? 0)
-                        inlineBodyweightAddedTextByLogId.removeValue(forKey: logId)
-                        inlineBodyweightAssistedTextByLogId.removeValue(forKey: logId)
+                        draftStore.rpeExpandedLogIds.insert(logId)
                     }
+                },
+                onPlates: {
+                    fitlogDismissKeyboard()
+                    numericFieldFocus = nil
+                    plateCalculatorInlinePick = PlateCalculatorInlinePick(logId: logId)
+                },
+                onNotes: {
+                    exerciseDetailMoreExpandedLogId = log.id
+                },
+                onFullLog: {
+                    fitlogDismissKeyboard()
+                    numericFieldFocus = nil
+                    logSetSheetSelection = LogSetSheetSelection(
+                        exerciseIndex: exerciseIndex,
+                        prefillDisplayWeight: bwMode ? inlineNetDisplayWeight(for: logId) : draftStore.weightByLogId[logId],
+                        prefillReps: draftStore.repsByLogId[logId],
+                        prefillBodyweightMode: bwMode
+                    )
                 }
-            ))
-            .font(.caption)
-            .tint(.secondary)
+            )
             if bwMode {
                 HStack(alignment: .center, spacing: 6) {
                     TextField("Reps", text: repsTextBinding)
@@ -1760,41 +1949,8 @@ struct CurrentWorkoutPullUpSheet: View {
                             .foregroundStyle(.green)
                     }
                     .buttonStyle(.plain)
-                    .disabled((inlineRepsByLogId[logId] ?? 0) <= 0)
+                    .disabled((draftStore.repsByLogId[logId] ?? 0) <= 0)
                     .accessibilityLabel("Log set")
-                    Menu {
-                        Button("Full log (RPE, drops…)", systemImage: "slider.horizontal.3") {
-                            fitlogDismissKeyboard()
-                            numericFieldFocus = nil
-                            logSetSheetSelection = LogSetSheetSelection(
-                                exerciseIndex: exerciseIndex,
-                                prefillDisplayWeight: inlineNetDisplayWeight(for: logId),
-                                prefillReps: inlineRepsByLogId[logId],
-                                prefillBodyweightMode: true
-                            )
-                        }
-                        Button("Plate calculator", systemImage: "scalemass") {
-                            fitlogDismissKeyboard()
-                            numericFieldFocus = nil
-                            plateCalculatorInlinePick = PlateCalculatorInlinePick(logId: logId)
-                        }
-                        if inlineRpeExpandedLogIds.contains(logId) {
-                            Button("Hide quick RPE", systemImage: "gauge.with.dots.needle.67percent") {
-                                inlineRpeExpandedLogIds.remove(logId)
-                            }
-                        } else {
-                            Button("Quick RPE (6–10)", systemImage: "gauge.with.dots.needle.67percent") {
-                                inlineRpeExpandedLogIds.insert(logId)
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.body.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .frame(minWidth: 36, minHeight: 36)
-                            .contentShape(Rectangle())
-                    }
-                    .accessibilityLabel("More logging options")
                 }
                 HStack(alignment: .center, spacing: 6) {
                     Text("+")
@@ -1863,52 +2019,19 @@ struct CurrentWorkoutPullUpSheet: View {
                             .foregroundStyle(.green)
                     }
                     .buttonStyle(.plain)
-                    .disabled((inlineRepsByLogId[logId] ?? 0) <= 0)
+                    .disabled((draftStore.repsByLogId[logId] ?? 0) <= 0)
                     .accessibilityLabel("Log set")
-                    Menu {
-                        Button("Full log (RPE, drops…)", systemImage: "slider.horizontal.3") {
-                            fitlogDismissKeyboard()
-                            numericFieldFocus = nil
-                            logSetSheetSelection = LogSetSheetSelection(
-                                exerciseIndex: exerciseIndex,
-                                prefillDisplayWeight: inlineWeightByLogId[logId],
-                                prefillReps: inlineRepsByLogId[logId],
-                                prefillBodyweightMode: false
-                            )
-                        }
-                        Button("Plate calculator", systemImage: "scalemass") {
-                            fitlogDismissKeyboard()
-                            numericFieldFocus = nil
-                            plateCalculatorInlinePick = PlateCalculatorInlinePick(logId: logId)
-                        }
-                        if inlineRpeExpandedLogIds.contains(logId) {
-                            Button("Hide quick RPE", systemImage: "gauge.with.dots.needle.67percent") {
-                                inlineRpeExpandedLogIds.remove(logId)
-                            }
-                        } else {
-                            Button("Quick RPE (6–10)", systemImage: "gauge.with.dots.needle.67percent") {
-                                inlineRpeExpandedLogIds.insert(logId)
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.body.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .frame(minWidth: 36, minHeight: 36)
-                            .contentShape(Rectangle())
-                    }
-                    .accessibilityLabel("More logging options")
                 }
             }
             // RPE / RIR quick chip row (respects effortInputStyle)
-            if inlineRpeExpandedLogIds.contains(logId) {
+            if draftStore.rpeExpandedLogIds.contains(logId) {
                 let effortLabel = userPreferences.effortInputStyle.label
                 let clearLabel = "Clear \(effortLabel)"
                 HStack(spacing: 6) {
                     Button(clearLabel) {
-                        var next = inlineRpeByLogId
+                        var next = draftStore.rpeByLogId
                         next.removeValue(forKey: logId)
-                        inlineRpeByLogId = next
+                        draftStore.rpeByLogId = next
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -1917,11 +2040,11 @@ struct CurrentWorkoutPullUpSheet: View {
                     ForEach((6...10).reversed(), id: \.self) { n in
                         let rpeVal = Double(n)
                         let displayVal = userPreferences.effortInputStyle.displayValue(fromRPE: rpeVal)
-                        let selected = inlineRpeByLogId[logId] == rpeVal
+                        let selected = draftStore.rpeByLogId[logId] == rpeVal
                         Button("\(Int(displayVal))") {
-                            var next = inlineRpeByLogId
+                            var next = draftStore.rpeByLogId
                             if selected { next.removeValue(forKey: logId) } else { next[logId] = rpeVal }
-                            inlineRpeByLogId = next
+                            draftStore.rpeByLogId = next
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
@@ -2005,6 +2128,7 @@ struct CurrentWorkoutPullUpSheet: View {
                     Picker("Type", selection: $editSetType) {
                         Text(ExerciseSetType.working.logPickerLabel).tag(ExerciseSetType.working)
                         Text(ExerciseSetType.warmup.logPickerLabel).tag(ExerciseSetType.warmup)
+                        Text(ExerciseSetType.amrap.logPickerLabel).tag(ExerciseSetType.amrap)
                         Text(ExerciseSetType.failure.logPickerLabel).tag(ExerciseSetType.failure)
                         Text(ExerciseSetType.timed.logPickerLabel).tag(ExerciseSetType.timed)
                     }
@@ -2201,101 +2325,6 @@ struct CurrentWorkoutPullUpSheet: View {
         }
     }
 
-    @ViewBuilder
-    private var exercisePillStrip: some View {
-        if let logs = currentVM.currentSession?.exerciseLogs, logs.count >= 2 {
-            VStack(spacing: 4) {
-                ScrollViewReader { proxy in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            ForEach(Array(logs.enumerated()), id: \.element.id) { index, log in
-                                exercisePill(index: index, log: log)
-                                    .id(log.id)
-                            }
-                        }
-                        .padding(.horizontal)
-                    }
-                    .onChange(of: expandedExerciseIndex) { _, newIdx in
-                        guard let idx = newIdx,
-                              let liveLogs = currentVM.currentSession?.exerciseLogs,
-                              idx < liveLogs.count else { return }
-                        let targetId = liveLogs[idx].id
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            proxy.scrollTo(targetId, anchor: .center)
-                        }
-                    }
-                }
-                if let session = currentVM.currentSession, session.activeExerciseIds.count > 1 {
-                    Text("Blue pills = superset. Rest starts after the last exercise in the group.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal)
-                }
-            }
-            .padding(.vertical, 6)
-        }
-    }
-
-    @ViewBuilder
-    private func exercisePill(index: Int, log: ExerciseLog) -> some View {
-        let isSelected = expandedExerciseIndex == index
-        let name = abbreviatedName(for: log.workoutExercise)
-        let rec = log.workoutExercise.recommendedSets
-        let done = log.loggedSets.count
-        let isPlaceholder = log.workoutExercise.isSlotPlaceholder
-        let isCompleted = isExerciseCompleted(log)
-        let inSuperset = isExerciseActive(log)
-
-        Button {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                expandedExerciseIndex = isSelected ? nil : index
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Text(name)
-                    .font(.caption.weight(isSelected ? .semibold : .regular))
-                    .lineLimit(1)
-                if isPlaceholder {
-                    Image(systemName: "square.dashed")
-                        .font(.caption2)
-                } else if rec > 0 {
-                    Text("\(done)/\(rec)")
-                        .font(.caption2.weight(.medium))
-                        .monospacedDigit()
-                } else if done > 0 {
-                    Text("\(done)")
-                        .font(.caption2.weight(.medium))
-                        .monospacedDigit()
-                }
-            }
-            .foregroundStyle(isSelected ? Color.white : Color.primary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(pillBackground(isSelected: isSelected, inSuperset: inSuperset))
-            .clipShape(Capsule())
-            .overlay(
-                Capsule()
-                    .strokeBorder(inSuperset && !isSelected ? Color.blue.opacity(0.55) : Color.clear, lineWidth: 1.5)
-            )
-            .opacity(isCompleted ? 0.55 : 1)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func pillBackground(isSelected: Bool, inSuperset: Bool) -> Color {
-        if isSelected { return Color.accentColor }
-        if inSuperset { return Color.blue.opacity(0.12) }
-        return Color(.systemGray5)
-    }
-
-    private func abbreviatedName(for we: WorkoutExercise) -> String {
-        let full = dataVM.displayName(for: we)
-        if full.count <= 14 { return full }
-        return String(full.prefix(12)) + "…"
-    }
-
     private func supersetLetter(for log: ExerciseLog) -> String? {
         guard let session = currentVM.currentSession,
               let id = log.workoutExercise.exerciseId,
@@ -2387,6 +2416,13 @@ struct CurrentWorkoutPullUpSheet: View {
 
             currentLoggedSetsList(exerciseIndex: exerciseIndex, log: log)
 
+            let chartSuggestion = inlineProgressionSuggestion(for: log)
+            ExercisePerformanceChart(
+                loggedSets: log.loggedSets,
+                unit: userPreferences.weightDisplayUnit,
+                suggestion: chartSuggestion
+            )
+
             if let previousLog {
                 previousSessionSummaryRow(previousLog: previousLog, includeListRowInsets: false)
             }
@@ -2413,7 +2449,19 @@ struct CurrentWorkoutPullUpSheet: View {
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         Button("Delete", role: .destructive) {
                             clearEditingSetIfNeeded(setId: set.id)
+                            let undo = PendingUndoSet(
+                                exerciseIndex: exerciseIndex,
+                                insertAt: setIndex,
+                                set: set
+                            )
+                            pendingUndoSet = undo
                             currentVM.deleteSet(exerciseIndex: exerciseIndex, setIndex: setIndex)
+                            let undoId = undo.id
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                                if pendingUndoSet?.id == undoId {
+                                    pendingUndoSet = nil
+                                }
+                            }
                         }
                     }
                 }
@@ -2466,21 +2514,21 @@ struct CurrentWorkoutPullUpSheet: View {
             WeightStoreConversion.displayValue(storedPounds: t.weight, unit: unit)
         )
         if netDisplay <= 0 {
-            inlineBodyweightModeLogIds.insert(lid)
-            inlineBodyweightAddedByLogId[lid] = 0
-            inlineBodyweightAssistedByLogId[lid] = netDisplay < 0
+            draftStore.bodyweightModeLogIds.insert(lid)
+            draftStore.bodyweightAddedByLogId[lid] = 0
+            draftStore.bodyweightAssistedByLogId[lid] = netDisplay < 0
                 ? WeightStoreConversion.clampNonNegativeDisplay(-netDisplay, unit: unit)
                 : 0
-            inlineWeightByLogId[lid] = 0
+            draftStore.weightByLogId[lid] = 0
         } else {
-            inlineBodyweightModeLogIds.remove(lid)
-            inlineBodyweightAddedByLogId.removeValue(forKey: lid)
-            inlineBodyweightAssistedByLogId.removeValue(forKey: lid)
-            inlineWeightByLogId[lid] = WeightStoreConversion.clampNonNegativeDisplay(netDisplay, unit: unit)
+            draftStore.bodyweightModeLogIds.remove(lid)
+            draftStore.bodyweightAddedByLogId.removeValue(forKey: lid)
+            draftStore.bodyweightAssistedByLogId.removeValue(forKey: lid)
+            draftStore.weightByLogId[lid] = WeightStoreConversion.clampNonNegativeDisplay(netDisplay, unit: unit)
         }
-        inlineRepsByLogId[lid] = t.reps
+        draftStore.repsByLogId[lid] = t.reps
         seedInlineText(for: lid)
-        inlineInitializedLogIds.insert(lid)
+        draftStore.initializedLogIds.insert(lid)
     }
 
     private func applyBeatPrevious(log: ExerciseLog, exerciseIndex: Int, suggestion: ProgressionSuggestion) {
@@ -2491,25 +2539,25 @@ struct CurrentWorkoutPullUpSheet: View {
                 WeightStoreConversion.displayValue(storedPounds: w, unit: unit)
             )
             if netDisplay <= 0 {
-                inlineBodyweightModeLogIds.insert(lid)
-                inlineBodyweightAddedByLogId[lid] = 0
-                inlineBodyweightAssistedByLogId[lid] = netDisplay < 0
+                draftStore.bodyweightModeLogIds.insert(lid)
+                draftStore.bodyweightAddedByLogId[lid] = 0
+                draftStore.bodyweightAssistedByLogId[lid] = netDisplay < 0
                     ? WeightStoreConversion.clampNonNegativeDisplay(-netDisplay, unit: unit)
                     : 0
-                inlineWeightByLogId[lid] = 0
+                draftStore.weightByLogId[lid] = 0
             } else {
-                inlineBodyweightModeLogIds.remove(lid)
-                inlineBodyweightAddedByLogId.removeValue(forKey: lid)
-                inlineBodyweightAssistedByLogId.removeValue(forKey: lid)
-                inlineWeightByLogId[lid] = WeightStoreConversion.clampNonNegativeDisplay(netDisplay, unit: unit)
+                draftStore.bodyweightModeLogIds.remove(lid)
+                draftStore.bodyweightAddedByLogId.removeValue(forKey: lid)
+                draftStore.bodyweightAssistedByLogId.removeValue(forKey: lid)
+                draftStore.weightByLogId[lid] = WeightStoreConversion.clampNonNegativeDisplay(netDisplay, unit: unit)
             }
         }
         let reps = parseRepsTarget(suggestion.targetReps)
         if reps > 0 {
-            inlineRepsByLogId[lid] = reps
+            draftStore.repsByLogId[lid] = reps
         }
         seedInlineText(for: lid)
-        inlineInitializedLogIds.insert(lid)
+        draftStore.initializedLogIds.insert(lid)
     }
 
     private func parseRepsTarget(_ text: String) -> Int {
@@ -2781,6 +2829,7 @@ struct CurrentWorkoutPullUpSheet: View {
         case .dropSet: return .purple
         case .failure: return .red
         case .timed: return .cyan
+        case .amrap: return FitlogPalette.highlight
         case .working: return .secondary
         }
     }
