@@ -157,6 +157,16 @@ private struct PRCompareSheet: View {
             return "\(WeightStoreConversion.formatDisplay(d)) \(unit.shortLabel)"
         case .maxVolumeSet:
             return WeightStoreConversion.formatVolumeLbRep(v, unit: unit)
+        case .maxDistance:
+            return v >= 1000 ? String(format: "%.2f km", v / 1000) : String(format: "%.0f m", v)
+        case .bestPace:
+            let total = Int(v.rounded())
+            return String(format: "%d:%02d /km", total / 60, total % 60)
+        case .longestDuration:
+            let total = Int(v.rounded())
+            return String(format: "%d:%02d", total / 60, total % 60)
+        case .maxCalories:
+            return "\(Int(v.rounded())) kcal"
         }
     }
 
@@ -165,6 +175,10 @@ private struct PRCompareSheet: View {
         case .maxWeight:     return "scalemass.fill"
         case .estimatedOneRM: return "chart.line.uptrend.xyaxis"
         case .maxVolumeSet:  return "flame.fill"
+        case .maxDistance:   return "figure.run"
+        case .bestPace:      return "speedometer"
+        case .longestDuration: return "timer"
+        case .maxCalories:   return "flame"
         }
     }
 }

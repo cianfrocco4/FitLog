@@ -705,6 +705,7 @@ final class CurrentWorkoutSessionViewModel {
             case .maxWeight: return 3
             case .estimatedOneRM: return 2
             case .maxVolumeSet: return 1
+            case .maxDistance, .bestPace, .longestDuration, .maxCalories: return 0
             }
         }
         return events.max { rank($0.kind) < rank($1.kind) }

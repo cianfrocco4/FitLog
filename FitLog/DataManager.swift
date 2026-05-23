@@ -18,6 +18,11 @@ private let unifiedSlotsMigrationLog = Logger(
     category: "UnifiedSlotsMigration"
 )
 
+private let cardioSchemaMigrationLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.acianfrocco.FitLog",
+    category: "CardioSchemaMigration"
+)
+
 /// Captures a removed library row for Undo restore.
 struct WorkoutExerciseDeletionSnapshot: Equatable {
     let workoutId: UUID
@@ -99,6 +104,7 @@ final class DataManager {
 
         migrateLegacyCustomExercises()
         migrateWorkoutsToUnifiedSlotsIfNeeded()
+        migrateCardioSchemaIfNeeded()
         repairSessionConcreteSnapshotsIfNeeded()
         rotateBackup()
         freezeYesterdayPlanAssignmentIfNeeded()
@@ -242,6 +248,80 @@ final class DataManager {
         unifiedSlotsMigrationLog.notice(
             "Unified slots migration completed (libraryWorkouts=\(finalWorkoutCount), sessions=\(finalSessionCount), libraryChanged=\(libraryChanged), sessionsChanged=\(sessionsChanged))."
         )
+    }
+
+    /// One-time cardio schema domain migration: backup, derive `workoutKind`, re-save if needed.
+    private func migrateCardioSchemaIfNeeded() {
+        let key = CardioSchemaMigration.completedUserDefaultsKey
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+
+        let snapshot = BackupSnapshot(
+            schemaVersion: currentSchemaVersion,
+            exercises: globalExercises,
+            workouts: userWorkouts,
+            sessions: completedSessions,
+            program: trainingProgram,
+            displayNames: exerciseLocalDisplayNames
+        )
+        guard CardioSchemaMigration.writePreMigrationBackupVerified(snapshot) else {
+            cardioSchemaMigrationLog.error("Pre-cardio backup missing or failed verification; cardio migration skipped.")
+            return
+        }
+        cardioSchemaMigrationLog.notice(
+            "Pre-cardio backup written (exercises=\(snapshot.exercises.count), workouts=\(snapshot.workouts.count), sessions=\(snapshot.sessions.count))."
+        )
+
+        var migratedWorkouts = userWorkouts
+        var migratedSessions = completedSessions
+        let changed = CardioSchemaMigration.normalizeInPlace(
+            exercises: globalExercises,
+            workouts: &migratedWorkouts,
+            sessions: &migratedSessions
+        )
+
+        let postSnapshot = BackupSnapshot(
+            schemaVersion: currentSchemaVersion,
+            exercises: globalExercises,
+            workouts: migratedWorkouts,
+            sessions: migratedSessions,
+            program: trainingProgram,
+            displayNames: exerciseLocalDisplayNames
+        )
+        guard CardioSchemaMigration.validateFullSnapshotCodableRoundTrip(postSnapshot) else {
+            cardioSchemaMigrationLog.error("Cardio migration aborted: full snapshot round-trip failed.")
+            return
+        }
+
+        if changed {
+            let previousWorkouts = userWorkouts
+            let previousSessions = completedSessions
+            userWorkouts = migratedWorkouts
+            guard saveWorkouts() else {
+                userWorkouts = previousWorkouts
+                cardioSchemaMigrationLog.error("Cardio migration aborted: workout save failed.")
+                return
+            }
+            completedSessions = migratedSessions
+            guard sessionStore.saveSessions(completedSessions) else {
+                userWorkouts = previousWorkouts
+                completedSessions = previousSessions
+                _ = saveWorkouts()
+                cardioSchemaMigrationLog.error("Cardio migration aborted: session save failed.")
+                return
+            }
+            userWorkouts = workoutStore.loadWorkouts()
+            completedSessions = sessionStore.loadSessions()
+        }
+
+        guard userWorkouts.count == snapshot.workouts.count,
+              completedSessions.count == snapshot.sessions.count,
+              globalExercises.count == snapshot.exercises.count else {
+            cardioSchemaMigrationLog.error("Cardio migration aborted: count mismatch after save.")
+            return
+        }
+
+        UserDefaults.standard.set(true, forKey: key)
+        cardioSchemaMigrationLog.notice("Cardio schema migration completed (changed=\(changed)).")
     }
 
     /// Fixes users who already ran an older build that migrated the library but not embedded session workouts (History / round-trip issues).
@@ -460,7 +540,10 @@ final class DataManager {
 
     @discardableResult
     func saveWorkouts() -> Bool {
-        workoutStore.saveWorkouts(userWorkouts)
+        for i in userWorkouts.indices {
+            userWorkouts[i].workoutKind = WorkoutKind.derived(from: userWorkouts[i], exercises: globalExercises)
+        }
+        return workoutStore.saveWorkouts(userWorkouts)
     }
 
     // MARK: - Workouts with flexible (open) slots

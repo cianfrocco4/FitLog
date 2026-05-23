@@ -13,4 +13,8 @@ enum PRKind: String, Codable, CaseIterable {
     case maxWeight
     case estimatedOneRM
     case maxVolume
+    case maxDistance
+    case bestPace
+    case longestDuration
+    case maxCalories
 }

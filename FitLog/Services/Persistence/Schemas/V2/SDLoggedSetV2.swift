@@ -16,6 +16,7 @@ final class SDLoggedSetV2 {
     var timestamp: Date = Date()
     var setTypeRaw: String = "working"
     var rpe: Double?
+    var cardioMetricsData: Data = Data()
     /// JSON-encoded `[String: String]` — per-set configuration k/v map (sparse, intentionally a blob).
     var configurationData: Data = Data()
 
@@ -35,7 +36,8 @@ final class SDLoggedSetV2 {
         timestamp: Date,
         setTypeRaw: String,
         rpe: Double?,
-        configurationData: Data
+        configurationData: Data,
+        cardioMetricsData: Data = Data()
     ) {
         self.setId = setId
         self.orderIndex = orderIndex
@@ -46,12 +48,14 @@ final class SDLoggedSetV2 {
         self.setTypeRaw = setTypeRaw
         self.rpe = rpe
         self.configurationData = configurationData
+        self.cardioMetricsData = cardioMetricsData
     }
 
     func toDomain() -> LoggedSet {
         let setType = ExerciseSetType(rawValue: setTypeRaw) ?? .working
         let config = versionedDecode([String: String].self, from: configurationData) ?? [:]
         let drops = dropSegments.sorted { $0.orderIndex < $1.orderIndex }.map { $0.toDomain() }
+        let cardio = versionedDecode(CardioMetrics.self, from: cardioMetricsData)
         return LoggedSet(
             id: setId,
             weight: weight,
@@ -61,12 +65,14 @@ final class SDLoggedSetV2 {
             setType: setType,
             configuration: config,
             dropSegments: drops,
-            rpe: rpe
+            rpe: rpe,
+            cardioMetrics: cardio
         )
     }
 
     static func from(_ s: LoggedSet, orderIndex: Int) -> SDLoggedSetV2 {
         let configData = s.configuration.isEmpty ? Data() : versionedEncode(s.configuration)
+        let cardioData = s.cardioMetrics.map { versionedEncode($0) } ?? Data()
         let sd = SDLoggedSetV2(
             setId: s.id,
             orderIndex: orderIndex,
@@ -76,7 +82,8 @@ final class SDLoggedSetV2 {
             timestamp: s.timestamp,
             setTypeRaw: s.setType.rawValue,
             rpe: s.rpe,
-            configurationData: configData
+            configurationData: configData,
+            cardioMetricsData: cardioData
         )
         sd.dropSegments = s.dropSegments.enumerated().map { idx, seg in
             SDDropSegmentV2.from(seg, orderIndex: idx)

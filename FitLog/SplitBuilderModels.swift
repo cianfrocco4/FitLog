@@ -32,10 +32,14 @@ struct SplitBuilderEditableSlot: Identifiable, Equatable, Codable, Hashable {
     var isWarmUp: Bool
     /// Alternative library exercise IDs the user accepts as swaps.
     var substitutionExerciseIds: [UUID]?
+    /// Strength by default; cardio slots use `.cardio` with optional prescription.
+    var modality: ExerciseModality
+    var cardioPrescription: CardioPrescription?
 
     enum CodingKeys: String, CodingKey {
         case id, label, targetMuscleNames, sets, reps, suggestedExerciseName, suggestedExerciseOverrideId
         case setScheme, grouping, progressionRule, restSeconds, notes, equipmentTags, isWarmUp, substitutionExerciseIds
+        case modality, cardioPrescription
     }
 
     init(
@@ -53,7 +57,9 @@ struct SplitBuilderEditableSlot: Identifiable, Equatable, Codable, Hashable {
         notes: String? = nil,
         equipmentTags: [String]? = nil,
         isWarmUp: Bool = false,
-        substitutionExerciseIds: [UUID]? = nil
+        substitutionExerciseIds: [UUID]? = nil,
+        modality: ExerciseModality = .strength,
+        cardioPrescription: CardioPrescription? = nil
     ) {
         self.id = id
         self.label = label
@@ -70,6 +76,8 @@ struct SplitBuilderEditableSlot: Identifiable, Equatable, Codable, Hashable {
         self.equipmentTags = equipmentTags
         self.isWarmUp = isWarmUp
         self.substitutionExerciseIds = substitutionExerciseIds
+        self.modality = modality
+        self.cardioPrescription = cardioPrescription
     }
 
     init(from decoder: Decoder) throws {
@@ -89,6 +97,13 @@ struct SplitBuilderEditableSlot: Identifiable, Equatable, Codable, Hashable {
         equipmentTags = try c.decodeIfPresent([String].self, forKey: .equipmentTags)
         isWarmUp = try c.decodeIfPresent(Bool.self, forKey: .isWarmUp) ?? false
         substitutionExerciseIds = try c.decodeIfPresent([UUID].self, forKey: .substitutionExerciseIds)
+        if let raw = try c.decodeIfPresent(String.self, forKey: .modality),
+           let decoded = ExerciseModality(rawValue: raw) {
+            modality = decoded
+        } else {
+            modality = .strength
+        }
+        cardioPrescription = try c.decodeIfPresent(CardioPrescription.self, forKey: .cardioPrescription)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -108,6 +123,10 @@ struct SplitBuilderEditableSlot: Identifiable, Equatable, Codable, Hashable {
         try c.encodeIfPresent(equipmentTags, forKey: .equipmentTags)
         try c.encode(isWarmUp, forKey: .isWarmUp)
         try c.encodeIfPresent(substitutionExerciseIds, forKey: .substitutionExerciseIds)
+        if modality != .strength {
+            try c.encode(modality.rawValue, forKey: .modality)
+        }
+        try c.encodeIfPresent(cardioPrescription, forKey: .cardioPrescription)
     }
 
     /// Copy with a new template row with a fresh id (same prescription metadata).
@@ -127,7 +146,9 @@ struct SplitBuilderEditableSlot: Identifiable, Equatable, Codable, Hashable {
             notes: notes,
             equipmentTags: equipmentTags,
             isWarmUp: isWarmUp,
-            substitutionExerciseIds: substitutionExerciseIds
+            substitutionExerciseIds: substitutionExerciseIds,
+            modality: modality,
+            cardioPrescription: cardioPrescription
         )
     }
 
@@ -148,7 +169,9 @@ struct SplitBuilderEditableSlot: Identifiable, Equatable, Codable, Hashable {
             notes: notes,
             equipmentTags: equipmentTags,
             isWarmUp: isWarmUp,
-            substitutionExerciseIds: substitutionExerciseIds
+            substitutionExerciseIds: substitutionExerciseIds,
+            modality: modality,
+            cardioPrescription: cardioPrescription
         )
     }
 
@@ -171,7 +194,9 @@ struct SplitBuilderEditableSlot: Identifiable, Equatable, Codable, Hashable {
             notes: notes,
             equipmentTags: equipmentTags,
             isWarmUp: isWarmUp,
-            substitutionExerciseIds: substitutionExerciseIds
+            substitutionExerciseIds: substitutionExerciseIds,
+            modality: modality,
+            cardioPrescription: cardioPrescription
         )
     }
 }

@@ -1584,6 +1584,10 @@ private struct SessionDetailView: View {
         case .maxWeight: return "Wt PR"
         case .estimatedOneRM: return "1RM PR"
         case .maxVolumeSet: return "Vol PR"
+        case .maxDistance: return "Dist PR"
+        case .bestPace: return "Pace PR"
+        case .longestDuration: return "Time PR"
+        case .maxCalories: return "Cal PR"
         }
     }
 

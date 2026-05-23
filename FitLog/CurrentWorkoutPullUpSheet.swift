@@ -2831,6 +2831,9 @@ struct CurrentWorkoutPullUpSheet: View {
         case .timed: return .cyan
         case .amrap: return FitlogPalette.highlight
         case .working: return .secondary
+        case .intervalWork: return FitlogPalette.chartSecondary
+        case .intervalRest: return FitlogPalette.caution
+        case .steadyState: return FitlogPalette.success
         }
     }
 

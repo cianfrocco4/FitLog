@@ -53,6 +53,9 @@ struct WorkoutQuickSetTypeBar: View {
         case .failure: return "Fail"
         case .timed: return "Time"
         case .dropSet: return "Drop"
+        case .intervalWork: return "Int"
+        case .intervalRest: return "Rest"
+        case .steadyState: return "Steady"
         }
     }
 }

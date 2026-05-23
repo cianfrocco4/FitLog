@@ -63,6 +63,18 @@ struct PersonalRecordsView: View {
             return "\(s) \(unit.shortLabel)"
         case .maxVolumeSet:
             return WeightStoreConversion.formatVolumeLbRep(row.value, unit: unit)
+        case .maxDistance:
+            return row.value >= 1000
+                ? String(format: "%.2f km", row.value / 1000)
+                : String(format: "%.0f m", row.value)
+        case .bestPace:
+            let total = Int(row.value.rounded())
+            return String(format: "%d:%02d /km", total / 60, total % 60)
+        case .longestDuration:
+            let total = Int(row.value.rounded())
+            return String(format: "%d:%02d", total / 60, total % 60)
+        case .maxCalories:
+            return "\(Int(row.value.rounded())) kcal"
         }
     }
 }

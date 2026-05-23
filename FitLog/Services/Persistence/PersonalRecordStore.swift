@@ -122,6 +122,10 @@ extension PRKind {
         case .maxWeight:    return .maxWeight
         case .estimatedOneRM: return .estimatedOneRM
         case .maxVolume:    return .maxVolumeSet
+        case .maxDistance:  return .maxDistance
+        case .bestPace:     return .bestPace
+        case .longestDuration: return .longestDuration
+        case .maxCalories:  return .maxCalories
         }
     }
 }
@@ -132,6 +136,10 @@ extension PersonalRecordEvent.Kind {
         case .maxWeight:    return .maxWeight
         case .estimatedOneRM: return .estimatedOneRM
         case .maxVolumeSet:  return .maxVolume
+        case .maxDistance:  return .maxDistance
+        case .bestPace:     return .bestPace
+        case .longestDuration: return .longestDuration
+        case .maxCalories:  return .maxCalories
         }
     }
 }

@@ -14,8 +14,8 @@ final class SplitPresetStoreTests: XCTestCase {
     var store: SplitPresetStore!
     
     override func setUp() async throws {
-        // Same as app: live `FitLogSchemaV3` + `cloudKitDatabase: .none`.
-        let schema = Schema(versionedSchema: FitLogSchemaV3.self)
+        // Same as app: live `FitLogSchemaV4` + `cloudKitDatabase: .none`.
+        let schema = Schema(versionedSchema: FitLogSchemaV4.self)
         let config = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
         let container = try ModelContainer(for: schema, configurations: [config])
         modelContext = ModelContext(container)

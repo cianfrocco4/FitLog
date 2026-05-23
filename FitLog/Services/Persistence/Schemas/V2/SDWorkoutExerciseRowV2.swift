@@ -22,6 +22,7 @@ final class SDWorkoutExerciseRowV2 {
     /// JSON-encoded `ExerciseSnapshot` (only when `resolutionTypeRaw == "concrete"`).
     var concreteSnapshotData: Data?
     var orderInSupersetGroup: Int = 0
+    var cardioPrescriptionData: Data = Data()
 
     var workout: SDWorkoutV2?
 
@@ -43,7 +44,8 @@ final class SDWorkoutExerciseRowV2 {
         configurationFieldsData: Data,
         recommendedConfigBySetData: Data,
         resolutionTypeRaw: String,
-        concreteSnapshotData: Data?
+        concreteSnapshotData: Data?,
+        cardioPrescriptionData: Data = Data()
     ) {
         self.rowId = rowId
         self.orderIndex = orderIndex
@@ -54,11 +56,13 @@ final class SDWorkoutExerciseRowV2 {
         self.recommendedConfigBySetData = recommendedConfigBySetData
         self.resolutionTypeRaw = resolutionTypeRaw
         self.concreteSnapshotData = concreteSnapshotData
+        self.cardioPrescriptionData = cardioPrescriptionData
     }
 
     func toDomain() -> WorkoutExercise {
         let configFields = versionedDecode([String].self, from: configurationFieldsData) ?? []
         let configBySet = versionedDecode([[String: String]].self, from: recommendedConfigBySetData) ?? []
+        let cardioPrescription = versionedDecode(CardioPrescription.self, from: cardioPrescriptionData)
 
         let resolution: SlotResolution
         if resolutionTypeRaw == "concrete", let snapData = concreteSnapshotData,
@@ -77,13 +81,15 @@ final class SDWorkoutExerciseRowV2 {
             recommendedSets: recommendedSets,
             recommendedReps: recommendedReps,
             configurationFields: configFields,
-            recommendedConfigBySet: configBySet
+            recommendedConfigBySet: configBySet,
+            cardioPrescription: cardioPrescription
         )
     }
 
     static func from(_ we: WorkoutExercise, orderIndex: Int) -> SDWorkoutExerciseRowV2 {
         let configData = versionedEncode(we.configurationFields)
         let configBySetData = versionedEncode(we.recommendedConfigBySet)
+        let cardioData = we.cardioPrescription.map { versionedEncode($0) } ?? Data()
 
         var snapshotData: Data?
         var resType = "flexible"
@@ -105,7 +111,8 @@ final class SDWorkoutExerciseRowV2 {
             configurationFieldsData: configData,
             recommendedConfigBySetData: configBySetData,
             resolutionTypeRaw: resType,
-            concreteSnapshotData: snapshotData
+            concreteSnapshotData: snapshotData,
+            cardioPrescriptionData: cardioData
         )
 
         if case .flexible(let b) = we.resolution {

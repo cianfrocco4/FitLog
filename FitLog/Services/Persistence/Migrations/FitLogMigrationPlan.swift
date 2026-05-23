@@ -6,8 +6,10 @@
 //
 //  **V2→V3:** `FitLogSchemaV2` is frozen at `2.0.1` (18 models). New `@Model` types (e.g.
 //  `SDDynamicProgramV2`) live on `FitLogSchemaV3` (`3.0.0`) with `MigrationStage.lightweight`
-//  from V2 to V3. With `SchemaMigrationPlan` attached, additive models must not be declared only
-//  on the same `versionIdentifier` as the on-disk store — that fails `ModelContainer` open.
+//  from V2 to V3.
+//
+//  **V3→V4:** Custom migration — frozen `FitLogSchemaV3` (pre-cardio `SD*V3` types) → live `FitLogSchemaV4`
+//  (`SD*V2` with cardio columns). Lightweight migration is not used because entity checksums differ.
 //
 //  Strategy:
 //    willMigrate  — runs against the V1 context; reads all rows via their
@@ -30,12 +32,37 @@ private let log = Logger(
 
 enum FitLogMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [FitLogSchemaV1.self, FitLogSchemaV2.self, FitLogSchemaV3.self]
+        [FitLogSchemaV1.self, FitLogSchemaV2.self, FitLogSchemaV3.self, FitLogSchemaV4.self]
     }
 
     static var stages: [MigrationStage] {
-        [migrateV1ToV2, migrateV2ToV3]
+        [migrateV1ToV2, migrateV2ToV3, migrateV3ToV4]
     }
+
+    // MARK: - V3 → V4
+
+    private static let migrateV3ToV4 = MigrationStage.custom(
+        fromVersion: FitLogSchemaV3.self,
+        toVersion: FitLogSchemaV4.self,
+        willMigrate: { context in
+            log.notice("V3→V4 willMigrate: reading frozen V3 rows")
+            let snapshot = try V3MigrationReader.readSnapshot(from: context)
+            try writePreV4Backup(snapshot)
+            log.notice("V3→V4 willMigrate: backup written (exercises=\(snapshot.exercises.count), sessions=\(snapshot.sessions.count))")
+        },
+        didMigrate: { context in
+            log.notice("V3→V4 didMigrate: populating V4 graph")
+            guard let snapshot = readLatestPreV4Backup() else {
+                throw FitLogMigrationError.backupNotFound
+            }
+            try V2MigrationDecoder.decode(snapshot: snapshot, into: context)
+            let existingAnchors = (try? context.fetch(FetchDescriptor<SDSchemaMigrationAnchorV4>())) ?? []
+            if existingAnchors.isEmpty {
+                context.insert(SDSchemaMigrationAnchorV4())
+            }
+            log.notice("V3→V4 didMigrate: complete")
+        }
+    )
 
     // MARK: - V2 → V3 (lightweight: adds `SDDynamicProgramV2` entity for existing 2.0.1 stores)
 
@@ -168,6 +195,23 @@ enum FitLogMigrationPlan: SchemaMigrationPlan {
     static func latestBackupURL() -> URL? {
         let url = backupDir.appending(path: "pre_v2_latest.json")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    // MARK: - Pre-V4 backup I/O
+
+    static let preV4BackupFileName = "pre_v4_latest.json"
+
+    static func writePreV4Backup(_ snapshot: BackupSnapshot) throws {
+        try FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(snapshot)
+        let url = backupDir.appending(path: preV4BackupFileName)
+        try data.write(to: url, options: .atomic)
+    }
+
+    static func readLatestPreV4Backup() -> BackupSnapshot? {
+        let url = backupDir.appending(path: preV4BackupFileName)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(BackupSnapshot.self, from: data)
     }
 }
 

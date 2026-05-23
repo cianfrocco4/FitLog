@@ -14,6 +14,10 @@ struct PersonalRecordEvent: Identifiable, Equatable {
         case maxWeight = "Heaviest load"
         case estimatedOneRM = "Estimated 1RM"
         case maxVolumeSet = "Set volume"
+        case maxDistance = "Longest distance"
+        case bestPace = "Best pace"
+        case longestDuration = "Longest duration"
+        case maxCalories = "Most calories"
     }
 
     let id: UUID
@@ -50,6 +54,14 @@ struct PersonalRecordEvent: Identifiable, Equatable {
             return "New est. 1RM PR"
         case .maxVolumeSet:
             return "New set-volume PR"
+        case .maxDistance:
+            return "New distance PR"
+        case .bestPace:
+            return "New pace PR"
+        case .longestDuration:
+            return "New duration PR"
+        case .maxCalories:
+            return "New calorie PR"
         }
     }
 
@@ -60,8 +72,41 @@ struct PersonalRecordEvent: Identifiable, Equatable {
             value = Self.weightString(newValue) + " lb"
         case .maxVolumeSet:
             value = Self.weightString(newValue) + " lb*rep"
+        case .maxDistance:
+            value = Self.distanceString(newValue)
+        case .bestPace:
+            value = Self.paceString(newValue)
+        case .longestDuration:
+            value = Self.durationString(newValue)
+        case .maxCalories:
+            value = Self.weightString(newValue) + " kcal"
         }
         return "\(exerciseName) - \(value)"
+    }
+
+    private static func distanceString(_ meters: Double) -> String {
+        if meters >= 1000 {
+            return String(format: "%.2f km", meters / 1000)
+        }
+        return String(format: "%.0f m", meters)
+    }
+
+    private static func paceString(_ secPerKm: Double) -> String {
+        let total = Int(secPerKm.rounded())
+        let minutes = total / 60
+        let seconds = total % 60
+        return String(format: "%d:%02d /km", minutes, seconds)
+    }
+
+    private static func durationString(_ seconds: Double) -> String {
+        let total = Int(seconds.rounded())
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let secs = total % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, secs)
+        }
+        return String(format: "%d:%02d", minutes, secs)
     }
 
     private static func weightString(_ n: Double) -> String {

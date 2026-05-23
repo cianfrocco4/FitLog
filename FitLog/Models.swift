@@ -173,6 +173,10 @@ struct Exercise: Identifiable, Codable, Equatable, Hashable {
     var exerciseRole: ExerciseRole
     /// Optional movement pattern for slot matching; nil = unspecified.
     var movementPattern: MovementPattern?
+    /// Strength by default for legacy exercises and bundled library rows.
+    var modality: ExerciseModality
+    /// Populated when `modality` is `.cardio` or `.hybrid`.
+    var cardioMetadata: CardioExerciseMetadata?
 
     init(
         id: UUID,
@@ -182,7 +186,9 @@ struct Exercise: Identifiable, Codable, Equatable, Hashable {
         isCustom: Bool = false,
         configurationOptions: [ExerciseConfigurationOption] = [],
         exerciseRole: ExerciseRole = .accessory,
-        movementPattern: MovementPattern? = nil
+        movementPattern: MovementPattern? = nil,
+        modality: ExerciseModality = .strength,
+        cardioMetadata: CardioExerciseMetadata? = nil
     ) {
         self.id = id
         self.name = name
@@ -192,6 +198,8 @@ struct Exercise: Identifiable, Codable, Equatable, Hashable {
         self.configurationOptions = configurationOptions
         self.exerciseRole = exerciseRole
         self.movementPattern = movementPattern
+        self.modality = modality
+        self.cardioMetadata = cardioMetadata
     }
 
     /// Placeholder row before the user picks a real exercise for a template slot (unique `id` per row).
@@ -228,6 +236,13 @@ struct Exercise: Identifiable, Codable, Equatable, Hashable {
         } else {
             movementPattern = nil
         }
+        if let raw = try? c.decode(String.self, forKey: .modality),
+           let decoded = ExerciseModality(rawValue: raw) {
+            modality = decoded
+        } else {
+            modality = .strength
+        }
+        cardioMetadata = try c.decodeIfPresent(CardioExerciseMetadata.self, forKey: .cardioMetadata)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -242,10 +257,17 @@ struct Exercise: Identifiable, Codable, Equatable, Hashable {
         if let movementPattern {
             try c.encode(movementPattern.rawValue, forKey: .movementPattern)
         }
+        if modality != .strength {
+            try c.encode(modality.rawValue, forKey: .modality)
+        }
+        if let cardioMetadata {
+            try c.encode(cardioMetadata, forKey: .cardioMetadata)
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, description, targetedMuscles, isCustom, configurationOptions, exerciseRole, movementPattern
+        case modality, cardioMetadata
     }
 }
 
@@ -308,6 +330,8 @@ struct SlotBlueprint: Identifiable, Codable, Equatable, Hashable {
     var defaultRestTime: Int
     var recommendedSets: Int
     var recommendedReps: String
+    /// Cardio prescription for flexible slot rows; nil for strength-only slots.
+    var cardioPrescription: CardioPrescription?
 
     init(
         id: UUID = UUID(),
@@ -318,7 +342,8 @@ struct SlotBlueprint: Identifiable, Codable, Equatable, Hashable {
         defaultExerciseId: UUID? = nil,
         defaultRestTime: Int = 90,
         recommendedSets: Int = 3,
-        recommendedReps: String = "8-12"
+        recommendedReps: String = "8-12",
+        cardioPrescription: CardioPrescription? = nil
     ) {
         self.id = id
         self.label = label
@@ -329,6 +354,7 @@ struct SlotBlueprint: Identifiable, Codable, Equatable, Hashable {
         self.defaultRestTime = defaultRestTime
         self.recommendedSets = recommendedSets
         self.recommendedReps = recommendedReps
+        self.cardioPrescription = cardioPrescription
     }
 
     init(from decoder: Decoder) throws {
@@ -351,6 +377,7 @@ struct SlotBlueprint: Identifiable, Codable, Equatable, Hashable {
         defaultRestTime = (try? c.decode(Int.self, forKey: .defaultRestTime)) ?? 90
         recommendedSets = (try? c.decode(Int.self, forKey: .recommendedSets)) ?? 3
         recommendedReps = (try? c.decode(String.self, forKey: .recommendedReps)) ?? "8-12"
+        cardioPrescription = try c.decodeIfPresent(CardioPrescription.self, forKey: .cardioPrescription)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -364,11 +391,12 @@ struct SlotBlueprint: Identifiable, Codable, Equatable, Hashable {
         try c.encode(defaultRestTime, forKey: .defaultRestTime)
         try c.encode(recommendedSets, forKey: .recommendedSets)
         try c.encode(recommendedReps, forKey: .recommendedReps)
+        if let cardioPrescription { try c.encode(cardioPrescription, forKey: .cardioPrescription) }
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, label, targetedMuscles, exerciseRole, movementPattern, defaultExerciseId
-        case defaultRestTime, recommendedSets, recommendedReps
+        case defaultRestTime, recommendedSets, recommendedReps, cardioPrescription
     }
 }
 
@@ -449,6 +477,8 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
     var recommendedReps: String = "8-12"
     var configurationFields: [String] = []
     var recommendedConfigBySet: [[String: String]] = []
+    /// Cardio prescription for this row; when set, logger uses cardio UI instead of weight/reps.
+    var cardioPrescription: CardioPrescription?
 
     /// The snapshot for concrete rows; nil for unresolved slots.
     var snapshot: ExerciseSnapshot? {
@@ -488,9 +518,14 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
         return nil
     }
 
+    /// Row-level prescription, falling back to flexible slot blueprint prescription.
+    var effectiveCardioPrescription: CardioPrescription? {
+        cardioPrescription ?? slotBlueprint?.cardioPrescription
+    }
+
     // MARK: - Initializers
 
-    init(id: UUID, resolution: SlotResolution, defaultRestTime: Int = 90, recommendedSets: Int = 3, recommendedReps: String = "8-12", configurationFields: [String] = [], recommendedConfigBySet: [[String: String]] = []) {
+    init(id: UUID, resolution: SlotResolution, defaultRestTime: Int = 90, recommendedSets: Int = 3, recommendedReps: String = "8-12", configurationFields: [String] = [], recommendedConfigBySet: [[String: String]] = [], cardioPrescription: CardioPrescription? = nil) {
         self.id = id
         self.resolution = resolution
         self.originSlotId = nil
@@ -499,6 +534,7 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
         self.recommendedReps = recommendedReps
         self.configurationFields = configurationFields
         self.recommendedConfigBySet = recommendedConfigBySet
+        self.cardioPrescription = cardioPrescription
     }
 
     /// Convenience init from a full Exercise (snapshots it automatically).
@@ -512,7 +548,8 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
         recommendedConfigBySet: [[String: String]] = [],
         isSlotPlaceholder: Bool = false,
         templateSlotId: UUID? = nil,
-        slotLabel: String = ""
+        slotLabel: String = "",
+        cardioPrescription: CardioPrescription? = nil
     ) {
         self.id = id
         if isSlotPlaceholder, let tid = templateSlotId {
@@ -538,6 +575,7 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
         self.recommendedReps = recommendedReps
         self.configurationFields = configurationFields
         self.recommendedConfigBySet = recommendedConfigBySet
+        self.cardioPrescription = cardioPrescription
     }
 
     // MARK: - Codable (backward-compatible with old full-Exercise and SlotResolution<Exercise> formats)
@@ -583,6 +621,7 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
         recommendedReps = (try? c.decode(String.self, forKey: .recommendedReps)) ?? "8-12"
         configurationFields = (try? c.decode([String].self, forKey: .configurationFields)) ?? []
         recommendedConfigBySet = (try? c.decode([[String: String]].self, forKey: .recommendedConfigBySet)) ?? []
+        cardioPrescription = try c.decodeIfPresent(CardioPrescription.self, forKey: .cardioPrescription)
         originSlotId = try c.decodeIfPresent(UUID.self, forKey: .originSlotId)
         if originSlotId == nil, let tid = try? c.decode(UUID.self, forKey: .templateSlotId), isSlotPlaceholder {
             originSlotId = tid
@@ -598,6 +637,7 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
         try c.encode(recommendedReps, forKey: .recommendedReps)
         try c.encode(configurationFields, forKey: .configurationFields)
         try c.encode(recommendedConfigBySet, forKey: .recommendedConfigBySet)
+        if let cardioPrescription { try c.encode(cardioPrescription, forKey: .cardioPrescription) }
         if isSlotPlaceholder { try c.encode(true, forKey: .isSlotPlaceholder) }
         if let tid = templateSlotId { try c.encode(tid, forKey: .templateSlotId) }
         let label = slotLabel
@@ -606,7 +646,7 @@ struct WorkoutExercise: Identifiable, Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case id, resolution, exercise, defaultRestTime, recommendedSets, recommendedReps
-        case configurationFields, recommendedConfigBySet
+        case configurationFields, recommendedConfigBySet, cardioPrescription
         case isSlotPlaceholder, templateSlotId, slotLabel, originSlotId
     }
 }
@@ -731,12 +771,15 @@ struct Workout: Identifiable, Codable, Equatable {
     var exercises: [WorkoutExercise]
     /// Workout exercise row id → template slot id (only for workouts built from a slot template).
     var templateSlotIdByWorkoutExerciseId: [UUID: UUID]
+    /// Strength by default; auto-derived when saving if left at default.
+    var workoutKind: WorkoutKind
 
-    init(id: UUID, name: String, exercises: [WorkoutExercise], templateSlotIdByWorkoutExerciseId: [UUID: UUID] = [:]) {
+    init(id: UUID, name: String, exercises: [WorkoutExercise], templateSlotIdByWorkoutExerciseId: [UUID: UUID] = [:], workoutKind: WorkoutKind = .strength) {
         self.id = id
         self.name = name
         self.exercises = exercises
         self.templateSlotIdByWorkoutExerciseId = templateSlotIdByWorkoutExerciseId
+        self.workoutKind = workoutKind
     }
 
     init(from decoder: Decoder) throws {
@@ -745,6 +788,12 @@ struct Workout: Identifiable, Codable, Equatable {
         name = try c.decode(String.self, forKey: .name)
         exercises = try c.decode([WorkoutExercise].self, forKey: .exercises)
         templateSlotIdByWorkoutExerciseId = try c.decodeIfPresent([UUID: UUID].self, forKey: .templateSlotIdByWorkoutExerciseId) ?? [:]
+        if let raw = try c.decodeIfPresent(String.self, forKey: .workoutKind),
+           let kind = WorkoutKind(rawValue: raw) {
+            workoutKind = kind
+        } else {
+            workoutKind = .strength
+        }
         normalizeTemplateSlotBindingsAfterDecoding()
     }
 
@@ -755,6 +804,9 @@ struct Workout: Identifiable, Codable, Equatable {
         try c.encode(exercises, forKey: .exercises)
         if !templateSlotIdByWorkoutExerciseId.isEmpty {
             try c.encode(templateSlotIdByWorkoutExerciseId, forKey: .templateSlotIdByWorkoutExerciseId)
+        }
+        if workoutKind != .strength {
+            try c.encode(workoutKind.rawValue, forKey: .workoutKind)
         }
     }
 
@@ -827,7 +879,7 @@ struct Workout: Identifiable, Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, exercises, templateSlotIdByWorkoutExerciseId
+        case id, name, exercises, templateSlotIdByWorkoutExerciseId, workoutKind
     }
 }
 
@@ -845,6 +897,9 @@ enum ExerciseSetType: String, Codable, CaseIterable, Equatable, Hashable {
     case failure
     case timed
     case amrap
+    case intervalWork
+    case intervalRest
+    case steadyState
 
     /// Short label for pickers and chips.
     var logPickerLabel: String {
@@ -855,7 +910,16 @@ enum ExerciseSetType: String, Codable, CaseIterable, Equatable, Hashable {
         case .failure: return "Failure"
         case .timed: return "Timed hold"
         case .amrap: return "AMRAP"
+        case .intervalWork: return "Interval"
+        case .intervalRest: return "Rest"
+        case .steadyState: return "Steady"
         }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        self = ExerciseSetType(rawValue: raw) ?? .working
     }
 }
 
@@ -873,6 +937,8 @@ struct LoggedSet: Identifiable, Codable {
     var dropSegments: [DropSetSegment]
     /// Rate of perceived exertion (optional), typically ~6–10.
     var rpe: Double?
+    /// Cardio metrics overlay; when set this row is treated as a cardio log entry.
+    var cardioMetrics: CardioMetrics?
 
     /// Legacy warm-up flag; encoded for older payloads and toggles in the full log sheet.
     var isWarmup: Bool {
@@ -895,7 +961,8 @@ struct LoggedSet: Identifiable, Codable {
         setType: ExerciseSetType = .working,
         configuration: [String: String] = [:],
         dropSegments: [DropSetSegment] = [],
-        rpe: Double? = nil
+        rpe: Double? = nil,
+        cardioMetrics: CardioMetrics? = nil
     ) {
         self.id = id
         self.weight = weight
@@ -906,10 +973,11 @@ struct LoggedSet: Identifiable, Codable {
         self.configuration = configuration
         self.dropSegments = dropSegments
         self.rpe = rpe
+        self.cardioMetrics = cardioMetrics
     }
 
     /// Convenience initializer matching the legacy `isWarmup` parameter.
-    init(id: UUID, weight: Double, reps: Int, restTime: Int, timestamp: Date, isWarmup: Bool = false, configuration: [String: String] = [:], dropSegments: [DropSetSegment] = [], rpe: Double? = nil) {
+    init(id: UUID, weight: Double, reps: Int, restTime: Int, timestamp: Date, isWarmup: Bool = false, configuration: [String: String] = [:], dropSegments: [DropSetSegment] = [], rpe: Double? = nil, cardioMetrics: CardioMetrics? = nil) {
         self.init(
             id: id,
             weight: weight,
@@ -919,7 +987,8 @@ struct LoggedSet: Identifiable, Codable {
             setType: isWarmup ? .warmup : .working,
             configuration: configuration,
             dropSegments: dropSegments,
-            rpe: rpe
+            rpe: rpe,
+            cardioMetrics: cardioMetrics
         )
     }
 
@@ -933,6 +1002,7 @@ struct LoggedSet: Identifiable, Codable {
         configuration = (try? c.decode([String: String].self, forKey: .configuration)) ?? [:]
         dropSegments = (try? c.decode([DropSetSegment].self, forKey: .dropSegments)) ?? []
         rpe = try c.decodeIfPresent(Double.self, forKey: .rpe)
+        cardioMetrics = try c.decodeIfPresent(CardioMetrics.self, forKey: .cardioMetrics)
 
         if let decoded = try c.decodeIfPresent(ExerciseSetType.self, forKey: .setType) {
             setType = decoded
@@ -957,10 +1027,11 @@ struct LoggedSet: Identifiable, Codable {
         if !configuration.isEmpty { try c.encode(configuration, forKey: .configuration) }
         if !dropSegments.isEmpty { try c.encode(dropSegments, forKey: .dropSegments) }
         if let rpe { try c.encode(rpe, forKey: .rpe) }
+        if let cardioMetrics { try c.encode(cardioMetrics, forKey: .cardioMetrics) }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, weight, reps, restTime, timestamp, isWarmup, setType, configuration, dropSegments, rpe
+        case id, weight, reps, restTime, timestamp, isWarmup, setType, configuration, dropSegments, rpe, cardioMetrics
     }
 }
 
@@ -1124,14 +1195,24 @@ struct WorkoutSession: Identifiable, Codable {
 }
 
 extension LoggedSet {
-    /// Non–warm-up sets with reps (includes failure). Excludes timed holds from volume-style totals.
+    /// True when this set carries cardio metrics (interval or steady-state segment).
+    var isCardioEntry: Bool { cardioMetrics != nil }
+
+    /// Non–warm-up sets with reps (includes failure). Excludes timed holds and cardio from volume-style totals.
     var countsTowardVolumeTotals: Bool {
-        reps > 0 && setType != .warmup && setType != .timed
+        guard cardioMetrics == nil else { return false }
+        return reps > 0 && setType != .warmup && setType != .timed
     }
 
-    /// Sets that can establish load / est. 1RM / volume PRs (excludes warm-up, timed, and failure sets).
+    /// Sets that can establish load / est. 1RM / volume PRs (excludes warm-up, timed, failure, and cardio sets).
     var countsTowardLoadPRMetrics: Bool {
-        reps > 0 && setType != .warmup && setType != .timed && setType != .failure
+        guard cardioMetrics == nil else { return false }
+        return reps > 0 && setType != .warmup && setType != .timed && setType != .failure
+    }
+
+    /// Cardio sets that count toward weekly cardio volume summaries.
+    var countsTowardCardioTotals: Bool {
+        cardioMetrics != nil && setType != .warmup && setType != .intervalRest
     }
 
     /// Human-readable summary of configuration (e.g. "Grip: Narrow, Seat: 2") using field names from the workout exercise.
@@ -1158,6 +1239,9 @@ extension LoggedSet {
         case .failure: return "Failure"
         case .timed: return "Timed"
         case .amrap: return "AMRAP"
+        case .intervalWork: return "Interval"
+        case .intervalRest: return "Rest"
+        case .steadyState: return "Steady"
         }
     }
 

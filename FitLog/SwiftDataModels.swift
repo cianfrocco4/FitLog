@@ -28,11 +28,13 @@ struct VersionedPayload<T: Codable>: Codable {
 ///   4 – `SDWorkoutSession.sessionNotes` added as a native column (workout-level notes persist after save)
 ///   5 – `DynamicProgramState` JSON: extended `SplitBuilderEditableSlot` / `ProgramBlock` / `BlockWeeklyTemplate`
 ///       (manual builder fields); decode uses `decodeIfPresent` for backward compatibility.
+///   6 – Cardio overlay: `Exercise.modality`, `CardioMetrics` on `LoggedSet`, `Workout.workoutKind`,
+///       `CardioPrescription` on workout rows / slot blueprints.
 ///
 /// **AI split builder wizard defaults** use a separate, versioned UserDefaults envelope
 /// (`SplitBuilderPreferencesStore`) — not `VersionedPayload` / SwiftData — so workout and program
 /// data are unaffected if wizard prefs are reset or migrated independently.
-let currentSchemaVersion = 5
+let currentSchemaVersion = 6
 
 /// Encode a value wrapped in a VersionedPayload.
 func versionedEncode<T: Codable>(_ value: T) -> Data {
@@ -43,8 +45,9 @@ func versionedEncode<T: Codable>(_ value: T) -> Data {
 /// Decode a value, handling both versioned and pre-versioned (raw) formats.
 /// Returns nil only if both attempts fail.
 func versionedDecode<T: Codable>(_ type: T.Type, from data: Data) -> T? {
+    guard !data.isEmpty else { return nil }
     if let versioned = try? JSONDecoder().decode(VersionedPayload<T>.self, from: data) {
-        // Future: switch on versioned.schemaVersion to apply migrations
+        // Schema 6 adds optional cardio fields; older payloads decode via `decodeIfPresent` on domain types.
         return versioned.data
     }
     // Pre-versioning legacy data — decode directly

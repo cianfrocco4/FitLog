@@ -11,6 +11,7 @@ final class SDWorkoutV2 {
     var workoutId: UUID = UUID()
     var name: String = ""
     var sortOrder: Int = 0
+    var workoutKindRaw: String = WorkoutKind.strength.rawValue
     /// Encoded `[UUID: UUID]` — workout exercise row id → slot blueprint id (preserved for plan-ref compat).
     var templateSlotBindingsData: Data?
 
@@ -39,7 +40,8 @@ final class SDWorkoutV2 {
         var w = Workout(
             id: workoutId, name: name,
             exercises: exercises,
-            templateSlotIdByWorkoutExerciseId: slotBindings
+            templateSlotIdByWorkoutExerciseId: slotBindings,
+            workoutKind: WorkoutKind(rawValue: workoutKindRaw) ?? .strength
         )
         w.normalizeTemplateSlotBindingsAfterDecoding()
         return w
@@ -47,6 +49,7 @@ final class SDWorkoutV2 {
 
     static func from(_ w: Workout, sortOrder: Int) -> SDWorkoutV2 {
         let sd = SDWorkoutV2(workoutId: w.id, name: w.name, sortOrder: sortOrder)
+        sd.workoutKindRaw = w.workoutKind.rawValue
         sd.rows = w.exercises.enumerated().map { idx, we in
             SDWorkoutExerciseRowV2.from(we, orderIndex: idx)
         }

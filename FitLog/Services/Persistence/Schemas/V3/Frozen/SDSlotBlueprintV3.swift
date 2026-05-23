@@ -1,5 +1,5 @@
 //
-//  SDSlotBlueprintV2.swift
+//  SDSlotBlueprintV3.swift
 //  FitLog
 //
 
@@ -7,7 +7,7 @@ import Foundation
 import SwiftData
 
 @Model
-final class SDSlotBlueprintV2 {
+final class SDSlotBlueprintV3 {
     var blueprintId: UUID = UUID()
     var label: String = ""
     var targetedMusclesData: Data = Data()
@@ -17,17 +17,22 @@ final class SDSlotBlueprintV2 {
     var defaultRestTime: Int = 90
     var recommendedSets: Int = 3
     var recommendedReps: String = "8-12"
-    var cardioPrescriptionData: Data = Data()
 
-    var exerciseRow: SDWorkoutExerciseRowV2?
+    var exerciseRow: SDWorkoutExerciseRowV3?
 
     init() {}
 
-    init(blueprintId: UUID, label: String, targetedMusclesData: Data,
-         exerciseRoleRaw: String?, movementPatternRaw: String?,
-         defaultExerciseId: UUID?, defaultRestTime: Int,
-         recommendedSets: Int, recommendedReps: String,
-         cardioPrescriptionData: Data = Data()) {
+    init(
+        blueprintId: UUID,
+        label: String,
+        targetedMusclesData: Data,
+        exerciseRoleRaw: String?,
+        movementPatternRaw: String?,
+        defaultExerciseId: UUID?,
+        defaultRestTime: Int,
+        recommendedSets: Int,
+        recommendedReps: String
+    ) {
         self.blueprintId = blueprintId
         self.label = label
         self.targetedMusclesData = targetedMusclesData
@@ -37,13 +42,11 @@ final class SDSlotBlueprintV2 {
         self.defaultRestTime = defaultRestTime
         self.recommendedSets = recommendedSets
         self.recommendedReps = recommendedReps
-        self.cardioPrescriptionData = cardioPrescriptionData
     }
 
     func toDomain() -> SlotBlueprint {
         let muscleStrings = versionedDecode([String].self, from: targetedMusclesData) ?? []
         let muscles = muscleStrings.map { MuscleGroup(rawValue: $0) ?? .other }
-        let cardioPrescription = versionedDecode(CardioPrescription.self, from: cardioPrescriptionData)
         return SlotBlueprint(
             id: blueprintId,
             label: label,
@@ -54,24 +57,7 @@ final class SDSlotBlueprintV2 {
             defaultRestTime: defaultRestTime,
             recommendedSets: recommendedSets,
             recommendedReps: recommendedReps,
-            cardioPrescription: cardioPrescription
-        )
-    }
-
-    static func from(_ b: SlotBlueprint) -> SDSlotBlueprintV2 {
-        let musclesData = versionedEncode(b.targetedMuscles.map(\.rawValue))
-        let cardioData = b.cardioPrescription.map { versionedEncode($0) } ?? Data()
-        return SDSlotBlueprintV2(
-            blueprintId: b.id,
-            label: b.label,
-            targetedMusclesData: musclesData,
-            exerciseRoleRaw: b.exerciseRole?.rawValue,
-            movementPatternRaw: b.movementPattern?.rawValue,
-            defaultExerciseId: b.defaultExerciseId,
-            defaultRestTime: b.defaultRestTime,
-            recommendedSets: b.recommendedSets,
-            recommendedReps: b.recommendedReps,
-            cardioPrescriptionData: cardioData
+            cardioPrescription: nil
         )
     }
 }
