@@ -811,6 +811,16 @@ struct DayPlanSheet: View {
                     }
                 }
 
+                if case .workout(let ref) = dataVM.resolvedScheduleDay(for: date, calendar: calendar),
+                   let planned = dataVM.workout(id: ref.libraryWorkoutId),
+                   !planned.exercises.isEmpty {
+                    Section("Exercises") {
+                        ForEach(planned.exercises) { row in
+                            dayPlanExerciseRow(row)
+                        }
+                    }
+                }
+
                 if calendar.startOfDay(for: date) >= calendar.startOfDay(for: Date()) {
                     Section("Actions") {
                         if case .workout(let ref) = dataVM.resolvedScheduleDay(for: date, calendar: calendar),
@@ -910,6 +920,44 @@ struct DayPlanSheet: View {
             return ref.libraryWorkoutId
         default:
             return nil
+        }
+    }
+
+    @ViewBuilder
+    private func dayPlanExerciseRow(_ row: WorkoutExercise) -> some View {
+        let resolvedModality = row.exerciseId.flatMap { id in
+            dataVM.globalExercises.first { $0.id == id }?.modality
+        }
+        let isCardio = row.effectiveCardioPrescription != nil
+            || resolvedModality == .cardio
+            || resolvedModality == .hybrid
+
+        if isCardio, let rx = row.effectiveCardioPrescription {
+            let exercise = row.exerciseId.flatMap { id in dataVM.globalExercises.first { $0.id == id } }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "figure.run")
+                        .foregroundStyle(FitlogPalette.chartSecondary)
+                    Text(dataVM.displayName(for: row))
+                        .font(.subheadline.weight(.semibold))
+                }
+                CardioPrescriptionRowView(prescription: rx, exercise: exercise)
+            }
+            .padding(.vertical, 4)
+            .listRowBackground(FitlogPalette.chartSecondary.opacity(0.08))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Cardio, \(dataVM.displayName(for: row)), \(CardioMetricsCalculator.prescriptionSummary(rx))")
+        } else {
+            HStack {
+                Text(dataVM.displayName(for: row))
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text("\(row.recommendedSets)×\(row.recommendedReps)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(dataVM.displayName(for: row)), \(row.recommendedSets) sets, \(row.recommendedReps) reps")
         }
     }
 }

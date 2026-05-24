@@ -24,10 +24,18 @@ struct NewExerciseSheet: View {
         self.onCreated = onCreated
     }
 
+    @State private var creationKind: ExerciseCreationKind = .strength
     @State private var name = ""
     @State private var description = ""
     @State private var selectedMuscles: [MuscleGroup] = []
     @State private var showMusclePicker = false
+
+    @State private var cardioModality: ExerciseModality = .cardio
+    @State private var cardioActivityKind: CardioActivityKind = .run
+    @State private var cardioPrimaryMetric: CardioPrimaryMetric = .time
+    @State private var cardioEquipment: CardioEquipment = .none
+    @State private var cardioSupportsIntervals = true
+    @State private var cardioEstimatedMETsText = ""
 
     @State private var isCheckingWithAI = false
     @State private var reviewPayload: ExerciseReviewPayload?
@@ -40,6 +48,21 @@ struct NewExerciseSheet: View {
     @State private var aiFailureMessage = ""
     @State private var showNameTakenInReview = false
     @State private var muscleSuggestionWasAppliedInReview = false
+    @State private var showInvalidMETsAlert = false
+
+    private enum ExerciseCreationKind: String, CaseIterable, Identifiable {
+        case strength
+        case cardio
+
+        var id: String { rawValue }
+
+        var displayName: String {
+            switch self {
+            case .strength: return "Strength"
+            case .cardio: return "Cardio"
+            }
+        }
+    }
 
     private var availableMuscles: [MuscleGroup] {
         MuscleGroup.displayOrder.filter { !selectedMuscles.contains($0) }
@@ -48,34 +71,57 @@ struct NewExerciseSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Exercise Info") {
-                    TextField("Name", text: $name)
-                    TextField("Description", text: $description, axis: .vertical)
+                Section {
+                    Picker("Exercise type", selection: $creationKind) {
+                        ForEach(ExerciseCreationKind.allCases) { kind in
+                            Text(kind.displayName).tag(kind)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityLabel("Exercise type")
                 }
-                Section("Muscle Groups (up to 3, in order of applicability)") {
-                    ForEach(selectedMuscles.indices, id: \.self) { index in
-                        HStack {
-                            Text("\(index + 1).")
-                                .foregroundStyle(.secondary)
-                                .frame(width: 20, alignment: .leading)
-                            Text(selectedMuscles[index].rawValue)
-                            Spacer()
-                            Button(role: .destructive) {
-                                selectedMuscles.remove(at: index)
+
+                if creationKind == .strength {
+                    Section("Exercise Info") {
+                        TextField("Name", text: $name)
+                        TextField("Description", text: $description, axis: .vertical)
+                    }
+                    Section("Muscle Groups (up to 3, in order of applicability)") {
+                        ForEach(selectedMuscles.indices, id: \.self) { index in
+                            HStack {
+                                Text("\(index + 1).")
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 20, alignment: .leading)
+                                Text(selectedMuscles[index].rawValue)
+                                Spacer()
+                                Button(role: .destructive) {
+                                    selectedMuscles.remove(at: index)
+                                } label: {
+                                    Image(systemName: "minus.circle.fill")
+                                }
+                            }
+                        }
+                        if selectedMuscles.count < 3 {
+                            Button {
+                                showMusclePicker = true
                             } label: {
-                                Image(systemName: "minus.circle.fill")
+                                Label("Add muscle group", systemImage: "plus.circle")
                             }
                         }
                     }
-                    if selectedMuscles.count < 3 {
-                        Button {
-                            showMusclePicker = true
-                        } label: {
-                            Label("Add muscle group", systemImage: "plus.circle")
-                        }
-                    }
+                } else {
+                    CardioExerciseFormView(
+                        name: $name,
+                        description: $description,
+                        modality: $cardioModality,
+                        activityKind: $cardioActivityKind,
+                        primaryMetric: $cardioPrimaryMetric,
+                        equipment: $cardioEquipment,
+                        supportsIntervals: $cardioSupportsIntervals,
+                        estimatedMETsText: $cardioEstimatedMETsText
+                    )
                 }
-                if !aiService.isConfigured {
+                if creationKind == .strength, !aiService.isConfigured {
                     Section {
                         Text("Set OPENAI_API_KEY or FITLOG_AI_BASE_URL in your scheme or Info.plist to get a one-time duplicate and muscle check when you save.")
                             .font(.footnote)
@@ -137,6 +183,11 @@ struct NewExerciseSheet: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text("Another exercise already uses this name. Change the name and try again.")
+            }
+            .alert("Invalid METs value", isPresented: $showInvalidMETsAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Enter a positive number for estimated METs, or leave the field empty.")
             }
         }
     }
@@ -247,6 +298,26 @@ struct NewExerciseSheet: View {
             return
         }
 
+        if creationKind == .cardio {
+            guard let metadata = CardioExerciseFormView.buildMetadata(
+                activityKind: cardioActivityKind,
+                primaryMetric: cardioPrimaryMetric,
+                equipment: cardioEquipment,
+                supportsIntervals: cardioSupportsIntervals,
+                estimatedMETsText: cardioEstimatedMETsText
+            ) else {
+                showInvalidMETsAlert = true
+                return
+            }
+            finalizeCardioSave(
+                displayName: trimmedName,
+                description: trimmedDisplayName(description),
+                modality: cardioModality,
+                metadata: metadata
+            )
+            return
+        }
+
         if !aiService.isConfigured {
             finalizeSave(displayName: trimmedName, muscles: selectedMuscles, description: trimmedDisplayName(description))
             return
@@ -305,6 +376,22 @@ struct NewExerciseSheet: View {
 
     private func finalizeSave(displayName: String, muscles: [MuscleGroup], description: String) {
         let created = dataVM.addNewExercise(name: displayName, description: description, muscles: muscles)
+        onCreated?(created)
+        dismiss()
+    }
+
+    private func finalizeCardioSave(
+        displayName: String,
+        description: String,
+        modality: ExerciseModality,
+        metadata: CardioExerciseMetadata
+    ) {
+        let created = dataVM.addNewCardioExercise(
+            name: displayName,
+            description: description,
+            modality: modality,
+            metadata: metadata
+        )
         onCreated?(created)
         dismiss()
     }

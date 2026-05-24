@@ -137,6 +137,12 @@ struct MainTabView: View {
                         name: .fitlogPresentNewWorkout,
                         object: NewWorkoutLaunchHint.buildOwnFirst
                     )
+                case .homeCardioQuickStart:
+                    rootTab = .home
+                    NotificationCenter.default.post(
+                        name: .fitlogPresentNewWorkout,
+                        object: NewWorkoutLaunchHint.cardioFirst
+                    )
                 }
             }
             .environment(dataVM)

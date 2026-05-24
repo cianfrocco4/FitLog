@@ -81,6 +81,7 @@ final class WorkoutStore {
                 return globalExercises.first { $0.id == defId }
             }()
             let blueprint = slot.asSlotBlueprint()
+            let prescription = slot.cardioPrescription ?? blueprint.cardioPrescription
             let resolution: SlotResolution
             if let ex = resolvedFromDefault {
                 resolution = .concrete(ExerciseSnapshot(from: ex))
@@ -94,7 +95,8 @@ final class WorkoutStore {
                     resolution: resolution,
                     defaultRestTime: slot.defaultRestTime,
                     recommendedSets: slot.recommendedSets,
-                    recommendedReps: slot.recommendedReps
+                    recommendedReps: slot.recommendedReps,
+                    cardioPrescription: prescription
                 )
             )
         }
@@ -113,6 +115,7 @@ final class WorkoutStore {
             case .concrete(let snap):
                 resolution = .concrete(snap)
             case .flexible(let blueprint):
+                let prescription = row.cardioPrescription ?? blueprint.cardioPrescription
                 let resolvedFromDefault: Exercise? = {
                     guard let defId = blueprint.defaultExerciseId else { return nil }
                     return globalExercises.first { $0.id == defId }
@@ -123,6 +126,19 @@ final class WorkoutStore {
                     resolution = .flexible(blueprint)
                 }
                 slotByRow[weId] = blueprint.id
+                exercises.append(
+                    WorkoutExercise(
+                        id: weId,
+                        resolution: resolution,
+                        defaultRestTime: row.defaultRestTime,
+                        recommendedSets: row.recommendedSets,
+                        recommendedReps: row.recommendedReps,
+                        configurationFields: row.configurationFields,
+                        recommendedConfigBySet: row.recommendedConfigBySet,
+                        cardioPrescription: prescription
+                    )
+                )
+                continue
             }
             exercises.append(
                 WorkoutExercise(
@@ -132,7 +148,8 @@ final class WorkoutStore {
                     recommendedSets: row.recommendedSets,
                     recommendedReps: row.recommendedReps,
                     configurationFields: row.configurationFields,
-                    recommendedConfigBySet: row.recommendedConfigBySet
+                    recommendedConfigBySet: row.recommendedConfigBySet,
+                    cardioPrescription: row.cardioPrescription
                 )
             )
         }

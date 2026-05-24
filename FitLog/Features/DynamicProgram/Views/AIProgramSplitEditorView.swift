@@ -1056,7 +1056,7 @@ struct AIProgramSplitEditorView: View {
 
             if let orig = originalProposal {
                 Button("Undo all edits", role: .destructive) {
-                    editableDays = orig.workouts.map { EditableDay(from: $0) }
+                    editableDays = orig.workouts.map { EditableDay(from: $0, library: dataVM.globalExercises) }
                     expandedDayIds = Set(editableDays.map(\.id))
                 }
             }
@@ -1482,7 +1482,7 @@ struct AIProgramSplitEditorView: View {
             )
             proposal = result
             originalProposal = result
-            editableDays = result.workouts.map { EditableDay(from: $0) }
+            editableDays = result.workouts.map { EditableDay(from: $0, library: dataVM.globalExercises) }
             expandedDayIds = Set(editableDays.map(\.id))
         } catch {
             errorBanner = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

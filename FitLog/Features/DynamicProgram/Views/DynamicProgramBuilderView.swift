@@ -364,6 +364,14 @@ struct DynamicProgramBuilderView: View {
                     }
                 }
                 .accessibilityHint("How often you want planned easier weeks.")
+
+                Picker("Cardio in program", selection: cardioPreferenceBinding) {
+                    ForEach(CardioProgramPreference.allCases) { preference in
+                        Text(preference.rawValue).tag(preference.rawValue)
+                    }
+                }
+                .accessibilityLabel("Cardio in program")
+                .accessibilityHint("Whether to add cardio finishers, dedicated cardio days, or a mix alongside strength work.")
             }
 
             Section("Notes") {
@@ -434,6 +442,13 @@ struct DynamicProgramBuilderView: View {
         Binding(
             get: { viewModel.request.splitInput.deloadPreference },
             set: { viewModel.request.splitInput.deloadPreference = $0 }
+        )
+    }
+
+    private var cardioPreferenceBinding: Binding<String> {
+        Binding(
+            get: { viewModel.request.splitInput.cardioPreference },
+            set: { viewModel.request.splitInput.cardioPreference = $0 }
         )
     }
 
@@ -531,6 +546,21 @@ struct DynamicProgramBuilderView: View {
                                 .accessibilityLabel("Progression strategy for this phase")
                             }
                             .accessibilityHint("Optional: how loads and reps progress in this phase.")
+
+                            if spec.focus.kind == .hybrid || spec.focus.kind == .endurance {
+                                let sessionsPerWeek = viewModel.request.splitInput.sessionsPerWeek
+                                let cardioDays: Int = {
+                                    if spec.focus.kind == .endurance {
+                                        return min(max(1, sessionsPerWeek), 7)
+                                    }
+                                    return max(1, sessionsPerWeek / 2)
+                                }()
+                                Text("Plan for about \(cardioDays) cardio-focused session\(cardioDays == 1 ? "" : "s") per week in this phase. Add cardio slots in the template editor below.")
+                                    .font(.caption)
+                                    .foregroundStyle(FitlogPalette.chartSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .accessibilityLabel("About \(cardioDays) cardio-focused sessions per week recommended for this phase.")
+                            }
                         }
                         .padding(.vertical, 4)
                     }

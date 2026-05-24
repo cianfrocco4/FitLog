@@ -84,7 +84,23 @@ final class HealthKitSyncService {
     func requestAuthorization() async -> Bool {
 #if canImport(HealthKit)
         guard HKHealthStore.isHealthDataAvailable() else { return false }
-        let toShare: Set<HKSampleType> = [HKObjectType.workoutType()]
+        var toShare: Set<HKSampleType> = [HKObjectType.workoutType()]
+        for identifier in [
+            HKQuantityTypeIdentifier.distanceWalkingRunning,
+            .distanceCycling,
+            .distanceSwimming,
+            .distanceRowing
+        ] {
+            if let distance = HKQuantityType.quantityType(forIdentifier: identifier) {
+                toShare.insert(distance)
+            }
+        }
+        if let energy = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned) {
+            toShare.insert(energy)
+        }
+        if let heartRate = HKQuantityType.quantityType(forIdentifier: .heartRate) {
+            toShare.insert(heartRate)
+        }
         return await withCheckedContinuation { continuation in
             healthStore.requestAuthorization(toShare: toShare, read: [HKObjectType.workoutType()]) { success, _ in
                 continuation.resume(returning: success)
@@ -110,7 +126,7 @@ final class HealthKitSyncService {
         return granted
     }
 
-    func saveCompletedSession(_ session: WorkoutSession) async throws {
+    func saveCompletedSession(_ session: WorkoutSession, exercises: [Exercise]) async throws {
 #if canImport(HealthKit)
         guard HKHealthStore.isHealthDataAvailable() else {
             throw HealthKitSyncError.unavailable
@@ -122,31 +138,80 @@ final class HealthKitSyncService {
             throw HealthKitSyncError.workoutHasNoEndTime
         }
 
+        let aggregates = CardioSessionAggregatesCalculator.aggregates(for: session, exercises: exercises)
+        let activityType = CardioHealthKitMapping.workoutActivityType(for: session, exercises: exercises)
+        let indoor = CardioHealthKitMapping.isIndoorWorkout(session: session, exercises: exercises)
+
         let metadata: [String: Any] = [
             HKMetadataKeyWorkoutBrandName: "The Workout Log",
-            HKMetadataKeyIndoorWorkout: true,
+            HKMetadataKeyIndoorWorkout: indoor,
             "fitlog_workout_name": session.workout.name,
-            "fitlog_workout_session_id": session.id.uuidString
+            "fitlog_workout_session_id": session.id.uuidString,
+            "fitlog_workout_kind": session.workout.workoutKind.rawValue
         ]
 
         let duration = max(0, end.timeIntervalSince(session.startTime))
+        let energy: HKQuantity? = {
+            guard aggregates.calories > 0,
+                  HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned) != nil
+            else { return nil }
+            return HKQuantity(unit: .kilocalorie(), doubleValue: aggregates.calories)
+        }()
+        let distance: HKQuantity? = {
+            guard aggregates.distanceMeters > 0,
+                  CardioHealthKitMapping.distanceQuantityType(for: aggregates.dominantActivityKind) != nil
+            else { return nil }
+            return HKQuantity(unit: .meter(), doubleValue: aggregates.distanceMeters)
+        }()
+
         let workout = HKWorkout(
-            activityType: .traditionalStrengthTraining,
+            activityType: activityType,
             start: session.startTime,
             end: end,
             duration: duration,
-            totalEnergyBurned: nil,
-            totalDistance: nil,
+            totalEnergyBurned: energy,
+            totalDistance: distance,
             metadata: metadata
         )
 
-        try await withCheckedThrowingContinuation { continuation in
+        var hrSamples: [HKSample] = []
+        if let hrType = HKQuantityType.quantityType(forIdentifier: .heartRate) {
+            for log in session.exerciseLogs {
+                for set in log.loggedSets where set.countsTowardCardioTotals {
+                    guard let bpm = set.cardioMetrics?.avgHeartRate, bpm > 0 else { continue }
+                    let qty = HKQuantity(unit: HKUnit.count().unitDivided(by: .minute()), doubleValue: Double(bpm))
+                    let sample = HKQuantitySample(
+                        type: hrType,
+                        quantity: qty,
+                        start: set.timestamp,
+                        end: set.timestamp.addingTimeInterval(1)
+                    )
+                    hrSamples.append(sample)
+                }
+            }
+        }
+
+        try await withCheckedThrowingContinuation { [healthStore] (continuation: CheckedContinuation<Void, Error>) in
             healthStore.save(workout) { success, error in
-                if success {
-                    continuation.resume()
-                } else {
+                guard success else {
                     let message = error?.localizedDescription ?? "Unknown error"
                     continuation.resume(throwing: HealthKitSyncError.saveFailed(message))
+                    return
+                }
+                guard !hrSamples.isEmpty else {
+                    continuation.resume()
+                    return
+                }
+                healthStore.add(hrSamples, to: workout) { added, addError in
+                    if added {
+                        continuation.resume()
+                    } else {
+                        #if DEBUG
+                        let message = addError?.localizedDescription ?? "Unknown error"
+                        print("[HealthKit] Workout saved but heart-rate attach failed: \(message)")
+                        #endif
+                        continuation.resume()
+                    }
                 }
             }
         }
@@ -155,10 +220,10 @@ final class HealthKitSyncService {
 #endif
     }
 
-    func writeWorkoutIfAuthorized(session: WorkoutSession) async {
+    func writeWorkoutIfAuthorized(session: WorkoutSession, exercises: [Exercise]) async {
         guard syncEnabled else { return }
         guard authorizationState() == .authorized else { return }
-        _ = try? await saveCompletedSession(session)
+        _ = try? await saveCompletedSession(session, exercises: exercises)
     }
 
     /// Read access for body mass (separate from workout write permission).

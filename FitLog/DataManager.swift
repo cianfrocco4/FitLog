@@ -101,6 +101,7 @@ final class DataManager {
         if globalExercises.isEmpty {
             preloadFullExerciseLibrary()
         }
+        preloadCardioExerciseLibraryIfNeeded()
 
         migrateLegacyCustomExercises()
         migrateWorkoutsToUnifiedSlotsIfNeeded()
@@ -416,6 +417,30 @@ final class DataManager {
         return newWorkout.id
     }
 
+    @discardableResult
+    func createCardioWorkout(name: String, kind: WorkoutKind = .cardio) -> UUID {
+        let newWorkout = Workout(id: UUID(), name: name, exercises: [], workoutKind: kind)
+        userWorkouts.append(newWorkout)
+        saveWorkouts()
+        return newWorkout.id
+    }
+
+    func workout(id: UUID) -> Workout? {
+        userWorkouts.first { $0.id == id }
+    }
+
+    func setWorkoutKind(_ workout: Workout, kind: WorkoutKind) {
+        guard let index = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
+        userWorkouts[index].workoutKind = kind
+        saveWorkouts()
+    }
+
+    func refreshWorkoutKind(workoutId: UUID) {
+        guard let index = userWorkouts.firstIndex(where: { $0.id == workoutId }) else { return }
+        userWorkouts[index].workoutKind = WorkoutKind.derived(from: userWorkouts[index], exercises: globalExercises)
+        saveWorkouts()
+    }
+
     func uniqueWorkoutName(_ base: String) -> String {
         let names = Set(userWorkouts.map(\.name))
         return workoutStore.uniqueName(base, existingWorkoutNames: names, existingTemplateNames: names)
@@ -710,14 +735,10 @@ final class DataManager {
         var orderedLibraryIds: [UUID] = []
         for block in program.blocks {
             for template in block.weeklyTemplates {
-                let day = SplitBuilderEditableDay(
-                    id: template.id,
-                    name: template.dayName,
-                    focus: template.focus,
-                    slots: template.slots,
-                    dayNotes: template.dayNotes
-                ).toProposalDay()
-                guard let wid = createFlexWorkoutFromProposalDay(day, createdByPlanKey: &createdByPlanKey) else { continue }
+                guard let wid = createFlexWorkoutFromBlockTemplate(
+                    template,
+                    createdByPlanKey: &createdByPlanKey
+                ) else { continue }
                 map[template.id] = wid
                 orderedLibraryIds.append(wid)
             }
@@ -725,6 +746,71 @@ final class DataManager {
         reorderWorkoutsPlacingIdsFirst(orderedLibraryIds)
         saveWorkouts()
         return map
+    }
+
+    @discardableResult
+    private func createFlexWorkoutFromBlockTemplate(
+        _ template: BlockWeeklyTemplate,
+        createdByPlanKey: inout [String: Exercise]
+    ) -> UUID? {
+        guard !template.slots.isEmpty else { return nil }
+        let templateSlots: [TemplateSlot] = template.slots.compactMap { slot in
+            templateSlot(from: slot, createdByPlanKey: &createdByPlanKey)
+        }
+        guard !templateSlots.isEmpty else { return nil }
+        let name = uniqueFlexWorkoutName(template.dayName)
+        return createWorkoutWithFlexibleSlots(name: name, slots: templateSlots)
+    }
+
+    private func templateSlot(
+        from slot: SplitBuilderEditableSlot,
+        createdByPlanKey: inout [String: Exercise]
+    ) -> TemplateSlot {
+        let parsedMuscles = ExerciseNameResolution.resolveMuscleGroups(from: slot.targetMuscleNames)
+        let matchedExercise: Exercise? = {
+            if let oid = slot.suggestedExerciseOverrideId,
+               let ex = globalExercises.first(where: { $0.id == oid }) {
+                return ex
+            }
+            guard let raw = slot.suggestedExerciseName?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+                return nil
+            }
+            guard let result = ExerciseNameResolution.resolve(planName: raw, library: globalExercises) else {
+                return nil
+            }
+            switch result {
+            case .linked(let ex):
+                return ex
+            case .createCustom(let displayName):
+                let key = ExerciseNameResolution.dedupeKey(forPlanName: displayName)
+                if let cached = createdByPlanKey[key] { return cached }
+                let musclesForNew = parsedMuscles.isEmpty ? [MuscleGroup.other] : parsedMuscles
+                let new = addNewExercise(name: displayName, description: "", muscles: musclesForNew)
+                createdByPlanKey[key] = new
+                return new
+            }
+        }()
+        let targetedMuscles: [MuscleGroup]
+        if !parsedMuscles.isEmpty {
+            targetedMuscles = parsedMuscles
+        } else if let ex = matchedExercise, !ex.targetedMuscles.isEmpty {
+            targetedMuscles = ex.targetedMuscles
+        } else {
+            targetedMuscles = [.other]
+        }
+        let repsRaw = slot.reps.trimmingCharacters(in: .whitespacesAndNewlines)
+        let repsFinal = repsRaw.isEmpty ? (slot.modality == .cardio ? "—" : "8-12") : repsRaw
+        return TemplateSlot(
+            label: slot.label,
+            targetedMuscles: targetedMuscles,
+            exerciseRole: matchedExercise?.exerciseRole,
+            movementPattern: matchedExercise?.movementPattern,
+            defaultExerciseId: matchedExercise?.id,
+            defaultRestTime: slot.restSeconds ?? 90,
+            recommendedSets: min(max(1, slot.sets), 10),
+            recommendedReps: repsFinal,
+            cardioPrescription: slot.cardioPrescription
+        )
     }
 
     /// Materializes templates, persists `DynamicProgramState`, and syncs the active block’s rotation into `trainingProgram`.
@@ -748,10 +834,6 @@ final class DataManager {
         uniqueWorkoutName(base.isEmpty ? "Workout" : base)
     }
 
-    func workout(id: UUID) -> Workout? {
-        userWorkouts.first { $0.id == id }
-    }
-
     func updateWorkout(_ workout: Workout) {
         guard let idx = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
         userWorkouts[idx] = workout
@@ -759,8 +841,10 @@ final class DataManager {
     }
 
     /// Copy for an in-progress session: new ids when the library workout has flexible rows.
-    func sessionInstance(from library: Workout) -> Workout {
-        workoutStore.sessionInstance(from: library, globalExercises: globalExercises)
+    func sessionInstance(from library: Workout, applyBlockProgression: Bool = true) -> Workout {
+        let instance = workoutStore.sessionInstance(from: library, globalExercises: globalExercises)
+        guard applyBlockProgression else { return instance }
+        return CardioPeriodization.applyProgression(to: instance, blockContext: activeBlockContext())
     }
 
     func planLabel(for ref: WorkoutPlanRef) -> String {
@@ -943,6 +1027,29 @@ final class DataManager {
         return new
     }
 
+    @discardableResult
+    func addNewCardioExercise(
+        name: String,
+        description: String,
+        modality: ExerciseModality,
+        metadata: CardioExerciseMetadata
+    ) -> Exercise {
+        let resolvedModality: ExerciseModality = modality == .strength ? .cardio : modality
+        let new = Exercise(
+            id: UUID(),
+            name: name,
+            description: description,
+            targetedMuscles: [.other],
+            isCustom: true,
+            configurationOptions: [],
+            modality: resolvedModality,
+            cardioMetadata: metadata
+        )
+        globalExercises.append(new)
+        saveExercises()
+        return new
+    }
+
     func updateExercise(_ exercise: Exercise) {
         guard let idx = globalExercises.firstIndex(where: { $0.id == exercise.id }) else { return }
         globalExercises[idx] = exercise
@@ -1065,14 +1172,28 @@ final class DataManager {
     ]
 
     private func migrateLegacyCustomExercises() {
+        let builtInNames = Self.defaultExerciseNames.union(CardioExerciseSeed.builtInNames)
         var changed = false
         for i in globalExercises.indices {
-            if !globalExercises[i].isCustom && !Self.defaultExerciseNames.contains(globalExercises[i].name) {
+            if !globalExercises[i].isCustom && !builtInNames.contains(globalExercises[i].name) {
                 globalExercises[i].isCustom = true
                 changed = true
             }
         }
         if changed { saveExercises() }
+    }
+
+    /// Idempotent merge of bundled cardio catalog by stable seed UUIDs.
+    func preloadCardioExerciseLibraryIfNeeded() {
+        let key = CardioExerciseSeed.completedUserDefaultsKey
+        let alreadyDone = UserDefaults.standard.bool(forKey: key)
+        let added = CardioExerciseSeed.merge(into: &globalExercises)
+        if added {
+            saveExercises()
+        }
+        if added || !alreadyDone {
+            UserDefaults.standard.set(true, forKey: key)
+        }
     }
 
     private func preloadFullExerciseLibrary() {
@@ -1213,7 +1334,7 @@ final class DataManager {
 
     func syncSessionToHealthIfEnabled(_ session: WorkoutSession) {
         Task {
-            await healthSyncService.writeWorkoutIfAuthorized(session: session)
+            await healthSyncService.writeWorkoutIfAuthorized(session: session, exercises: globalExercises)
             await MainActor.run {
                 healthSyncStatusMessage = healthSyncService.statusMessage
             }
@@ -1437,6 +1558,93 @@ final class DataManager {
         userWorkouts[index].templateSlotIdByWorkoutExerciseId[weId] = slotId
         saveWorkouts()
         return we
+    }
+
+    @discardableResult
+    func addCardioExercise(
+        to workout: Workout,
+        exercise: Exercise,
+        prescription: CardioPrescription
+    ) -> WorkoutExercise? {
+        guard let index = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return nil }
+        let recommendedSets: Int = {
+            switch prescription.kind {
+            case .intervals:
+                return max(1, prescription.intervals.reduce(0) { $0 + max(1, $1.repeatCount) })
+            default:
+                return 1
+            }
+        }()
+        let recommendedReps: String = {
+            switch prescription.kind {
+            case .intervals: return "intervals"
+            case .steadyState: return "steady"
+            case .circuit: return "circuit"
+            case .custom: return "cardio"
+            }
+        }()
+        let weId = UUID()
+        let slotId = UUID()
+        var blueprint = SlotBlueprint(
+            id: slotId,
+            label: exercise.name,
+            targetedMuscles: exercise.targetedMuscles.isEmpty ? [.other] : exercise.targetedMuscles,
+            exerciseRole: exercise.exerciseRole,
+            movementPattern: exercise.movementPattern,
+            defaultExerciseId: exercise.id,
+            defaultRestTime: 90,
+            recommendedSets: recommendedSets,
+            recommendedReps: recommendedReps,
+            cardioPrescription: prescription
+        )
+        let we = WorkoutExercise(
+            id: weId,
+            resolution: .flexible(blueprint),
+            defaultRestTime: 90,
+            recommendedSets: recommendedSets,
+            recommendedReps: recommendedReps,
+            configurationFields: [],
+            recommendedConfigBySet: [],
+            cardioPrescription: prescription
+        )
+        userWorkouts[index].exercises.append(we)
+        userWorkouts[index].templateSlotIdByWorkoutExerciseId[weId] = slotId
+        saveWorkouts()
+        return we
+    }
+
+    func updateCardioPrescription(
+        workoutId: UUID,
+        workoutExerciseId: UUID,
+        prescription: CardioPrescription
+    ) {
+        guard let wIndex = userWorkouts.firstIndex(where: { $0.id == workoutId }),
+              let eIndex = userWorkouts[wIndex].exercises.firstIndex(where: { $0.id == workoutExerciseId })
+        else { return }
+
+        userWorkouts[wIndex].exercises[eIndex].cardioPrescription = prescription
+        if case .flexible(var blueprint) = userWorkouts[wIndex].exercises[eIndex].resolution {
+            blueprint.cardioPrescription = prescription
+            userWorkouts[wIndex].exercises[eIndex].resolution = .flexible(blueprint)
+        }
+
+        switch prescription.kind {
+        case .intervals:
+            let count = max(1, prescription.intervals.reduce(0) { $0 + max(1, $1.repeatCount) })
+            userWorkouts[wIndex].exercises[eIndex].recommendedSets = count
+            userWorkouts[wIndex].exercises[eIndex].recommendedReps = "intervals"
+        case .steadyState:
+            userWorkouts[wIndex].exercises[eIndex].recommendedSets = 1
+            userWorkouts[wIndex].exercises[eIndex].recommendedReps = "steady"
+        case .circuit:
+            userWorkouts[wIndex].exercises[eIndex].recommendedSets = 1
+            userWorkouts[wIndex].exercises[eIndex].recommendedReps = "circuit"
+        case .custom:
+            userWorkouts[wIndex].exercises[eIndex].recommendedSets = 1
+            userWorkouts[wIndex].exercises[eIndex].recommendedReps = "cardio"
+        }
+
+        saveWorkouts()
     }
 
     // MARK: - Training program

@@ -14,6 +14,7 @@ enum BlockFocusKind: String, Codable, CaseIterable, Sendable {
     case strength
     case power
     case endurance
+    case hybrid
     case deload
     case general
 
@@ -24,6 +25,7 @@ enum BlockFocusKind: String, Codable, CaseIterable, Sendable {
         case .strength: return "Get stronger"
         case .power: return "Power & explosiveness"
         case .endurance: return "Endurance & conditioning"
+        case .hybrid: return "Strength + cardio"
         case .deload: return "Recovery / easier week"
         case .general: return "Balanced / general fitness"
         }
@@ -47,6 +49,7 @@ struct BlockFocus: Codable, Equatable, Hashable, Sendable {
         case .strength: base = "Strength"
         case .power: base = "Power"
         case .endurance: base = "Endurance"
+        case .hybrid: base = "Strength + Cardio"
         case .deload: base = "Deload"
         case .general: base = "General"
         }

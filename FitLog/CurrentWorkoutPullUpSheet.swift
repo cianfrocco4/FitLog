@@ -444,6 +444,10 @@ struct CurrentWorkoutPullUpSheet: View {
     @State private var logSetSheetSelection: LogSetSheetSelection?
     @State private var resolveSlotSelection: ResolveSlotWE?
     @State private var showFinishConfirmation = false
+    @State private var showCardioFinisherOffer = false
+    @State private var cardioFinisherOffered = false
+    @State private var exerciseLogCountBeforeFinisherQuickAdd: Int?
+    @State private var showCardioResolveFailureAlert = false
     @State private var showDiscardWorkoutConfirmation = false
     @State private var showQuickAddExercise = false
     @State private var showFullAddExercise = false
@@ -654,13 +658,22 @@ struct CurrentWorkoutPullUpSheet: View {
                                                         }
                                                 )
 
-                                            currentAndPreviousSetsSection(
-                                                exerciseIndex: index,
-                                                log: log,
-                                                previousLog: lastCompletedLog(for: log)
-                                            )
-                                            .moveDisabled(true)
-                                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 6, trailing: 16))
+                                            if CardioWorkoutExerciseHelpers.isCardioLoggingRow(
+                                                log.workoutExercise,
+                                                exercises: dataVM.globalExercises
+                                            ) {
+                                                cardioLoggedSetsSection(exerciseIndex: index, log: log)
+                                                    .moveDisabled(true)
+                                                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 6, trailing: 16))
+                                            } else {
+                                                currentAndPreviousSetsSection(
+                                                    exerciseIndex: index,
+                                                    log: log,
+                                                    previousLog: lastCompletedLog(for: log)
+                                                )
+                                                .moveDisabled(true)
+                                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 6, trailing: 16))
+                                            }
 
                                             DisclosureGroup(isExpanded: Binding(
                                                 get: { exerciseDetailMoreExpandedLogId == log.id },
@@ -893,7 +906,7 @@ struct CurrentWorkoutPullUpSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Finish") {
                         if resolvedExercisesWithNoSets.isEmpty {
-                            finishWorkout()
+                            requestFinishWorkout()
                         } else {
                             showFinishConfirmation = true
                         }
@@ -972,6 +985,14 @@ struct CurrentWorkoutPullUpSheet: View {
                     .environmentObject(aiService)
                 }
             }
+            .onChange(of: showQuickAddExercise) { _, isPresented in
+                guard !isPresented, let before = exerciseLogCountBeforeFinisherQuickAdd else { return }
+                exerciseLogCountBeforeFinisherQuickAdd = nil
+                let after = currentVM.currentSession?.exerciseLogs.count ?? 0
+                if after > before {
+                    cardioFinisherOffered = true
+                }
+            }
             .sheet(isPresented: $showFullAddExercise) {
                 if let w = activeSessionWorkout {
                     AddExerciseSheet(workout: w, currentVM: currentVM)
@@ -1010,10 +1031,49 @@ struct CurrentWorkoutPullUpSheet: View {
             .alert("Finish workout?", isPresented: $showFinishConfirmation) {
                 Button("Cancel", role: .cancel) {}
                 Button("Finish anyway", role: .destructive) {
-                    finishWorkout()
+                    requestFinishWorkout()
                 }
             } message: {
                 Text("These exercises have no sets logged: \(resolvedExercisesWithNoSets.joined(separator: ", ")).")
+            }
+            .confirmationDialog(
+                "Add a cardio finisher?",
+                isPresented: $showCardioFinisherOffer,
+                titleVisibility: .visible
+            ) {
+                Button("Quick 10 min") {
+                    if let template = CardioQuickAddTemplate.all.first,
+                       let exercise = template.resolveExercise(in: dataVM.globalExercises),
+                       currentVM.appendCardioExerciseToSession(exercise: exercise, prescription: template.prescription) {
+                        cardioFinisherOffered = true
+                    } else {
+                        showCardioResolveFailureAlert = true
+                    }
+                }
+                .accessibilityLabel("Quick 10 minute cardio finisher")
+                .accessibilityHint("Adds a 10 minute zone 2 cardio exercise to this workout.")
+                Button("Choose exercise…") {
+                    exerciseLogCountBeforeFinisherQuickAdd = currentVM.currentSession?.exerciseLogs.count
+                    showQuickAddExercise = true
+                }
+                .accessibilityLabel("Choose cardio exercise")
+                .accessibilityHint("Opens the exercise picker to add a cardio finisher.")
+                Button("Skip", role: .cancel) {
+                    cardioFinisherOffered = true
+                    finishWorkout()
+                }
+                .accessibilityLabel("Skip cardio finisher")
+                .accessibilityHint("Finishes the workout without adding cardio.")
+            } message: {
+                Text("Optional cardio after your main work. You can log it now or skip and finish.")
+            }
+            .alert(
+                "No cardio exercises",
+                isPresented: $showCardioResolveFailureAlert
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Add a cardio exercise to your library first, then try again.")
             }
             .confirmationDialog(
                 "Discard workout?",
@@ -1114,6 +1174,14 @@ struct CurrentWorkoutPullUpSheet: View {
         return logs.compactMap { log in
             guard !log.workoutExercise.isSlotPlaceholder, log.loggedSets.isEmpty else { return nil }
             return dataVM.displayName(for: log.workoutExercise)
+        }
+    }
+
+    private func requestFinishWorkout() {
+        if !cardioFinisherOffered, currentVM.shouldOfferCardioFinisherOnFinish() {
+            showCardioFinisherOffer = true
+        } else {
+            finishWorkout()
         }
     }
 
@@ -1799,6 +1867,17 @@ struct CurrentWorkoutPullUpSheet: View {
 
     @ViewBuilder
     private func inlineSetEntryRow(exerciseIndex: Int, log: ExerciseLog) -> some View {
+        if CardioWorkoutExerciseHelpers.isCardioLoggingRow(log.workoutExercise, exercises: dataVM.globalExercises) {
+            CardioLogView(exerciseIndex: exerciseIndex, sessionVM: currentVM)
+                .environment(dataVM)
+                .padding(.vertical, 4)
+        } else {
+            inlineStrengthSetEntryRow(exerciseIndex: exerciseIndex, log: log)
+        }
+    }
+
+    @ViewBuilder
+    private func inlineStrengthSetEntryRow(exerciseIndex: Int, log: ExerciseLog) -> some View {
         let logId = log.id
         let unit = userPreferences.weightDisplayUnit
         let unitLabel = unit.shortLabel
@@ -2108,6 +2187,75 @@ struct CurrentWorkoutPullUpSheet: View {
     }
 
     @ViewBuilder
+    private func cardioLoggedSetsSection(exerciseIndex: Int, log: ExerciseLog) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Logged segments")
+                .font(.subheadline.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
+            if log.loggedSets.isEmpty {
+                Text("No segments logged yet")
+                    .foregroundStyle(.secondary)
+                    .italic()
+            } else {
+                VStack(spacing: 6) {
+                    ForEach(Array(log.loggedSets.enumerated()), id: \.element.id) { setIndex, set in
+                        readOnlyCardioLoggedSetRow(
+                            exerciseIndex: exerciseIndex,
+                            setIndex: setIndex,
+                            chronologicalSetNumber: setIndex + 1,
+                            set: set,
+                            isHighlighted: set.id == highlightedLoggedSetId
+                        )
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button("Delete", role: .destructive) {
+                                let undo = PendingUndoSet(
+                                    exerciseIndex: exerciseIndex,
+                                    insertAt: setIndex,
+                                    set: set
+                                )
+                                pendingUndoSet = undo
+                                currentVM.deleteSet(exerciseIndex: exerciseIndex, setIndex: setIndex)
+                                let undoId = undo.id
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                                    if pendingUndoSet?.id == undoId {
+                                        pendingUndoSet = nil
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func readOnlyCardioLoggedSetRow(
+        exerciseIndex: Int,
+        setIndex: Int,
+        chronologicalSetNumber: Int,
+        set: LoggedSet,
+        isHighlighted: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Segment \(chronologicalSetNumber)")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.tertiary)
+            Text(set.cardioDisplaySummary)
+                .font(.body)
+                .foregroundStyle(.primary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.green.opacity(isHighlighted ? 0.22 : 0.06))
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Segment \(chronologicalSetNumber), \(set.cardioDisplaySummary)")
+        .animation(.easeOut(duration: 0.45), value: isHighlighted)
+    }
+
+    @ViewBuilder
     private func interactiveLoggedSetRow(
         exerciseIndex: Int,
         setIndex: Int,
@@ -2116,7 +2264,15 @@ struct CurrentWorkoutPullUpSheet: View {
         workoutExercise: WorkoutExercise,
         isHighlighted: Bool
     ) -> some View {
-        if editingSetId == set.id,
+        if set.isCardioEntry || set.countsTowardCardioTotals {
+            readOnlyCardioLoggedSetRow(
+                exerciseIndex: exerciseIndex,
+                setIndex: setIndex,
+                chronologicalSetNumber: chronologicalSetNumber,
+                set: set,
+                isHighlighted: isHighlighted
+            )
+        } else if editingSetId == set.id,
            editingSetExerciseIndex == exerciseIndex,
            editingSetIndex == setIndex {
             let fieldPadding = EdgeInsets(top: 7, leading: 9, bottom: 7, trailing: 9)
@@ -2693,7 +2849,11 @@ struct CurrentWorkoutPullUpSheet: View {
     private func setRow(set: LoggedSet, workoutExercise: WorkoutExercise) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top) {
-                Text(set.weightRepsDisplaySummary(displayUnit: userPreferences.weightDisplayUnit))
+                Text(
+                    set.isCardioEntry
+                        ? set.cardioDisplaySummary
+                        : set.weightRepsDisplaySummary(displayUnit: userPreferences.weightDisplayUnit)
+                )
                     .font(.body)
                     .fixedSize(horizontal: false, vertical: true)
                 if let badge = set.setTypeBadgeLabel {

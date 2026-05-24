@@ -24,6 +24,16 @@ enum ExerciseLibraryFilter: String, CaseIterable {
     case builtIn = "Built-in"
 }
 
+/// Top-level modality filter for Strength / Cardio / Hybrid / All.
+enum ExerciseLibraryModalityFilter: String, CaseIterable, Identifiable {
+    case all = "All"
+    case strength = "Strength"
+    case cardio = "Cardio"
+    case hybrid = "Hybrid"
+
+    var id: String { rawValue }
+}
+
 enum ExerciseLibraryBrowseMode: String, CaseIterable {
     case flatAZ = "A–Z"
     case byCategory = "By category"
@@ -37,6 +47,7 @@ struct ExercisesLibraryView: View {
     @State private var exerciseToRenameLocally: LocalRenameExerciseItem?
     @State private var searchText = ""
     @State private var libraryFilter: ExerciseLibraryFilter = .all
+    @State private var modalityFilter: ExerciseLibraryModalityFilter = .all
     @State private var browseMode: ExerciseLibraryBrowseMode = .byCategory
     @State private var favoriteIds: Set<UUID> = []
 
@@ -46,6 +57,12 @@ struct ExercisesLibraryView: View {
 
     private var scopedExercises: [Exercise] {
         var list = dataVM.globalExercises
+        switch modalityFilter {
+        case .all: break
+        case .strength: list = list.filter { $0.modality == .strength }
+        case .cardio: list = list.filter { $0.modality == .cardio }
+        case .hybrid: list = list.filter { $0.modality == .hybrid }
+        }
         switch libraryFilter {
         case .all: break
         case .custom: list = list.filter { $0.isCustom }
@@ -62,6 +79,8 @@ struct ExercisesLibraryView: View {
                 || ex.name.localizedCaseInsensitiveContains(q)
                 || (ex.targetedMuscles.first ?? .other).rawValue.localizedCaseInsensitiveContains(q)
                 || ex.targetedMuscles.contains { $0.rawValue.localizedCaseInsensitiveContains(q) }
+                || (ex.cardioMetadata?.activityKind.displayName.localizedCaseInsensitiveContains(q) ?? false)
+                || (ex.cardioMetadata?.primaryMetric.displayName.localizedCaseInsensitiveContains(q) ?? false)
         }
     }
 
@@ -99,12 +118,26 @@ struct ExercisesLibraryView: View {
         ExerciseCategoryGrouping.bucketedSections(exercises: exercisesForBucketGrouping) { dataVM.resolvedDisplayName(for: $0) }
     }
 
+    private var cardioActivitySections: [(CardioActivityKind, [Exercise])] {
+        CardioExerciseCategoryGrouping.activitySections(exercises: exercisesForBucketGrouping) { dataVM.resolvedDisplayName(for: $0) }
+    }
+
     private var categorySectionIds: [String] {
         var ids: [String] = []
         if !favoriteExercises.isEmpty { ids.append("favorites") }
         if !recentExercises.isEmpty { ids.append("recent") }
-        ids.append(contentsOf: bucketedSections.map { $0.0.lowercased() })
+        if showCardioActivitySections {
+            ids.append(contentsOf: cardioActivitySections.map { $0.0.rawValue })
+        } else {
+            ids.append(contentsOf: bucketedSections.map { $0.0.lowercased() })
+        }
         return ids
+    }
+
+    private var showCardioActivitySections: Bool {
+        browseMode == .byCategory && !useFlatList
+            && (modalityFilter == .cardio || modalityFilter == .hybrid)
+            && !cardioActivitySections.isEmpty
     }
 
     var body: some View {
@@ -116,7 +149,19 @@ struct ExercisesLibraryView: View {
             }
         }
         .navigationTitle("Exercise Library")
-        .searchable(text: $searchText, prompt: "Search by name or muscle")
+        .searchable(text: $searchText, prompt: "Search by name, muscle, or activity")
+        .safeAreaInset(edge: .top, spacing: 0) {
+            Picker("Modality", selection: $modalityFilter) {
+                ForEach(ExerciseLibraryModalityFilter.allCases) { filter in
+                    Text(filter.rawValue).tag(filter)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            .background(.bar)
+            .accessibilityLabel("Exercise modality filter")
+        }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Menu {
@@ -187,21 +232,34 @@ struct ExercisesLibraryView: View {
                     }
                     .id("recent")
                 }
-                ForEach(bucketedSections, id: \.0) { bucket, musclePairs in
-                    Section {
-                        ForEach(musclePairs, id: \.0.id) { muscle, list in
-                            Section {
-                                ForEach(list) { ex in
-                                    libraryRow(ex)
-                                }
-                            } header: {
-                                ExerciseLibraryMuscleGroupHeader(name: muscle.rawValue)
+                if showCardioActivitySections {
+                    ForEach(cardioActivitySections, id: \.0) { activity, list in
+                        Section {
+                            ForEach(list) { ex in
+                                libraryRow(ex)
                             }
+                        } header: {
+                            ExerciseLibraryActivityHeader(activity: activity)
                         }
-                    } header: {
-                        ExerciseLibraryBucketSectionHeader(title: bucket)
+                        .id(activity.rawValue)
                     }
-                    .id(bucket.lowercased())
+                } else {
+                    ForEach(bucketedSections, id: \.0) { bucket, musclePairs in
+                        Section {
+                            ForEach(musclePairs, id: \.0.id) { muscle, list in
+                                Section {
+                                    ForEach(list) { ex in
+                                        libraryRow(ex)
+                                    }
+                                } header: {
+                                    ExerciseLibraryMuscleGroupHeader(name: muscle.rawValue)
+                                }
+                            }
+                        } header: {
+                            ExerciseLibraryBucketSectionHeader(title: bucket)
+                        }
+                        .id(bucket.lowercased())
+                    }
                 }
             }
             .listStyle(.insetGrouped)
@@ -249,6 +307,24 @@ struct ExercisesLibraryView: View {
     @ViewBuilder
     private func statusBadges(for ex: Exercise) -> some View {
         HStack(spacing: 6) {
+            if ex.modality != .strength {
+                Text(ex.modality.displayName)
+                    .font(.caption2)
+                    .fontWeight(.medium)
+                    .foregroundStyle(FitlogPalette.chartSecondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(FitlogPalette.chartSecondary.opacity(0.15), in: Capsule())
+            }
+            if let activity = ex.cardioMetadata?.activityKind, ex.modality != .strength {
+                Text(activity.displayName)
+                    .font(.caption2)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(.quaternary, in: Capsule())
+            }
             if dataVM.hasLocalDisplayName(for: ex.id) {
                 Text("Renamed")
                     .font(.caption2)
@@ -307,6 +383,39 @@ private struct ExerciseLibraryBucketSectionHeader: View {
             .foregroundStyle(.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityAddTraits(.isHeader)
+    }
+}
+
+private struct ExerciseLibraryActivityHeader: View {
+    let activity: CardioActivityKind
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: activity.systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(FitlogPalette.chartSecondary)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Activity")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .textCase(.uppercase)
+                Text(activity.displayName)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(FitlogPalette.chartSecondary.opacity(0.12))
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityLabel("Activity, \(activity.displayName)")
     }
 }
 

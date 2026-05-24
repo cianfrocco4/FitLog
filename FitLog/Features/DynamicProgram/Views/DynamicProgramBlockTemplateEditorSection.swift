@@ -66,30 +66,51 @@ struct DynamicProgramBlockTemplateEditorSection: View {
         .sheet(item: $slotDetailTarget) { target in
             if let day = days.first(where: { $0.id == target.dayId }),
                let slotBinding = bindingForSlot(dayId: target.dayId, slotId: target.slotId) {
-                SlotDetailEditorView(
-                    slot: slotBinding,
-                    partnerCandidates: partnerCandidates(for: day, excluding: target.slotId)
-                )
-                .environment(dataManager)
-                .environmentObject(aiService)
+                if slotBinding.wrappedValue.modality == .cardio {
+                    CardioSlotDetailEditorView(slot: slotBinding)
+                        .environment(dataManager)
+                } else {
+                    SlotDetailEditorView(
+                        slot: slotBinding,
+                        partnerCandidates: partnerCandidates(for: day, excluding: target.slotId)
+                    )
+                    .environment(dataManager)
+                    .environmentObject(aiService)
+                }
             }
         }
         .sheet(item: $slotLibraryTarget) { target in
             if let slotBinding = bindingForSlot(dayId: target.dayId, slotId: target.slotId) {
-                ExerciseSlotPickerSheet(slot: slotBinding.wrappedValue) { exercise in
-                    var s = slotBinding.wrappedValue
-                    s.suggestedExerciseName = exercise.name
-                    s.suggestedExerciseOverrideId = exercise.id
-                    s.targetMuscleNames = exercise.targetedMuscles.map(\.rawValue)
-                    if s.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        s.label = exercise.name
+                if slotBinding.wrappedValue.modality == .cardio {
+                    CardioExercisePickerSheet { exercise in
+                        var s = slotBinding.wrappedValue
+                        s.suggestedExerciseName = exercise.name
+                        s.suggestedExerciseOverrideId = exercise.id
+                        s.targetMuscleNames = exercise.targetedMuscles.map(\.rawValue)
+                        if s.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            s.label = exercise.name
+                        }
+                        slotBinding.wrappedValue = s
+                        onSlotFieldChange()
+                        slotLibraryTarget = nil
                     }
-                    slotBinding.wrappedValue = s
-                    onSlotFieldChange()
-                    slotLibraryTarget = nil
+                    .environment(dataManager)
+                } else {
+                    ExerciseSlotPickerSheet(slot: slotBinding.wrappedValue) { exercise in
+                        var s = slotBinding.wrappedValue
+                        s.suggestedExerciseName = exercise.name
+                        s.suggestedExerciseOverrideId = exercise.id
+                        s.targetMuscleNames = exercise.targetedMuscles.map(\.rawValue)
+                        if s.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            s.label = exercise.name
+                        }
+                        slotBinding.wrappedValue = s
+                        onSlotFieldChange()
+                        slotLibraryTarget = nil
+                    }
+                    .environment(dataManager)
+                    .environmentObject(aiService)
                 }
-                .environment(dataManager)
-                .environmentObject(aiService)
             }
         }
     }
@@ -125,23 +146,22 @@ struct DynamicProgramBlockTemplateEditorSection: View {
             onStructuralChange()
         }
 
-        Button {
-            var d = day.wrappedValue
-            d.slots.append(
-                SplitBuilderEditableSlot(
-                    label: "New slot",
-                    targetMuscleNames: [MuscleGroup.other.rawValue],
-                    sets: 3,
-                    reps: "8-12"
-                )
-            )
-            day.wrappedValue = d
-            onStructuralChange()
+        Menu {
+            Button {
+                appendStrengthSlot(to: day)
+            } label: {
+                Label("Strength slot", systemImage: "figure.strengthtraining.traditional")
+            }
+            Button {
+                appendCardioSlot(to: day)
+            } label: {
+                Label("Cardio slot", systemImage: "figure.run")
+            }
         } label: {
             Label("Add slot", systemImage: "plus.circle")
         }
         .font(.subheadline)
-        .accessibilityHint("Adds a new exercise slot to this day")
+        .accessibilityHint("Adds a strength or cardio exercise slot to this day")
 
         if !day.wrappedValue.slots.isEmpty {
             Button(role: .destructive) {
@@ -157,6 +177,30 @@ struct DynamicProgramBlockTemplateEditorSection: View {
         }
     }
 
+    private func appendStrengthSlot(to day: Binding<SplitBuilderEditableDay>) {
+        var d = day.wrappedValue
+        d.slots.append(
+            SplitBuilderEditableSlot(
+                label: "New slot",
+                targetMuscleNames: [MuscleGroup.other.rawValue],
+                sets: 3,
+                reps: "8-12"
+            )
+        )
+        day.wrappedValue = d
+        onStructuralChange()
+    }
+
+    private func appendCardioSlot(to day: Binding<SplitBuilderEditableDay>) {
+        var d = day.wrappedValue
+        d.slots.append(
+            CardioProgramTemplates.defaultCardioSlot(library: dataManager.globalExercises)
+        )
+        day.wrappedValue = d
+        onStructuralChange()
+    }
+
+    @ViewBuilder
     private func templateSlotRow(day: Binding<SplitBuilderEditableDay>, slotId: UUID) -> some View {
         let slotBinding = Binding<SplitBuilderEditableSlot>(
             get: {
@@ -169,7 +213,92 @@ struct DynamicProgramBlockTemplateEditorSection: View {
                 onSlotFieldChange()
             }
         )
+
+        if slotBinding.wrappedValue.modality == .cardio {
+            cardioTemplateSlotRow(day: day, slotId: slotId, slotBinding: slotBinding)
+        } else {
+            strengthTemplateSlotRow(day: day, slotId: slotId, slotBinding: slotBinding)
+        }
+    }
+
+    private func cardioTemplateSlotRow(
+        day: Binding<SplitBuilderEditableDay>,
+        slotId: UUID,
+        slotBinding: Binding<SplitBuilderEditableSlot>
+    ) -> some View {
+        let exercise = slotBinding.wrappedValue.suggestedExerciseOverrideId.flatMap { id in
+            dataManager.globalExercises.first { $0.id == id }
+        }
+        let prescription = slotBinding.wrappedValue.cardioPrescription
+            ?? CardioPrescription(kind: .steadyState, targetDurationSec: 30 * 60, targetZone: .zone2)
+
         return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "figure.run")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(FitlogPalette.chartSecondary)
+                Text("Cardio")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(FitlogPalette.chartSecondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(FitlogPalette.chartSecondary.opacity(0.14)))
+                Spacer(minLength: 0)
+            }
+            .accessibilityHidden(true)
+
+            TextField("Slot label", text: Binding(
+                get: { slotBinding.wrappedValue.label },
+                set: { var s = slotBinding.wrappedValue; s.label = $0; slotBinding.wrappedValue = s }
+            ))
+            .accessibilityLabel("Cardio slot label")
+
+            CardioPrescriptionRowView(prescription: prescription, exercise: exercise)
+
+            Text(slotBinding.wrappedValue.suggestedExerciseName ?? "Pick a cardio exercise")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if enableManualSlotChrome {
+                HStack(spacing: 10) {
+                    Button {
+                        slotDetailTarget = SlotEditorTarget(dayId: day.wrappedValue.id, slotId: slotId)
+                    } label: {
+                        Label("Prescription", systemImage: "slider.horizontal.3")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(FitlogPalette.chartSecondary)
+                    .accessibilityHint("Edit duration, intervals, and targets for this cardio slot.")
+
+                    Button {
+                        slotLibraryTarget = SlotEditorTarget(dayId: day.wrappedValue.id, slotId: slotId)
+                    } label: {
+                        Label("Exercise", systemImage: "figure.run")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .tint(FitlogPalette.chartSecondary)
+                    .accessibilityHint("Pick a cardio or hybrid exercise from your library.")
+                }
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(FitlogPalette.chartSecondary.opacity(0.08))
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Cardio slot, \(slotBinding.wrappedValue.label)")
+    }
+
+    private func strengthTemplateSlotRow(
+        day: Binding<SplitBuilderEditableDay>,
+        slotId: UUID,
+        slotBinding: Binding<SplitBuilderEditableSlot>
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
             if enableManualSlotChrome {
                 HStack(spacing: 6) {
                     Text((slotBinding.wrappedValue.setScheme ?? SetScheme(kind: .fixed)).displayLabel)

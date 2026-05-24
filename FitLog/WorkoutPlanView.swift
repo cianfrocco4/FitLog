@@ -65,6 +65,15 @@ struct WorkoutPlanView: View {
     @State private var openSlotEditorNavigation: OpenSlotEditorNavigation?
     @State private var progressionSuggestions: [UUID: ProgressionSuggestion] = [:]
     @State private var showAIExerciseSuggestSheet = false
+    @State private var showCardioBuilder = false
+    @State private var showCardioExercisePicker = false
+    @State private var cardioPrescriptionEdit: CardioPrescriptionEditItem?
+
+    private struct CardioPrescriptionEditItem: Identifiable {
+        let id: UUID
+        let exerciseName: String
+        var prescription: CardioPrescription
+    }
 
     /// Active session started from this library workout (`sessionInstance` uses a different workout id).
     private var isThisLibrarySessionActive: Bool {
@@ -219,6 +228,42 @@ struct WorkoutPlanView: View {
             .environment(dataVM)
             .environmentObject(aiService)
         }
+        .sheet(isPresented: $showCardioBuilder) {
+            NavigationStack {
+                CardioWorkoutBuilderView(workoutId: workout.id, dataManager: dataVM)
+                    .environment(dataVM)
+            }
+        }
+        .sheet(isPresented: $showCardioExercisePicker) {
+            CardioExercisePickerSheet { exercise in
+                let rx = defaultCardioPrescription(for: exercise)
+                _ = dataVM.addCardioExercise(to: workout, exercise: exercise, prescription: rx)
+                if let updated = dataVM.workout(id: workout.id) {
+                    workout = updated
+                    currentVM.syncExercises(withUpdatedWorkout: updated)
+                }
+            }
+            .environment(dataVM)
+        }
+        .sheet(item: $cardioPrescriptionEdit) { item in
+            CardioRowPrescriptionEditorSheet(
+                workoutId: workout.id,
+                rowId: item.id,
+                exerciseName: item.exerciseName,
+                prescription: item.prescription
+            )
+            .environment(dataVM)
+        }
+    }
+
+    private func defaultCardioPrescription(for exercise: Exercise) -> CardioPrescription {
+        let metric = exercise.cardioMetadata?.primaryMetric ?? .time
+        switch metric {
+        case .distance:
+            return CardioPrescription(kind: .steadyState, targetDurationSec: 20 * 60, targetDistanceM: 3_000)
+        default:
+            return CardioPrescription(kind: .steadyState, targetDurationSec: 30 * 60, targetZone: .zone2)
+        }
     }
 
     private var progressionRefreshKey: String {
@@ -342,9 +387,26 @@ struct WorkoutPlanView: View {
 
     private var workoutSummarySection: some View {
         Section {
+            if workout.workoutKind != .strength {
+                LabeledContent("Workout type") {
+                    Text(workout.workoutKind.displayName)
+                        .foregroundStyle(FitlogPalette.chartSecondary)
+                        .fontWeight(.medium)
+                }
+            }
             LabeledContent("Exercises", value: "\(workout.exercises.count)")
             LabeledContent("Planned sets (sum)", value: "\(workoutTotalRecommendedSets)")
-            LabeledContent("Top muscles (by sets)", value: workoutPrimaryMuscleSummary)
+            if workout.workoutKind == .strength || workout.workoutKind == .hybrid {
+                LabeledContent("Top muscles (by sets)", value: workoutPrimaryMuscleSummary)
+            }
+            if workout.workoutKind == .cardio || workout.workoutKind == .hybrid {
+                Button {
+                    showCardioBuilder = true
+                } label: {
+                    Label("Open cardio builder", systemImage: "figure.run")
+                }
+                .accessibilityHint("Edit cardio prescriptions and templates")
+            }
             if workout.exercises.isEmpty {
                 Text("Add movements below, or use Add → Suggest exercises for starter ideas.")
                     .font(.caption)
@@ -419,6 +481,13 @@ struct WorkoutPlanView: View {
     private var addMenuSection: some View {
         Section {
             Menu {
+                if workout.workoutKind == .cardio || workout.workoutKind == .hybrid {
+                    Button {
+                        showCardioExercisePicker = true
+                    } label: {
+                        Label("Cardio exercise…", systemImage: "figure.run")
+                    }
+                }
                 Button {
                     addExercisePresentation = .quickAdd
                 } label: {
@@ -500,10 +569,9 @@ struct WorkoutPlanView: View {
                     progressionBadge(suggestion)
                 }
                 Spacer()
-                Text("Rec: \(we.recommendedSets) sets x \(we.recommendedReps)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                strengthRecLabel(for: we)
             }
+            cardioPrescriptionBlock(for: we)
             if let suggestion = progression {
                 Text(suggestion.shortLine)
                     .font(.caption2)
@@ -522,10 +590,9 @@ struct WorkoutPlanView: View {
                     progressionBadge(suggestion)
                 }
                 Spacer()
-                Text("Rec: \(we.recommendedSets) sets x \(we.recommendedReps)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                strengthRecLabel(for: we)
             }
+            cardioPrescriptionBlock(for: we)
             if let suggestion = progression {
                 Text(suggestion.shortLine)
                     .font(.caption2)
@@ -533,6 +600,33 @@ struct WorkoutPlanView: View {
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func strengthRecLabel(for we: WorkoutExercise) -> some View {
+        if we.effectiveCardioPrescription == nil {
+            Text("Rec: \(we.recommendedSets) sets x \(we.recommendedReps)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func cardioPrescriptionBlock(for we: WorkoutExercise) -> some View {
+        if let rx = we.effectiveCardioPrescription {
+            let exercise = we.exerciseId.flatMap { id in dataVM.globalExercises.first { $0.id == id } }
+            Button {
+                cardioPrescriptionEdit = CardioPrescriptionEditItem(
+                    id: we.id,
+                    exerciseName: dataVM.displayName(for: we),
+                    prescription: rx
+                )
+            } label: {
+                CardioPrescriptionRowView(prescription: rx, exercise: exercise)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Edit cardio prescription")
         }
     }
 

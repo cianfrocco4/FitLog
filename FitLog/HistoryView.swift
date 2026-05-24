@@ -752,6 +752,7 @@ struct HistoryView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     workoutsPerWeekChart
                     volumePerWeekChart
+                    cardioVolumePerWeekChart
                     setsPerWeekChart
                 }
                 .padding(.vertical, 6)
@@ -1086,6 +1087,107 @@ struct HistoryView: View {
         return volumeByWeek
             .map { WeekVolumeData(id: $0.key, weekStart: $0.key, volume: $0.value) }
             .sorted { $0.weekStart < $1.weekStart }
+    }
+
+    private struct WeekCardioData: Identifiable {
+        let id: Date
+        let weekStart: Date
+        let minutes: Double
+        let distanceKm: Double
+    }
+
+    private var weeklyCardioFiltered: [WeekCardioData] {
+        let calendar = Calendar.current
+        var byWeek: [Date: (seconds: Int, meters: Double)] = [:]
+        for session in filteredSessions {
+            let d = session.endTime ?? session.startTime
+            let weekStart = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: d)) ?? d
+            let agg = CardioSessionAggregatesCalculator.aggregates(for: session, exercises: dataVM.globalExercises)
+            guard agg.hasCardio else { continue }
+            var bucket = byWeek[weekStart] ?? (0, 0)
+            bucket.seconds += agg.durationSeconds
+            bucket.meters += agg.distanceMeters
+            byWeek[weekStart] = bucket
+        }
+        return byWeek
+            .map { WeekCardioData(
+                id: $0.key,
+                weekStart: $0.key,
+                minutes: Double($0.value.seconds) / 60.0,
+                distanceKm: $0.value.meters / 1000.0
+            ) }
+            .sorted { $0.weekStart < $1.weekStart }
+    }
+
+    private var weeklyCardioMinutesAverage: Double? {
+        let values = weeklyCardioFiltered.map(\.minutes)
+        guard !values.isEmpty else { return nil }
+        return values.reduce(0, +) / Double(values.count)
+    }
+
+    private var cardioVolumePerWeekChart: some View {
+        HistoryChartCard(title: "Cardio volume") {
+            if weeklyCardioFiltered.isEmpty {
+                CardioEmptyStateView(
+                    title: "No cardio in this range",
+                    message: "Complete a cardio or hybrid workout to see weekly minutes and distance here.",
+                    primaryTitle: "Build cardio workout",
+                    onPrimary: {
+                        NotificationCenter.default.post(
+                            name: .fitlogPresentNewWorkout,
+                            object: NewWorkoutLaunchHint.cardioFirst
+                        )
+                    },
+                    secondaryTitle: nil,
+                    onSecondary: nil
+                )
+            } else {
+                Chart {
+                    ForEach(weeklyCardioFiltered) { row in
+                        BarMark(
+                            x: .value("Week", row.weekStart),
+                            y: .value("Minutes", row.minutes)
+                        )
+                        .foregroundStyle(FitlogPalette.chartSecondary.gradient)
+                        .annotation(position: .top, spacing: 2) {
+                            if row.distanceKm >= 0.1 {
+                                Text(String(format: "%.1f km", row.distanceKm))
+                                    .font(.caption2)
+                                    .foregroundStyle(FitlogPalette.success)
+                            }
+                        }
+                    }
+                    if let avg = weeklyCardioMinutesAverage {
+                        RuleMark(y: .value("Avg minutes", avg))
+                            .foregroundStyle(Color.secondary.opacity(0.45))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                            .annotation(position: .top, alignment: .trailing) {
+                                Text("avg \(Int(avg.rounded()))m")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                    }
+                }
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: .weekOfYear)) { _ in
+                        AxisGridLine()
+                        AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks { value in
+                        AxisGridLine()
+                        AxisValueLabel {
+                            if let m = value.as(Double.self) {
+                                Text("\(Int(m))m")
+                            }
+                        }
+                    }
+                }
+                .frame(height: 196)
+                .accessibilityLabel("Weekly cardio minutes with distance labels")
+            }
+        }
     }
 
     private var weeklySetCountsFiltered: [WeekData] {
@@ -1490,12 +1592,41 @@ private struct SessionDetailView: View {
                     Text("Continues this session with the same logged sets and progress. This finished entry stays in your history until you complete the new run.")
                 }
             }
+            let sessionCardio = CardioSessionAggregatesCalculator.aggregates(
+                for: session,
+                exercises: dataVM.globalExercises
+            )
+            if sessionCardio.hasCardio {
+                Section("Cardio summary") {
+                    CardioCompletionRingView(
+                        durationSeconds: sessionCardio.durationSeconds,
+                        distanceMeters: sessionCardio.distanceMeters,
+                        durationGoalSeconds: nil,
+                        distanceGoalMeters: nil
+                    )
+                    LabeledContent("Segments", value: "\(sessionCardio.segmentCount)")
+                }
+            }
+
             ForEach(session.exerciseLogs) { log in
                 Section {
-                    ForEach(log.loggedSets) { set in
+                    let showCardioTimeline = log.loggedSets.contains(where: { $0.isCardioEntry })
+                        && log.loggedSets.allSatisfy { $0.isCardioEntry || $0.countsTowardCardioTotals }
+                    if showCardioTimeline {
+                        CardioIntervalTimelineView(loggedSets: log.loggedSets)
+                            .padding(.vertical, 4)
+                    }
+                    let listedSets = showCardioTimeline
+                        ? log.loggedSets.filter { !$0.isCardioEntry }
+                        : log.loggedSets
+                    ForEach(listedSets) { set in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
-                                Text(set.weightRepsDisplaySummary(displayUnit: userPreferences.weightDisplayUnit))
+                                Text(
+                                    set.isCardioEntry
+                                        ? set.cardioDisplaySummary
+                                        : set.weightRepsDisplaySummary(displayUnit: userPreferences.weightDisplayUnit)
+                                )
                                 if let badge = set.setTypeBadgeLabel {
                                     Text(badge)
                                         .font(.caption)

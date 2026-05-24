@@ -77,6 +77,33 @@ enum WorkoutKind: String, Codable, CaseIterable, Identifiable, Hashable, Sendabl
     }
 }
 
+// MARK: - Program builder cardio preference
+
+/// How cardio is woven into a training program (wizard + mapper).
+enum CardioProgramPreference: String, CaseIterable, Identifiable, Sendable {
+    case none = "None — strength only"
+    case postWorkout = "Post-workout cardio (add cardio finisher slots to strength days)"
+    case dedicatedDays = "Dedicated cardio days (separate cardio-only rotation days)"
+    case mixed = "Mixed (some days strength, some cardio, some both)"
+
+    var id: String { rawValue }
+
+    static func fromStored(_ raw: String?) -> CardioProgramPreference {
+        guard let raw, let match = Self.allCases.first(where: { $0.rawValue == raw }) else {
+            return .none
+        }
+        return match
+    }
+
+    var includesPostWorkoutFinishers: Bool {
+        self == .postWorkout || self == .mixed
+    }
+
+    var includesDedicatedCardioDays: Bool {
+        self == .dedicatedDays || self == .mixed
+    }
+}
+
 // MARK: - Exercise metadata
 
 enum CardioActivityKind: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
@@ -105,6 +132,21 @@ enum CardioActivityKind: String, Codable, CaseIterable, Identifiable, Hashable, 
         case .jumpRope: return "Jump Rope"
         case .hiit: return "HIIT"
         case .generic: return "Cardio"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .run: return "figure.run"
+        case .walk: return "figure.walk"
+        case .cycle: return "bicycle"
+        case .row: return "figure.rower"
+        case .swim: return "figure.pool.swim"
+        case .elliptical: return "figure.elliptical"
+        case .stairClimber: return "figure.stairs"
+        case .jumpRope: return "figure.jumprope"
+        case .hiit: return "bolt.heart.fill"
+        case .generic: return "heart.fill"
         }
     }
 }

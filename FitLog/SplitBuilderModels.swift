@@ -218,32 +218,117 @@ struct SplitBuilderEditableDay: Identifiable, Equatable, Codable, Hashable {
     }
 }
 
+extension SplitBuilderEditableSlot {
+    private static let cardioRepsTokens: Set<String> = ["steady", "intervals", "circuit", "cardio"]
+
+    /// Promotes AI/local proposal slots that describe cardio work to `.cardio` modality with a default prescription.
+    static func promotedFromProposal(
+        label: String,
+        targetMuscleNames: [String],
+        sets: Int,
+        reps: String,
+        suggestedExerciseName: String?,
+        suggestedExerciseOverrideId: UUID?,
+        library: [Exercise]
+    ) -> SplitBuilderEditableSlot {
+        var slot = SplitBuilderEditableSlot(
+            label: label,
+            targetMuscleNames: targetMuscleNames,
+            sets: sets,
+            reps: reps,
+            suggestedExerciseName: suggestedExerciseName,
+            suggestedExerciseOverrideId: suggestedExerciseOverrideId
+        )
+        let repsLower = reps.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let isCardioReps = cardioRepsTokens.contains(repsLower)
+        let isCardioExercise: Bool = {
+            if let id = suggestedExerciseOverrideId,
+               let ex = library.first(where: { $0.id == id }) {
+                return ex.modality == .cardio || ex.modality == .hybrid
+            }
+            if let name = suggestedExerciseName,
+               let ex = library.first(where: { $0.name == name }) {
+                return ex.modality == .cardio || ex.modality == .hybrid
+            }
+            return false
+        }()
+        guard isCardioReps || isCardioExercise else { return slot }
+
+        slot.modality = .cardio
+        slot.cardioPrescription = defaultCardioPrescription(forReps: repsLower, sets: sets)
+        switch repsLower {
+        case "intervals":
+            slot.sets = max(1, sets)
+            slot.reps = "intervals"
+        case "circuit":
+            slot.sets = 1
+            slot.reps = "circuit"
+        case "steady":
+            slot.sets = 1
+            slot.reps = "steady"
+        default:
+            slot.sets = 1
+            slot.reps = "cardio"
+        }
+        return slot
+    }
+
+    private static func defaultCardioPrescription(forReps reps: String, sets: Int) -> CardioPrescription {
+        switch reps {
+        case "intervals":
+            return CardioPrescription(
+                kind: .intervals,
+                intervals: [
+                    CardioIntervalSpec(
+                        workDurationSec: 30,
+                        restDurationSec: 30,
+                        targetZone: .zone4,
+                        repeatCount: max(1, sets)
+                    )
+                ]
+            )
+        case "circuit":
+            return CardioPrescription(kind: .circuit, targetDurationSec: 20 * 60)
+        case "steady":
+            return CardioPrescription(
+                kind: .steadyState,
+                targetDurationSec: 30 * 60,
+                targetZone: .zone2
+            )
+        default:
+            return CardioPrescription(kind: .custom, targetDurationSec: 20 * 60)
+        }
+    }
+}
+
 extension SplitBuilderEditableDay {
-    init(from proposalDay: WorkoutSplitProposalDay) {
+    init(from proposalDay: WorkoutSplitProposalDay, library: [Exercise] = []) {
         self.id = UUID()
         self.name = proposalDay.name
         self.focus = proposalDay.focus ?? ""
         self.dayNotes = nil
         if !proposalDay.slots.isEmpty {
             self.slots = proposalDay.slots.map {
-                SplitBuilderEditableSlot(
+                SplitBuilderEditableSlot.promotedFromProposal(
                     label: $0.label,
                     targetMuscleNames: $0.targetMuscleNames,
                     sets: $0.sets,
                     reps: $0.reps,
                     suggestedExerciseName: $0.suggestedExerciseName,
-                    suggestedExerciseOverrideId: $0.suggestedExerciseOverrideId
+                    suggestedExerciseOverrideId: $0.suggestedExerciseOverrideId,
+                    library: library
                 )
             }
         } else {
             self.slots = proposalDay.exercises.map {
-                SplitBuilderEditableSlot(
+                SplitBuilderEditableSlot.promotedFromProposal(
                     label: $0.name,
                     targetMuscleNames: [MuscleGroup.other.rawValue],
                     sets: $0.sets,
                     reps: $0.reps,
                     suggestedExerciseName: $0.name,
-                    suggestedExerciseOverrideId: $0.libraryExerciseOverrideId
+                    suggestedExerciseOverrideId: $0.libraryExerciseOverrideId,
+                    library: library
                 )
             }
         }

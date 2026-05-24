@@ -10,6 +10,7 @@ enum PostOnboardingRoutineAction: Equatable {
     case coachAISplit
     case homeNewWorkoutTemplates
     case homeNewWorkoutScratch
+    case homeCardioQuickStart
 }
 
 struct OnboardingFlowView: View {
@@ -78,11 +79,15 @@ struct OnboardingFlowView: View {
             Text("Welcome to FitLog")
                 .font(.largeTitle.weight(.bold))
                 .multilineTextAlignment(.center)
-            Text("Track workouts, follow your plan, and see strength trends over time.")
+            Text("Track strength and cardio in one place — sets, intervals, weekly trends, and Apple Health export.")
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
+            Label("Log runs, rides, and intervals alongside your lifts", systemImage: "figure.run")
+                .font(.subheadline)
+                .foregroundStyle(FitlogPalette.chartSecondary)
+                .padding(.top, 4)
             Spacer()
         }
         .padding()
@@ -122,6 +127,7 @@ struct OnboardingFlowView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .accessibilityHint("Opens the coach to generate a training split")
 
                 Button {
                     finishWithAction(.homeNewWorkoutTemplates)
@@ -130,6 +136,7 @@ struct OnboardingFlowView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
+                .accessibilityHint("Opens Home with workout templates")
 
                 Button {
                     finishWithAction(.homeNewWorkoutScratch)
@@ -138,6 +145,17 @@ struct OnboardingFlowView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
+                .accessibilityHint("Opens Home to create a custom workout")
+
+                Button {
+                    finishWithAction(.homeCardioQuickStart)
+                } label: {
+                    Label("Build a cardio workout", systemImage: "figure.run")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(FitlogPalette.chartSecondary)
+                .accessibilityHint("Opens the cardio workout builder with interval and steady templates")
 
                 Button("Skip for now") {
                     withAnimation {
@@ -162,6 +180,8 @@ struct OnboardingFlowView: View {
             Label("Home shows today’s plan and your week.", systemImage: "house")
             Label("Plan is your calendar and training program.", systemImage: "calendar")
             Label("History holds every completed session.", systemImage: "chart.bar")
+            Label("Cardio templates cover steady state, intervals, and hybrid days.", systemImage: "figure.run")
+                .foregroundStyle(FitlogPalette.chartSecondary)
             Text("Tap Done to start logging, or use Skip anytime.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)

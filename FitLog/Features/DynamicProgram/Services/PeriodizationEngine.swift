@@ -149,6 +149,30 @@ struct PeriodizationEngine: Sendable {
     /// +1 working set per slot (capped) so remaining days absorb a bit of the missed busy-day volume.
     private static func augmentSetsForCompress(_ template: BlockWeeklyTemplate) -> BlockWeeklyTemplate {
         let slots = template.slots.map { slot -> SplitBuilderEditableSlot in
+            if slot.modality == .cardio, var rx = slot.cardioPrescription {
+                if let sec = rx.targetDurationSec, sec > 0 {
+                    rx.targetDurationSec = min(sec + 300, sec + Int((Double(sec) * 0.1).rounded()))
+                }
+                return SplitBuilderEditableSlot(
+                    id: slot.id,
+                    label: slot.label,
+                    targetMuscleNames: slot.targetMuscleNames,
+                    sets: slot.sets,
+                    reps: slot.reps,
+                    suggestedExerciseName: slot.suggestedExerciseName,
+                    suggestedExerciseOverrideId: slot.suggestedExerciseOverrideId,
+                    setScheme: slot.setScheme,
+                    grouping: slot.grouping,
+                    progressionRule: slot.progressionRule,
+                    restSeconds: slot.restSeconds,
+                    notes: slot.notes,
+                    equipmentTags: slot.equipmentTags,
+                    isWarmUp: slot.isWarmUp,
+                    substitutionExerciseIds: slot.substitutionExerciseIds,
+                    modality: slot.modality,
+                    cardioPrescription: rx
+                )
+            }
             let bumped = min(10, slot.sets + 1)
             return slot.updatingSets(bumped)
         }

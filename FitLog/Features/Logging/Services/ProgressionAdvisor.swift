@@ -152,7 +152,7 @@ enum ProgressionAdvisor {
         switch focusKind {
         case .strength: return 3 ... 6
         case .power: return 2 ... 5
-        case .endurance: return 10 ... 18
+        case .endurance, .hybrid: return 10 ... 18
         case .deload: return 6 ... 10
         case .hypertrophy, .general, .none: return 5 ... 10
         }
@@ -165,7 +165,7 @@ enum ProgressionAdvisor {
             return max(base.lowerBound, 3) ... min(max(base.upperBound, 5), 8)
         case .hypertrophy, .general:
             return max(base.lowerBound, 6) ... max(base.upperBound, 12)
-        case .endurance:
+        case .endurance, .hybrid:
             return max(base.lowerBound, 12) ... max(base.upperBound, 22)
         case .power:
             return max(base.lowerBound, 2) ... min(max(base.upperBound, 6), 8)

@@ -26,6 +26,8 @@ struct SessionQuickAddExerciseSheet: View {
     @State private var favoriteIds: Set<UUID> = []
     @State private var recentIds: [UUID] = []
     @State private var showCreateCustomExercise = false
+    @State private var showCardioExercisePicker = false
+    @State private var showCardioResolveFailureAlert = false
 
     @State private var suggestedExercises: [Exercise] = []
     @State private var favoriteExercises: [Exercise] = []
@@ -40,6 +42,66 @@ struct SessionQuickAddExerciseSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(CardioQuickAddTemplate.all) { template in
+                                Button {
+                                    addQuickCardio(template)
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Image(systemName: template.systemImage)
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(FitlogPalette.chartSecondary)
+                                        Text(template.name)
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundStyle(.primary)
+                                        Text(template.subtitle)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                            .multilineTextAlignment(.leading)
+                                    }
+                                    .frame(width: 132, alignment: .leading)
+                                    .padding(12)
+                                    .background(FitlogPalette.chartSecondary.opacity(0.12))
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("\(template.name), \(template.subtitle)")
+                                .accessibilityHint("Adds this cardio template to your active workout.")
+                            }
+                            Button {
+                                showCardioExercisePicker = true
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Image(systemName: "ellipsis.circle")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(FitlogPalette.chartSecondary)
+                                    Text("Custom…")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.primary)
+                                    Text("Pick exercise")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .frame(width: 100, alignment: .leading)
+                                .padding(12)
+                                .background(Color.primary.opacity(0.045))
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                } header: {
+                    Text("Quick cardio")
+                } footer: {
+                    Text("Adds a cardio segment to this workout without leaving your session.")
+                        .font(.caption)
+                }
+
                 if !suggestedExercises.isEmpty {
                     Section {
                         ForEach(suggestedExercises) { ex in
@@ -177,7 +239,39 @@ struct SessionQuickAddExerciseSheet: View {
                 .environment(dataVM)
                 .environmentObject(aiService)
             }
+            .sheet(isPresented: $showCardioExercisePicker) {
+                CardioExercisePickerSheet { exercise in
+                    let prescription = CardioPrescription(
+                        kind: .steadyState,
+                        targetDurationSec: 20 * 60,
+                        targetZone: .zone2
+                    )
+                    currentVM.appendCardioExerciseToSession(exercise: exercise, prescription: prescription)
+                    dismiss()
+                }
+                .environment(dataVM)
+            }
+            .alert(
+                "No cardio exercises",
+                isPresented: $showCardioResolveFailureAlert
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Add a cardio exercise to your library first, then try again.")
+            }
         }
+    }
+
+    private func addQuickCardio(_ template: CardioQuickAddTemplate) {
+        guard let exercise = template.resolveExercise(in: dataVM.globalExercises) else {
+            showCardioResolveFailureAlert = true
+            return
+        }
+        guard currentVM.appendCardioExerciseToSession(exercise: exercise, prescription: template.prescription) else {
+            showCardioResolveFailureAlert = true
+            return
+        }
+        dismiss()
     }
 
     private static let searchResultsCap = 150

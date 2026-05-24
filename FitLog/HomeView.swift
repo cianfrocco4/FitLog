@@ -41,6 +41,7 @@ struct HomeView: View {
     @State private var homeFirstPaintSkeleton = true
     @State private var homeBlockTransitionToast: String?
     @State private var homeBlockTransitionToastSerial = 0
+    @State private var showCardioResolveFailureAlert = false
 
     private var homeRefreshKey: String {
         let cycleSig = dataVM.trainingProgram.cycleEntries.map(\.cacheKey).joined(separator: ",")
@@ -257,6 +258,13 @@ struct HomeView: View {
 
                         if let progress = cachedProgressSummary {
                             progressSummaryCard(progress)
+                                .listRowInsets(homeDashboardListInsets)
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                        }
+
+                        if !dataVM.hasLoggedCardio() {
+                            cardioGetStartedCard
                                 .listRowInsets(homeDashboardListInsets)
                                 .listRowSeparator(.hidden)
                                 .listRowBackground(Color.clear)
@@ -515,6 +523,14 @@ struct HomeView: View {
                         dataVM.renameWorkout(workout, newName: renameText)
                     }
                 }
+            }
+            .alert(
+                "No cardio exercises",
+                isPresented: $showCardioResolveFailureAlert
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Add a cardio exercise to your library first, then try again.")
             }
             .navigationDestination(item: $todayPlanDetailRoute) { route in
                 switch route {
@@ -855,31 +871,99 @@ struct HomeView: View {
         .clipShape(RoundedRectangle(cornerRadius: 20))
     }
 
+    private var cardioGetStartedCard: some View {
+        let hasCardioLibrary = dataVM.hasCardioWorkoutInLibrary()
+        return VStack(alignment: .leading, spacing: 12) {
+            CardioEmptyStateView(
+                title: hasCardioLibrary
+                    ? "Log your first cardio session"
+                    : "Build your first cardio workout",
+                message: "Use interval or steady-state templates, then track time and distance while you train.",
+                primaryTitle: hasCardioLibrary ? "Start cardio workout" : "Build cardio workout",
+                primaryAccessibilityHint: hasCardioLibrary
+                    ? "Starts your saved cardio workout"
+                    : "Opens the cardio workout builder",
+                onPrimary: {
+                    if hasCardioLibrary,
+                       let workout = dataVM.userWorkouts.first(where: { $0.workoutKind == .cardio || $0.workoutKind == .hybrid }) {
+                        startWorkoutFromLibrary(workout)
+                    } else {
+                        newWorkoutLaunchHint = .cardioFirst
+                        showNewWorkout = true
+                    }
+                },
+                secondaryTitle: nil,
+                onSecondary: nil
+            )
+
+            if !currentVM.isInProgress {
+                Text("Quick cardio")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityAddTraits(.isHeader)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(CardioQuickAddTemplate.all) { template in
+                            Button {
+                                startInstantCardio(template)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Image(systemName: template.systemImage)
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(FitlogPalette.chartSecondary)
+                                    Text(template.name)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.primary)
+                                    Text(template.subtitle)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                        .multilineTextAlignment(.leading)
+                                }
+                                .frame(width: 132, alignment: .leading)
+                                .padding(12)
+                                .background(FitlogPalette.chartSecondary.opacity(0.12))
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("\(template.name), \(template.subtitle)")
+                            .accessibilityHint("Starts a cardio session immediately with this template.")
+                        }
+                    }
+                }
+            }
+        }
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+    }
+
+    private func startInstantCardio(_ template: CardioQuickAddTemplate) {
+        guard let exercise = template.resolveExercise(in: dataVM.globalExercises) else {
+            showCardioResolveFailureAlert = true
+            return
+        }
+        let quickWorkoutName = "Quick \(template.name)"
+        if let existing = dataVM.userWorkouts.first(where: {
+            $0.workoutKind == .cardio && $0.name == quickWorkoutName
+        }) {
+            startWorkoutFromLibrary(existing)
+            return
+        }
+        let workoutId = dataVM.createCardioWorkout(name: quickWorkoutName, kind: .cardio)
+        guard let created = dataVM.workout(id: workoutId) else { return }
+        _ = dataVM.addCardioExercise(to: created, exercise: exercise, prescription: template.prescription)
+        guard let updated = dataVM.workout(id: workoutId) else { return }
+        startWorkoutFromLibrary(updated)
+    }
+
     private func progressSummaryCard(_ summary: HomeProgressSummary) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Progress", systemImage: "chart.line.uptrend.xyaxis")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
+                .accessibilityAddTraits(.isHeader)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 10) {
-                    metricChip(
-                        title: "Strength",
-                        value: "\(summary.strengthScore.score)",
-                        subtitle: strengthScoreDeltaLine(summary.strengthScore)
-                    )
-                    metricChip(
-                        title: "PRs (week)",
-                        value: "\(summary.weeklyPRCount)",
-                        subtitle: summary.weeklyPRCount == 0 ? "Keep pushing" : "New records"
-                    )
-                    metricChip(
-                        title: "Streak",
-                        value: "\(summary.dayStreak)d",
-                        subtitle: summary.weekStreak > 0 ? "\(summary.weekStreak)w consistency" : "Build momentum"
-                    )
-                }
-            }
+            progressChipRow(summary)
 
             strengthTrendSparkline(summary.strengthScore.trend)
 
@@ -909,6 +993,47 @@ struct HomeView: View {
         .clipShape(RoundedRectangle(cornerRadius: 20))
     }
 
+    private func progressChipRow(_ summary: HomeProgressSummary) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 10) {
+                progressChips(summary)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 10) {
+                    progressChips(summary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func progressChips(_ summary: HomeProgressSummary) -> some View {
+        metricChip(
+            title: "Strength",
+            value: "\(summary.strengthScore.score)",
+            subtitle: strengthScoreDeltaLine(summary.strengthScore)
+        )
+        metricChip(
+            title: "PRs (week)",
+            value: "\(summary.weeklyPRCount)",
+            subtitle: summary.weeklyPRCount == 0 ? "Keep pushing" : "New records"
+        )
+        metricChip(
+            title: "Streak",
+            value: "\(summary.dayStreak)d",
+            subtitle: summary.weekStreak > 0 ? "\(summary.weekStreak)w consistency" : "Build momentum"
+        )
+        if summary.weeklyCardioMinutes > 0 || summary.cardioDistanceKm > 0.01 {
+            metricChip(
+                title: "Cardio",
+                value: "\(summary.weeklyCardioMinutes)m",
+                subtitle: summary.cardioDistanceKm >= 0.1
+                    ? String(format: "%.1f km this week", summary.cardioDistanceKm)
+                    : "\(summary.cardioStreakDays)d cardio streak"
+            )
+        }
+    }
+
     private func metricChip(title: String, value: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
@@ -916,15 +1041,20 @@ struct HomeView: View {
                 .foregroundStyle(.secondary)
             Text(value)
                 .font(.headline)
+                .minimumScaleFactor(0.8)
+                .lineLimit(1)
             Text(subtitle)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .lineLimit(2)
+                .minimumScaleFactor(0.85)
         }
-        .frame(width: 120, alignment: .leading)
+        .frame(minWidth: 108, maxWidth: 140, alignment: .leading)
         .frame(minHeight: 72, alignment: .top)
         .padding(10)
         .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title), \(value), \(subtitle)")
     }
 
     private func strengthScoreDeltaLine(_ summary: StrengthScoreSummary) -> String {

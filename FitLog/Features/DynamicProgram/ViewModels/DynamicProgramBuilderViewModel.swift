@@ -188,6 +188,7 @@ final class DynamicProgramBuilderViewModel {
             request.splitInput.recoveryContextNotes = String(t.prefix(400))
         }
         if let g = s.deloadPreferenceRaw { request.splitInput.deloadPreference = g }
+        if let g = s.cardioPreferenceRaw { request.splitInput.cardioPreference = g }
         if let g = s.variationModeRaw { request.splitInput.variationMode = g }
         if let n = s.customRotationLength {
             request.splitInput.desiredWorkoutRotationLength = min(max(1, n), 7)
@@ -242,6 +243,7 @@ final class DynamicProgramBuilderViewModel {
         state.priorityMusclesOrLiftsNotes = request.splitInput.priorityMusclesOrLiftsNotes
         state.recoveryContextNotes = request.splitInput.recoveryContextNotes
         state.deloadPreferenceRaw = request.splitInput.deloadPreference
+        state.cardioPreferenceRaw = request.splitInput.cardioPreference
         state.variationModeRaw = request.splitInput.variationMode
         state.customRotationLength = request.splitInput.desiredWorkoutRotationLength
         state.variationNotes = request.splitInput.variationNotes

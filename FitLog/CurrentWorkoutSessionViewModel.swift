@@ -61,6 +61,10 @@ final class CurrentWorkoutSessionViewModel {
     
     private var restTimer: Timer?
     private var workoutTimer: Timer?
+    /// Bumped each second while a cardio timer is active so views refresh elapsed/remaining labels.
+    private(set) var cardioTimerTick: Int = 0
+    var cardioSteadyTimer: CardioSteadyTimerState?
+    var cardioIntervalTimer: CardioIntervalTimerState?
     private var backgroundDate: Date?
     private var wasTimerRunning = false
     
@@ -124,6 +128,9 @@ final class CurrentWorkoutSessionViewModel {
         guard var session = currentSession else { return }
 
         normalizeConcreteSnapshotsOnExerciseLogs(&session.exerciseLogs)
+        currentSession = session
+        flushActiveCardioTimersBeforeStopping()
+        guard var session = currentSession else { return }
 
         session.endTime = Date()
 
@@ -156,6 +163,7 @@ final class CurrentWorkoutSessionViewModel {
             guard let eid = we.exerciseId,
                   let ex = dataManager.globalExercises.first(where: { $0.id == eid })
             else { continue }
+            we.cardioPrescription = we.cardioPrescription ?? we.effectiveCardioPrescription
             we.resolution = .concrete(ExerciseSnapshot(from: ex))
             logs[i].workoutExercise = we
         }
@@ -179,6 +187,7 @@ final class CurrentWorkoutSessionViewModel {
     
     func pauseWorkout() {
         guard currentSession != nil, workoutPausedAt == nil else { return }
+        pauseActiveCardioTimers()
         workoutPausedAt = Date()
         recordWorkoutActivity()
         saveTimerState()
@@ -192,6 +201,7 @@ final class CurrentWorkoutSessionViewModel {
         guard let pausedAt = workoutPausedAt else { return }
         totalPausedDuration += Date().timeIntervalSince(pausedAt)
         workoutPausedAt = nil
+        resumeActiveCardioTimers()
         recordWorkoutActivity()
         saveTimerState()
         saveActiveSession()
@@ -231,7 +241,11 @@ final class CurrentWorkoutSessionViewModel {
         guard currentSession != nil, workoutPausedAt == nil else { return }
         workoutTimer?.invalidate()
         workoutTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.updateWorkoutElapsed() }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.updateWorkoutElapsed()
+                self.tickCardioTimers()
+            }
         }
         RunLoop.main.add(workoutTimer!, forMode: .common)
     }
@@ -249,6 +263,8 @@ final class CurrentWorkoutSessionViewModel {
         UserDefaults.standard.set(totalPausedDuration, forKey: PersistenceKey.timerTotalPaused)
         UserDefaults.standard.set(workoutPausedAt != nil, forKey: PersistenceKey.timerIsPaused)
         UserDefaults.standard.set(workoutPausedAt?.timeIntervalSince1970, forKey: PersistenceKey.timerPausedAt)
+        CardioSessionTimerPersistence.save(steady: cardioSteadyTimer)
+        CardioSessionTimerPersistence.save(interval: cardioIntervalTimer)
     }
 
     private func clearPersistedActiveSession() {
@@ -257,6 +273,9 @@ final class CurrentWorkoutSessionViewModel {
         UserDefaults.standard.removeObject(forKey: PersistenceKey.timerTotalPaused)
         UserDefaults.standard.removeObject(forKey: PersistenceKey.timerIsPaused)
         UserDefaults.standard.removeObject(forKey: PersistenceKey.timerPausedAt)
+        cardioSteadyTimer = nil
+        cardioIntervalTimer = nil
+        CardioSessionTimerPersistence.clear()
     }
 
     private func restoreActiveSessionIfNeeded() {
@@ -267,6 +286,9 @@ final class CurrentWorkoutSessionViewModel {
             let wasPaused = UserDefaults.standard.bool(forKey: PersistenceKey.timerIsPaused)
             let pausedAtInterval = UserDefaults.standard.object(forKey: PersistenceKey.timerPausedAt) as? Double
             workoutPausedAt = wasPaused && pausedAtInterval != nil ? Date(timeIntervalSince1970: pausedAtInterval!) : nil
+            cardioSteadyTimer = CardioSessionTimerPersistence.loadSteady()
+            cardioIntervalTimer = CardioSessionTimerPersistence.loadInterval()
+            migrateLoadedCardioTimersIfNeeded()
             updateWorkoutElapsed()
             if workoutPausedAt == nil { startWorkoutTimer() }
             return
@@ -285,6 +307,9 @@ final class CurrentWorkoutSessionViewModel {
         // Immediately promote the legacy session into SwiftData so subsequent saves use the new path
         dataManager.sessionStore.upsertActiveSession(session)
         UserDefaults.standard.removeObject(forKey: PersistenceKey.activeSession)
+        cardioSteadyTimer = CardioSessionTimerPersistence.loadSteady()
+        cardioIntervalTimer = CardioSessionTimerPersistence.loadInterval()
+        migrateLoadedCardioTimersIfNeeded()
         updateWorkoutElapsed()
         if workoutPausedAt == nil { startWorkoutTimer() }
     }
@@ -317,6 +342,7 @@ final class CurrentWorkoutSessionViewModel {
         let validIds = Set(workout.exercises.map(\.id))
         let removedLogs = session.exerciseLogs.filter { !validIds.contains($0.workoutExercise.id) }
         for log in removedLogs {
+            cancelCardioTimers(forWorkoutExerciseId: log.workoutExercise.id)
             if let exId = log.workoutExercise.exerciseId {
                 session.activeExerciseIds.removeAll { $0 == exId }
                 session.completedExerciseIds.removeAll { $0 == exId }
@@ -325,6 +351,7 @@ final class CurrentWorkoutSessionViewModel {
         session.exerciseLogs.removeAll { !validIds.contains($0.workoutExercise.id) }
 
         currentSession = session
+        validateActiveCardioTimersAgainstSession()
         saveActiveSession()
     }
 
@@ -350,6 +377,68 @@ final class CurrentWorkoutSessionViewModel {
         currentSession = session
         recordWorkoutActivity()
         saveActiveSession()
+    }
+
+    /// Appends a cardio row with prescription to the active session (ad-hoc quick cardio).
+    /// Session-only — does not mutate library workout templates.
+    @discardableResult
+    func appendCardioExerciseToSession(exercise: Exercise, prescription: CardioPrescription) -> Bool {
+        guard var mutableSession = currentSession else { return false }
+        let recommendedSets: Int = {
+            switch prescription.kind {
+            case .intervals:
+                return max(1, prescription.intervals.reduce(0) { $0 + max(1, $1.repeatCount) })
+            default:
+                return 1
+            }
+        }()
+        let recommendedReps: String = {
+            switch prescription.kind {
+            case .intervals: return "intervals"
+            case .steadyState: return "steady"
+            case .circuit: return "circuit"
+            case .custom: return "cardio"
+            }
+        }()
+        let we = WorkoutExercise(
+            id: UUID(),
+            resolution: .concrete(ExerciseSnapshot(from: exercise)),
+            recommendedSets: recommendedSets,
+            recommendedReps: recommendedReps,
+            configurationFields: [],
+            recommendedConfigBySet: [],
+            cardioPrescription: prescription
+        )
+        mutableSession.workout.exercises.append(we)
+        mutableSession.exerciseLogs.append(ExerciseLog(id: UUID(), workoutExercise: we, loggedSets: []))
+        if let exId = we.exerciseId, !mutableSession.activeExerciseIds.contains(exId) {
+            mutableSession.activeExerciseIds.append(exId)
+        }
+        currentSession = mutableSession
+        recordWorkoutActivity()
+        saveActiveSession()
+        return true
+    }
+
+    /// Whether to offer an optional cardio finisher before completing the workout.
+    func shouldOfferCardioFinisherOnFinish() -> Bool {
+        guard let session = currentSession else { return false }
+        if session.workout.workoutKind == .cardio { return false }
+
+        let hasCardioLogged = session.exerciseLogs.contains { log in
+            log.loggedSets.contains { $0.countsTowardCardioTotals }
+        }
+        if hasCardioLogged { return false }
+
+        let hasCardioInSession = session.exerciseLogs.contains { log in
+            log.workoutExercise.effectiveCardioPrescription != nil
+        }
+        if hasCardioInSession { return false }
+
+        let pref = CardioProgramPreference.fromStored(
+            SplitBuilderPreferencesStore.load().cardioPreferenceRaw
+        )
+        return pref.includesPostWorkoutFinishers
     }
 
     /// Appends a new flexible slot to the backing library workout and a matching row to the active session.
@@ -433,6 +522,7 @@ final class CurrentWorkoutSessionViewModel {
         session.workout.templateSlotIdByWorkoutExerciseId.removeValue(forKey: rowId)
         session.exerciseLogs.removeAll { $0.workoutExercise.id == rowId }
 
+        cancelCardioTimers(forWorkoutExerciseId: rowId)
         currentSession = session
         recordWorkoutActivity()
         saveActiveSession()
@@ -524,6 +614,7 @@ final class CurrentWorkoutSessionViewModel {
                 session.activeExerciseIds.removeAll { $0 == oid }
                 session.completedExerciseIds.removeAll { $0 == oid }
             }
+            we.cardioPrescription = we.cardioPrescription ?? we.effectiveCardioPrescription
             we.resolution = .concrete(snap)
             session.workout.exercises[wi] = we
         }
@@ -538,6 +629,7 @@ final class CurrentWorkoutSessionViewModel {
                     session.completedExerciseIds.removeAll { $0 == oid }
                 }
             }
+            we.cardioPrescription = we.cardioPrescription ?? we.effectiveCardioPrescription
             we.resolution = .concrete(snap)
             session.exerciseLogs[li].workoutExercise = we
         }
@@ -587,6 +679,18 @@ final class CurrentWorkoutSessionViewModel {
     func repeatLastSet(exerciseIndex: Int) {
         guard let session = currentSession, exerciseIndex < session.exerciseLogs.count else { return }
         guard let last = session.exerciseLogs[exerciseIndex].loggedSets.last else { return }
+        if last.isCardioEntry, let metrics = last.cardioMetrics {
+            logCardioSet(
+                exerciseIndex: exerciseIndex,
+                durationSec: metrics.durationSec,
+                distanceM: metrics.distanceM,
+                heartRate: metrics.avgHeartRate,
+                calories: metrics.calories,
+                setType: last.setType,
+                source: metrics.source
+            )
+            return
+        }
         logSet(
             exerciseIndex: exerciseIndex,
             weight: last.weight,
@@ -892,6 +996,7 @@ final class CurrentWorkoutSessionViewModel {
         if currentSession != nil && workoutPausedAt == nil {
             updateWorkoutElapsed()
         }
+        catchUpCardioTimersAfterForeground()
     }
 
     // MARK: - Inactivity reminder
@@ -1070,6 +1175,445 @@ final class CurrentWorkoutSessionViewModel {
         case .needsReplaceConfirmation(let pending):
             onNeedReplaceConfirmation(pending)
         }
+    }
+
+    // MARK: - Cardio logging & timers
+
+    func logCardioSet(
+        exerciseIndex: Int,
+        durationSec: Int?,
+        distanceM: Double?,
+        heartRate: Int? = nil,
+        calories: Double? = nil,
+        setType: ExerciseSetType = .steadyState,
+        source: CardioMetricsSource = .manual
+    ) {
+        guard var session = currentSession, exerciseIndex < session.exerciseLogs.count else { return }
+        guard let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exerciseId else { return }
+
+        let resolvedType: ExerciseSetType = {
+            switch setType {
+            case .intervalWork, .intervalRest, .steadyState: return setType
+            default: return .steadyState
+            }
+        }()
+
+        var metrics = CardioMetrics(
+            durationSec: durationSec,
+            distanceM: distanceM,
+            avgHeartRate: heartRate,
+            calories: calories,
+            source: source
+        )
+        if let dist = distanceM, dist > 0, let sec = durationSec, sec > 0 {
+            metrics.avgPaceSecPerKm = Int(Double(sec) / (dist / 1000.0))
+        }
+
+        let set = LoggedSet(
+            id: UUID(),
+            weight: 0,
+            reps: 0,
+            restTime: 0,
+            timestamp: Date(),
+            setType: resolvedType,
+            configuration: [:],
+            dropSegments: [],
+            rpe: nil,
+            cardioMetrics: metrics
+        )
+
+        session.exerciseLogs[exerciseIndex].loggedSets.append(set)
+        activateExerciseIfNeeded(exerciseId: exId, session: &session)
+        let exerciseName = dataManager.displayName(for: session.exerciseLogs[exerciseIndex].workoutExercise)
+        let prEvents = dataManager.prStore.updateIfPR(
+            set: set,
+            exerciseId: exId,
+            exerciseName: exerciseName,
+            sessionId: session.id
+        )
+        currentSession = session
+        recentPersonalRecordEvent = prioritizedPREvent(from: prEvents)
+        recordWorkoutActivity()
+        saveActiveSession()
+    }
+
+    func startCardioSteadyTimer(exerciseIndex: Int) {
+        guard let session = currentSession,
+              exerciseIndex >= 0,
+              exerciseIndex < session.exerciseLogs.count
+        else { return }
+        let rowId = session.exerciseLogs[exerciseIndex].workoutExercise.id
+        cardioIntervalTimer = nil
+        cardioSteadyTimer = CardioSteadyTimerState(
+            workoutExerciseId: rowId,
+            segmentStartedAt: Date(),
+            accumulatedSeconds: 0,
+            isPaused: false
+        )
+        saveTimerState()
+    }
+
+    func pauseCardioSteadyTimer() {
+        guard var steady = cardioSteadyTimer, !steady.isPaused else { return }
+        steady.accumulatedSeconds = steadyElapsedSeconds(for: steady)
+        steady.isPaused = true
+        cardioSteadyTimer = steady
+        saveTimerState()
+    }
+
+    func resumeCardioSteadyTimer() {
+        guard !isWorkoutPaused, var steady = cardioSteadyTimer, steady.isPaused else { return }
+        steady.segmentStartedAt = Date()
+        steady.isPaused = false
+        cardioSteadyTimer = steady
+        saveTimerState()
+    }
+
+    @discardableResult
+    func stopCardioSteadyTimerAndLog(
+        exerciseIndex: Int,
+        distanceM: Double? = nil,
+        heartRate: Int? = nil,
+        calories: Double? = nil
+    ) -> LoggedSet? {
+        guard let session = currentSession,
+              let steady = cardioSteadyTimer,
+              let rowId = steady.resolvedWorkoutExerciseId(in: session),
+              logIndex(forWorkoutExerciseId: rowId) == exerciseIndex
+        else { return nil }
+        let elapsed = steadyElapsedSeconds(for: steady)
+        cardioSteadyTimer = nil
+        saveTimerState()
+        logCardioSet(
+            exerciseIndex: exerciseIndex,
+            durationSec: max(1, elapsed),
+            distanceM: distanceM,
+            heartRate: heartRate,
+            calories: calories,
+            setType: .steadyState,
+            source: .timer
+        )
+        return currentSession?.exerciseLogs[exerciseIndex].loggedSets.last
+    }
+
+    func startCardioIntervalTimer(exerciseIndex: Int, spec: CardioIntervalSpec) {
+        guard let session = currentSession,
+              exerciseIndex >= 0,
+              exerciseIndex < session.exerciseLogs.count
+        else { return }
+        let rowId = session.exerciseLogs[exerciseIndex].workoutExercise.id
+        flushActiveCardioTimerForOtherExercise(than: rowId)
+        cardioSteadyTimer = nil
+        let workDuration = spec.workDurationSec ?? 60
+        cardioIntervalTimer = CardioIntervalTimerState(
+            workoutExerciseId: rowId,
+            spec: spec,
+            phase: .work,
+            currentRound: 1,
+            phaseStartedAt: Date(),
+            phaseDurationSec: max(1, workDuration),
+            isPaused: false,
+            pausedRemainingSec: nil
+        )
+        saveTimerState()
+    }
+
+    @discardableResult
+    func completeCardioInterval(exerciseIndex: Int) -> LoggedSet? {
+        guard var interval = cardioIntervalTimer,
+              let session = currentSession,
+              let rowId = interval.resolvedWorkoutExerciseId(in: session),
+              let resolvedIndex = logIndex(forWorkoutExerciseId: rowId),
+              resolvedIndex == exerciseIndex
+        else { return nil }
+
+        let remaining = intervalPhaseRemainingSeconds(for: interval)
+        if remaining <= 0, interval.autoCompletedPhaseStart == interval.phaseStartedAt {
+            return nil
+        }
+        if remaining <= 0 {
+            interval.autoCompletedPhaseStart = interval.phaseStartedAt
+        }
+
+        let elapsed = max(1, interval.phaseDurationSec - remaining)
+        let setType: ExerciseSetType = interval.phase == .work ? .intervalWork : .intervalRest
+        logCardioSet(
+            exerciseIndex: exerciseIndex,
+            durationSec: elapsed,
+            distanceM: interval.phase == .work ? interval.spec.workDistanceM : nil,
+            heartRate: interval.spec.targetHeartRate,
+            setType: setType,
+            source: .timer
+        )
+        let logged = currentSession?.exerciseLogs[exerciseIndex].loggedSets.last
+
+        switch interval.phase {
+        case .work:
+            if let rest = interval.spec.restDurationSec, rest > 0 {
+                interval.phase = .rest
+                interval.phaseStartedAt = Date()
+                interval.phaseDurationSec = max(1, rest)
+                interval.isPaused = false
+                interval.pausedRemainingSec = nil
+                interval.autoCompletedPhaseStart = nil
+                cardioIntervalTimer = interval
+            } else {
+                advanceIntervalRoundOrFinish(&interval)
+            }
+        case .rest:
+            advanceIntervalRoundOrFinish(&interval)
+        }
+
+        saveTimerState()
+        return logged
+    }
+
+    func cancelCardioTimers(for exerciseIndex: Int? = nil) {
+        if let exerciseIndex,
+           let session = currentSession,
+           exerciseIndex >= 0,
+           exerciseIndex < session.exerciseLogs.count {
+            cancelCardioTimers(forWorkoutExerciseId: session.exerciseLogs[exerciseIndex].workoutExercise.id)
+        } else if exerciseIndex == nil {
+            cardioSteadyTimer = nil
+            cardioIntervalTimer = nil
+            saveTimerState()
+        }
+    }
+
+    func cancelCardioTimers(forWorkoutExerciseId rowId: UUID) {
+        guard let session = currentSession else { return }
+        if let steady = cardioSteadyTimer,
+           steady.resolvedWorkoutExerciseId(in: session) == rowId {
+            cardioSteadyTimer = nil
+        }
+        if let interval = cardioIntervalTimer,
+           interval.resolvedWorkoutExerciseId(in: session) == rowId {
+            cardioIntervalTimer = nil
+        }
+        saveTimerState()
+    }
+
+    func logIndex(forWorkoutExerciseId rowId: UUID) -> Int? {
+        guard let session = currentSession else { return nil }
+        return session.exerciseLogs.firstIndex { $0.workoutExercise.id == rowId }
+    }
+
+    func cardioTimerMatches(exerciseIndex: Int, workoutExerciseId rowId: UUID) -> Bool {
+        logIndex(forWorkoutExerciseId: rowId) == exerciseIndex
+    }
+
+    func steadyElapsedSeconds(for state: CardioSteadyTimerState) -> Int {
+        if state.isPaused { return state.accumulatedSeconds }
+        return state.accumulatedSeconds + max(0, Int(Date().timeIntervalSince(state.segmentStartedAt)))
+    }
+
+    func intervalPhaseRemainingSeconds(for state: CardioIntervalTimerState) -> Int {
+        if state.isPaused { return state.pausedRemainingSec ?? state.phaseDurationSec }
+        let elapsed = max(0, Int(Date().timeIntervalSince(state.phaseStartedAt)))
+        return max(0, state.phaseDurationSec - elapsed)
+    }
+
+    private func tickCardioTimers() {
+        guard cardioSteadyTimer != nil || cardioIntervalTimer != nil else { return }
+        cardioTimerTick &+= 1
+
+        guard !isWorkoutPaused,
+              let session = currentSession,
+              var interval = cardioIntervalTimer,
+              let rowId = interval.resolvedWorkoutExerciseId(in: session),
+              let resolvedIndex = logIndex(forWorkoutExerciseId: rowId)
+        else { return }
+        if intervalPhaseRemainingSeconds(for: interval) <= 0 {
+            completeCardioInterval(exerciseIndex: resolvedIndex)
+        }
+    }
+
+    private func advanceIntervalRoundOrFinish(_ interval: inout CardioIntervalTimerState) {
+        let maxRounds = max(1, interval.spec.repeatCount)
+        if interval.currentRound >= maxRounds {
+            cardioIntervalTimer = nil
+            return
+        }
+        interval.currentRound += 1
+        interval.phase = .work
+        interval.phaseStartedAt = Date()
+        interval.phaseDurationSec = max(1, interval.spec.workDurationSec ?? 60)
+        interval.isPaused = false
+        interval.pausedRemainingSec = nil
+        interval.autoCompletedPhaseStart = nil
+        cardioIntervalTimer = interval
+    }
+
+    private func pauseActiveCardioTimers() {
+        if var steady = cardioSteadyTimer, !steady.isPaused {
+            steady.accumulatedSeconds = steadyElapsedSeconds(for: steady)
+            steady.isPaused = true
+            cardioSteadyTimer = steady
+        }
+        if var interval = cardioIntervalTimer, !interval.isPaused {
+            interval.pausedRemainingSec = intervalPhaseRemainingSeconds(for: interval)
+            interval.isPaused = true
+            cardioIntervalTimer = interval
+        }
+    }
+
+    private func resumeActiveCardioTimers() {
+        if var steady = cardioSteadyTimer, steady.isPaused {
+            steady.segmentStartedAt = Date()
+            steady.isPaused = false
+            cardioSteadyTimer = steady
+        }
+        if var interval = cardioIntervalTimer, interval.isPaused {
+            let remaining = interval.pausedRemainingSec ?? interval.phaseDurationSec
+            interval.phaseDurationSec = max(1, remaining)
+            interval.phaseStartedAt = Date()
+            interval.isPaused = false
+            interval.pausedRemainingSec = nil
+            cardioIntervalTimer = interval
+        }
+    }
+
+    private func migrateLoadedCardioTimersIfNeeded() {
+        guard var session = currentSession else { return }
+        if var steady = cardioSteadyTimer {
+            if steady.resolveWorkoutExerciseId(in: session) {
+                cardioSteadyTimer = steady
+            } else {
+                cardioSteadyTimer = nil
+            }
+        }
+        if var interval = cardioIntervalTimer {
+            if interval.resolveWorkoutExerciseId(in: session) {
+                cardioIntervalTimer = interval
+            } else {
+                cardioIntervalTimer = nil
+            }
+        }
+        saveTimerState()
+    }
+
+    @discardableResult
+    private func logCurrentCardioIntervalPhaseWithoutAdvancing(exerciseIndex: Int) -> LoggedSet? {
+        guard let interval = cardioIntervalTimer,
+              let session = currentSession,
+              let rowId = interval.resolvedWorkoutExerciseId(in: session),
+              let resolvedIndex = logIndex(forWorkoutExerciseId: rowId),
+              resolvedIndex == exerciseIndex
+        else { return nil }
+
+        let remaining = intervalPhaseRemainingSeconds(for: interval)
+        let rawElapsed = interval.phaseDurationSec - remaining
+        guard rawElapsed >= 1 else { return nil }
+
+        let elapsed = max(1, rawElapsed)
+        let setType: ExerciseSetType = interval.phase == .work ? .intervalWork : .intervalRest
+        logCardioSet(
+            exerciseIndex: exerciseIndex,
+            durationSec: elapsed,
+            distanceM: interval.phase == .work ? interval.spec.workDistanceM : nil,
+            heartRate: interval.spec.targetHeartRate,
+            setType: setType,
+            source: .timer
+        )
+        return currentSession?.exerciseLogs[exerciseIndex].loggedSets.last
+    }
+
+    private func flushActiveCardioTimerForOtherExercise(than rowId: UUID) {
+        guard let session = currentSession else { return }
+        if let steady = cardioSteadyTimer,
+           let otherId = steady.resolvedWorkoutExerciseId(in: session),
+           otherId != rowId,
+           let index = logIndex(forWorkoutExerciseId: otherId) {
+            _ = stopCardioSteadyTimerAndLog(exerciseIndex: index)
+        }
+        if let interval = cardioIntervalTimer,
+           let otherId = interval.resolvedWorkoutExerciseId(in: session),
+           otherId != rowId,
+           let index = logIndex(forWorkoutExerciseId: otherId) {
+            _ = logCurrentCardioIntervalPhaseWithoutAdvancing(exerciseIndex: index)
+            cardioIntervalTimer = nil
+            saveTimerState()
+        }
+    }
+
+    private func validateActiveCardioTimersAgainstSession() {
+        guard let session = currentSession else {
+            cardioSteadyTimer = nil
+            cardioIntervalTimer = nil
+            return
+        }
+        if let steady = cardioSteadyTimer,
+           let rowId = steady.resolvedWorkoutExerciseId(in: session),
+           logIndex(forWorkoutExerciseId: rowId) == nil {
+            cardioSteadyTimer = nil
+        }
+        if let interval = cardioIntervalTimer,
+           let rowId = interval.resolvedWorkoutExerciseId(in: session),
+           logIndex(forWorkoutExerciseId: rowId) == nil {
+            cardioIntervalTimer = nil
+        }
+        saveTimerState()
+    }
+
+    private func catchUpCardioTimersAfterForeground() {
+        guard cardioSteadyTimer != nil || cardioIntervalTimer != nil else { return }
+        guard !isWorkoutPaused else {
+            cardioTimerTick &+= 1
+            return
+        }
+        var iterations = 0
+        while iterations < 32 {
+            iterations += 1
+            if cardioSteadyTimer != nil || cardioIntervalTimer != nil {
+                cardioTimerTick &+= 1
+            }
+            guard let session = currentSession,
+                  let interval = cardioIntervalTimer,
+                  let rowId = interval.resolvedWorkoutExerciseId(in: session),
+                  let index = logIndex(forWorkoutExerciseId: rowId),
+                  intervalPhaseRemainingSeconds(for: interval) <= 0
+            else { break }
+            if completeCardioInterval(exerciseIndex: index) == nil {
+                break
+            }
+        }
+    }
+
+    private func flushActiveCardioTimersBeforeStopping() {
+        guard let session = currentSession else {
+            cardioSteadyTimer = nil
+            cardioIntervalTimer = nil
+            return
+        }
+        if let steady = cardioSteadyTimer,
+           let rowId = steady.resolvedWorkoutExerciseId(in: session),
+           let index = logIndex(forWorkoutExerciseId: rowId) {
+            _ = stopCardioSteadyTimerAndLog(exerciseIndex: index)
+        }
+        if let interval = cardioIntervalTimer,
+           let rowId = interval.resolvedWorkoutExerciseId(in: session),
+           let index = logIndex(forWorkoutExerciseId: rowId) {
+            _ = logCurrentCardioIntervalPhaseWithoutAdvancing(exerciseIndex: index)
+        }
+        cardioSteadyTimer = nil
+        cardioIntervalTimer = nil
+    }
+
+    private func activateExerciseIfNeeded(exerciseId: UUID, session: inout WorkoutSession) {
+        let isAlreadyActive = session.activeExerciseIds.contains(exerciseId)
+        if let current = session.activeExerciseIds.first,
+           current != exerciseId,
+           !isAlreadyActive {
+            if !session.completedExerciseIds.contains(current) {
+                session.completedExerciseIds.append(current)
+            }
+            session.activeExerciseIds.removeAll { $0 == current }
+        }
+        if !isAlreadyActive {
+            session.activeExerciseIds.insert(exerciseId, at: 0)
+        }
+        session.completedExerciseIds.removeAll { $0 == exerciseId }
     }
 }
 

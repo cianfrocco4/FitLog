@@ -17,19 +17,23 @@ struct WorkoutCompletionExerciseLine: Equatable, Identifiable {
     let volumePounds: Double
     /// Sets in this session where at least one new PR was detected for that set.
     let newPRSetCount: Int
+    /// Non-nil for cardio rows (duration/distance summary instead of volume).
+    let cardioSummary: String?
 
     init(
         id: UUID = UUID(),
         exerciseName: String,
         workingSetCount: Int,
         volumePounds: Double,
-        newPRSetCount: Int
+        newPRSetCount: Int,
+        cardioSummary: String? = nil
     ) {
         self.id = id
         self.exerciseName = exerciseName
         self.workingSetCount = workingSetCount
         self.volumePounds = volumePounds
         self.newPRSetCount = newPRSetCount
+        self.cardioSummary = cardioSummary
     }
 }
 
@@ -46,6 +50,9 @@ struct WorkoutCompletionSummary: Equatable, Identifiable {
     let exerciseBreakdown: [WorkoutCompletionExerciseLine]
     /// Human-readable PR lines for this session (deduped by exercise + PR kind).
     let personalRecordHighlights: [String]
+    let totalCardioDurationSeconds: Int
+    let totalCardioDistanceMeters: Double
+    let cardioSegmentCount: Int
 
     var durationFormatted: String {
         let h = durationSeconds / 3600
@@ -79,14 +86,25 @@ struct WorkoutCompletionSummary: Equatable, Identifiable {
             lines.append("")
             lines.append("By exercise:")
             for row in exerciseBreakdown {
-                let v = WeightStoreConversion.displayValue(storedPounds: row.volumePounds, unit: displayUnit)
-                let volStr = v == floor(v) ? "\(Int(v))" : String(format: "%.1f", v)
-                var part = "• \(row.exerciseName) — \(row.workingSetCount) sets · \(volStr) \(unit)"
+                var part = "• \(row.exerciseName)"
+                if let cardio = row.cardioSummary {
+                    part += " — \(cardio)"
+                } else {
+                    let v = WeightStoreConversion.displayValue(storedPounds: row.volumePounds, unit: displayUnit)
+                    let volStr = v == floor(v) ? "\(Int(v))" : String(format: "%.1f", v)
+                    part += " — \(row.workingSetCount) sets · \(volStr) \(unit)"
+                }
                 if row.newPRSetCount > 0 {
                     part += " · \(row.newPRSetCount) PR set\(row.newPRSetCount == 1 ? "" : "s")"
                 }
                 lines.append(part)
             }
+        }
+        if cardioSegmentCount > 0 {
+            lines.append("")
+            lines.append(
+                "Cardio: \(CardioMetricsCalculator.formatDuration(seconds: totalCardioDurationSeconds)) · \(CardioMetricsCalculator.formatDistance(meters: totalCardioDistanceMeters))"
+            )
         }
         return lines.joined(separator: "\n")
     }
@@ -145,7 +163,70 @@ extension DataManager {
 
             let name = displayName(for: log.workoutExercise)
             let workingSets = log.loggedSets.filter { $0.countsTowardVolumeTotals }
+            let cardioSets = log.loggedSets.filter { $0.countsTowardCardioTotals }
             let volumeLb = workingSets.reduce(0.0) { $0 + max(0, $1.totalVolumeLoad) }
+
+            if !cardioSets.isEmpty {
+                let duration = cardioSets.compactMap(\.cardioMetrics?.durationSec).reduce(0, +)
+                let distance = cardioSets.compactMap(\.cardioMetrics?.distanceM).reduce(0, +)
+                var summaryParts: [String] = []
+                if duration > 0 {
+                    summaryParts.append(CardioMetricsCalculator.formatDuration(seconds: duration))
+                }
+                if distance > 0 {
+                    summaryParts.append(CardioMetricsCalculator.formatDistance(meters: distance))
+                }
+                if !workingSets.isEmpty {
+                    summaryParts.append("\(workingSets.count) strength sets")
+                }
+
+                var prSetCount = 0
+                if let exId = log.workoutExercise.exerciseId {
+                    var priorAccumulated = priorSetsFromHistory(exerciseId: exId, excludingSessionId: session.id)
+                    let sortedSets = log.loggedSets.sorted { $0.timestamp < $1.timestamp }
+                    for set in sortedSets {
+                        let events = PersonalRecordDetector.detect(
+                            newSet: set,
+                            priorSets: priorAccumulated,
+                            exerciseId: exId,
+                            exerciseName: name,
+                            timestamp: set.timestamp
+                        )
+                        if !events.isEmpty { prSetCount += 1 }
+                        for ev in events {
+                            let key = "\(ev.exerciseId.uuidString)|\(ev.kind.rawValue)"
+                            if seenHighlightKeys.insert(key).inserted {
+                                highlights.append("\(ev.exerciseName) — \(ev.title)")
+                            }
+                        }
+                        priorAccumulated.append(set)
+                    }
+                }
+
+                if workingSets.isEmpty {
+                    lines.append(
+                        WorkoutCompletionExerciseLine(
+                            exerciseName: name,
+                            workingSetCount: cardioSets.count,
+                            volumePounds: 0,
+                            newPRSetCount: prSetCount,
+                            cardioSummary: summaryParts.isEmpty ? "\(cardioSets.count) segments" : summaryParts.joined(separator: " · ")
+                        )
+                    )
+                    continue
+                }
+
+                lines.append(
+                    WorkoutCompletionExerciseLine(
+                        exerciseName: name,
+                        workingSetCount: workingSets.count + cardioSets.count,
+                        volumePounds: volumeLb,
+                        newPRSetCount: prSetCount,
+                        cardioSummary: summaryParts.isEmpty ? nil : summaryParts.joined(separator: " · ")
+                    )
+                )
+                continue
+            }
 
             guard let exId = log.workoutExercise.exerciseId else {
                 lines.append(
@@ -204,8 +285,11 @@ extension DataManager {
         let withSets = resolvedLogs.filter { !$0.loggedSets.isEmpty }.count
 
         let workingSetsAll = session.exerciseLogs.flatMap(\.loggedSets).filter { $0.countsTowardVolumeTotals }
+        let cardioSetsAll = session.exerciseLogs.flatMap(\.loggedSets).filter { $0.countsTowardCardioTotals }
         let totalSets = workingSetsAll.count
         let volume = workingSetsAll.reduce(0.0) { $0 + max(0, $1.totalVolumeLoad) }
+        let cardioDuration = cardioSetsAll.compactMap(\.cardioMetrics?.durationSec).reduce(0, +)
+        let cardioDistance = cardioSetsAll.compactMap(\.cardioMetrics?.distanceM).reduce(0, +)
 
         let prCount = countNewPersonalRecords(in: session)
         let breakdown = buildWorkoutCompletionBreakdown(session: session)
@@ -220,7 +304,10 @@ extension DataManager {
             totalResolvedExercises: totalResolved,
             personalRecordCount: prCount,
             exerciseBreakdown: breakdown.lines,
-            personalRecordHighlights: breakdown.highlights
+            personalRecordHighlights: breakdown.highlights,
+            totalCardioDurationSeconds: cardioDuration,
+            totalCardioDistanceMeters: cardioDistance,
+            cardioSegmentCount: cardioSetsAll.count
         )
     }
 }
@@ -249,15 +336,34 @@ private struct WorkoutCompletionShareCard: View {
 
             HStack(spacing: 14) {
                 statPill(title: "Time", value: summary.durationFormatted)
-                statPill(title: "Sets", value: "\(summary.totalSets)")
-                statPill(
-                    title: "Volume",
-                    value: {
-                        let v = volumeDisplay
-                        let num = v == floor(v) ? "\(Int(v))" : String(format: "%.1f", v)
-                        return "\(num) \(unitLabel)"
-                    }()
-                )
+                if summary.cardioSegmentCount > 0 && summary.totalSets == 0 {
+                    statPill(
+                        title: "Cardio",
+                        value: CardioMetricsCalculator.formatDuration(seconds: summary.totalCardioDurationSeconds)
+                    )
+                    if summary.totalCardioDistanceMeters > 0 {
+                        statPill(
+                            title: "Distance",
+                            value: CardioMetricsCalculator.formatDistance(meters: summary.totalCardioDistanceMeters)
+                        )
+                    }
+                } else {
+                    statPill(title: "Sets", value: "\(summary.totalSets)")
+                    statPill(
+                        title: "Volume",
+                        value: {
+                            let v = volumeDisplay
+                            let num = v == floor(v) ? "\(Int(v))" : String(format: "%.1f", v)
+                            return "\(num) \(unitLabel)"
+                        }()
+                    )
+                    if summary.cardioSegmentCount > 0 {
+                        statPill(
+                            title: "Cardio",
+                            value: CardioMetricsCalculator.formatDuration(seconds: summary.totalCardioDurationSeconds)
+                        )
+                    }
+                }
             }
 
             if !summary.exerciseBreakdown.isEmpty {
@@ -280,11 +386,19 @@ private struct WorkoutCompletionShareCard: View {
                                 .background(Capsule().fill(Color.yellow.opacity(0.95)))
                                 .foregroundStyle(.black)
                         }
-                        let v = WeightStoreConversion.displayValue(storedPounds: row.volumePounds, unit: displayUnit)
-                        let vStr = v == floor(v) ? "\(Int(v))" : String(format: "%.0f", v)
-                        Text("\(row.workingSetCount)× · \(vStr)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.white.opacity(0.85))
+                        if let cardio = row.cardioSummary {
+                            Text(cardio)
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.white.opacity(0.85))
+                                .multilineTextAlignment(.trailing)
+                                .lineLimit(2)
+                        } else {
+                            let v = WeightStoreConversion.displayValue(storedPounds: row.volumePounds, unit: displayUnit)
+                            let vStr = v == floor(v) ? "\(Int(v))" : String(format: "%.0f", v)
+                            Text("\(row.workingSetCount)× · \(vStr)")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.white.opacity(0.85))
+                        }
                     }
                 }
                 if summary.exerciseBreakdown.count > 8 {
@@ -349,6 +463,18 @@ struct WorkoutCompletionSummaryView: View {
     var body: some View {
         NavigationStack {
             List {
+                if summary.cardioSegmentCount > 0 {
+                    Section("Cardio") {
+                        CardioCompletionRingView(
+                            durationSeconds: summary.totalCardioDurationSeconds,
+                            distanceMeters: summary.totalCardioDistanceMeters,
+                            durationGoalSeconds: nil,
+                            distanceGoalMeters: nil
+                        )
+                        LabeledContent("Segments", value: "\(summary.cardioSegmentCount)")
+                    }
+                }
+
                 Section {
                     LabeledContent("Workout", value: summary.workoutName)
                     LabeledContent("Duration", value: summary.durationFormatted)
@@ -389,9 +515,15 @@ struct WorkoutCompletionSummaryView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(row.exerciseName)
                                         .font(.body.weight(.medium))
-                                    Text("\(row.workingSetCount) working sets")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                    if let cardio = row.cardioSummary {
+                                        Text(cardio)
+                                            .font(.caption)
+                                            .foregroundStyle(FitlogPalette.chartSecondary)
+                                    } else {
+                                        Text("\(row.workingSetCount) working sets")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
                                 Spacer(minLength: 8)
                                 if row.newPRSetCount > 0 {
@@ -401,14 +533,31 @@ struct WorkoutCompletionSummaryView: View {
                                         .padding(.vertical, 3)
                                         .background(Capsule().fill(Color.orange.opacity(0.22)))
                                 }
-                                let v = WeightStoreConversion.displayValue(
-                                    storedPounds: row.volumePounds,
-                                    unit: userPreferences.weightDisplayUnit
-                                )
-                                let unit = userPreferences.weightDisplayUnit.shortLabel
-                                Text(v == floor(v) ? "\(Int(v)) \(unit)" : String(format: "%.1f %@", v, unit))
-                                    .font(.subheadline.monospacedDigit())
-                                    .foregroundStyle(.secondary)
+                                if let cardio = row.cardioSummary, row.volumePounds > 0 {
+                                    let v = WeightStoreConversion.displayValue(
+                                        storedPounds: row.volumePounds,
+                                        unit: userPreferences.weightDisplayUnit
+                                    )
+                                    let unit = userPreferences.weightDisplayUnit.shortLabel
+                                    let volStr = v == floor(v) ? "\(Int(v)) \(unit)" : String(format: "%.1f %@", v, unit)
+                                    Text("\(volStr) · \(cardio)")
+                                        .font(.subheadline.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                        .multilineTextAlignment(.trailing)
+                                } else if row.cardioSummary != nil {
+                                    Text("\(row.workingSetCount) segments")
+                                        .font(.subheadline.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    let v = WeightStoreConversion.displayValue(
+                                        storedPounds: row.volumePounds,
+                                        unit: userPreferences.weightDisplayUnit
+                                    )
+                                    let unit = userPreferences.weightDisplayUnit.shortLabel
+                                    Text(v == floor(v) ? "\(Int(v)) \(unit)" : String(format: "%.1f %@", v, unit))
+                                        .font(.subheadline.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
                     }

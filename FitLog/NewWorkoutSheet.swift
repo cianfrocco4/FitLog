@@ -16,6 +16,7 @@ extension Notification.Name {
 enum NewWorkoutLaunchHint: String {
     case templatesFirst
     case buildOwnFirst
+    case cardioFirst
 }
 
 struct NewWorkoutSheet: View {
@@ -30,6 +31,7 @@ struct NewWorkoutSheet: View {
     @State private var workoutName = ""
     @State private var focus: WorkoutCreationFocus = .custom
     @State private var createdWorkoutId: UUID?
+    @State private var cardioBuilderWorkoutId: UUID?
     @State private var pendingStarterReview: PendingStarterReview?
 
     private struct PendingStarterReview: Identifiable {
@@ -42,7 +44,15 @@ struct NewWorkoutSheet: View {
         @Bindable var dm = dataVM
         return NavigationStack {
             Group {
-                if let id = createdWorkoutId, let binding = $dm.userWorkouts[id] {
+                if let cardioId = cardioBuilderWorkoutId {
+                    CardioWorkoutBuilderView(workoutId: cardioId, dataManager: dataVM)
+                        .environment(dataVM)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Close") { dismiss() }
+                            }
+                        }
+                } else if let id = createdWorkoutId, let binding = $dm.userWorkouts[id] {
                     WorkoutPlanView(workout: binding, creationFlowOnDone: { dismiss() }, currentVM: currentVM)
                         .environment(dataVM)
                         .environmentObject(aiService)
@@ -60,6 +70,10 @@ struct NewWorkoutSheet: View {
                     focus = .push
                 case .buildOwnFirst:
                     focus = .custom
+                case .cardioFirst:
+                    if let tpl = CardioTemplateLibrary.quickStart.first {
+                        applyCardioTemplate(tpl)
+                    }
                 }
             }
         }
@@ -72,6 +86,54 @@ struct NewWorkoutSheet: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            }
+
+            Section {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(CardioTemplateLibrary.quickStart) { tpl in
+                            Button {
+                                applyCardioTemplate(tpl)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "figure.run")
+                                            .font(.caption.weight(.semibold))
+                                        Text(tpl.name)
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundStyle(.primary)
+                                    }
+                                    Text(tpl.subtitle)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                        .multilineTextAlignment(.leading)
+                                }
+                                .frame(width: 148, alignment: .leading)
+                                .padding(12)
+                                .background(FitlogPalette.chartSecondary.opacity(0.12))
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+            } header: {
+                Text("Cardio quick start")
+            } footer: {
+                Text("Creates a cardio workout from a template. Edit prescriptions in the builder.")
+                    .font(.caption)
+            }
+
+            Section {
+                Button {
+                    startEmptyCardioBuilder()
+                } label: {
+                    Label("Build cardio workout…", systemImage: "figure.run.circle.fill")
+                }
+                .accessibilityHint("Opens the cardio workout builder on a new empty workout")
             }
 
             Section {
@@ -165,6 +227,32 @@ struct NewWorkoutSheet: View {
             return
         }
         pendingStarterReview = PendingStarterReview(workoutId: id, resolved: resolved)
+    }
+
+    private func startEmptyCardioBuilder() {
+        let name = dataVM.uniqueWorkoutName(
+            workoutName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "Cardio Workout"
+                : workoutName.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        cardioBuilderWorkoutId = dataVM.createCardioWorkout(name: name, kind: .cardio)
+    }
+
+    private func applyCardioTemplate(_ template: CardioWorkoutTemplate) {
+        let name = dataVM.uniqueWorkoutName(template.name)
+        let id = dataVM.createCardioWorkout(name: name, kind: template.workoutKind)
+        guard var w = dataVM.workout(id: id) else {
+            cardioBuilderWorkoutId = id
+            return
+        }
+        let resolved = CardioTemplateLibrary.resolveRows(template.rows, library: dataVM.globalExercises)
+        for item in resolved {
+            guard let fresh = dataVM.workout(id: id) else { break }
+            _ = dataVM.addCardioExercise(to: fresh, exercise: item.exercise, prescription: item.prescription)
+            w = fresh
+        }
+        dataVM.setWorkoutKind(w, kind: template.workoutKind)
+        createdWorkoutId = id
     }
 
     private func applyQuickTemplate(_ tpl: WorkoutQuickStartTemplate) {

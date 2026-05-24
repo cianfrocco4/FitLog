@@ -45,6 +45,14 @@ final class PersonalRecordStore {
         exerciseName: String,
         sessionId: UUID
     ) -> [PersonalRecordEvent] {
+        if set.countsTowardCardioTotals {
+            return updateCardioIfPR(
+                set: set,
+                exerciseId: exerciseId,
+                exerciseName: exerciseName,
+                sessionId: sessionId
+            )
+        }
         guard set.countsTowardLoadPRMetrics else { return [] }
 
         let existing = currentBests(forExerciseId: exerciseId)
@@ -111,6 +119,78 @@ final class PersonalRecordStore {
         }
 
         try? modelContext.save()
+        return events
+    }
+
+    @discardableResult
+    private func updateCardioIfPR(
+        set: LoggedSet,
+        exerciseId: UUID,
+        exerciseName: String,
+        sessionId: UUID
+    ) -> [PersonalRecordEvent] {
+        guard set.countsTowardCardioTotals, let metrics = set.cardioMetrics else { return [] }
+        let existing = currentBests(forExerciseId: exerciseId)
+        var events: [PersonalRecordEvent] = []
+
+        func upsert(kind: PRKind, newValue: Double, better: (Double, Double) -> Bool) {
+            if let row = existing.first(where: { $0.kindRaw == kind.rawValue }) {
+                if better(newValue, row.value) {
+                    let prev = row.value
+                    row.value = newValue
+                    row.setId = set.id
+                    row.sessionId = sessionId
+                    row.achievedAt = set.timestamp
+                    events.append(
+                        PersonalRecordEvent(
+                            exerciseId: exerciseId,
+                            exerciseName: exerciseName,
+                            kind: kind.eventKind,
+                            newValue: newValue,
+                            previousValue: prev,
+                            timestamp: set.timestamp
+                        )
+                    )
+                }
+            } else {
+                modelContext.insert(
+                    SDPersonalRecordV2(
+                        prId: UUID(),
+                        exerciseId: exerciseId,
+                        kindRaw: kind.rawValue,
+                        value: newValue,
+                        setId: set.id,
+                        sessionId: sessionId,
+                        achievedAt: set.timestamp
+                    )
+                )
+                events.append(
+                    PersonalRecordEvent(
+                        exerciseId: exerciseId,
+                        exerciseName: exerciseName,
+                        kind: kind.eventKind,
+                        newValue: newValue,
+                        previousValue: nil,
+                        timestamp: set.timestamp
+                    )
+                )
+            }
+        }
+
+        if let dist = metrics.distanceM, dist > 0 {
+            upsert(kind: .maxDistance, newValue: dist) { $0 > $1 + 0.0001 }
+        }
+        if let sec = metrics.durationSec, sec > 0 {
+            upsert(kind: .longestDuration, newValue: Double(sec)) { $0 > $1 + 0.0001 }
+        }
+        if let pace = metrics.resolvedPaceSecPerKm, pace > 0 {
+            upsert(kind: .bestPace, newValue: Double(pace)) { $0 < $1 - 0.0001 || $1 == 0 }
+        }
+        if let cal = metrics.calories, cal > 0 {
+            upsert(kind: .maxCalories, newValue: cal) { $0 > $1 + 0.0001 }
+        }
+
+        if !events.isEmpty { try? modelContext.save() }
         return events
     }
 }

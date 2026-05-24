@@ -21,7 +21,7 @@ import Foundation
 enum SplitBuilderPreferencesStore {
 
     /// Bump when adding non-optional fields or changing semantics; implement migration from previous.
-    private static let currentSchemaVersion = 3
+    private static let currentSchemaVersion = 4
     private static let envelopeKey = "fitlog.splitBuilder.wizardEnvelope.v1"
 
     struct State: Equatable {
@@ -40,6 +40,7 @@ enum SplitBuilderPreferencesStore {
         var priorityMusclesOrLiftsNotes: String?
         var recoveryContextNotes: String?
         var deloadPreferenceRaw: String?
+        var cardioPreferenceRaw: String?
         var variationModeRaw: String?
         var customRotationLength: Int?
         var variationNotes: String?
@@ -68,6 +69,7 @@ enum SplitBuilderPreferencesStore {
             priorityMusclesOrLiftsNotes: nil,
             recoveryContextNotes: nil,
             deloadPreferenceRaw: nil,
+            cardioPreferenceRaw: nil,
             variationModeRaw: nil,
             customRotationLength: nil,
             variationNotes: nil,
@@ -96,6 +98,7 @@ enum SplitBuilderPreferencesStore {
         var priorityMusclesOrLiftsNotes: String?
         var recoveryContextNotes: String?
         var deloadPreferenceRaw: String?
+        var cardioPreferenceRaw: String?
         var variationModeRaw: String?
         var customRotationLength: Int?
         var variationNotes: String?
@@ -111,7 +114,7 @@ enum SplitBuilderPreferencesStore {
         let dec = JSONDecoder()
         guard let env = try? dec.decode(EnvelopeV1.self, from: data) else { return .default }
         switch env.schemaVersion {
-        case 1, 2, 3:
+        case 1, 2, 3, 4:
             return State(
                 primaryGoalRaw: env.primaryGoalRaw,
                 equipmentRaw: env.equipmentRaw,
@@ -128,6 +131,7 @@ enum SplitBuilderPreferencesStore {
                 priorityMusclesOrLiftsNotes: env.priorityMusclesOrLiftsNotes,
                 recoveryContextNotes: env.recoveryContextNotes,
                 deloadPreferenceRaw: env.deloadPreferenceRaw,
+                cardioPreferenceRaw: env.cardioPreferenceRaw,
                 variationModeRaw: env.variationModeRaw,
                 customRotationLength: env.customRotationLength,
                 variationNotes: env.variationNotes,
@@ -161,6 +165,7 @@ enum SplitBuilderPreferencesStore {
             priorityMusclesOrLiftsNotes: state.priorityMusclesOrLiftsNotes,
             recoveryContextNotes: state.recoveryContextNotes,
             deloadPreferenceRaw: state.deloadPreferenceRaw,
+            cardioPreferenceRaw: state.cardioPreferenceRaw,
             variationModeRaw: state.variationModeRaw,
             customRotationLength: state.customRotationLength,
             variationNotes: state.variationNotes,

@@ -224,6 +224,9 @@ struct HomeProgressSummary: Equatable {
     let strengthScore: StrengthScoreSummary
     let latestUnlockedMilestone: ProgressMilestone?
     let nextMilestone: ProgressMilestone?
+    let weeklyCardioMinutes: Int
+    let cardioDistanceKm: Double
+    let cardioStreakDays: Int
 }
 
 // MARK: - PR detector
@@ -238,6 +241,15 @@ enum PersonalRecordDetector {
         exerciseName: String,
         timestamp: Date = Date()
     ) -> [PersonalRecordEvent] {
+        if newSet.countsTowardCardioTotals {
+            return detectCardio(
+                newSet: newSet,
+                priorSets: priorSets,
+                exerciseId: exerciseId,
+                exerciseName: exerciseName,
+                timestamp: timestamp
+            )
+        }
         guard newSet.countsTowardLoadPRMetrics else { return [] }
 
         let priorRelevant = priorSets.filter { $0.countsTowardLoadPRMetrics }
@@ -291,6 +303,88 @@ enum PersonalRecordDetector {
         return events
     }
 
+    static func detectCardio(
+        newSet: LoggedSet,
+        priorSets: [LoggedSet],
+        exerciseId: UUID,
+        exerciseName: String,
+        timestamp: Date = Date()
+    ) -> [PersonalRecordEvent] {
+        guard newSet.countsTowardCardioTotals, let metrics = newSet.cardioMetrics else { return [] }
+        let priorRelevant = priorSets.filter { $0.countsTowardCardioTotals }
+
+        let prevMaxDistance = priorRelevant.compactMap(\.cardioMetrics?.distanceM).max()
+        let prevMaxDuration = priorRelevant.compactMap { $0.cardioMetrics?.durationSec }.map(Double.init).max()
+        let prevBestPace = priorRelevant.compactMap { $0.cardioMetrics?.resolvedPaceSecPerKm }.map(Double.init).min()
+        let prevMaxCalories = priorRelevant.compactMap(\.cardioMetrics?.calories).max()
+
+        var events: [PersonalRecordEvent] = []
+
+        if let dist = metrics.distanceM, dist > 0 {
+            if prevMaxDistance == nil || dist > prevMaxDistance! + epsilon {
+                events.append(
+                    PersonalRecordEvent(
+                        exerciseId: exerciseId,
+                        exerciseName: exerciseName,
+                        kind: .maxDistance,
+                        newValue: dist,
+                        previousValue: prevMaxDistance,
+                        timestamp: timestamp
+                    )
+                )
+            }
+        }
+
+        if let sec = metrics.durationSec, sec > 0 {
+            let duration = Double(sec)
+            if prevMaxDuration == nil || duration > prevMaxDuration! + epsilon {
+                events.append(
+                    PersonalRecordEvent(
+                        exerciseId: exerciseId,
+                        exerciseName: exerciseName,
+                        kind: .longestDuration,
+                        newValue: duration,
+                        previousValue: prevMaxDuration,
+                        timestamp: timestamp
+                    )
+                )
+            }
+        }
+
+        if let pace = metrics.resolvedPaceSecPerKm, pace > 0 {
+            let paceValue = Double(pace)
+            if prevBestPace == nil || paceValue < prevBestPace! - epsilon {
+                events.append(
+                    PersonalRecordEvent(
+                        exerciseId: exerciseId,
+                        exerciseName: exerciseName,
+                        kind: .bestPace,
+                        newValue: paceValue,
+                        previousValue: prevBestPace,
+                        timestamp: timestamp
+                    )
+                )
+            }
+        }
+
+        if let cal = metrics.calories, cal > 0 {
+            if prevMaxCalories == nil || cal > prevMaxCalories! + epsilon {
+                events.append(
+                    PersonalRecordEvent(
+                        exerciseId: exerciseId,
+                        exerciseName: exerciseName,
+                        kind: .maxCalories,
+                        newValue: cal,
+                        previousValue: prevMaxCalories,
+                        timestamp: timestamp
+                    )
+                )
+            }
+        }
+
+        return events
+    }
+
     static func epley(weight: Double, reps: Int) -> Double {
         guard reps > 0 else { return weight }
         return weight * (1 + Double(reps) / 30.0)
@@ -301,14 +395,64 @@ enum PersonalRecordDetector {
 
 extension DataManager {
     func homeProgressSummary(referenceDate: Date = Date(), calendar: Calendar = .current) -> HomeProgressSummary {
-        HomeProgressSummary(
+        let cardioWeek = weeklyCardioTotals(referenceDate: referenceDate, calendar: calendar)
+        return HomeProgressSummary(
             weeklyPRCount: weeklyPersonalRecordCount(referenceDate: referenceDate, calendar: calendar),
             dayStreak: currentWorkoutDayStreak(referenceDate: referenceDate, calendar: calendar),
             weekStreak: currentWorkoutWeekStreak(referenceDate: referenceDate, calendar: calendar),
             strengthScore: strengthScoreSummary(referenceDate: referenceDate, calendar: calendar),
             latestUnlockedMilestone: latestUnlockedMilestone(),
-            nextMilestone: nextMilestone()
+            nextMilestone: nextMilestone(),
+            weeklyCardioMinutes: cardioWeek.minutes,
+            cardioDistanceKm: cardioWeek.distanceKm,
+            cardioStreakDays: cardioDayStreak(referenceDate: referenceDate, calendar: calendar)
         )
+    }
+
+    func weeklyCardioTotals(referenceDate: Date = Date(), calendar: Calendar = .current) -> (minutes: Int, distanceKm: Double) {
+        guard let weekInterval = calendar.dateInterval(of: .weekOfYear, for: referenceDate) else {
+            return (0, 0)
+        }
+        let sessions = completedSessions.filter {
+            guard $0.isCompleted, let end = $0.endTime else { return false }
+            return end >= weekInterval.start && end < weekInterval.end
+        }
+        var seconds = 0
+        var meters = 0.0
+        for session in sessions {
+            let agg = CardioSessionAggregatesCalculator.aggregates(for: session, exercises: globalExercises)
+            seconds += agg.durationSeconds
+            meters += agg.distanceMeters
+        }
+        return (seconds / 60, meters / 1000.0)
+    }
+
+    func cardioDayStreak(referenceDate: Date = Date(), calendar: Calendar = .current) -> Int {
+        let cardioDays = Set(
+            completedSessions
+                .filter(\.isCompleted)
+                .filter { session in
+                    CardioSessionAggregatesCalculator
+                        .aggregates(for: session, exercises: globalExercises)
+                        .hasCardio
+                }
+                .map { calendar.startOfDay(for: $0.endTime ?? $0.startTime) }
+        )
+        guard !cardioDays.isEmpty else { return 0 }
+
+        let today = calendar.startOfDay(for: referenceDate)
+        let anchor: Date = cardioDays.contains(today)
+            ? today
+            : (calendar.date(byAdding: .day, value: -1, to: today) ?? today)
+
+        var streak = 0
+        var cursor = anchor
+        while cardioDays.contains(cursor) {
+            streak += 1
+            guard let prev = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
+            cursor = prev
+        }
+        return streak
     }
 
     func weeklyPersonalRecordCount(referenceDate: Date = Date(), calendar: Calendar = .current) -> Int {
@@ -321,36 +465,107 @@ extension DataManager {
             var maxWeight: Double = 0
             var maxOneRM: Double = 0
             var maxSetVolume: Double = 0
+            var maxDistance: Double = 0
+            var maxDuration: Double = 0
+            var bestPace: Double = 0
+            var maxCalories: Double = 0
             var initialized = false
         }
 
         var maximaByExercise: [UUID: Maxima] = [:]
         var weeklyCount = 0
 
+        func syntheticCardioPriorSets(from maxima: Maxima) -> [LoggedSet] {
+            guard maxima.initialized else { return [] }
+            var metrics = CardioMetrics(source: .manual)
+            if maxima.maxDistance > 0 { metrics.distanceM = maxima.maxDistance }
+            if maxima.maxDuration > 0 { metrics.durationSec = Int(maxima.maxDuration) }
+            if maxima.bestPace > 0 { metrics.avgPaceSecPerKm = Int(maxima.bestPace) }
+            if maxima.maxCalories > 0 { metrics.calories = maxima.maxCalories }
+            return [
+                LoggedSet(
+                    id: UUID(),
+                    weight: 0,
+                    reps: 0,
+                    restTime: 0,
+                    timestamp: .distantPast,
+                    setType: .steadyState,
+                    configuration: [:],
+                    dropSegments: [],
+                    rpe: nil,
+                    cardioMetrics: metrics
+                )
+            ]
+        }
+
         for session in sortedSessions {
             for log in session.exerciseLogs {
                 guard let exerciseId = log.workoutExercise.exerciseId else { continue }
+                let name = displayName(for: log.workoutExercise)
                 let orderedSets = log.loggedSets.sorted { $0.timestamp < $1.timestamp }
-                for set in orderedSets where set.countsTowardLoadPRMetrics {
-                    let oneRM = PersonalRecordDetector.epley(weight: set.weight, reps: set.reps)
-                    let setVolume = set.totalVolumeLoad
-                    var maxima = maximaByExercise[exerciseId] ?? Maxima()
+                var prior: [LoggedSet] = []
+                for set in orderedSets {
+                    if set.countsTowardLoadPRMetrics {
+                        let oneRM = PersonalRecordDetector.epley(weight: set.weight, reps: set.reps)
+                        let setVolume = set.totalVolumeLoad
+                        var maxima = maximaByExercise[exerciseId] ?? Maxima()
 
-                    let isWeightPR = !maxima.initialized || set.weight > maxima.maxWeight + 0.0001
-                    let isOneRMPR = !maxima.initialized || oneRM > maxima.maxOneRM + 0.0001
-                    let isVolumePR = !maxima.initialized || setVolume > maxima.maxSetVolume + 0.0001
+                        let isWeightPR = !maxima.initialized || set.weight > maxima.maxWeight + 0.0001
+                        let isOneRMPR = !maxima.initialized || oneRM > maxima.maxOneRM + 0.0001
+                        let isVolumePR = !maxima.initialized || setVolume > maxima.maxSetVolume + 0.0001
 
-                    if isWeightPR || isOneRMPR || isVolumePR {
-                        if set.timestamp >= weekInterval.start && set.timestamp < weekInterval.end {
+                        if isWeightPR || isOneRMPR || isVolumePR {
+                            if set.timestamp >= weekInterval.start && set.timestamp < weekInterval.end {
+                                weeklyCount += 1
+                            }
+                        }
+
+                        maxima.maxWeight = max(maxima.maxWeight, set.weight)
+                        maxima.maxOneRM = max(maxima.maxOneRM, oneRM)
+                        maxima.maxSetVolume = max(maxima.maxSetVolume, setVolume)
+                        maxima.initialized = true
+                        maximaByExercise[exerciseId] = maxima
+                    }
+
+                    if set.countsTowardCardioTotals {
+                        var maxima = maximaByExercise[exerciseId] ?? Maxima()
+                        let priorFromMaxima = syntheticCardioPriorSets(from: maxima)
+                        let events = PersonalRecordDetector.detectCardio(
+                            newSet: set,
+                            priorSets: priorFromMaxima,
+                            exerciseId: exerciseId,
+                            exerciseName: name,
+                            timestamp: set.timestamp
+                        )
+                        if !events.isEmpty,
+                           set.timestamp >= weekInterval.start,
+                           set.timestamp < weekInterval.end {
                             weeklyCount += 1
+                        }
+                        if let metrics = set.cardioMetrics {
+                            if let dist = metrics.distanceM, dist > 0 {
+                                maxima.maxDistance = max(maxima.maxDistance, dist)
+                            }
+                            if let sec = metrics.durationSec, sec > 0 {
+                                maxima.maxDuration = max(maxima.maxDuration, Double(sec))
+                            }
+                            if let pace = metrics.resolvedPaceSecPerKm, pace > 0 {
+                                let paceValue = Double(pace)
+                                if maxima.bestPace <= 0 {
+                                    maxima.bestPace = paceValue
+                                } else {
+                                    maxima.bestPace = min(maxima.bestPace, paceValue)
+                                }
+                            }
+                            if let cal = metrics.calories, cal > 0 {
+                                maxima.maxCalories = max(maxima.maxCalories, cal)
+                            }
+                            maxima.initialized = true
+                            maximaByExercise[exerciseId] = maxima
                         }
                     }
 
-                    maxima.maxWeight = max(maxima.maxWeight, set.weight)
-                    maxima.maxOneRM = max(maxima.maxOneRM, oneRM)
-                    maxima.maxSetVolume = max(maxima.maxSetVolume, setVolume)
-                    maxima.initialized = true
-                    maximaByExercise[exerciseId] = maxima
+                    prior.append(set)
                 }
             }
         }
@@ -636,6 +851,11 @@ extension DataManager {
         var maxWeight: Double = 0
         var maxOneRM: Double = 0
         var maxSetVolume: Double = 0
+        var maxDistance: Double = 0
+        var maxDuration: Double = 0
+        var bestPace: Double = 0
+        var maxCalories: Double = 0
+        var hasBestPace = false
         var initialized = false
     }
 
@@ -656,54 +876,122 @@ extension DataManager {
                 guard let exerciseId = log.workoutExercise.exerciseId else { continue }
                 let name = displayName(for: log.workoutExercise)
                 let ordered = log.loggedSets.sorted { $0.timestamp < $1.timestamp }
-                for set in ordered where set.countsTowardLoadPRMetrics {
-                    var m = maximaByExercise[exerciseId] ?? PRScanMaxima()
-                    let oneRM = PersonalRecordDetector.epley(weight: set.weight, reps: set.reps)
-                    let vol = set.totalVolumeLoad
+                var prior: [LoggedSet] = []
+                for set in ordered {
+                    if set.countsTowardLoadPRMetrics {
+                        var m = maximaByExercise[exerciseId] ?? PRScanMaxima()
+                        let oneRM = PersonalRecordDetector.epley(weight: set.weight, reps: set.reps)
+                        let vol = set.totalVolumeLoad
 
-                    let isWeightPR = !m.initialized || set.weight > m.maxWeight + 0.0001
-                    let isOneRMPR = !m.initialized || oneRM > m.maxOneRM + 0.0001
-                    let isVolumePR = !m.initialized || vol > m.maxSetVolume + 0.0001
+                        let isWeightPR = !m.initialized || set.weight > m.maxWeight + 0.0001
+                        let isOneRMPR = !m.initialized || oneRM > m.maxOneRM + 0.0001
+                        let isVolumePR = !m.initialized || vol > m.maxSetVolume + 0.0001
 
-                    if isWeightPR {
-                        records.append(
-                            ArchivedPersonalRecord(
-                                exerciseId: exerciseId,
-                                exerciseName: name,
-                                kind: .maxWeight,
-                                value: set.weight,
-                                achievedAt: when
+                        if isWeightPR {
+                            records.append(
+                                ArchivedPersonalRecord(
+                                    exerciseId: exerciseId,
+                                    exerciseName: name,
+                                    kind: .maxWeight,
+                                    value: set.weight,
+                                    achievedAt: when
+                                )
                             )
-                        )
-                    }
-                    if isOneRMPR {
-                        records.append(
-                            ArchivedPersonalRecord(
-                                exerciseId: exerciseId,
-                                exerciseName: name,
-                                kind: .estimatedOneRM,
-                                value: oneRM,
-                                achievedAt: when
+                        }
+                        if isOneRMPR {
+                            records.append(
+                                ArchivedPersonalRecord(
+                                    exerciseId: exerciseId,
+                                    exerciseName: name,
+                                    kind: .estimatedOneRM,
+                                    value: oneRM,
+                                    achievedAt: when
+                                )
                             )
-                        )
-                    }
-                    if isVolumePR {
-                        records.append(
-                            ArchivedPersonalRecord(
-                                exerciseId: exerciseId,
-                                exerciseName: name,
-                                kind: .maxVolumeSet,
-                                value: vol,
-                                achievedAt: when
+                        }
+                        if isVolumePR {
+                            records.append(
+                                ArchivedPersonalRecord(
+                                    exerciseId: exerciseId,
+                                    exerciseName: name,
+                                    kind: .maxVolumeSet,
+                                    value: vol,
+                                    achievedAt: when
+                                )
                             )
-                        )
+                        }
+
+                        m.maxWeight = max(m.maxWeight, set.weight)
+                        m.maxOneRM = max(m.maxOneRM, oneRM)
+                        m.maxSetVolume = max(m.maxSetVolume, vol)
+                        m.initialized = true
+                        maximaByExercise[exerciseId] = m
                     }
 
-                    m.maxWeight = max(m.maxWeight, set.weight)
-                    m.maxOneRM = max(m.maxOneRM, oneRM)
-                    m.maxSetVolume = max(m.maxSetVolume, vol)
-                    m.initialized = true
-                    maximaByExercise[exerciseId] = m
+                    if set.countsTowardCardioTotals, let metrics = set.cardioMetrics {
+                        var m = maximaByExercise[exerciseId] ?? PRScanMaxima()
+                        if let dist = metrics.distanceM, dist > 0,
+                           !m.initialized || dist > m.maxDistance + 0.0001 {
+                            records.append(
+                                ArchivedPersonalRecord(
+                                    exerciseId: exerciseId,
+                                    exerciseName: name,
+                                    kind: .maxDistance,
+                                    value: dist,
+                                    achievedAt: when
+                                )
+                            )
+                            m.maxDistance = max(m.maxDistance, dist)
+                        }
+                        if let sec = metrics.durationSec, sec > 0 {
+                            let d = Double(sec)
+                            if !m.initialized || d > m.maxDuration + 0.0001 {
+                                records.append(
+                                    ArchivedPersonalRecord(
+                                        exerciseId: exerciseId,
+                                        exerciseName: name,
+                                        kind: .longestDuration,
+                                        value: d,
+                                        achievedAt: when
+                                    )
+                                )
+                                m.maxDuration = max(m.maxDuration, d)
+                            }
+                        }
+                        if let pace = metrics.resolvedPaceSecPerKm, pace > 0 {
+                            let p = Double(pace)
+                            if !m.hasBestPace || p < m.bestPace - 0.0001 {
+                                records.append(
+                                    ArchivedPersonalRecord(
+                                        exerciseId: exerciseId,
+                                        exerciseName: name,
+                                        kind: .bestPace,
+                                        value: p,
+                                        achievedAt: when
+                                    )
+                                )
+                                m.bestPace = p
+                                m.hasBestPace = true
+                            }
+                        }
+                        if let cal = metrics.calories, cal > 0,
+                           !m.initialized || cal > m.maxCalories + 0.0001 {
+                            records.append(
+                                ArchivedPersonalRecord(
+                                    exerciseId: exerciseId,
+                                    exerciseName: name,
+                                    kind: .maxCalories,
+                                    value: cal,
+                                    achievedAt: when
+                                )
+                            )
+                            m.maxCalories = max(m.maxCalories, cal)
+                        }
+                        m.initialized = true
+                        maximaByExercise[exerciseId] = m
+                    }
+
+                    prior.append(set)
                 }
             }
         }
@@ -737,7 +1025,10 @@ extension DataManager {
             for log in s.exerciseLogs {
                 guard log.workoutExercise.exerciseId == exerciseId else { continue }
                 for ls in log.loggedSets {
-                    guard ls.countsTowardLoadPRMetrics else { continue }
+                    let counts = beforeSet.countsTowardCardioTotals
+                        ? ls.countsTowardCardioTotals
+                        : ls.countsTowardLoadPRMetrics
+                    guard counts else { continue }
                     if isHistoricalSetStrictlyBefore(sessionA: s, setA: ls, sessionB: beforeSession, setB: beforeSet) {
                         out.append(ls)
                     }
@@ -752,10 +1043,7 @@ extension DataManager {
         log: ExerciseLog,
         session: WorkoutSession
     ) -> [PersonalRecordEvent.Kind] {
-        guard let exerciseId = log.workoutExercise.exerciseId,
-              set.countsTowardLoadPRMetrics,
-              session.isCompleted
-        else { return [] }
+        guard let exerciseId = log.workoutExercise.exerciseId, session.isCompleted else { return [] }
         let prior = priorSetsForPersonalRecordDetection(
             exerciseId: exerciseId,
             beforeSession: session,

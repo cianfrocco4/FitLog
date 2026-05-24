@@ -663,6 +663,7 @@ struct TemplateSlot: Identifiable, Codable, Equatable, Hashable {
     var defaultRestTime: Int
     var recommendedSets: Int
     var recommendedReps: String
+    var cardioPrescription: CardioPrescription?
 
     init(
         id: UUID = UUID(),
@@ -673,7 +674,8 @@ struct TemplateSlot: Identifiable, Codable, Equatable, Hashable {
         defaultExerciseId: UUID? = nil,
         defaultRestTime: Int = 90,
         recommendedSets: Int = 3,
-        recommendedReps: String = "8-12"
+        recommendedReps: String = "8-12",
+        cardioPrescription: CardioPrescription? = nil
     ) {
         self.id = id
         self.label = label
@@ -684,6 +686,7 @@ struct TemplateSlot: Identifiable, Codable, Equatable, Hashable {
         self.defaultRestTime = defaultRestTime
         self.recommendedSets = recommendedSets
         self.recommendedReps = recommendedReps
+        self.cardioPrescription = cardioPrescription
     }
 
     init(from decoder: Decoder) throws {
@@ -706,6 +709,7 @@ struct TemplateSlot: Identifiable, Codable, Equatable, Hashable {
         defaultRestTime = (try? c.decode(Int.self, forKey: .defaultRestTime)) ?? 90
         recommendedSets = (try? c.decode(Int.self, forKey: .recommendedSets)) ?? 3
         recommendedReps = (try? c.decode(String.self, forKey: .recommendedReps)) ?? "8-12"
+        cardioPrescription = try c.decodeIfPresent(CardioPrescription.self, forKey: .cardioPrescription)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -719,11 +723,12 @@ struct TemplateSlot: Identifiable, Codable, Equatable, Hashable {
         try c.encode(defaultRestTime, forKey: .defaultRestTime)
         try c.encode(recommendedSets, forKey: .recommendedSets)
         try c.encode(recommendedReps, forKey: .recommendedReps)
+        if let cardioPrescription { try c.encode(cardioPrescription, forKey: .cardioPrescription) }
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, label, targetedMuscles, exerciseRole, movementPattern, defaultExerciseId
-        case defaultRestTime, recommendedSets, recommendedReps
+        case defaultRestTime, recommendedSets, recommendedReps, cardioPrescription
     }
 }
 
@@ -738,7 +743,8 @@ extension TemplateSlot {
             defaultExerciseId: defaultExerciseId,
             defaultRestTime: defaultRestTime,
             recommendedSets: recommendedSets,
-            recommendedReps: recommendedReps
+            recommendedReps: recommendedReps,
+            cardioPrescription: cardioPrescription
         )
     }
 }
@@ -754,7 +760,8 @@ extension SlotBlueprint {
             defaultExerciseId: defaultExerciseId,
             defaultRestTime: defaultRestTime,
             recommendedSets: recommendedSets,
-            recommendedReps: recommendedReps
+            recommendedReps: recommendedReps,
+            cardioPrescription: cardioPrescription
         )
     }
 }
@@ -866,7 +873,8 @@ struct Workout: Identifiable, Codable, Equatable {
                     resolution: .flexible(blueprint),
                     defaultRestTime: slot.defaultRestTime,
                     recommendedSets: slot.recommendedSets,
-                    recommendedReps: slot.recommendedReps
+                    recommendedReps: slot.recommendedReps,
+                    cardioPrescription: slot.cardioPrescription
                 )
             )
         }
@@ -1162,7 +1170,8 @@ struct WorkoutSession: Identifiable, Codable {
                     setType: s.setType,
                     configuration: s.configuration,
                     dropSegments: s.dropSegments,
-                    rpe: s.rpe
+                    rpe: s.rpe,
+                    cardioMetrics: s.cardioMetrics
                 )
             }
             return ExerciseLog(
@@ -1243,6 +1252,29 @@ extension LoggedSet {
         case .intervalRest: return "Rest"
         case .steadyState: return "Steady"
         }
+    }
+
+    /// Single-line summary for cardio sets (duration, distance, HR, calories).
+    var cardioDisplaySummary: String {
+        guard let metrics = cardioMetrics else { return weightRepsDisplaySummary() }
+        var parts: [String] = []
+        if let sec = metrics.durationSec, sec > 0 {
+            parts.append(CardioMetricsCalculator.formatDuration(seconds: sec))
+        }
+        if let meters = metrics.distanceM, meters > 0 {
+            parts.append(CardioMetricsCalculator.formatDistance(meters: meters))
+        }
+        if let pace = metrics.avgPaceSecPerKm, pace > 0 {
+            parts.append(CardioMetricsCalculator.formatPace(secPerKm: pace))
+        }
+        if let hr = metrics.avgHeartRate, hr > 0 {
+            parts.append("\(hr) bpm")
+        }
+        if let cal = metrics.calories, cal > 0 {
+            parts.append("\(Int(cal.rounded())) kcal")
+        }
+        if parts.isEmpty { return setTypeBadgeLabel ?? "Cardio" }
+        return parts.joined(separator: " · ")
     }
 
     /// Single-line summary for history / workout UI, e.g. `225 lb × 8 reps → 185 lb × 6 reps`.

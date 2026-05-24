@@ -21,9 +21,9 @@ extension AIService {
             let proposal = DynamicProgramMapper.localWorkoutSplitProposal(from: request.splitInput, library: exerciseLibrary)
             var program: DynamicProgram
             if multi {
-                program = DynamicProgramMapper.multiBlock(from: proposal, request: request)
+                program = DynamicProgramMapper.multiBlock(from: proposal, request: request, library: exerciseLibrary)
             } else {
-                program = DynamicProgramMapper.singleBlock(from: proposal, request: request)
+                program = DynamicProgramMapper.singleBlock(from: proposal, request: request, library: exerciseLibrary)
             }
             program.generatedWithAI = false
             return program
@@ -33,7 +33,8 @@ extension AIService {
             var program = try await generateDynamicProgramMultiBlockAI(
                 request: request,
                 allowedExerciseNames: allowedExerciseNames,
-                existingWorkoutTemplateNames: existingWorkoutTemplateNames
+                existingWorkoutTemplateNames: existingWorkoutTemplateNames,
+                exerciseLibrary: exerciseLibrary
             )
             program.generatedWithAI = true
             return program
@@ -44,7 +45,7 @@ extension AIService {
             allowedExerciseNames: allowedExerciseNames,
             existingWorkoutTemplateNames: existingWorkoutTemplateNames
         )
-        var program = DynamicProgramMapper.singleBlock(from: proposal, request: request)
+        var program = DynamicProgramMapper.singleBlock(from: proposal, request: request, library: exerciseLibrary)
         program.generatedWithAI = true
         return program
     }
@@ -52,7 +53,8 @@ extension AIService {
     private func generateDynamicProgramMultiBlockAI(
         request: DynamicProgramGenerationRequest,
         allowedExerciseNames: [String],
-        existingWorkoutTemplateNames: [String]
+        existingWorkoutTemplateNames: [String],
+        exerciseLibrary: [Exercise]
     ) async throws -> DynamicProgram {
         var blocks: [ProgramBlock] = []
         blocks.reserveCapacity(request.blockSpecs.count)
@@ -92,7 +94,7 @@ extension AIService {
                 blockSpecs: [spec],
                 busyDayPolicy: request.busyDayPolicy
             )
-            let program = DynamicProgramMapper.singleBlock(from: proposal, request: singleRequest)
+            let program = DynamicProgramMapper.singleBlock(from: proposal, request: singleRequest, library: exerciseLibrary)
             guard let block = program.blocks.first else {
                 throw AIServiceError.invalidResponse
             }

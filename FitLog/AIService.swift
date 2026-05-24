@@ -79,6 +79,8 @@ struct WorkoutSplitBuilderStructuredInput: Equatable {
     var priorityMusclesOrLiftsNotes: String
     var recoveryContextNotes: String
     var deloadPreference: String
+    /// Cardio integration preference for program builder (see `CardioProgramPreference`).
+    var cardioPreference: String = CardioProgramPreference.none.rawValue
     /// How much day-to-day/template variation the user wants (simple, balanced, high, custom).
     var variationMode: String = "Balanced variation"
     /// Desired number of distinct workout templates in the rotation. May exceed sessionsPerWeek.
@@ -329,6 +331,7 @@ final class AIService: ObservableObject {
             priorityMusclesOrLiftsNotes: String(structured.priorityMusclesOrLiftsNotes.prefix(400)),
             recoveryContextNotes: String(structured.recoveryContextNotes.prefix(400)),
             deloadPreference: structured.deloadPreference,
+            cardioPreference: structured.cardioPreference,
             variationMode: structured.variationMode,
             desiredWorkoutRotationLength: desiredRotationLength,
             variationNotes: String(structured.variationNotes.prefix(400)),
@@ -372,6 +375,12 @@ final class AIService: ObservableObject {
             - Include leg work when sessions/week >= 2 unless the user is upper-body only by explicit goal.
             - Scale total hard sets to experience: beginners lower, advanced can be higher but not extreme.
             - If deloadPreference mentions a cadence, mention it briefly in rationale (the app may schedule separately).
+
+            Cardio integration (when cardioPreference in the user JSON is not "None — strength only"):
+            - Post-workout cardio: append a final cardio slot to each strength workout (10–15 min steady Zone 2 or easy walk). Use modality cardio with a suggestedExerciseName from the allowed exercise list when possible.
+            - Dedicated cardio days: include pure cardio rotation days (steady or intervals) using allowed cardio exercise names; balance with strength days across the week.
+            - Mixed: combine dedicated cardio days AND optional short finishers on some strength days; keep total weekly volume realistic for sessionDurationMinutes.
+            - Cardio slots use sets: 1, reps: "steady" or "intervals", and label describing the work (e.g. "Zone 2 finisher"). The app stores cardio prescriptions separately — still provide clear slot labels.
 
             Program balance (mandatory — applies to EVERY split style: PPL, upper/lower, bro-style, full body, athletic, “no preference”, etc.):
             UPPER BODY — push vs pull:
@@ -502,6 +511,7 @@ final class AIService: ObservableObject {
         let priorityMusclesOrLiftsNotes: String
         let recoveryContextNotes: String
         let deloadPreference: String
+        let cardioPreference: String
         let variationMode: String
         let desiredWorkoutRotationLength: Int
         let variationNotes: String

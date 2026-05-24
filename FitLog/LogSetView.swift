@@ -180,7 +180,29 @@ struct LogSetView: View {
         )
     }
 
+    private var isCardioLoggingRow: Bool {
+        guard let we = workoutExercise else { return false }
+        return CardioWorkoutExerciseHelpers.isCardioLoggingRow(we, exercises: dataVM.globalExercises)
+    }
+
     var body: some View {
+        if isCardioLoggingRow {
+            NavigationStack {
+                CardioLogView(exerciseIndex: exerciseIndex, sessionVM: sessionVM)
+                    .navigationTitle(dataVM.displayName(for: workoutExercise!))
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Close") { dismiss() }
+                        }
+                    }
+            }
+        } else {
+            strengthLogForm
+        }
+    }
+
+    private var strengthLogForm: some View {
         NavigationStack {
             Form {
                 Section("Log Set") {
