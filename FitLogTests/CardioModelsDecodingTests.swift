@@ -34,7 +34,7 @@ final class CardioModelsDecodingTests: XCTestCase {
 
     func testDecodeLegacyWorkoutJSON() throws {
         let json = """
-        {"id":"33333333-4444-5555-6666-777777777777","name":"Push Day","exercises":[],"templateSlotIdByWorkoutExerciseId":{}}
+        {"id":"33333333-4444-5555-6666-777777777777","name":"Push Day","exercises":[]}
         """
         let data = try XCTUnwrap(json.data(using: .utf8))
         let workout = try JSONDecoder().decode(Workout.self, from: data)

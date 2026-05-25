@@ -794,7 +794,7 @@ struct Workout: Identifiable, Codable, Equatable {
         id = try c.decode(UUID.self, forKey: .id)
         name = try c.decode(String.self, forKey: .name)
         exercises = try c.decode([WorkoutExercise].self, forKey: .exercises)
-        templateSlotIdByWorkoutExerciseId = try c.decodeIfPresent([UUID: UUID].self, forKey: .templateSlotIdByWorkoutExerciseId) ?? [:]
+        templateSlotIdByWorkoutExerciseId = (try? c.decodeIfPresent([UUID: UUID].self, forKey: .templateSlotIdByWorkoutExerciseId)) ?? [:]
         if let raw = try c.decodeIfPresent(String.self, forKey: .workoutKind),
            let kind = WorkoutKind(rawValue: raw) {
             workoutKind = kind

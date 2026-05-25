@@ -60,6 +60,7 @@ enum FitLogMigrationPlan: SchemaMigrationPlan {
             if existingAnchors.isEmpty {
                 context.insert(SDSchemaMigrationAnchorV4())
             }
+            try context.save()
             log.notice("V3→V4 didMigrate: complete")
         }
     )
