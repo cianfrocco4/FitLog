@@ -8,6 +8,12 @@
 import SwiftUI
 import SwiftData
 import UserNotifications
+import os
+
+private let log = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.fitlog",
+    category: "FitLogApp"
+)
 
 @main
 struct FitLogApp: App {
@@ -24,42 +30,12 @@ struct FitLogApp: App {
     @State private var migrationError: Error?
 
     init() {
-        var container: ModelContainer
-        var migError: Error?
-
-        do {
-            let appSupport = URL.applicationSupportDirectory
-            try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-            let storeURL = appSupport.appending(path: "FitLogData.store")
-            // Explicit `.none` avoids CloudKit-backed store wiring that can fail schema open on some environments.
-            let config = ModelConfiguration(url: storeURL, cloudKitDatabase: .none)
-            // Must use `Schema(versionedSchema:)` so the store version matches `SchemaMigrationPlan` / `VersionedSchema` (not the default 1.0.0 from `Schema([types])`).
-            let schema = Schema(versionedSchema: FitLogSchemaV4.self)
-            container = try ModelContainer(
-                for: schema,
-                migrationPlan: FitLogMigrationPlan.self,
-                configurations: config
-            )
-        } catch {
-            migError = error
-            // Fallback: in-memory store so the app can show `FitLogRecoverySheet` with the **disk** error.
-            // Never clear `migError` here — doing so showed an empty database with no explanation after a
-            // failed on-disk migration (e.g. missing migration stage for a schema version bump).
-            let schema = Schema(versionedSchema: FitLogSchemaV4.self)
-            let memWithPlan = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
-            let memNoPlan = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
-            if let c = try? ModelContainer(
-                for: schema,
-                migrationPlan: FitLogMigrationPlan.self,
-                configurations: memWithPlan
-            ) {
-                container = c
-            } else if let c = try? ModelContainer(for: schema, configurations: memNoPlan) {
-                container = c
-            } else {
-                fatalError("Cannot create even an in-memory ModelContainer: \(error)")
-            }
-        }
+        let appSupport = URL.applicationSupportDirectory
+        try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        let storeURL = appSupport.appending(path: "FitLogData.store")
+        let openResult = Self.openContainerWithRecovery(storeURL: storeURL)
+        let container = openResult.container
+        let migError = openResult.error
 
         _activeModelContainer = State(initialValue: container)
 
@@ -123,19 +99,81 @@ struct FitLogApp: App {
         }
     }
 
+    // MARK: - Container open + recovery
+
+    /// Opens the on-disk store, attempting silent backup restore or a fresh start before surfacing recovery UI.
+    static func openContainerWithRecovery(storeURL: URL) -> (container: ModelContainer, error: Error?) {
+        let schema = Schema(versionedSchema: FitLogSchemaV4.self)
+        let config = ModelConfiguration(url: storeURL, cloudKitDatabase: .none)
+
+        do {
+            let container = try ModelContainer(
+                for: schema,
+                migrationPlan: FitLogMigrationPlan.self,
+                configurations: config
+            )
+            return (container, nil)
+        } catch {
+            let originalError = error
+
+            if let snapshot = FitLogMigrationPlan.readBestAvailableRecoverySnapshot() {
+                removeStoreArtifacts(at: storeURL)
+                if let fresh = try? ModelContainer(
+                    for: schema,
+                    migrationPlan: FitLogMigrationPlan.self,
+                    configurations: config
+                ) {
+                    let ctx = ModelContext(fresh)
+                    if (try? V2MigrationDecoder.decode(snapshot: snapshot, into: ctx)) != nil {
+                        log.notice("Migration failed but auto-recovered from backup")
+                        return (fresh, nil)
+                    }
+                }
+            }
+
+            removeStoreArtifacts(at: storeURL)
+            if let fresh = try? ModelContainer(
+                for: schema,
+                migrationPlan: FitLogMigrationPlan.self,
+                configurations: config
+            ) {
+                log.warning("Migration failed, no backup available — started fresh")
+                return (fresh, nil)
+            }
+
+            let memWithPlan = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
+            let memNoPlan = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
+            if let c = try? ModelContainer(
+                for: schema,
+                migrationPlan: FitLogMigrationPlan.self,
+                configurations: memWithPlan
+            ) {
+                return (c, originalError)
+            }
+            if let c = try? ModelContainer(for: schema, configurations: memNoPlan) {
+                return (c, originalError)
+            }
+            fatalError("Cannot create even an in-memory ModelContainer: \(originalError)")
+        }
+    }
+
     // MARK: - Recovery actions
 
     private static func persistedStoreURL() -> URL {
         URL.applicationSupportDirectory.appending(path: "FitLogData.store")
     }
 
-    /// Removes the main SwiftData/SQLite store and any `-wal` / `-shm` sidecars.
-    private static func removePersistedStoreArtifacts() {
-        let storeURL = persistedStoreURL()
+    /// Removes a SwiftData/SQLite store and any `-wal` / `-shm` sidecars.
+    static func removeStoreArtifacts(at storeURL: URL) {
         for suffix in ["", "-wal", "-shm"] {
             let url = URL(fileURLWithPath: storeURL.path + suffix)
             try? FileManager.default.removeItem(at: url)
         }
+    }
+
+    /// Removes the main SwiftData/SQLite store and any `-wal` / `-shm` sidecars.
+    private static func removePersistedStoreArtifacts() {
+        removeStoreArtifacts(at: persistedStoreURL())
     }
 
     /// Restores from the best available `BackupSnapshot` under Application Support/Backups (V1→V2, unified-slots, or rotating `backup_*.json`).

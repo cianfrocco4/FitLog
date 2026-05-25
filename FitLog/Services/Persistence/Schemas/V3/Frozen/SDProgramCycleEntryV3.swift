@@ -11,7 +11,7 @@ final class SDProgramCycleEntryV3 {
     var orderIndex: Int = 0
     var workoutId: UUID = UUID()
 
-    var program: SDTrainingProgramV2?
+    var program: SDTrainingProgramV3?
 
     var referencedWorkout: SDWorkoutV3?
 

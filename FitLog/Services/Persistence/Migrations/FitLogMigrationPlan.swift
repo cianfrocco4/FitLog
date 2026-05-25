@@ -125,8 +125,20 @@ enum FitLogMigrationPlan: SchemaMigrationPlan {
 
     // MARK: - Backup I/O
 
-    static let backupDir: URL = URL.applicationSupportDirectory
-        .appending(path: "Backups", directoryHint: .isDirectory)
+    #if DEBUG
+    /// Test-only override scoped to the current task so parallel tests do not race on shared backups.
+    @TaskLocal static var backupDirectoryOverride: URL?
+    #endif
+
+    static var backupDir: URL {
+        #if DEBUG
+        if let override = backupDirectoryOverride {
+            return override
+        }
+        #endif
+        return URL.applicationSupportDirectory
+            .appending(path: "Backups", directoryHint: .isDirectory)
+    }
 
     static func writeBackup(_ snapshot: BackupSnapshot) throws {
         try FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
@@ -151,6 +163,8 @@ enum FitLogMigrationPlan: SchemaMigrationPlan {
     /// Recovery order: V1→V2 snapshot, unified-slots pre-migration snapshot, then newest `backup_*.json` / `pre_v2_*.json` in Application Support/Backups.
     static func readBestAvailableRecoverySnapshot() -> BackupSnapshot? {
         try? FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
+
+        if let s = readLatestPreV4Backup() { return s }
 
         if let s = readLatestBackup() { return s }
 
