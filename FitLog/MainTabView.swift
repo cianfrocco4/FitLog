@@ -13,6 +13,7 @@ struct MainTabView: View {
     @EnvironmentObject var aiService: AIService
     @EnvironmentObject var dayMonitor: CalendarDayMonitor
     @EnvironmentObject var userPreferences: UserPreferences
+    @EnvironmentObject var authVM: AuthViewModel
     @State private var showCurrentWorkoutPullUp = false
     @State private var workoutSheetDetent: PresentationDetent = .large
     @State private var showOnboarding = false
@@ -56,6 +57,7 @@ struct MainTabView: View {
             MoreTabRootView()
                 .environment(dataVM)
                 .environmentObject(userPreferences)
+                .environmentObject(authVM)
                 .tabItem { Label("More", systemImage: "ellipsis.circle") }
                 .tag(FitlogRootTab.more)
         }

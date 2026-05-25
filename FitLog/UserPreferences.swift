@@ -176,6 +176,7 @@ final class UserPreferences: ObservableObject {
         static let coachPlan = "fitlog.coachMark.plan.v1"
         static let coachHistory = "fitlog.coachMark.history.v1"
         static let dismissedProgramAssignmentBanner = "fitlog.dismissedProgramAssignmentBanner"
+        static let dismissedCardioGetStartedBanner = "fitlog.dismissedCardioGetStartedBanner"
         static let effortInputStyle = "fitlog.effortInputStyle"
     }
 
@@ -206,6 +207,11 @@ final class UserPreferences: ObservableObject {
         didSet { defaults.set(dismissedProgramAssignmentBanner, forKey: Keys.dismissedProgramAssignmentBanner) }
     }
 
+    /// User dismissed the Home cardio get-started card.
+    @Published var dismissedCardioGetStartedBanner: Bool {
+        didSet { defaults.set(dismissedCardioGetStartedBanner, forKey: Keys.dismissedCardioGetStartedBanner) }
+    }
+
     /// Whether the inline log row shows effort as RPE or RIR.
     @Published var effortInputStyle: EffortInputStyle {
         didSet { defaults.set(effortInputStyle.rawValue, forKey: Keys.effortInputStyle) }
@@ -224,6 +230,7 @@ final class UserPreferences: ObservableObject {
         _coachMarkPlanDismissed = Published(initialValue: defaults.bool(forKey: Keys.coachPlan))
         _coachMarkHistoryDismissed = Published(initialValue: defaults.bool(forKey: Keys.coachHistory))
         _dismissedProgramAssignmentBanner = Published(initialValue: defaults.bool(forKey: Keys.dismissedProgramAssignmentBanner))
+        _dismissedCardioGetStartedBanner = Published(initialValue: defaults.bool(forKey: Keys.dismissedCardioGetStartedBanner))
         if let raw = defaults.string(forKey: Keys.effortInputStyle),
            let style = EffortInputStyle(rawValue: raw) {
             _effortInputStyle = Published(initialValue: style)
@@ -243,6 +250,7 @@ final class UserPreferences: ObservableObject {
         coachMarkPlanDismissed = true
         coachMarkHistoryDismissed = true
         dismissedProgramAssignmentBanner = true
+        dismissedCardioGetStartedBanner = true
         effortInputStyle = .rpe
     }
 }

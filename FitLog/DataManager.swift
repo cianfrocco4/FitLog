@@ -1391,6 +1391,32 @@ final class DataManager {
         return WeekAtAGlance(isoWeekKey: weekKey, days: days, completedCount: completed, weeklyGoal: goal)
     }
 
+    /// Most recent completion date for sessions tied to a library workout id.
+    func lastCompletedDate(forLibraryWorkoutId libraryId: UUID) -> Date? {
+        completedSessions.compactMap { session -> Date? in
+            guard let end = session.endTime else { return nil }
+            if session.sessionPlanOrigin?.libraryWorkoutId == libraryId { return end }
+            return nil
+        }.max()
+    }
+
+    /// Unique library workout ids from recent completed sessions, most recent first.
+    func recentCompletedLibraryWorkoutIds(limit: Int = 4) -> [UUID] {
+        var seen = Set<UUID>()
+        var result: [UUID] = []
+        let sorted = completedSessions
+            .filter { $0.isCompleted }
+            .sorted { ($0.endTime ?? .distantPast) > ($1.endTime ?? .distantPast) }
+        for session in sorted {
+            guard let id = session.sessionPlanOrigin?.libraryWorkoutId else { continue }
+            if seen.insert(id).inserted {
+                result.append(id)
+                if result.count >= limit { break }
+            }
+        }
+        return result
+    }
+
     /// ISO-week snapshot for the Home recap card (current vs prior week).
     struct WeeklyRecapSummary: Equatable {
         let isoWeekKey: String

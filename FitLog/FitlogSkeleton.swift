@@ -77,7 +77,7 @@ struct FitlogSkeletonCardBlock: View {
             }
         }
         .padding()
-        .background(FitlogPalette.subtleFill.opacity(0.5), in: RoundedRectangle(cornerRadius: 20))
+        .background(FitlogPalette.subtleFill.opacity(0.5), in: RoundedRectangle(cornerRadius: 16))
     }
 }
 

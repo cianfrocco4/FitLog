@@ -10,6 +10,7 @@ import SwiftUI
 struct MoreTabRootView: View {
     @Environment(DataManager.self) var dataVM
     @EnvironmentObject var userPreferences: UserPreferences
+    @EnvironmentObject var authVM: AuthViewModel
 
     var body: some View {
         NavigationStack {
@@ -44,6 +45,13 @@ struct MoreTabRootView: View {
                         .environmentObject(userPreferences)
                 } label: {
                     Label("Data & Integrations", systemImage: "gearshape")
+                }
+
+                Section {
+                    Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                        authVM.logout()
+                    }
+                    .accessibilityHint("Signs out of your account")
                 }
             }
             .navigationTitle("More")
