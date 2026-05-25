@@ -125,17 +125,13 @@ enum FitLogMigrationPlan: SchemaMigrationPlan {
 
     // MARK: - Backup I/O
 
-    #if DEBUG
-    /// Test-only override scoped to the current task so parallel tests do not race on shared backups.
+    /// Override scoped to the current task; set only in tests so parallel runs do not race on shared backups.
     @TaskLocal static var backupDirectoryOverride: URL?
-    #endif
 
     static var backupDir: URL {
-        #if DEBUG
         if let override = backupDirectoryOverride {
             return override
         }
-        #endif
         return URL.applicationSupportDirectory
             .appending(path: "Backups", directoryHint: .isDirectory)
     }
