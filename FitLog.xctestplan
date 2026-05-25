@@ -1,0 +1,50 @@
+{
+  "configurations" : [
+    {
+      "id" : "A1F2E3D4-5B6C-7890-ABCD-EF1234567890",
+      "name" : "Configuration 1",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "commandLineArgumentEntries" : [
+      {
+        "argument" : "-fitlog-ui-testing",
+        "enabled" : true
+      }
+    ],
+    "environmentVariableEntries" : [
+      {
+        "enabled" : true,
+        "key" : "FITLOG_UI_TESTING",
+        "value" : "1"
+      }
+    ],
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:FitLog.xcodeproj",
+      "identifier" : "9226B59F2F4DEC1D006B04FE",
+      "name" : "FitLog"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:FitLog.xcodeproj",
+        "identifier" : "9226B5B32F4DEC20006B04FE",
+        "name" : "FitLogTests"
+      }
+    },
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:FitLog.xcodeproj",
+        "identifier" : "9226B5BD2F4DEC20006B04FE",
+        "name" : "FitLogUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

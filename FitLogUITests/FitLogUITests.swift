@@ -36,6 +36,10 @@ final class FitLogUITests: XCTestCase {
 
     @MainActor
     func testLaunchPerformance() throws {
+        let isCI = ProcessInfo.processInfo.environment["CI"] == "true"
+            || ProcessInfo.processInfo.environment["XCODE_CLOUD"] == "1"
+        try XCTSkipIf(isCI, "Launch performance metrics are unreliable on Xcode Cloud")
+
         if #available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 7.0, *) {
             // This measures how long it takes to launch your application.
             measure(metrics: [XCTApplicationLaunchMetric()]) {
