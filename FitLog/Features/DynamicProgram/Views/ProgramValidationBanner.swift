@@ -27,7 +27,7 @@ struct ProgramValidationResult: Equatable, Sendable {
 
         let trimmedName = programName.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedName.isEmpty {
-            blocking.append("Add a program name in the Goals step before saving.")
+            blocking.append("Add a program name in the Essentials step before saving.")
         }
 
         guard let program else {

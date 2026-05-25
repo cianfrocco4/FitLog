@@ -65,21 +65,17 @@ final class DynamicProgramBuilderViewModel {
     }
 
     enum WizardStep: Int, CaseIterable, Identifiable, Hashable {
-        case goals = 0
-        case programType = 1
-        case schedule = 2
-        case busyDays = 3
-        case generatePreview = 4
+        case essentials = 0
+        case structure = 1
+        case reviewAndEdit = 2
 
         var id: Int { rawValue }
 
         var title: String {
             switch self {
-            case .goals: return "Goals"
-            case .programType: return "Program"
-            case .schedule: return "Schedule"
-            case .busyDays: return "Busy days"
-            case .generatePreview: return "Preview"
+            case .essentials: return "Essentials"
+            case .structure: return "Structure"
+            case .reviewAndEdit: return "Review"
             }
         }
     }
@@ -100,7 +96,11 @@ final class DynamicProgramBuilderViewModel {
     }
 
     var request: DynamicProgramGenerationRequest
-    var wizardStep: WizardStep = .goals
+    var wizardStep: WizardStep = .essentials
+    /// Progressive disclosure for advanced wizard fields on Structure step.
+    var showAdvancedSettings = false
+    /// When true, entry screen promotes Quick Start for cold-start users.
+    var shouldPromoteQuickStart = false
     /// Persisted via `SplitBuilderPreferencesStore`.
     var builderMode: ProgramBuilderMode = .aiGenerate
     /// For `.sensoryFeedback` when switching builder mode.
@@ -140,6 +140,15 @@ final class DynamicProgramBuilderViewModel {
     var showPhaseCustomization: Bool = false
 
     private var didLoadPreferences = false
+    private var didBootstrapFromContext = false
+
+    /// One-line summary for live preview chips and floating action bar.
+    var liveSummaryLine: String {
+        let sessions = request.splitInput.sessionsPerWeek
+        let split = shortSplitLabel(from: request.splitInput.splitPreference)
+        let weeks = resolvedTotalProgramWeeks
+        return "\(sessions) days/week · \(split) · \(weeks) weeks"
+    }
 
     /// Resolved total weeks from the length picker.
     var resolvedTotalProgramWeeks: Int {
@@ -154,6 +163,22 @@ final class DynamicProgramBuilderViewModel {
 
     init(request: DynamicProgramGenerationRequest = .simpleDefault()) {
         self.request = request
+    }
+
+    /// Loads saved wizard defaults, then infers from workout history when appropriate.
+    func bootstrapFromContext(dataManager: DataManager) {
+        guard !didBootstrapFromContext else { return }
+        didBootstrapFromContext = true
+        loadPreferencesIfNeeded()
+        let saved = SplitBuilderPreferencesStore.load()
+        let hasSavedPrefs = saved.experienceRaw != nil || saved.sessionsPerWeek != nil || saved.primaryGoalRaw != nil
+        if !hasSavedPrefs {
+            inferFromWorkoutHistory(dataManager: dataManager)
+        }
+        shouldPromoteQuickStart = !hasSavedPrefs && dataManager.completedSessions.filter(\.isCompleted).isEmpty
+        if request.blockSpecs.isEmpty {
+            applyProgramStructureSelections()
+        }
     }
 
     func loadPreferencesIfNeeded() {
@@ -435,8 +460,107 @@ final class DynamicProgramBuilderViewModel {
         applyErrorMessage = nil
         editableBlockIndex = 0
         rebuildEditableDaysFromProgram()
-        wizardStep = .generatePreview
+        wizardStep = .reviewAndEdit
         builderMode = state.program.generatedWithAI ? .aiGenerate : .manualBuild
+    }
+
+    func applyCuratedTemplate(
+        _ template: CuratedProgramTemplate,
+        overrideWeeks: Int? = nil,
+        overrideSessions: Int? = nil
+    ) {
+        request = template.buildRequest()
+        builderMode = .aiGenerate
+        programStructurePreset = template.programStructure
+        request.isPeriodized = template.isPeriodized
+        if let overrideWeeks {
+            customTotalProgramWeeks = overrideWeeks
+            switch overrideWeeks {
+            case 4: totalWeeksTemplate = .four
+            case 8: totalWeeksTemplate = .eight
+            case 12: totalWeeksTemplate = .twelve
+            case 16: totalWeeksTemplate = .sixteen
+            default:
+                totalWeeksTemplate = .custom
+            }
+        } else {
+            customTotalProgramWeeks = template.totalWeeks
+            switch template.totalWeeks {
+            case 4: totalWeeksTemplate = .four
+            case 8: totalWeeksTemplate = .eight
+            case 12: totalWeeksTemplate = .twelve
+            case 16: totalWeeksTemplate = .sixteen
+            default:
+                totalWeeksTemplate = .custom
+            }
+        }
+        if let overrideSessions {
+            request.splitInput.sessionsPerWeek = min(max(1, overrideSessions), 7)
+        }
+        applyProgramStructureSelections()
+        wizardStep = .reviewAndEdit
+        errorMessage = nil
+    }
+
+    func applyExperienceBasedDefaults() {
+        let exp = request.splitInput.experienceLevel.lowercased()
+        if exp.contains("beginner") {
+            request.splitInput.sessionsPerWeek = 3
+            request.splitInput.splitPreference = "Full body"
+            totalWeeksTemplate = .eight
+            programStructurePreset = .singlePhase
+        } else if exp.contains("advanced") {
+            if request.splitInput.sessionsPerWeek < 4 {
+                request.splitInput.sessionsPerWeek = 5
+            }
+            if request.splitInput.splitPreference.contains("No preference") {
+                request.splitInput.splitPreference = "Push / Pull / Legs"
+            }
+            totalWeeksTemplate = .twelve
+        } else {
+            if request.splitInput.sessionsPerWeek < 3 {
+                request.splitInput.sessionsPerWeek = 4
+            }
+            if request.splitInput.splitPreference.contains("No preference") {
+                request.splitInput.splitPreference = "Upper / Lower"
+            }
+            totalWeeksTemplate = .eight
+        }
+        customTotalProgramWeeks = resolvedTotalProgramWeeks
+        applyProgramStructureSelections()
+    }
+
+    func inferFromWorkoutHistory(dataManager: DataManager) {
+        let completed = dataManager.completedSessions.filter(\.isCompleted)
+        guard !completed.isEmpty else { return }
+
+        let cal = Calendar.current
+        let cutoff = cal.date(byAdding: .day, value: -28, to: Date()) ?? Date()
+        let recent = completed.filter { ($0.endTime ?? Date()) >= cutoff }
+        if !recent.isEmpty {
+            let avg = max(1, min(7, recent.count / 4))
+            request.splitInput.sessionsPerWeek = avg
+        }
+
+        if dataManager.trainingProgram.sessionsPerWeek > 0 {
+            request.splitInput.sessionsPerWeek = dataManager.trainingProgram.sessionsPerWeek
+        }
+        if !dataManager.trainingProgram.preferredWeekdays.isEmpty {
+            request.splitInput.preferredWeekdays = dataManager.trainingProgram.preferredWeekdays
+        }
+
+        let totalSets = completed.reduce(0) { partial, session in
+            partial + session.exerciseLogs.reduce(0) { $0 + $1.loggedSets.count }
+        }
+        let avgSetsPerSession = totalSets / max(1, completed.count)
+        if avgSetsPerSession >= 18 {
+            request.splitInput.experienceLevel = "Advanced"
+        } else if avgSetsPerSession >= 10 {
+            request.splitInput.experienceLevel = "Intermediate"
+        } else {
+            request.splitInput.experienceLevel = "Beginner"
+        }
+        applyExperienceBasedDefaults()
     }
 
     func generate(aiService: AIService, dataManager: DataManager) async {
@@ -704,23 +828,14 @@ final class DynamicProgramBuilderViewModel {
         return "\(base) copy"
     }
 
-    // MARK: - Private
-
-    private static func defaultTwoBlockSpecs() -> [DynamicBlockGenerationSpec] {
-        [
-            DynamicBlockGenerationSpec(
-                title: "Hypertrophy phase",
-                focus: BlockFocus(kind: .hypertrophy, emphasisLabel: ""),
-                durationWeeks: 4,
-                progressionStrategy: .doubleProgression
-            ),
-            DynamicBlockGenerationSpec(
-                title: "Strength phase",
-                focus: BlockFocus(kind: .strength, emphasisLabel: ""),
-                durationWeeks: 4,
-                progressionStrategy: .linear
-            ),
-        ]
+    private func shortSplitLabel(from preference: String) -> String {
+        let lower = preference.lowercased()
+        if lower.contains("push") && lower.contains("pull") { return "PPL" }
+        if lower.contains("upper") && lower.contains("lower") { return "Upper/Lower" }
+        if lower.contains("full") { return "Full body" }
+        if lower.contains("bro") || lower.contains("muscle group") { return "Bro split" }
+        if lower.contains("no preference") { return "Auto split" }
+        return preference
     }
 
 }

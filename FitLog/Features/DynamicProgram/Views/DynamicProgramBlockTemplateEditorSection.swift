@@ -10,7 +10,7 @@ import SwiftUI
 
 struct DynamicProgramBlockTemplateEditorSection: View {
     @Binding var days: [SplitBuilderEditableDay]
-    /// When true, shows set-scheme chips, grouping hints, and slot detail / library sheets.
+    /// When true, uses day pager + inline expandable slots instead of DisclosureGroups.
     var enableManualSlotChrome: Bool = false
     /// Called after structural edits (move / add / remove day or slot).
     let onStructuralChange: () -> Void
@@ -20,16 +20,31 @@ struct DynamicProgramBlockTemplateEditorSection: View {
     @Environment(DataManager.self) private var dataManager
     @EnvironmentObject private var aiService: AIService
 
-    @State private var slotDetailTarget: SlotEditorTarget?
-    @State private var slotLibraryTarget: SlotEditorTarget?
+    @State private var slotDetailTarget: LegacySlotEditorTarget?
+    @State private var slotLibraryTarget: LegacySlotEditorTarget?
 
-    private struct SlotEditorTarget: Identifiable, Hashable {
+    private struct LegacySlotEditorTarget: Identifiable, Hashable {
         let dayId: UUID
         let slotId: UUID
         var id: String { "\(dayId.uuidString)|\(slotId.uuidString)" }
     }
 
     var body: some View {
+        Group {
+            if enableManualSlotChrome {
+                DayPagerEditorView(
+                    days: $days,
+                    enableManualSlotChrome: true,
+                    onStructuralChange: onStructuralChange,
+                    onSlotFieldChange: onSlotFieldChange
+                )
+            } else {
+                legacyDisclosureEditor
+            }
+        }
+    }
+
+    private var legacyDisclosureEditor: some View {
         Group {
             ForEach($days) { $day in
                 DisclosureGroup {
@@ -147,14 +162,10 @@ struct DynamicProgramBlockTemplateEditorSection: View {
         }
 
         Menu {
-            Button {
-                appendStrengthSlot(to: day)
-            } label: {
+            Button { appendStrengthSlot(to: day) } label: {
                 Label("Strength slot", systemImage: "figure.strengthtraining.traditional")
             }
-            Button {
-                appendCardioSlot(to: day)
-            } label: {
+            Button { appendCardioSlot(to: day) } label: {
                 Label("Cardio slot", systemImage: "figure.run")
             }
         } label: {
@@ -258,30 +269,6 @@ struct DynamicProgramBlockTemplateEditorSection: View {
             Text(slotBinding.wrappedValue.suggestedExerciseName ?? "Pick a cardio exercise")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-
-            if enableManualSlotChrome {
-                HStack(spacing: 10) {
-                    Button {
-                        slotDetailTarget = SlotEditorTarget(dayId: day.wrappedValue.id, slotId: slotId)
-                    } label: {
-                        Label("Prescription", systemImage: "slider.horizontal.3")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .tint(FitlogPalette.chartSecondary)
-                    .accessibilityHint("Edit duration, intervals, and targets for this cardio slot.")
-
-                    Button {
-                        slotLibraryTarget = SlotEditorTarget(dayId: day.wrappedValue.id, slotId: slotId)
-                    } label: {
-                        Label("Exercise", systemImage: "figure.run")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .tint(FitlogPalette.chartSecondary)
-                    .accessibilityHint("Pick a cardio or hybrid exercise from your library.")
-                }
-            }
         }
         .padding(.vertical, 6)
         .padding(.horizontal, 4)
@@ -299,34 +286,6 @@ struct DynamicProgramBlockTemplateEditorSection: View {
         slotBinding: Binding<SplitBuilderEditableSlot>
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            if enableManualSlotChrome {
-                HStack(spacing: 6) {
-                    Text((slotBinding.wrappedValue.setScheme ?? SetScheme(kind: .fixed)).displayLabel)
-                        .font(.caption2.weight(.semibold))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Capsule().fill(Color.accentColor.opacity(0.14)))
-                        .accessibilityLabel("Set scheme \(slotBinding.wrappedValue.setScheme?.displayLabel ?? "Fixed")")
-
-                    if let g = slotBinding.wrappedValue.grouping, g.kind != .standalone, !g.displayLabel.isEmpty {
-                        Text(g.displayLabel)
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Capsule().fill(Color.orange.opacity(0.18)))
-                            .accessibilityLabel("Grouping \(g.displayLabel)")
-                    }
-
-                    if let cue = slotBinding.wrappedValue.notes?.trimmingCharacters(in: .whitespacesAndNewlines), !cue.isEmpty {
-                        Text(String(cue.prefix(28)) + (cue.count > 28 ? "…" : ""))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .accessibilityLabel("Coaching note \(cue)")
-                    }
-                }
-            }
-
             TextField("Slot label", text: Binding(
                 get: { slotBinding.wrappedValue.label },
                 set: { var s = slotBinding.wrappedValue; s.label = $0; slotBinding.wrappedValue = s }
@@ -345,28 +304,6 @@ struct DynamicProgramBlockTemplateEditorSection: View {
             Text(slotBinding.wrappedValue.suggestedExerciseName ?? "Exercise from library when saved")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-
-            if enableManualSlotChrome {
-                HStack(spacing: 10) {
-                    Button {
-                        slotDetailTarget = SlotEditorTarget(dayId: day.wrappedValue.id, slotId: slotId)
-                    } label: {
-                        Label("Details", systemImage: "slider.horizontal.3")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .accessibilityHint("Edit set scheme, grouping, rest, notes, and substitutions.")
-
-                    Button {
-                        slotLibraryTarget = SlotEditorTarget(dayId: day.wrappedValue.id, slotId: slotId)
-                    } label: {
-                        Label("Library", systemImage: "books.vertical")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .accessibilityHint("Search your exercise library to assign this slot.")
-                }
-            }
         }
         .padding(.vertical, 4)
     }
