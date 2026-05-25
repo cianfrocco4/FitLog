@@ -9,12 +9,29 @@ always_apply: true
 You are working on a SwiftUI iOS app (FitLog). **Speed of iteration is critical.**
 
 ## Hard Rules - Simulator Management
-- **ALWAYS prefer using an already running simulator instance.** Do not launch or boot a new simulator unless explicitly instructed by the user.
+
+- **Default device: iPhone 17 Pro.** The user usually has this simulator already booted. Always target it for builds and tests.
+- **NEVER use iPhone 16** (or any other simulator) unless the user explicitly asks.
+- **ALWAYS prefer an already running simulator.** Do not launch or boot a new simulator unless explicitly instructed by the user.
 - **NEVER** automatically run `xcrun simctl boot` in any command.
 - **NEVER** add `sleep` commands before running builds or tests.
-- Assume the user has already manually launched and pre-booted the iPhone 17 Pro simulator (iOS 18.3.1) and it is running.
-- When running `xcodebuild`, do not include any simulator management commands. Simply use the destination flag with the existing running simulator.
 - If you believe a fresh simulator is truly needed, ask the user first — never assume or do it automatically.
+
+### Resolving the destination (do this before every `xcodebuild`)
+
+1. Check for a booted **iPhone 17 Pro**:
+   ```bash
+   xcrun simctl list devices booted | grep "iPhone 17 Pro"
+   ```
+2. If found, extract its UDID and use **`-destination 'id=UDID'`** — this pins to the running simulator and avoids spinning up a different device.
+3. If iPhone 17 Pro is not booted, ask the user to launch it rather than falling back to another simulator.
+
+Example (substitute the UDID from step 1):
+```bash
+cd /Users/anthony/Documents/Projects/FitLog && xcodebuild build -scheme FitLog -destination 'id=BOOTED_IPHONE_17_PRO_UDID' -quiet
+```
+
+Do **not** hardcode an OS version (e.g. `OS=18.3.1`) with the device name — iPhone 17 Pro may run a newer runtime and a mismatched OS causes `xcodebuild` to pick a different simulator.
 
 ## Priority Order for Validation (Fastest → Slowest)
 
@@ -25,9 +42,14 @@ You are working on a SwiftUI iOS app (FitLog). **Speed of iteration is critical.
 
 2. **Build Only** (Fastest reliable code check)
    ```bash
-   cd /Users/anthony/Documents/Projects/FitLog && xcodebuild build -scheme FitLog -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=18.3.1' -quiet
-3. Targeted Unit Tests (Only when relevant)
-   - Only for changes that affect tested logic (e.g. CardioMetricsCalculatorTests, CardioWeeklyPRCountTests, etc.)
-   - `cd /Users/anthony/Documents/Projects/FitLog && xcodebuild test -scheme FitLog -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=18.3.1' -only-testing:FitLogTests/[SpecificTestClass] -quiet`
-4. Full Simulator Run / Tests (Last Resort)
+   cd /Users/anthony/Documents/Projects/FitLog && xcodebuild build -scheme FitLog -destination 'id=BOOTED_IPHONE_17_PRO_UDID' -quiet
+   ```
+
+3. **Targeted Unit Tests** (Only when relevant)
+   - Only for changes that affect tested logic (e.g. `CardioMetricsCalculatorTests`, `CardioWeeklyPRCountTests`, etc.)
+   ```bash
+   cd /Users/anthony/Documents/Projects/FitLog && xcodebuild test -scheme FitLog -destination 'id=BOOTED_IPHONE_17_PRO_UDID' -only-testing:FitLogTests/[SpecificTestClass] -quiet
+   ```
+
+4. **Full Simulator Run / Tests** (Last Resort)
    - Only when Previews + build are insufficient.
