@@ -427,7 +427,7 @@ private struct SwapSheetIndex: Identifiable {
 struct CurrentWorkoutPullUpSheet: View {
     @Binding private var sheetDetent: PresentationDetent
 
-    init(sheetDetent: Binding<PresentationDetent> = .constant(.large)) {
+    init(sheetDetent: Binding<PresentationDetent> = .constant(FitlogWorkoutSheetDetent.defaultOpen)) {
         _sheetDetent = sheetDetent
     }
 
@@ -500,7 +500,7 @@ struct CurrentWorkoutPullUpSheet: View {
         }
     }
 
-    private var isLargeSheet: Bool { sheetDetent == .large }
+    private var isExpandedSheet: Bool { sheetDetent == FitlogWorkoutSheetDetent.expanded }
 
     private var activeSessionWorkout: Workout? {
         currentVM.currentSession?.workout
@@ -643,7 +643,6 @@ struct CurrentWorkoutPullUpSheet: View {
                                                libraryExercise.modality != .cardio {
                                                 ExerciseFormGuideCompactView(
                                                     exercise: libraryExercise,
-                                                    formTips: [],
                                                     shouldAutoPlay: isExpanded
                                                 ) {
                                                     formGuideExercise = libraryExercise
@@ -662,7 +661,7 @@ struct CurrentWorkoutPullUpSheet: View {
                                                 .simultaneousGesture(
                                                     DragGesture(minimumDistance: 50)
                                                         .onEnded { value in
-                                                            guard isLargeSheet, isExpanded else { return }
+                                                            guard isExpandedSheet, isExpanded else { return }
                                                             let t = value.translation
                                                             guard abs(t.width) > abs(t.height) else { return }
                                                             if t.width < -55 {
@@ -791,8 +790,8 @@ struct CurrentWorkoutPullUpSheet: View {
                     .scrollDismissesKeyboard(.interactively)
                     .keyboardDismissToolbar()
                     .onChange(of: expandedExerciseIndex) { _, newValue in
-                        if newValue != nil, sheetDetent != .large {
-                            sheetDetent = .large
+                        if newValue != nil, sheetDetent != FitlogWorkoutSheetDetent.expanded {
+                            sheetDetent = FitlogWorkoutSheetDetent.expanded
                         }
                         exerciseDetailMoreExpandedLogId = nil
                         initializeInlineDraftIfNeeded(forExpandedIndex: newValue)
@@ -892,14 +891,14 @@ struct CurrentWorkoutPullUpSheet: View {
                         isExerciseCompleted: { isExerciseCompleted($0) },
                         isExerciseActive: { isExerciseActive($0) },
                         onSelectExercise: { _ in
-                            if sheetDetent != .large {
-                                sheetDetent = .large
+                            if sheetDetent != FitlogWorkoutSheetDetent.expanded {
+                                sheetDetent = FitlogWorkoutSheetDetent.expanded
                             }
                         }
                     )
                 }
 
-                if isLargeSheet {
+                if isExpandedSheet {
                 ScrollViewReader { scrollProxy in
                     largeSheetWorkoutList(scrollProxy: scrollProxy)
                 }

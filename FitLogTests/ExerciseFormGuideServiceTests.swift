@@ -10,7 +10,7 @@ import Testing
 @MainActor
 struct ExerciseFormGuideServiceTests {
 
-    @Test func guide_whenNotConfigured_marksExerciseUnavailable() async {
+    @Test func guide_whenNotConfigured_setsFailedLoadState() async {
         let service = ExerciseFormGuideService(apiKey: nil, proxyBaseURL: nil)
         let exercise = Exercise(
             id: UUID(),
@@ -21,7 +21,11 @@ struct ExerciseFormGuideServiceTests {
 
         let guide = await service.guide(for: exercise)
         #expect(guide == nil)
-        #expect(service.loadState(for: exercise.id) == .unavailable)
+        if case .failed = service.loadState(for: exercise.id) {
+            // expected
+        } else {
+            Issue.record("Expected failed load state when form guide is not configured")
+        }
 
         let secondFetch = await service.guide(for: exercise)
         #expect(secondFetch == nil)

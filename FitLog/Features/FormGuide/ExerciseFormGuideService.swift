@@ -16,7 +16,7 @@ final class ExerciseFormGuideService {
     private var guideCache: [UUID: ExerciseFormGuide] = [:]
     private var unavailableExerciseIds: Set<UUID> = []
     private var loadStates: [UUID: ExerciseFormGuideLoadState] = [:]
-    private var inFlight: Set<UUID> = []
+    private var inFlightTasks: [UUID: Task<ExerciseFormGuide?, Never>] = [:]
 
     init(
         apiKey: String? = MuscleWikiConfig.apiKey,
@@ -60,49 +60,26 @@ final class ExerciseFormGuideService {
         }
 
         guard isConfigured else {
-            markUnavailable(exercise.id)
+            loadStates[exercise.id] = .failed(ExerciseFormGuideError.notConfigured.localizedDescription)
             return nil
         }
 
-        if !usesProxy, apiKey == nil {
-            markUnavailable(exercise.id)
-            return nil
+        if let existingTask = inFlightTasks[exercise.id] {
+            return await existingTask.value
         }
 
-        if inFlight.contains(exercise.id) {
-            return guideCache[exercise.id]
+        let task = Task<ExerciseFormGuide?, Never> { @MainActor in
+            await self.fetchGuide(for: exercise)
         }
-
-        inFlight.insert(exercise.id)
-        loadStates[exercise.id] = .loading
-        defer { inFlight.remove(exercise.id) }
-
-        do {
-            let payload = try await fetchMuscleWikiPayload(for: exercise)
-            guard let guide = ExerciseFormGuidePayloadParser.makeGuide(
-                from: payload,
-                exercise: exercise,
-                streamBaseURL: streamBaseURL
-            ) else {
-                markUnavailable(exercise.id)
-                return nil
-            }
-            guideCache[exercise.id] = guide
-            loadStates[exercise.id] = .loaded(guide)
-            return guide
-        } catch ExerciseFormGuideError.noMatch {
-            markUnavailable(exercise.id)
-            return nil
-        } catch {
-            loadStates[exercise.id] = .failed(error.localizedDescription)
-            return nil
-        }
+        inFlightTasks[exercise.id] = task
+        defer { inFlightTasks.removeValue(forKey: exercise.id) }
+        return await task.value
     }
 
     func preloadGuide(for exercise: Exercise) {
         guard guideCache[exercise.id] == nil,
               !unavailableExerciseIds.contains(exercise.id),
-              !inFlight.contains(exercise.id)
+              inFlightTasks[exercise.id] == nil
         else { return }
         Task { await guide(for: exercise) }
     }
@@ -142,6 +119,31 @@ final class ExerciseFormGuideService {
         return MuscleWikiConfig.muscleWikiBaseURL.appending(path: "stream/videos/branded")
     }
 
+    private func fetchGuide(for exercise: Exercise) async -> ExerciseFormGuide? {
+        loadStates[exercise.id] = .loading
+
+        do {
+            let payload = try await fetchMuscleWikiPayload(for: exercise)
+            guard let guide = ExerciseFormGuidePayloadParser.makeGuide(
+                from: payload,
+                exercise: exercise,
+                streamBaseURL: streamBaseURL
+            ) else {
+                loadStates[exercise.id] = .failed("No form guide content available for this exercise.")
+                return nil
+            }
+            guideCache[exercise.id] = guide
+            loadStates[exercise.id] = .loaded(guide)
+            return guide
+        } catch ExerciseFormGuideError.noMatch {
+            markUnavailable(exercise.id)
+            return nil
+        } catch {
+            loadStates[exercise.id] = .failed(error.localizedDescription)
+            return nil
+        }
+    }
+
     private func fetchMuscleWikiPayload(for exercise: Exercise) async throws -> MuscleWikiExercisePayload {
         if let mapping = ExerciseFormGuideMapper.mapping(for: exercise),
            let muscleWikiId = mapping.muscleWikiId {
@@ -165,9 +167,12 @@ final class ExerciseFormGuideService {
     private func searchExercise(query: String) async throws -> MuscleWikiExercisePayload? {
         guard let url = MuscleWikiConfig.searchURL(query: query, limit: 1) else { return nil }
         let data = try await performGET(url: url)
-        let envelope = try JSONDecoder().decode(MuscleWikiSearchEnvelope.self, from: data)
-        guard let first = envelope.results.first else { return nil }
-        if first.videos != nil || first.steps != nil {
+        let results = try ExerciseFormGuidePayloadParser.decodeSearchResults(from: data)
+        guard let first = results.first else { return nil }
+
+        let hasVideos = !(first.videos?.isEmpty ?? true)
+        let hasSteps = !(first.steps?.isEmpty ?? true)
+        if hasVideos || hasSteps {
             return first
         }
         return try await fetchExercise(id: first.id)

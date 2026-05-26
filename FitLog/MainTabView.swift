@@ -16,7 +16,7 @@ struct MainTabView: View {
     @EnvironmentObject var authVM: AuthViewModel
     @Environment(ExerciseFormGuideService.self) private var formGuideService
     @State private var showCurrentWorkoutPullUp = false
-    @State private var workoutSheetDetent: PresentationDetent = .large
+    @State private var workoutSheetDetent: PresentationDetent = FitlogWorkoutSheetDetent.defaultOpen
     @State private var showOnboarding = false
     @State private var rootTab: FitlogRootTab = .home
     @State private var coachDeepLink: FitlogCoachDeepLink = .idle
@@ -81,7 +81,6 @@ struct MainTabView: View {
                     dataVM: dataVM
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .ignoresSafeArea()
             }
         }
 
@@ -100,16 +99,16 @@ struct MainTabView: View {
                 .environmentObject(aiService)
                 .environmentObject(userPreferences)
                 .presentationDetents(
-                    [.fraction(0.14), .fraction(0.42), .large],
+                    FitlogWorkoutSheetDetent.all,
                     selection: $workoutSheetDetent
                 )
                 .presentationDragIndicator(.visible)
-                .presentationBackgroundInteraction(.enabled(upThrough: .fraction(0.42)))
+                .presentationBackgroundInteraction(.enabled(upThrough: FitlogWorkoutSheetDetent.expanded))
                 .interactiveDismissDisabled()
         }
         .onChange(of: showCurrentWorkoutPullUp) { _, isOpen in
             if isOpen {
-                workoutSheetDetent = .large
+                workoutSheetDetent = FitlogWorkoutSheetDetent.defaultOpen
             }
         }
         .sheet(item: Binding(

@@ -59,6 +59,16 @@ enum ExerciseFormGuidePayloadParser {
         guard let filename, !filename.isEmpty else { return nil }
         return filename
     }
+
+    /// MuscleWiki search returns a top-level JSON array; some docs show `{ "results": [...] }`.
+    static func decodeSearchResults(from data: Data) throws -> [MuscleWikiExercisePayload] {
+        let decoder = JSONDecoder()
+        if let array = try? decoder.decode([MuscleWikiExercisePayload].self, from: data) {
+            return array
+        }
+        let envelope = try decoder.decode(MuscleWikiSearchEnvelope.self, from: data)
+        return envelope.results
+    }
 }
 
 struct MuscleWikiExercisePayload: Decodable, Sendable {
@@ -76,9 +86,37 @@ struct MuscleWikiVideoPayload: Decodable, Sendable {
     let file: String?
     let ogImageURL: String?
 
-    enum CodingKeys: String, CodingKey {
+    init(
+        gender: String?,
+        angle: String?,
+        url: String?,
+        filename: String?,
+        file: String?,
+        ogImageURL: String?
+    ) {
+        self.gender = gender
+        self.angle = angle
+        self.url = url
+        self.filename = filename
+        self.file = file
+        self.ogImageURL = ogImageURL
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        gender = try container.decodeIfPresent(String.self, forKey: .gender)
+        angle = try container.decodeIfPresent(String.self, forKey: .angle)
+        url = try container.decodeIfPresent(String.self, forKey: .url)
+        filename = try container.decodeIfPresent(String.self, forKey: .filename)
+        file = try container.decodeIfPresent(String.self, forKey: .file)
+        ogImageURL = try container.decodeIfPresent(String.self, forKey: .ogImageURL)
+            ?? container.decodeIfPresent(String.self, forKey: .ogImage)
+    }
+
+    private enum CodingKeys: String, CodingKey {
         case gender, angle, url, filename, file
         case ogImageURL = "og_image_url"
+        case ogImage = "og_image"
     }
 }
 

@@ -9,7 +9,6 @@ import SwiftUI
 
 struct ExerciseFormGuideCompactView: View {
     let exercise: Exercise
-    let formTips: [String]
     var height: CGFloat = 120
     var shouldAutoPlay: Bool = true
     var onTap: (() -> Void)?
@@ -20,10 +19,19 @@ struct ExerciseFormGuideCompactView: View {
 
     @State private var guide: ExerciseFormGuide?
     @State private var isLoading = false
+    @State private var loadError: String?
+
+    private var serviceLoadState: ExerciseFormGuideLoadState {
+        formGuideService.loadState(for: exercise.id)
+    }
+
+    private var resolvedGuide: ExerciseFormGuide? {
+        guide ?? formGuideService.cachedGuide(for: exercise.id)
+    }
 
     var body: some View {
         Group {
-            if let guide, let video = guide.bestVideo(
+            if let resolvedGuide, let video = resolvedGuide.bestVideo(
                 gender: userPreferences.formGuideGender,
                 angle: userPreferences.formGuideAngle
             ) {
@@ -55,29 +63,120 @@ struct ExerciseFormGuideCompactView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Form guide for \(exercise.name)")
                 .accessibilityHint("Double tap to open full form guide")
-            } else if isLoading {
+            } else if let resolvedGuide, onTap != nil {
+                Button {
+                    onTap?()
+                } label: {
+                    stepsOnlyPlaceholder(for: resolvedGuide)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Form tips for \(exercise.name)")
+                .accessibilityHint("Double tap to open full form guide")
+            } else if isLoading || serviceLoadState == .loading {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(Color.secondary.opacity(0.12))
                     .frame(height: height)
                     .overlay {
                         ProgressView()
                     }
+            } else if let loadError {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.secondary.opacity(0.08))
+                    .frame(height: height)
+                    .overlay {
+                        VStack(spacing: 6) {
+                            Image(systemName: "play.rectangle.on.rectangle")
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
+                            Text(loadError)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 12)
+                        }
+                    }
+                    .accessibilityLabel(loadError)
             }
         }
         .task(id: exercise.id) {
             await loadGuideIfNeeded()
         }
+        .onChange(of: serviceLoadState) { _, newState in
+            syncFromServiceLoadState(newState)
+        }
+    }
+
+    private func stepsOnlyPlaceholder(for guide: ExerciseFormGuide) -> some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(Color.secondary.opacity(0.08))
+            .frame(height: height)
+            .overlay {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "figure.strengthtraining.traditional")
+                        Text("Form tips")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .foregroundStyle(.secondary)
+                    if let cue = guide.keyCue ?? guide.steps.first {
+                        Text(cue)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(12)
+            }
     }
 
     private func loadGuideIfNeeded() async {
         guard formGuideService.isConfigured else { return }
         if let cached = formGuideService.cachedGuide(for: exercise.id) {
             guide = cached
+            loadError = nil
             return
         }
         isLoading = true
+        loadError = nil
         defer { isLoading = false }
         guide = await formGuideService.guide(for: exercise)
+        if guide == nil {
+            guide = formGuideService.cachedGuide(for: exercise.id)
+        }
+        applyLoadErrorIfNeeded()
+    }
+
+    private func syncFromServiceLoadState(_ state: ExerciseFormGuideLoadState) {
+        if case .loaded(let loadedGuide) = state {
+            guide = loadedGuide
+            loadError = nil
+            return
+        }
+        if guide == nil, formGuideService.cachedGuide(for: exercise.id) != nil {
+            guide = formGuideService.cachedGuide(for: exercise.id)
+            loadError = nil
+            return
+        }
+        if !isLoading {
+            applyLoadErrorIfNeeded()
+        }
+    }
+
+    private func applyLoadErrorIfNeeded() {
+        guard guide == nil else {
+            loadError = nil
+            return
+        }
+        switch formGuideService.loadState(for: exercise.id) {
+        case .failed(let message):
+            loadError = message
+        case .unavailable:
+            loadError = "Video unavailable for this exercise."
+        default:
+            break
+        }
     }
 }
 
@@ -447,8 +546,7 @@ private enum ExerciseFormGuidePreviewData {
 
 #Preview("Compact — with guide") {
     ExerciseFormGuideCompactView(
-        exercise: ExerciseFormGuidePreviewData.squat,
-        formTips: ExerciseFormHeuristicTips.tips(for: ExerciseFormGuidePreviewData.squat)
+        exercise: ExerciseFormGuidePreviewData.squat
     )
     .environment(ExerciseFormGuidePreviewData.previewService(withGuide: true))
     .environmentObject(UserPreferences())
@@ -457,8 +555,7 @@ private enum ExerciseFormGuidePreviewData {
 
 #Preview("Compact — dark") {
     ExerciseFormGuideCompactView(
-        exercise: ExerciseFormGuidePreviewData.squat,
-        formTips: []
+        exercise: ExerciseFormGuidePreviewData.squat
     )
     .environment(ExerciseFormGuidePreviewData.previewService(withGuide: true))
     .environmentObject(UserPreferences())

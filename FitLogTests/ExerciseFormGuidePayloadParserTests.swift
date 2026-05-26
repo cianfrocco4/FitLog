@@ -106,4 +106,77 @@ struct ExerciseFormGuidePayloadParserTests {
 
         #expect(ExerciseFormGuidePayloadParser.brandedStreamFilename(from: video) == "lunge.mp4")
     }
+
+    @Test func decodeSearchResults_parsesTopLevelJSONArray() throws {
+        let json = """
+        [{
+            "id": 4,
+            "name": "Barbell Bench Press",
+            "steps": ["Lower the bar to mid chest"],
+            "videos": [{
+                "url": "https://api.musclewiki.com/stream/videos/branded/male-barbell-bench-press-front.mp4",
+                "angle": "front",
+                "gender": "male",
+                "og_image": "https://api.musclewiki.com/stream/images/og_images/og-male-barbell-bench-press-front.jpg"
+            }]
+        }]
+        """
+        let data = Data(json.utf8)
+        let results = try ExerciseFormGuidePayloadParser.decodeSearchResults(from: data)
+
+        #expect(results.count == 1)
+        #expect(results[0].id == 4)
+        #expect(results[0].name == "Barbell Bench Press")
+        #expect(results[0].steps?.first == "Lower the bar to mid chest")
+        #expect(results[0].videos?.first?.ogImageURL?.contains("og-male-barbell-bench-press-front.jpg") == true)
+    }
+
+    @Test func decodeSearchResults_parsesEnvelopeShape() throws {
+        let json = """
+        {
+            "results": [{
+                "id": 7,
+                "name": "Barbell Squat",
+                "steps": ["Sit back and down"],
+                "videos": []
+            }]
+        }
+        """
+        let data = Data(json.utf8)
+        let results = try ExerciseFormGuidePayloadParser.decodeSearchResults(from: data)
+
+        #expect(results.count == 1)
+        #expect(results[0].id == 7)
+        #expect(results[0].name == "Barbell Squat")
+    }
+
+    @Test func muscleWikiVideoPayload_decodesOgImageURLFromOgImageKey() throws {
+        let json = """
+        {
+            "gender": "male",
+            "angle": "front",
+            "url": "https://api.musclewiki.com/stream/videos/branded/squat.mp4",
+            "og_image": "https://example.com/thumb.jpg"
+        }
+        """
+        let data = Data(json.utf8)
+        let video = try JSONDecoder().decode(MuscleWikiVideoPayload.self, from: data)
+
+        #expect(video.ogImageURL == "https://example.com/thumb.jpg")
+    }
+
+    @Test func muscleWikiVideoPayload_prefersOgImageURLKeyOverOgImage() throws {
+        let json = """
+        {
+            "gender": "female",
+            "angle": "side",
+            "og_image_url": "https://example.com/preferred.jpg",
+            "og_image": "https://example.com/fallback.jpg"
+        }
+        """
+        let data = Data(json.utf8)
+        let video = try JSONDecoder().decode(MuscleWikiVideoPayload.self, from: data)
+
+        #expect(video.ogImageURL == "https://example.com/preferred.jpg")
+    }
 }

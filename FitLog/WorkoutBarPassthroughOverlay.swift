@@ -15,6 +15,16 @@ enum FitlogWorkoutBarLayout {
     static let contentBottomPadding: CGFloat = 92
 }
 
+/// Sheet detents for the active workout pull-up. Expanded height leaves the tab bar exposed.
+enum FitlogWorkoutSheetDetent {
+    static let collapsed = PresentationDetent.fraction(0.14)
+    static let medium = PresentationDetent.fraction(0.42)
+    static let expanded = PresentationDetent.fraction(0.85)
+
+    static let all: Set<PresentationDetent> = [collapsed, medium, expanded]
+    static let defaultOpen = medium
+}
+
 private enum FitlogWorkoutBarContentInsetKey: EnvironmentKey {
     static let defaultValue: CGFloat = 0
 }
@@ -77,11 +87,6 @@ final class PassthroughWorkoutBarContainer: UIView {
         }
     }
 
-    private static func tabBarChromeHeight(for view: UIView) -> CGFloat {
-        guard let window = view.window else { return 83 }
-        return 49 + window.safeAreaInsets.bottom
-    }
-
     override func didMoveToWindow() {
         super.didMoveToWindow()
         setNeedsLayout()
@@ -97,8 +102,7 @@ final class PassthroughWorkoutBarContainer: UIView {
             verticalFittingPriority: .fittingSizeLevel
         )
         let h = max(fitting.height, 44)
-        let lift = Self.tabBarChromeHeight(for: self)
-        let y = bounds.height - h - lift
+        let y = bounds.height - h
         hv.frame = CGRect(x: 0, y: y, width: width, height: h)
     }
 

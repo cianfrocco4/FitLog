@@ -38,6 +38,17 @@ struct ExerciseFormGuideMapperTests {
         #expect(mapping?.searchQuery == "Barbell Bench Press")
     }
 
+    @Test func mapping_seatedDumbbellPress_usesMuscleWikiQuery() {
+        let exercise = Exercise(
+            id: UUID(),
+            name: "Seated Dumbbell Press",
+            description: "",
+            targetedMuscles: [.frontDelts]
+        )
+        let mapping = ExerciseFormGuideMapper.mapping(for: exercise)
+        #expect(mapping?.searchQuery == "Seated Dumbbell Press")
+    }
+
     @Test func mapping_unknownExercise_fallsBackToCanonicalName() {
         let exercise = Exercise(
             id: UUID(),
