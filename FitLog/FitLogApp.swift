@@ -20,6 +20,7 @@ struct FitLogApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var authVM = AuthViewModel()
     @StateObject private var aiService = AIService(apiKey: OpenAIConfig.apiKey, baseURL: OpenAIConfig.aiBaseURL, model: OpenAIConfig.aiModel)
+    @State private var formGuideService = ExerciseFormGuideService()
     @StateObject private var dayMonitor = CalendarDayMonitor()
     @StateObject private var userPreferences = UserPreferences()
 
@@ -70,12 +71,14 @@ struct FitLogApp: App {
                         .environment(dataVM)
                         .environment(currentVM)
                         .environmentObject(aiService)
+                        .environment(formGuideService)
                         .environmentObject(dayMonitor)
                         .environmentObject(userPreferences)
                         .onAppear {
                             dataVM.healthSyncStatusMessage = dataVM.healthSyncService.statusMessage
                             if !FitLogUITestLaunch.isActive {
                                 aiService.wakeProxyHostIfNeeded()
+                                formGuideService.wakeProxyHostIfNeeded()
                             }
                         }
                 }
@@ -92,6 +95,7 @@ struct FitLogApp: App {
                 currentVM.appDidBecomeActive()
                 if authVM.isLoggedIn, !FitLogUITestLaunch.isActive {
                     aiService.wakeProxyHostIfNeeded()
+                    formGuideService.wakeProxyHostIfNeeded()
                 }
             default:
                 break

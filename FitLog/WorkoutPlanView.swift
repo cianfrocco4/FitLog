@@ -530,18 +530,33 @@ struct WorkoutPlanView: View {
                 flexibleRowLabel(we, progression: progression)
             }
         } else {
-            Button {
-                guard isThisLibrarySessionActive,
-                      item.sourceIndex < workout.exercises.count
-                else { return }
-                let rowId = workout.exercises[item.sourceIndex].id
-                guard let logIndex = currentVM.currentSession?.exerciseLogs.firstIndex(where: { $0.workoutExercise.id == rowId })
-                else { return }
-                openPullUpToExerciseLogIndex?(logIndex)
-            } label: {
-                concreteRowLabel(we, progression: progression)
+            HStack(spacing: 8) {
+                Button {
+                    guard isThisLibrarySessionActive,
+                          item.sourceIndex < workout.exercises.count
+                    else { return }
+                    let rowId = workout.exercises[item.sourceIndex].id
+                    guard let logIndex = currentVM.currentSession?.exerciseLogs.firstIndex(where: { $0.workoutExercise.id == rowId })
+                    else { return }
+                    openPullUpToExerciseLogIndex?(logIndex)
+                } label: {
+                    concreteRowLabel(we, progression: progression)
+                }
+                if let exercise = libraryExercise(for: we), exercise.modality != .cardio {
+                    ExerciseFormGuideInfoButton(exercise: exercise)
+                }
             }
         }
+    }
+
+    private func libraryExercise(for workoutExercise: WorkoutExercise) -> Exercise? {
+        if let snapshot = workoutExercise.snapshot {
+            return dataVM.resolveExercise(for: snapshot)
+        }
+        if let exerciseId = workoutExercise.exerciseId {
+            return dataVM.globalExercises.first { $0.id == exerciseId }
+        }
+        return nil
     }
 
     private func flexibleRowLabel(_ we: WorkoutExercise, progression: ProgressionSuggestion? = nil) -> some View {

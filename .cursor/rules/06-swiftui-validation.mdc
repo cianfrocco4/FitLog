@@ -26,6 +26,38 @@ You are working on a SwiftUI iOS app (FitLog). **Speed of iteration is critical.
 2. If found, extract its UDID and use **`-destination 'id=UDID'`** — this pins to the running simulator and avoids spinning up a different device.
 3. If iPhone 17 Pro is not booted, ask the user to launch it rather than falling back to another simulator.
 
+### Post-test simulator cleanup
+
+Applies to **whatever simulator UDID you use as the test destination** — not a specific device model.
+
+**Before** running `xcodebuild test`, capture all booted simulator UDIDs and whether your chosen destination was already running:
+
+```bash
+# All simulators booted before this test run
+PRE_BOOTED_UDIDS=$(xcrun simctl list devices booted | grep -E -o '[0-9A-F-]{36}' | sort -u)
+
+# Resolve the destination UDID you will pass to -destination 'id=UDID'
+# (from the booted device check in the step above, or from xcodebuild's chosen device)
+
+TARGET_WAS_ALREADY_BOOTED=0
+if echo "$PRE_BOOTED_UDIDS" | grep -qx "$UDID"; then
+  TARGET_WAS_ALREADY_BOOTED=1
+fi
+```
+
+**After** tests finish (pass or fail):
+
+- If `TARGET_WAS_ALREADY_BOOTED=1` — **do not shut down or quit the Simulator app.** Leave that simulator running.
+- If `TARGET_WAS_ALREADY_BOOTED=0` — the test run likely launched this simulator. **Shut down only the test destination:**
+
+```bash
+if [ "$TARGET_WAS_ALREADY_BOOTED" -eq 0 ]; then
+  xcrun simctl shutdown "$UDID" 2>/dev/null || true
+fi
+```
+
+**Never** shut down any UDID that appears in `PRE_BOOTED_UDIDS`. Only shut down `$UDID` when it was not booted before your test started.
+
 Example (substitute the UDID from step 1):
 ```bash
 cd /Users/anthony/Documents/Projects/FitLog && xcodebuild build -scheme FitLog -destination 'id=BOOTED_IPHONE_17_PRO_UDID' -quiet

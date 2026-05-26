@@ -72,3 +72,5 @@ To have **all users** use the same API key (you pay for usage):
 - `FitLog/OpenAIConfig.swift` – reads `OPENAI_API_KEY` and `FITLOG_AI_BASE_URL` from env or Info.plist.
 - `FitLog/AIService.swift` – uses proxy URL when set, otherwise OpenAI with key.
 - `backend/` – optional Node proxy (see **backend/README.md**).
+
+For **MuscleWiki form guide videos**, see **FORM_GUIDE_SETUP.md** (`FITLOG_FORM_GUIDE_BASE_URL` + server `MUSCLEWIKI_API_KEY`).

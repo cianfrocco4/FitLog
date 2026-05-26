@@ -14,6 +14,7 @@ struct MainTabView: View {
     @EnvironmentObject var dayMonitor: CalendarDayMonitor
     @EnvironmentObject var userPreferences: UserPreferences
     @EnvironmentObject var authVM: AuthViewModel
+    @Environment(ExerciseFormGuideService.self) private var formGuideService
     @State private var showCurrentWorkoutPullUp = false
     @State private var workoutSheetDetent: PresentationDetent = .large
     @State private var showOnboarding = false
@@ -95,6 +96,7 @@ struct MainTabView: View {
             CurrentWorkoutPullUpSheet(sheetDetent: $workoutSheetDetent)
                 .environment(currentVM)
                 .environment(dataVM)
+                .environment(formGuideService)
                 .environmentObject(aiService)
                 .environmentObject(userPreferences)
                 .presentationDetents(

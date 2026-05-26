@@ -178,6 +178,8 @@ final class UserPreferences: ObservableObject {
         static let dismissedProgramAssignmentBanner = "fitlog.dismissedProgramAssignmentBanner"
         static let dismissedCardioGetStartedBanner = "fitlog.dismissedCardioGetStartedBanner"
         static let effortInputStyle = "fitlog.effortInputStyle"
+        static let formGuideGender = "fitlog.formGuideGender"
+        static let formGuideAngle = "fitlog.formGuideAngle"
     }
 
     private let defaults: UserDefaults
@@ -217,6 +219,14 @@ final class UserPreferences: ObservableObject {
         didSet { defaults.set(effortInputStyle.rawValue, forKey: Keys.effortInputStyle) }
     }
 
+    @Published var formGuideGender: FormGuideGender {
+        didSet { defaults.set(formGuideGender.rawValue, forKey: Keys.formGuideGender) }
+    }
+
+    @Published var formGuideAngle: FormGuideAngle {
+        didSet { defaults.set(formGuideAngle.rawValue, forKey: Keys.formGuideAngle) }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         if let raw = defaults.string(forKey: Keys.weightUnit),
@@ -236,6 +246,18 @@ final class UserPreferences: ObservableObject {
             _effortInputStyle = Published(initialValue: style)
         } else {
             _effortInputStyle = Published(initialValue: .rpe)
+        }
+        if let raw = defaults.string(forKey: Keys.formGuideGender),
+           let gender = FormGuideGender(rawValue: raw) {
+            _formGuideGender = Published(initialValue: gender)
+        } else {
+            _formGuideGender = Published(initialValue: .male)
+        }
+        if let raw = defaults.string(forKey: Keys.formGuideAngle),
+           let angle = FormGuideAngle(rawValue: raw) {
+            _formGuideAngle = Published(initialValue: angle)
+        } else {
+            _formGuideAngle = Published(initialValue: .front)
         }
     }
 

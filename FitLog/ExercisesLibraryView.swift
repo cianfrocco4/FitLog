@@ -42,6 +42,7 @@ enum ExerciseLibraryBrowseMode: String, CaseIterable {
 struct ExercisesLibraryView: View {
     @Environment(DataManager.self) var dataVM
     @EnvironmentObject private var aiService: AIService
+    @Environment(ExerciseFormGuideService.self) private var formGuideService
     @State private var showAddSheet = false
     @State private var exerciseToEdit: EditableExerciseItem?
     @State private var exerciseToRenameLocally: LocalRenameExerciseItem?
@@ -278,10 +279,15 @@ struct ExercisesLibraryView: View {
             NavigationLink {
                 ExerciseDetailView(exerciseId: ex.id)
             } label: {
-                HStack(spacing: 8) {
-                    Text(dataVM.resolvedDisplayName(for: ex))
-                    Spacer(minLength: 8)
-                    statusBadges(for: ex)
+                HStack(spacing: 10) {
+                    if formGuideService.isConfigured, ex.modality != .cardio {
+                        ExerciseFormGuideLibraryThumbnail(exercise: ex)
+                    }
+                    HStack(spacing: 8) {
+                        Text(dataVM.resolvedDisplayName(for: ex))
+                        Spacer(minLength: 8)
+                        statusBadges(for: ex)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())

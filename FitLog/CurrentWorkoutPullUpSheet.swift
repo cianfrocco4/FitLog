@@ -435,6 +435,7 @@ struct CurrentWorkoutPullUpSheet: View {
     @Environment(DataManager.self) var dataVM
     @EnvironmentObject var aiService: AIService
     @EnvironmentObject var userPreferences: UserPreferences
+    @Environment(ExerciseFormGuideService.self) private var formGuideService
     @Environment(\.dismiss) var dismiss
     @Environment(\.undoManager) private var undoManager
 
@@ -483,6 +484,7 @@ struct CurrentWorkoutPullUpSheet: View {
     @State private var pendingUndoSet: PendingUndoSet?
     @State private var inlineLogSuccessTick = 0
     @State private var exerciseSwipeTick = 0
+    @State private var formGuideExercise: Exercise?
 
     private struct PendingUndoSet: Identifiable {
         let id: UUID
@@ -637,6 +639,19 @@ struct CurrentWorkoutPullUpSheet: View {
                                             }
                                         }
                                         if isExpanded && !log.workoutExercise.isSlotPlaceholder {
+                                            if let libraryExercise = libraryExercise(for: log),
+                                               libraryExercise.modality != .cardio {
+                                                ExerciseFormGuideCompactView(
+                                                    exercise: libraryExercise,
+                                                    formTips: [],
+                                                    shouldAutoPlay: isExpanded
+                                                ) {
+                                                    formGuideExercise = libraryExercise
+                                                }
+                                                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16))
+                                                .listRowSeparator(.hidden)
+                                            }
+
                                             planAndCompletionRow(log: log)
                                                 .moveDisabled(true)
                                                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
@@ -784,6 +799,12 @@ struct CurrentWorkoutPullUpSheet: View {
                         guard let idx = newValue,
                               let logs = currentVM.currentSession?.exerciseLogs,
                               idx < logs.count else { return }
+                        if let currentExercise = libraryExercise(for: logs[idx]) {
+                            formGuideService.preloadGuide(for: currentExercise)
+                            if idx + 1 < logs.count, let nextExercise = libraryExercise(for: logs[idx + 1]) {
+                                formGuideService.preloadGuide(for: nextExercise)
+                            }
+                        }
                         let targetId = logs[idx].id
                         DispatchQueue.main.async {
                             withAnimation(.easeInOut(duration: 0.25)) {
@@ -1027,6 +1048,12 @@ struct CurrentWorkoutPullUpSheet: View {
                         }
                     }
                 )
+            }
+            .sheet(item: $formGuideExercise) { exercise in
+                ExerciseFormGuideSheet(exercise: exercise)
+                    .environment(formGuideService)
+                    .environmentObject(aiService)
+                    .environmentObject(userPreferences)
             }
             .alert("Finish workout?", isPresented: $showFinishConfirmation) {
                 Button("Cancel", role: .cancel) {}
@@ -1655,6 +1682,11 @@ struct CurrentWorkoutPullUpSheet: View {
                             .background(Circle().fill(Color.blue.gradient))
                             .accessibilityLabel("Superset \(letter)")
                     }
+                    if let libraryExercise = libraryExercise(for: log),
+                       libraryExercise.modality != .cardio,
+                       formGuideService.isConfigured {
+                        ExerciseFormGuideInfoButton(exercise: libraryExercise)
+                    }
                 }
                 ProgressView(value: progress)
                     .tint(exerciseProgressTint(for: log))
@@ -1684,6 +1716,16 @@ struct CurrentWorkoutPullUpSheet: View {
         if isExerciseActive(log) { return .blue }
         if !log.loggedSets.isEmpty { return .orange }
         return .secondary
+    }
+
+    private func libraryExercise(for log: ExerciseLog) -> Exercise? {
+        if let snapshot = log.workoutExercise.snapshot {
+            return dataVM.resolveExercise(for: snapshot)
+        }
+        if let exerciseId = log.workoutExercise.exerciseId {
+            return dataVM.globalExercises.first { $0.id == exerciseId }
+        }
+        return nil
     }
 
     @ViewBuilder
