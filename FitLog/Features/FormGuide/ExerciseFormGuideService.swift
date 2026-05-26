@@ -17,6 +17,13 @@ final class ExerciseFormGuideService {
     private var unavailableExerciseIds: Set<UUID> = []
     private var loadStates: [UUID: ExerciseFormGuideLoadState] = [:]
     private var inFlightTasks: [UUID: Task<ExerciseFormGuide?, Never>] = [:]
+    private var transientlyFailedExercises: [UUID: Exercise] = [:]
+    private var retryAttempts: [UUID: Int] = [:]
+    private var retryTasks: [UUID: Task<Void, Never>] = [:]
+    private var keepAliveTask: Task<Void, Never>?
+
+    private static let retryDelays: [TimeInterval] = [3, 8, 20, 45]
+    private static let keepAliveInterval: TimeInterval = 240
 
     init(
         apiKey: String? = MuscleWikiConfig.apiKey,
@@ -89,18 +96,49 @@ final class ExerciseFormGuideService {
         return ["X-API-Key": apiKey]
     }
 
-    func wakeProxyHostIfNeeded() {
+    func wakeProxyAndRetryIfNeeded() {
         guard let baseRaw = proxyBaseURL,
               let root = URL(string: baseRaw) else { return }
 
         let url = root.appendingPathComponent("health")
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.timeoutInterval = 25
+        request.timeoutInterval = 30
 
-        Task(priority: .utility) {
-            _ = try? await session.data(for: request)
+        Task(priority: .utility) { @MainActor in
+            guard let (_, response) = try? await session.data(for: request),
+                  let http = response as? HTTPURLResponse,
+                  http.statusCode == 200 else { return }
+            retryFailedGuides()
         }
+    }
+
+    func retryFailedGuides() {
+        let exercises = Array(transientlyFailedExercises.values)
+        for exercise in exercises {
+            transientlyFailedExercises.removeValue(forKey: exercise.id)
+            retryAttempts.removeValue(forKey: exercise.id)
+            retryTasks[exercise.id]?.cancel()
+            retryTasks.removeValue(forKey: exercise.id)
+            loadStates[exercise.id] = .idle
+            preloadGuide(for: exercise)
+        }
+    }
+
+    func startKeepAlive() {
+        guard keepAliveTask == nil, proxyBaseURL != nil else { return }
+        keepAliveTask = Task(priority: .utility) { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Self.keepAliveInterval))
+                guard !Task.isCancelled else { break }
+                wakeProxyAndRetryIfNeeded()
+            }
+        }
+    }
+
+    func stopKeepAlive() {
+        keepAliveTask?.cancel()
+        keepAliveTask = nil
     }
 
     #if DEBUG
@@ -134,13 +172,38 @@ final class ExerciseFormGuideService {
             }
             guideCache[exercise.id] = guide
             loadStates[exercise.id] = .loaded(guide)
+            clearRetryState(for: exercise.id)
             return guide
         } catch ExerciseFormGuideError.noMatch {
             markUnavailable(exercise.id)
             return nil
         } catch {
             loadStates[exercise.id] = .failed(error.localizedDescription)
+            scheduleRetry(for: exercise)
             return nil
+        }
+    }
+
+    private func clearRetryState(for exerciseId: UUID) {
+        retryAttempts.removeValue(forKey: exerciseId)
+        retryTasks[exerciseId]?.cancel()
+        retryTasks.removeValue(forKey: exerciseId)
+        transientlyFailedExercises.removeValue(forKey: exerciseId)
+    }
+
+    private func scheduleRetry(for exercise: Exercise) {
+        let attempt = retryAttempts[exercise.id, default: 0]
+        guard attempt < Self.retryDelays.count else { return }
+        retryAttempts[exercise.id] = attempt + 1
+        transientlyFailedExercises[exercise.id] = exercise
+        let delay = Self.retryDelays[attempt]
+        retryTasks[exercise.id]?.cancel()
+        retryTasks[exercise.id] = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            transientlyFailedExercises.removeValue(forKey: exercise.id)
+            loadStates[exercise.id] = .idle
+            _ = await guide(for: exercise)
         }
     }
 

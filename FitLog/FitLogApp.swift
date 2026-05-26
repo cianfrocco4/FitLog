@@ -78,7 +78,18 @@ struct FitLogApp: App {
                             dataVM.healthSyncStatusMessage = dataVM.healthSyncService.statusMessage
                             if !FitLogUITestLaunch.isActive {
                                 aiService.wakeProxyHostIfNeeded()
-                                formGuideService.wakeProxyHostIfNeeded()
+                                formGuideService.wakeProxyAndRetryIfNeeded()
+                                if currentVM.isInProgress {
+                                    formGuideService.startKeepAlive()
+                                }
+                            }
+                        }
+                        .onChange(of: currentVM.isInProgress) { _, inProgress in
+                            if FitLogUITestLaunch.isActive { return }
+                            if inProgress {
+                                formGuideService.startKeepAlive()
+                            } else {
+                                formGuideService.stopKeepAlive()
                             }
                         }
                 }
@@ -91,11 +102,17 @@ struct FitLogApp: App {
             switch newPhase {
             case .background:
                 currentVM.appDidEnterBackground()
+                if authVM.isLoggedIn, !FitLogUITestLaunch.isActive {
+                    formGuideService.stopKeepAlive()
+                }
             case .active:
                 currentVM.appDidBecomeActive()
                 if authVM.isLoggedIn, !FitLogUITestLaunch.isActive {
                     aiService.wakeProxyHostIfNeeded()
-                    formGuideService.wakeProxyHostIfNeeded()
+                    formGuideService.wakeProxyAndRetryIfNeeded()
+                    if currentVM.isInProgress {
+                        formGuideService.startKeepAlive()
+                    }
                 }
             default:
                 break

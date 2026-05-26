@@ -175,7 +175,9 @@ struct ExerciseFormGuideCompactView: View {
         case .unavailable:
             loadError = "Video unavailable for this exercise."
         default:
-            break
+            if formGuideService.isConfigured {
+                loadError = "Loading form guide\u{2026}"
+            }
         }
     }
 }

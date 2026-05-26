@@ -105,6 +105,11 @@ struct MainTabView: View {
                 workoutSheetDetent = FitlogWorkoutSheetDetent.defaultOpen
             }
         }
+        .onChange(of: workoutSheetDetent) { _, newDetent in
+            if newDetent == FitlogWorkoutSheetDetent.collapsed {
+                showCurrentWorkoutPullUp = false
+            }
+        }
         .sheet(item: Binding(
             get: { currentVM.pendingWorkoutCompletionSummary },
             set: { currentVM.pendingWorkoutCompletionSummary = $0 }
