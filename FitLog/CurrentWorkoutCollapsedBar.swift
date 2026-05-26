@@ -10,7 +10,7 @@ import SwiftUI
 struct CurrentWorkoutCollapsedBar: View {
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @Environment(DataManager.self) var dataVM
-    @Binding var showPullUp: Bool
+    @Environment(\.openCurrentWorkoutSheet) private var openSheet
 
     private var primaryExerciseLog: ExerciseLog? {
         guard let session = currentVM.currentSession,
@@ -32,7 +32,7 @@ struct CurrentWorkoutCollapsedBar: View {
         HStack(spacing: 12) {
             Button {
                 currentVM.pendingPullUpFocus = nil
-                showPullUp = true
+                openSheet?()
             } label: {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {

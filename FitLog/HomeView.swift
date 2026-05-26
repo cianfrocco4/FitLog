@@ -483,7 +483,6 @@ struct HomeView: View {
             .scrollContentBackground(.hidden)
             .listSectionSpacing(12)
             .animation(.easeInOut(duration: 0.28), value: homeFirstPaintSkeleton)
-            .fitlogWorkoutBarContentInset()
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if !currentVM.isInProgress {
                     HomeStartWorkoutFAB(isWorkoutActive: currentVM.isInProgress) {
@@ -1188,7 +1187,6 @@ private struct HomeWorkoutLibraryView: View {
             }
         }
         .workoutReplaceConflictConfirmation(currentVM: currentVM, pending: $pendingWorkoutReplace)
-        .fitlogWorkoutBarContentInset()
     }
 }
 

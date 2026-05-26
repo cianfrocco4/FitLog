@@ -330,7 +330,6 @@ struct HistoryView: View {
                     exploreContent
                 }
             }
-            .fitlogWorkoutBarContentInset()
             .navigationTitle("History & Analytics")
             .navigationBarTitleDisplayMode(.large)
             .searchable(text: $exploreSearch, prompt: "Search workouts & exercises")

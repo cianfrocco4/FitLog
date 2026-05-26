@@ -264,7 +264,6 @@ struct ExercisesLibraryView: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .fitlogWorkoutBarContentInset()
             .safeAreaInset(edge: .trailing, spacing: 0) {
                 if categorySectionIds.count > 1 {
                     ExerciseSectionIndexStrip(proxy: proxy, ids: categorySectionIds)

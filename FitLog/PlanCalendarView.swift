@@ -151,7 +151,6 @@ struct PlanCalendarView: View {
                 weekStripWeekOffset = 0
                 rebuildResolvedDayCache()
             }
-            .fitlogWorkoutBarContentInset()
             .navigationTitle("Plan")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {

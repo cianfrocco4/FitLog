@@ -44,21 +44,26 @@ struct MainTabView: View {
         ZStack(alignment: .bottom) {
         TabView(selection: $rootTab) {
             HomeView()
+                .workoutCollapsedBarInset()
                 .tabItem { Label("Home", systemImage: "house") }
                 .tag(FitlogRootTab.home)
             PlanCalendarView()
+                .workoutCollapsedBarInset()
                 .tabItem { Label("Plan", systemImage: "calendar") }
                 .tag(FitlogRootTab.plan)
             HistoryView()
+                .workoutCollapsedBarInset()
                 .tabItem { Label("History", systemImage: "chart.bar") }
                 .tag(FitlogRootTab.history)
             AIChatView()
+                .workoutCollapsedBarInset()
                 .tabItem { Label("Coach", systemImage: "bubble.left.and.bubble.right") }
                 .tag(FitlogRootTab.coach)
             MoreTabRootView()
                 .environment(dataVM)
                 .environmentObject(userPreferences)
                 .environmentObject(authVM)
+                .workoutCollapsedBarInset()
                 .tabItem { Label("More", systemImage: "ellipsis.circle") }
                 .tag(FitlogRootTab.more)
         }
@@ -72,17 +77,6 @@ struct MainTabView: View {
             currentVM.pendingPullUpFocus = PendingPullUpFocus(exerciseLogIndex: logIndex, presentLogSetSheet: true)
             showCurrentWorkoutPullUp = true
         })
-        .environment(\.fitlogWorkoutBarContentInset, currentVM.isInProgress ? FitlogWorkoutBarLayout.contentBottomPadding : 0)
-        .overlay {
-            if currentVM.isInProgress {
-                WorkoutBarPassthroughOverlay(
-                    showPullUp: $showCurrentWorkoutPullUp,
-                    currentVM: currentVM,
-                    dataVM: dataVM
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
 
             if let tip = activeCoachTip {
                 coachMarkBanner(message: tip)
