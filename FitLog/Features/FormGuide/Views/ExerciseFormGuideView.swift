@@ -497,6 +497,7 @@ struct ExerciseFormGuideLibraryThumbnail: View {
     }
 }
 
+#if DEBUG
 // MARK: - Previews
 
 private enum ExerciseFormGuidePreviewData {
@@ -584,3 +585,4 @@ private enum ExerciseFormGuidePreviewData {
         .environmentObject(UserPreferences())
         .padding()
 }
+#endif
