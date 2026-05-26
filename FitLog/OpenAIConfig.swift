@@ -5,6 +5,9 @@
 //  Option 1 (backend proxy): Set FITLOG_AI_BASE_URL → app calls your server; key stays on server.
 //  Option 3 (key in app): Set OPENAI_API_KEY → app calls OpenAI directly.
 //
+//  FUTURE/TODO(before-merge-to-main): Info.plist FITLOG_AI_BASE_URL must point at production
+//  (https://the-workout-log.onrender.com), not the Render "Testing" service.
+//
 
 import Foundation
 

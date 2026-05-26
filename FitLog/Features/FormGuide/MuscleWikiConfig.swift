@@ -4,6 +4,9 @@
 //
 //  MuscleWiki form guide: proxy (FITLOG_FORM_GUIDE_BASE_URL) or direct API key.
 //
+//  FUTURE/TODO(before-merge-to-main): Info.plist FITLOG_FORM_GUIDE_BASE_URL must point at production
+//  (https://the-workout-log.onrender.com), not the Render "Testing" service.
+//
 
 import Foundation
 
