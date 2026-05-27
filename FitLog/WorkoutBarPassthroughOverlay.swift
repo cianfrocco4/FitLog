@@ -25,6 +25,10 @@ private enum OpenPullUpToExerciseLogIndexKey: EnvironmentKey {
     static let defaultValue: ((Int) -> Void)? = nil
 }
 
+private enum IsCurrentWorkoutSheetPresentedKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 extension EnvironmentValues {
     /// Opens the full current-workout sheet (same as tapping the bottom bar).
     var openCurrentWorkoutSheet: (() -> Void)? {
@@ -37,6 +41,12 @@ extension EnvironmentValues {
         get { self[OpenPullUpToExerciseLogIndexKey.self] }
         set { self[OpenPullUpToExerciseLogIndexKey.self] = newValue }
     }
+
+    /// True while the root workout pull-up sheet is presented (hide duplicate collapsed bar).
+    var isCurrentWorkoutSheetPresented: Bool {
+        get { self[IsCurrentWorkoutSheetPresentedKey.self] }
+        set { self[IsCurrentWorkoutSheetPresentedKey.self] = newValue }
+    }
 }
 
 extension View {
@@ -47,12 +57,15 @@ extension View {
 
 private struct WorkoutCollapsedBarInsetModifier: ViewModifier {
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
+    @Environment(\.isCurrentWorkoutSheetPresented) private var isWorkoutSheetPresented
 
     func body(content: Content) -> some View {
         content.safeAreaInset(edge: .bottom, spacing: 0) {
-            if currentVM.isInProgress {
+            if currentVM.isInProgress, !isWorkoutSheetPresented {
                 CurrentWorkoutCollapsedBar()
-                    .padding(.bottom, 4)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
             }
         }
     }

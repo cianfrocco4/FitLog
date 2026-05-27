@@ -485,6 +485,7 @@ struct CurrentWorkoutPullUpSheet: View {
     @State private var inlineLogSuccessTick = 0
     @State private var exerciseSwipeTick = 0
     @State private var formGuideExercise: Exercise?
+    @State private var sessionDetailsExpanded = false
 
     private struct PendingUndoSet: Identifiable {
         let id: UUID
@@ -516,6 +517,28 @@ struct CurrentWorkoutPullUpSheet: View {
     @ViewBuilder
     private func largeSheetWorkoutList(scrollProxy: ScrollViewProxy) -> some View {
                     List {
+                        if currentVM.remainingRestTime <= 0 {
+                            if sessionLoggedSetCount == 0 {
+                                Section {
+                                    expandedListFirstSetBanner
+                                }
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                            } else if let primaryIndex = primaryExerciseLogIndex,
+                                      let logs = currentVM.currentSession?.exerciseLogs,
+                                      logs.indices.contains(primaryIndex) {
+                                Section {
+                                    expandedListNextExerciseBanner(
+                                        log: logs[primaryIndex],
+                                        exerciseIndex: primaryIndex,
+                                        scrollProxy: scrollProxy
+                                    )
+                                }
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                            }
+                        }
+
                         Section {
                             Button {
                                 showQuickAddExercise = true
@@ -583,6 +606,15 @@ struct CurrentWorkoutPullUpSheet: View {
                                                 }
                                             } label: {
                                                 exerciseCollapsedHeader(log: log, isExpanded: isExpanded)
+                                                    .overlay(alignment: .leading) {
+                                                        if isExpanded {
+                                                            RoundedRectangle(cornerRadius: 2)
+                                                                .fill(FitlogPalette.success)
+                                                                .frame(width: 4)
+                                                                .padding(.vertical, 4)
+                                                                .offset(x: -12)
+                                                        }
+                                                    }
                                             }
                                             .buttonStyle(.plain)
                                             .foregroundStyle(.primary)
@@ -649,15 +681,18 @@ struct CurrentWorkoutPullUpSheet: View {
                                                 }
                                                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16))
                                                 .listRowSeparator(.hidden)
+                                                .listRowBackground(FitlogPalette.success.opacity(0.04))
                                             }
 
                                             planAndCompletionRow(log: log)
                                                 .moveDisabled(true)
                                                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                                                .listRowBackground(FitlogPalette.success.opacity(0.04))
 
                                             inlineSetEntryRow(exerciseIndex: index, log: log)
                                                 .moveDisabled(true)
                                                 .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                                                .listRowBackground(FitlogPalette.success.opacity(0.04))
                                                 .simultaneousGesture(
                                                     DragGesture(minimumDistance: 50)
                                                         .onEnded { value in
@@ -679,6 +714,7 @@ struct CurrentWorkoutPullUpSheet: View {
                                                 cardioLoggedSetsSection(exerciseIndex: index, log: log)
                                                     .moveDisabled(true)
                                                     .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 6, trailing: 16))
+                                                    .listRowBackground(FitlogPalette.success.opacity(0.04))
                                             } else {
                                                 currentAndPreviousSetsSection(
                                                     exerciseIndex: index,
@@ -687,6 +723,7 @@ struct CurrentWorkoutPullUpSheet: View {
                                                 )
                                                 .moveDisabled(true)
                                                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 6, trailing: 16))
+                                                .listRowBackground(FitlogPalette.success.opacity(0.04))
                                             }
 
                                             DisclosureGroup(isExpanded: Binding(
@@ -774,6 +811,7 @@ struct CurrentWorkoutPullUpSheet: View {
                                             }
                                             .moveDisabled(true)
                                             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
+                                            .listRowBackground(FitlogPalette.success.opacity(0.04))
                                         }
                                 }
                                 .id(log.id)
@@ -867,15 +905,20 @@ struct CurrentWorkoutPullUpSheet: View {
                     .padding(.top, currentVM.remainingRestTime > 0 ? 0 : 16)
                     .padding(.horizontal)
 
-                    sessionRunningStatsStrip(session: session)
+                    DisclosureGroup(isExpanded: $sessionDetailsExpanded) {
+                        sessionRunningStatsStrip(session: session)
 
-                    TextField("Workout notes (optional)", text: Binding(
-                        get: { currentVM.currentSession?.sessionNotes ?? "" },
-                        set: { currentVM.setSessionNotes($0) }
-                    ), axis: .vertical)
-                    .lineLimit(2...5)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.subheadline)
+                        TextField("Workout notes (optional)", text: Binding(
+                            get: { currentVM.currentSession?.sessionNotes ?? "" },
+                            set: { currentVM.setSessionNotes($0) }
+                        ), axis: .vertical)
+                        .lineLimit(2...5)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.subheadline)
+                    } label: {
+                        Label("Session details", systemImage: "info.circle")
+                            .font(.subheadline.weight(.medium))
+                    }
                     .padding(.horizontal)
                 }
 
@@ -1136,6 +1179,12 @@ struct CurrentWorkoutPullUpSheet: View {
                 guard isShowing else { return }
                 handleRestCompleteAutoAdvance()
             }
+            .onChange(of: sheetDetent) { _, newDetent in
+                if newDetent == FitlogWorkoutSheetDetent.expanded, expandedExerciseIndex == nil {
+                    applyAutoExpandForPrimaryExercise()
+                    initializeInlineDraftIfNeeded(forExpandedIndex: expandedExerciseIndex)
+                }
+            }
             .sensoryFeedback(.success, trigger: inlineLogSuccessTick)
             .sensoryFeedback(.selection, trigger: exerciseSwipeTick)
         }
@@ -1278,7 +1327,89 @@ struct CurrentWorkoutPullUpSheet: View {
         expandedExerciseIndex = idx
     }
 
-    /// Auto-advance focus when rest hits zero; show a short banner then clear VM alert flag.
+    private var sessionLoggedSetCount: Int {
+        currentVM.currentSession?.exerciseLogs.reduce(0) { $0 + $1.loggedSets.count } ?? 0
+    }
+
+    private var primaryExerciseLogIndex: Int? {
+        guard let logs = currentVM.currentSession?.exerciseLogs,
+              let primaryId = currentVM.primaryActiveExerciseId else { return nil }
+        return logs.firstIndex(where: { $0.workoutExercise.exerciseId == primaryId })
+    }
+
+    private var expandedListFirstSetBanner: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.title2)
+                .foregroundStyle(FitlogPalette.success)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Log your first set")
+                    .font(.subheadline.weight(.semibold))
+                Text("Tap an exercise below, then enter weight and reps to log your first set.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(FitlogPalette.success.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(FitlogPalette.success.opacity(0.35), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Log your first set. Tap an exercise below, then enter weight and reps.")
+    }
+
+    private func expandedListNextExerciseBanner(
+        log: ExerciseLog,
+        exerciseIndex: Int,
+        scrollProxy: ScrollViewProxy
+    ) -> some View {
+        Button {
+            focusPrimaryExercise(at: exerciseIndex, scrollProxy: scrollProxy)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "figure.strengthtraining.traditional")
+                    .foregroundStyle(FitlogPalette.success)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Next: \(dataVM.displayName(for: log.workoutExercise))")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Tap to log")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(12)
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Expands the next exercise and scrolls to it")
+    }
+
+    private func focusPrimaryExercise(at index: Int, scrollProxy: ScrollViewProxy) {
+        guard let logs = currentVM.currentSession?.exerciseLogs,
+              logs.indices.contains(index) else { return }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            expandedExerciseIndex = index
+        }
+        initializeInlineDraftIfNeeded(forExpandedIndex: index)
+        let targetId = logs[index].id
+        DispatchQueue.main.async {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                scrollProxy.scrollTo(targetId, anchor: .center)
+            }
+        }
+    }
+
     private func handleRestCompleteAutoAdvance() {
         advanceToNextExerciseAfterRestIfNeeded()
         let name: String? = {

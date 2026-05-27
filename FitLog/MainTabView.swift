@@ -69,6 +69,7 @@ struct MainTabView: View {
         }
         .environment(\.fitlogRootTabSelection, $rootTab)
         .environment(\.fitlogCoachDeepLink, $coachDeepLink)
+        .environment(\.isCurrentWorkoutSheetPresented, showCurrentWorkoutPullUp)
         .environment(\.openCurrentWorkoutSheet, {
             currentVM.pendingPullUpFocus = nil
             showCurrentWorkoutPullUp = true
@@ -151,8 +152,11 @@ struct MainTabView: View {
             .environmentObject(userPreferences)
             .interactiveDismissDisabled()
         }
-        .onChange(of: currentVM.isInProgress) { _, inProgress in
-            if !inProgress {
+        .onChange(of: currentVM.isInProgress) { wasActive, isActive in
+            if isActive && !wasActive {
+                showCurrentWorkoutPullUp = true
+            }
+            if !isActive {
                 showCurrentWorkoutPullUp = false
             }
         }

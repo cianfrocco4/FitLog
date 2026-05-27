@@ -39,6 +39,14 @@ struct HomeActiveWorkoutCard: View {
         return dataVM.displayName(for: log.workoutExercise)
     }
 
+    private var loggedSetCount: Int {
+        session?.exerciseLogs.reduce(0) { $0 + $1.loggedSets.count } ?? 0
+    }
+
+    private var shouldShowLoggingHint: Bool {
+        loggedSetCount == 0
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Button(action: onOpen) {
@@ -86,12 +94,19 @@ struct HomeActiveWorkoutCard: View {
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityHint("Opens the current workout")
+            .accessibilityHint("Opens exercise logging for the current workout")
 
             if totalExerciseCount > 0 {
                 ProgressView(value: progressFraction)
                     .tint(FitlogPalette.success)
                     .accessibilityLabel("Exercise progress, \(completedExerciseCount) of \(totalExerciseCount)")
+            }
+
+            if shouldShowLoggingHint {
+                Text("Tap Log Sets to record your exercises")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
             }
 
             HStack(spacing: 10) {
@@ -106,19 +121,26 @@ struct HomeActiveWorkoutCard: View {
                         currentVM.isWorkoutPaused ? "Resume" : "Pause",
                         systemImage: currentVM.isWorkoutPaused ? "play.fill" : "pause.fill"
                     )
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                     .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
 
                 Button(action: onOpen) {
-                    Label("Open", systemImage: "arrow.up.circle")
+                    Label("Log Sets", systemImage: "arrow.up.circle")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(FitlogPalette.success)
+                .accessibilityLabel("Open")
 
                 Button(role: .destructive, action: onFinish) {
                     Label("Finish", systemImage: "checkmark.circle")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
