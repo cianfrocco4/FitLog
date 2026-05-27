@@ -77,11 +77,11 @@ enum V2MigrationDecoder {
             entry.referencedWorkout = workoutMap[entry.workoutId]
         }
 
-        // 6. Extended snapshot data (split presets, PRs, dynamic program)
-        MigrationSnapshotExtras.insertExtendedSnapshotData(snapshot, into: context)
+        // 6. Extended snapshot data — replace preserved cross-version rows before insert
+        try MigrationSnapshotExtras.replaceExtendedSnapshotData(snapshot, into: context)
 
         // 7. PR backfill — skip when snapshot already has PR rows or store already contains PRs
-        let existingPRs = (try? context.fetch(FetchDescriptor<SDPersonalRecordV2>())) ?? []
+        let existingPRs = try context.fetch(FetchDescriptor<SDPersonalRecordV2>())
         if snapshot.personalRecords.isEmpty && existingPRs.isEmpty {
             let prRows = buildPRRows(sessions: snapshot.sessions)
             for pr in prRows {

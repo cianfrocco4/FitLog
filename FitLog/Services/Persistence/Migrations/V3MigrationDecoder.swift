@@ -66,7 +66,7 @@ enum V3MigrationDecoder {
             entry.referencedWorkout = workoutMap[entry.workoutId]
         }
 
-        MigrationSnapshotExtras.insertExtendedSnapshotData(snapshot, into: context)
+        try MigrationSnapshotExtras.replaceExtendedSnapshotData(snapshot, into: context)
 
         let existingPRs = try context.fetch(FetchDescriptor<SDPersonalRecordV2>())
         if snapshot.personalRecords.isEmpty && existingPRs.isEmpty {

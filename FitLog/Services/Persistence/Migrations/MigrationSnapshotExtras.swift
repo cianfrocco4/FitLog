@@ -160,4 +160,13 @@ enum MigrationSnapshotExtras {
             "Extended snapshot inserted (presets=\(snapshot.splitPresets.count), prs=\(snapshot.personalRecords.count), dynamicProgram=\(snapshot.dynamicProgram != nil))"
         )
     }
+
+    /// Deletes preserved cross-version rows, then inserts snapshot payload.
+    /// Required when SwiftData keeps unchanged `@Model` types (e.g. `SDSplitPresetV2`) across custom stages.
+    static func replaceExtendedSnapshotData(_ snapshot: BackupSnapshot, into context: ModelContext) throws {
+        try context.delete(model: SDSplitPresetV2.self)
+        try context.delete(model: SDPersonalRecordV2.self)
+        try context.delete(model: SDDynamicProgramV2.self)
+        insertExtendedSnapshotData(snapshot, into: context)
+    }
 }
