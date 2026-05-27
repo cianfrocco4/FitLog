@@ -8,9 +8,8 @@
 import SwiftData
 
 /// **Frozen** V2 schema at `2.0.1` — matches stores shipped from `main` before dynamic programs.
-/// Live app code opens `FitLogSchemaV3` with `FitLogMigrationPlan` (includes
-/// `MigrationStage.lightweight` from this version to V3). Do not add new `@Model` types here; add them
-/// on V3 and extend the migration plan instead.
+/// Live app code opens `FitLogSchemaV4` with `FitLogMigrationPlan` (custom V2→V3→V4 chain).
+/// Do not add new `@Model` types here; add them on V3+ and extend the migration plan instead.
 ///
 /// `versionIdentifier` must not change: `FitLogMigrationPlan` stages reference this version.
 enum FitLogSchemaV2: VersionedSchema {

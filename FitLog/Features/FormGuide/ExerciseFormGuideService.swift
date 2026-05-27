@@ -104,6 +104,7 @@ final class ExerciseFormGuideService {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 30
+        FitLogProxyConfig.applyProxyAuthHeaders(to: &request)
 
         Task(priority: .utility) { @MainActor in
             guard let (_, response) = try? await session.data(for: request),
@@ -246,6 +247,9 @@ final class ExerciseFormGuideService {
         request.httpMethod = "GET"
         if !usesProxy, let apiKey {
             request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+        }
+        if usesProxy {
+            FitLogProxyConfig.applyProxyAuthHeaders(to: &request)
         }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {

@@ -22,13 +22,14 @@
 	<false/>
 	<key>OPENAI_API_KEY</key>
 	<string></string>
-	<!-- FUTURE/TODO(before-merge-to-main): Revert FITLOG_AI_BASE_URL and FITLOG_FORM_GUIDE_BASE_URL to https://the-workout-log.onrender.com -->
 	<key>FITLOG_AI_BASE_URL</key>
-	<string>https://the-workout-log-testing.onrender.com</string>
+	<string>https://the-workout-log.onrender.com</string>
 	<key>FITLOG_AI_MODEL</key>
 	<string></string>
 	<key>FITLOG_FORM_GUIDE_BASE_URL</key>
-	<string>https://the-workout-log-testing.onrender.com</string>
+	<string>https://the-workout-log.onrender.com</string>
+	<key>FITLOG_PROXY_SHARED_SECRET</key>
+	<string></string>
 	<key>MUSCLEWIKI_API_KEY</key>
 	<string></string>
 </dict>

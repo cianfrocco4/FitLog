@@ -109,6 +109,8 @@ struct CurrentWorkoutCollapsedBar: View {
                             .font(.body)
                     }
                     .buttonStyle(.bordered)
+                    .accessibilityLabel(currentVM.isWorkoutPaused ? "Resume workout" : "Pause workout")
+                    .accessibilityHint(currentVM.isWorkoutPaused ? "Resumes the workout timer" : "Pauses the workout timer")
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)

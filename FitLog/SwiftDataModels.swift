@@ -64,18 +64,35 @@ struct BackupSnapshot: Codable {
     let program: TrainingProgramState
     /// Display names keyed by exercise UUID string.
     let displayNames: [String: String]
+    let dynamicProgram: DynamicProgramState?
+    let splitPresets: [BackupSplitPreset]
+    let personalRecords: [BackupPersonalRecord]
 
-    init(schemaVersion: Int, exercises: [Exercise], workouts: [Workout], sessions: [WorkoutSession], program: TrainingProgramState, displayNames: [UUID: String]) {
+    init(
+        schemaVersion: Int,
+        exercises: [Exercise],
+        workouts: [Workout],
+        sessions: [WorkoutSession],
+        program: TrainingProgramState,
+        displayNames: [UUID: String],
+        dynamicProgram: DynamicProgramState? = nil,
+        splitPresets: [BackupSplitPreset] = [],
+        personalRecords: [BackupPersonalRecord] = []
+    ) {
         self.schemaVersion = schemaVersion
         self.exercises = exercises
         self.workouts = workouts
         self.sessions = sessions
         self.program = program
         self.displayNames = Dictionary(uniqueKeysWithValues: displayNames.map { ($0.key.uuidString, $0.value) })
+        self.dynamicProgram = dynamicProgram
+        self.splitPresets = splitPresets
+        self.personalRecords = personalRecords
     }
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, exercises, workouts, templates, sessions, program, displayNames
+        case dynamicProgram, splitPresets, personalRecords
     }
 
     init(from decoder: Decoder) throws {
@@ -92,6 +109,9 @@ struct BackupSnapshot: Codable {
         sessions = try c.decode([WorkoutSession].self, forKey: .sessions)
         program = try c.decode(TrainingProgramState.self, forKey: .program)
         displayNames = try c.decode([String: String].self, forKey: .displayNames)
+        dynamicProgram = try c.decodeIfPresent(DynamicProgramState.self, forKey: .dynamicProgram)
+        splitPresets = try c.decodeIfPresent([BackupSplitPreset].self, forKey: .splitPresets) ?? []
+        personalRecords = try c.decodeIfPresent([BackupPersonalRecord].self, forKey: .personalRecords) ?? []
     }
 
     func encode(to encoder: Encoder) throws {
@@ -102,6 +122,13 @@ struct BackupSnapshot: Codable {
         try c.encode(sessions, forKey: .sessions)
         try c.encode(program, forKey: .program)
         try c.encode(displayNames, forKey: .displayNames)
+        try c.encodeIfPresent(dynamicProgram, forKey: .dynamicProgram)
+        if !splitPresets.isEmpty {
+            try c.encode(splitPresets, forKey: .splitPresets)
+        }
+        if !personalRecords.isEmpty {
+            try c.encode(personalRecords, forKey: .personalRecords)
+        }
     }
 }
 

@@ -4,9 +4,8 @@
 //
 //  Custom SwiftData migration from V1 (JSON-blob @Models) to V2 (normalized graph).
 //
-//  **V2→V3:** `FitLogSchemaV2` is frozen at `2.0.1` (18 models). New `@Model` types (e.g.
-//  `SDDynamicProgramV2`) live on `FitLogSchemaV3` (`3.0.0`) with `MigrationStage.lightweight`
-//  from V2 to V3.
+//  **V2→V3:** Custom migration — frozen `FitLogSchemaV2` (`SD*V2` types) → frozen `FitLogSchemaV3`
+//  (`SD*V3` types plus `SDDynamicProgramV2`). Lightweight migration cannot rename entity identities.
 //
 //  **V3→V4:** Custom migration — frozen `FitLogSchemaV3` (pre-cardio `SD*V3` types) → live `FitLogSchemaV4`
 //  (`SD*V2` with cardio columns). Lightweight migration is not used because entity checksums differ.
@@ -65,11 +64,27 @@ enum FitLogMigrationPlan: SchemaMigrationPlan {
         }
     )
 
-    // MARK: - V2 → V3 (lightweight: adds `SDDynamicProgramV2` entity for existing 2.0.1 stores)
+    // MARK: - V2 → V3
 
-    private static let migrateV2ToV3 = MigrationStage.lightweight(
+    private static let migrateV2ToV3 = MigrationStage.custom(
         fromVersion: FitLogSchemaV2.self,
-        toVersion: FitLogSchemaV3.self
+        toVersion: FitLogSchemaV3.self,
+        willMigrate: { context in
+            log.notice("V2→V3 willMigrate: reading frozen V2 rows")
+            let snapshot = try V2MigrationReader.readSnapshot(from: context)
+            try writePreV3Backup(snapshot)
+            log.notice(
+                "V2→V3 willMigrate: backup written (exercises=\(snapshot.exercises.count), sessions=\(snapshot.sessions.count), prs=\(snapshot.personalRecords.count))"
+            )
+        },
+        didMigrate: { context in
+            log.notice("V2→V3 didMigrate: populating V3 graph")
+            guard let snapshot = readLatestPreV3Backup() else {
+                throw FitLogMigrationError.backupNotFound
+            }
+            try V3MigrationDecoder.decode(snapshot: snapshot, into: context)
+            log.notice("V2→V3 didMigrate: complete")
+        }
     )
 
     // MARK: - V1 → V2
@@ -96,11 +111,11 @@ enum FitLogMigrationPlan: SchemaMigrationPlan {
     // MARK: - V1 snapshot reader
 
     private static func readV1Snapshot(from context: ModelContext) throws -> BackupSnapshot {
-        let exercises = (try? context.fetch(FetchDescriptor<SDExercise>())) ?? []
-        let workouts = (try? context.fetch(FetchDescriptor<SDWorkout>(sortBy: [SortDescriptor(\.sortOrder)]))) ?? []
-        let sessions = (try? context.fetch(FetchDescriptor<SDWorkoutSession>(sortBy: [SortDescriptor(\.startTime)]))) ?? []
-        let displayNames = (try? context.fetch(FetchDescriptor<SDExerciseDisplayName>())) ?? []
-        let programs = (try? context.fetch(FetchDescriptor<SDTrainingProgram>())) ?? []
+        let exercises = try context.fetch(FetchDescriptor<SDExercise>())
+        let workouts = try context.fetch(FetchDescriptor<SDWorkout>(sortBy: [SortDescriptor(\.sortOrder)]))
+        let sessions = try context.fetch(FetchDescriptor<SDWorkoutSession>(sortBy: [SortDescriptor(\.startTime)]))
+        let displayNames = try context.fetch(FetchDescriptor<SDExerciseDisplayName>())
+        let programs = try context.fetch(FetchDescriptor<SDTrainingProgram>())
 
         let exerciseStructs = exercises.map { $0.toStruct() }
         let workoutStructs = workouts.map { $0.toStruct() }
@@ -161,6 +176,8 @@ enum FitLogMigrationPlan: SchemaMigrationPlan {
         try? FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
 
         if let s = readLatestPreV4Backup() { return s }
+
+        if let s = readLatestPreV3Backup() { return s }
 
         if let s = readLatestBackup() { return s }
 
@@ -224,6 +241,23 @@ enum FitLogMigrationPlan: SchemaMigrationPlan {
         guard let data = try? Data(contentsOf: url) else { return nil }
         return try? JSONDecoder().decode(BackupSnapshot.self, from: data)
     }
+
+    // MARK: - Pre-V3 backup I/O
+
+    static let preV3BackupFileName = "pre_v3_latest.json"
+
+    static func writePreV3Backup(_ snapshot: BackupSnapshot) throws {
+        try FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(snapshot)
+        let url = backupDir.appending(path: preV3BackupFileName)
+        try data.write(to: url, options: .atomic)
+    }
+
+    static func readLatestPreV3Backup() -> BackupSnapshot? {
+        let url = backupDir.appending(path: preV3BackupFileName)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(BackupSnapshot.self, from: data)
+    }
 }
 
 // MARK: - Migration errors
@@ -235,7 +269,7 @@ enum FitLogMigrationError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .backupNotFound:
-            return "Pre-migration backup not found. Cannot complete V2 migration safely."
+            return "Pre-migration backup not found. Cannot complete schema migration safely."
         case .decodingFailed(let detail):
             return "V2 migration decoding failed: \(detail)"
         }

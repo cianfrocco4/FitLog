@@ -80,6 +80,19 @@ final class SplitPresetStore {
         try? modelContext.save()
     }
 
+    /// Replaces all saved presets with rows from an imported backup snapshot.
+    func replaceAllFromBackup(_ presets: [BackupSplitPreset]) {
+        do {
+            try modelContext.delete(model: SDSplitPresetV2.self)
+            MigrationSnapshotExtras.insertSplitPresets(presets, into: modelContext)
+            try modelContext.save()
+        } catch {
+            #if DEBUG
+            print("[SwiftData V2] Replace split presets failed: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
     // MARK: - Conversion helpers
 
     /// Convert a saved preset back to SplitBuilderEditableDay format for editing.

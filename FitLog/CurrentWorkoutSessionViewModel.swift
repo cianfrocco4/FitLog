@@ -344,8 +344,14 @@ final class CurrentWorkoutSessionViewModel {
         for log in removedLogs {
             cancelCardioTimers(forWorkoutExerciseId: log.workoutExercise.id)
             if let exId = log.workoutExercise.exerciseId {
-                session.activeExerciseIds.removeAll { $0 == exId }
-                session.completedExerciseIds.removeAll { $0 == exId }
+                let rowId = log.workoutExercise.id
+                let stillReferenced = session.exerciseLogs.contains {
+                    $0.workoutExercise.id != rowId && $0.workoutExercise.exerciseId == exId
+                }
+                if !stillReferenced {
+                    session.activeExerciseIds.removeAll { $0 == exId }
+                    session.completedExerciseIds.removeAll { $0 == exId }
+                }
             }
         }
         session.exerciseLogs.removeAll { !validIds.contains($0.workoutExercise.id) }

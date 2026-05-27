@@ -9,7 +9,7 @@
 import SwiftData
 
 /// Open with `Schema(versionedSchema: FitLogSchemaV4.self)` and `migrationPlan: FitLogMigrationPlan.self`.
-/// Migrates from frozen V3 via a lightweight stage.
+/// Migrates from frozen V3 via a custom migration stage in `FitLogMigrationPlan`.
 enum FitLogSchemaV4: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(4, 0, 0) }
 

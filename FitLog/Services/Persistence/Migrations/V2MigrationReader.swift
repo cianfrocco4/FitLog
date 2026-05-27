@@ -1,8 +1,8 @@
 //
-//  V3MigrationReader.swift
+//  V2MigrationReader.swift
 //  FitLog
 //
-//  Reads a frozen FitLogSchemaV3 store into a BackupSnapshot for V3→V4 custom migration.
+//  Reads a frozen FitLogSchemaV2 store into a BackupSnapshot for V2→V3 custom migration.
 //
 
 import Foundation
@@ -11,20 +11,19 @@ import os
 
 private let log = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.fitlog",
-    category: "V3MigrationReader"
+    category: "V2MigrationReader"
 )
 
-enum V3MigrationReader {
+enum V2MigrationReader {
 
     static func readSnapshot(from context: ModelContext) throws -> BackupSnapshot {
-        let exercises = try context.fetch(FetchDescriptor<SDExerciseV3>())
-        let workouts = try context.fetch(FetchDescriptor<SDWorkoutV3>(sortBy: [SortDescriptor(\.sortOrder)]))
-        let sessions = try context.fetch(FetchDescriptor<SDWorkoutSessionV3>(sortBy: [SortDescriptor(\.startTime)]))
-        let displayNames = try context.fetch(FetchDescriptor<SDExerciseDisplayNameV3>())
-        let programs = try context.fetch(FetchDescriptor<SDTrainingProgramV3>())
+        let exercises = try context.fetch(FetchDescriptor<SDExerciseV2>())
+        let workouts = try context.fetch(FetchDescriptor<SDWorkoutV2>(sortBy: [SortDescriptor(\.sortOrder)]))
+        let sessions = try context.fetch(FetchDescriptor<SDWorkoutSessionV2>(sortBy: [SortDescriptor(\.startTime)]))
+        let displayNames = try context.fetch(FetchDescriptor<SDExerciseDisplayNameV2>())
+        let programs = try context.fetch(FetchDescriptor<SDTrainingProgramV2>())
         let splitPresetRows = try context.fetch(FetchDescriptor<SDSplitPresetV2>())
         let prRows = try context.fetch(FetchDescriptor<SDPersonalRecordV2>())
-        let dynamicRows = try context.fetch(FetchDescriptor<SDDynamicProgramV2>())
 
         let exerciseStructs = exercises.map { $0.toDomain() }
         let workoutStructs = workouts.map { $0.toDomain() }
@@ -48,11 +47,11 @@ enum V3MigrationReader {
         }
 
         log.notice(
-            "V3 snapshot read (exercises=\(exerciseStructs.count), workouts=\(workoutStructs.count), sessions=\(sessionStructs.count), sessionDecodeFailures=\(sessionDecodeFailures), presets=\(splitPresetRows.count), prs=\(prRows.count), dynamicProgram=\(MigrationSnapshotExtras.dynamicProgram(from: dynamicRows) != nil))"
+            "V2 snapshot read (exercises=\(exerciseStructs.count), workouts=\(workoutStructs.count), sessions=\(sessionStructs.count), sessionDecodeFailures=\(sessionDecodeFailures), presets=\(splitPresetRows.count), prs=\(prRows.count))"
         )
 
         if sessionDecodeFailures > 0 {
-            log.error("V3 snapshot dropped \(sessionDecodeFailures) session(s) during toDomain()")
+            log.error("V2 snapshot dropped \(sessionDecodeFailures) session(s) during toDomain()")
         }
 
         return BackupSnapshot(
@@ -62,7 +61,7 @@ enum V3MigrationReader {
             sessions: sessionStructs,
             program: program,
             displayNames: nameMap,
-            dynamicProgram: MigrationSnapshotExtras.dynamicProgram(from: dynamicRows),
+            dynamicProgram: nil,
             splitPresets: MigrationSnapshotExtras.splitPresets(from: splitPresetRows),
             personalRecords: MigrationSnapshotExtras.personalRecords(from: prRows)
         )

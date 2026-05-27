@@ -563,6 +563,8 @@ struct CurrentWorkoutPullUpSheet: View {
                                 .padding(.vertical, 4)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("Add exercise")
+                            .accessibilityHint("Opens the exercise picker to add another exercise to this workout")
                         }
 
                         if let exerciseLogs = currentVM.currentSession?.exerciseLogs, !exerciseLogs.isEmpty {
@@ -606,6 +608,7 @@ struct CurrentWorkoutPullUpSheet: View {
                                                 }
                                             } label: {
                                                 exerciseCollapsedHeader(log: log, isExpanded: isExpanded)
+                                                    .contentShape(Rectangle())
                                                     .overlay(alignment: .leading) {
                                                         if isExpanded {
                                                             RoundedRectangle(cornerRadius: 2)
@@ -618,6 +621,8 @@ struct CurrentWorkoutPullUpSheet: View {
                                             }
                                             .buttonStyle(.plain)
                                             .foregroundStyle(.primary)
+                                            .accessibilityLabel("\(dataVM.displayName(for: log.workoutExercise)), \(log.loggedSets.count) of \(max(log.workoutExercise.recommendedSets, 1)) sets logged")
+                                            .accessibilityHint(isExpanded ? "Collapse exercise logging" : "Expand to log sets for this exercise")
                                             .contextMenu {
                                                 if log.workoutExercise.exerciseId != nil {
                                                     Button("Quick swap exercise", systemImage: "arrow.left.arrow.right") {
@@ -894,9 +899,9 @@ struct CurrentWorkoutPullUpSheet: View {
                                 .labelStyle(.iconOnly)
                         }
                         .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
                         .tint(currentVM.isWorkoutPaused ? .green : .orange)
                         .accessibilityLabel(currentVM.isWorkoutPaused ? "Resume workout" : "Pause workout")
+                        .accessibilityHint(currentVM.isWorkoutPaused ? "Resumes the workout timer" : "Pauses the workout timer")
                     }
                     .padding(.vertical, 8)
                     .padding(.horizontal, 12)
@@ -957,6 +962,8 @@ struct CurrentWorkoutPullUpSheet: View {
                         showDiscardWorkoutConfirmation = true
                     }
                     .foregroundStyle(.red)
+                    .accessibilityLabel("Discard workout")
+                    .accessibilityHint("Ends the workout without saving it to history")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -2287,6 +2294,8 @@ struct CurrentWorkoutPullUpSheet: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .font(.caption2)
+                    .accessibilityLabel(clearLabel)
+                    .accessibilityHint("Removes the selected effort value for this set")
                     // Show 10 down to 6 — for RIR these map to 0..4 RIR (displayed inverted)
                     ForEach((6...10).reversed(), id: \.self) { n in
                         let rpeVal = Double(n)
@@ -2301,6 +2310,9 @@ struct CurrentWorkoutPullUpSheet: View {
                         .controlSize(.small)
                         .tint(selected ? .blue : .secondary)
                         .font(.caption.weight(.semibold))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .accessibilityLabel("\(effortLabel) \(Int(displayVal))")
+                        .accessibilityHint(selected ? "Selected. Double tap to clear." : "Sets effort for the next logged set")
                     }
                 }
             }

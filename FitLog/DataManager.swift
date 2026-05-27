@@ -50,6 +50,7 @@ final class DataManager {
     let exerciseStore: ExerciseStore
     let programStore: TrainingProgramStore
     let dynamicProgramStore: DynamicProgramStore
+    let splitPresetStore: SplitPresetStore
     let prStore: PersonalRecordStore
     let healthSyncService: HealthKitSyncService
     let dataTransferService: DataTransferServiceClient
@@ -69,6 +70,7 @@ final class DataManager {
         self.exerciseStore = ExerciseStore(modelContext: ctx)
         self.programStore = TrainingProgramStore(modelContext: ctx)
         self.dynamicProgramStore = DynamicProgramStore(modelContext: ctx)
+        self.splitPresetStore = SplitPresetStore(modelContext: ctx)
         self.prStore = PersonalRecordStore(modelContext: ctx)
         self.healthSyncService = HealthKitSyncService()
         self.dataTransferService = DataTransferServiceClient(dataManagerProvider: { nil })
@@ -1265,9 +1267,14 @@ final class DataManager {
     }
 
     func appendCompletedSession(_ session: WorkoutSession) {
-        completedSessions.append(session)
-        sessionStore.appendSession(session)
+        if let existingIndex = completedSessions.firstIndex(where: { $0.id == session.id }) {
+            completedSessions[existingIndex] = session
+        } else {
+            completedSessions.append(session)
+        }
+        sessionStore.upsertSession(session)
         reconcileSkippedCycleTrainingDays()
+        publishWidgetSnapshot()
     }
 
     /// Template for a new live session from a **completed** session (library + flexible slots when possible).
@@ -2057,7 +2064,10 @@ final class DataManager {
             workouts: userWorkouts,
             sessions: completedSessions,
             program: trainingProgram,
-            displayNames: exerciseLocalDisplayNames
+            displayNames: exerciseLocalDisplayNames,
+            dynamicProgram: dynamicProgramState,
+            splitPresets: MigrationSnapshotExtras.splitPresets(from: splitPresetStore.loadPresets()),
+            personalRecords: prStore.loadAllForBackup()
         )
     }
 
@@ -2073,11 +2083,22 @@ final class DataManager {
             }
         )
 
+        if let dyn = snapshot.dynamicProgram {
+            dynamicProgramState = dyn
+            dynamicProgramStore.saveActiveState(dyn)
+            syncTrainingProgramFromDynamicProgram()
+        } else {
+            dynamicProgramState = nil
+            dynamicProgramStore.clearActiveState()
+        }
+
         saveExercises()
         saveWorkouts()
         saveSessions()
         saveTrainingProgram()
         saveExerciseLocalDisplayNames()
+        splitPresetStore.replaceAllFromBackup(snapshot.splitPresets)
+        prStore.replaceAllFromBackup(snapshot.personalRecords)
         reconcileSkippedCycleTrainingDays()
         publishWidgetSnapshot()
     }

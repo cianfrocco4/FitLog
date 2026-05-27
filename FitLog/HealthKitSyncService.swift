@@ -65,13 +65,19 @@ final class HealthKitSyncService {
     func authorizationState() -> HealthSyncAuthorizationState {
 #if canImport(HealthKit)
         guard HKHealthStore.isHealthDataAvailable() else { return .unavailable }
-        let status = healthStore.authorizationStatus(for: HKObjectType.workoutType())
-        switch status {
+        if requiredWriteTypes().contains(where: { healthStore.authorizationStatus(for: $0) == .sharingDenied }) {
+            return .denied
+        }
+        let workoutStatus = healthStore.authorizationStatus(for: HKObjectType.workoutType())
+        switch workoutStatus {
         case .notDetermined:
             return .notDetermined
         case .sharingDenied:
             return .denied
         case .sharingAuthorized:
+            if needsAuthorizationUpgrade() {
+                return .notDetermined
+            }
             return .authorized
         @unknown default:
             return .notDetermined
@@ -81,10 +87,9 @@ final class HealthKitSyncService {
 #endif
     }
 
-    func requestAuthorization() async -> Bool {
+    private func requiredWriteTypes() -> [HKSampleType] {
 #if canImport(HealthKit)
-        guard HKHealthStore.isHealthDataAvailable() else { return false }
-        var toShare: Set<HKSampleType> = [HKObjectType.workoutType()]
+        var types: [HKSampleType] = [HKObjectType.workoutType()]
         for identifier in [
             HKQuantityTypeIdentifier.distanceWalkingRunning,
             .distanceCycling,
@@ -92,15 +97,33 @@ final class HealthKitSyncService {
             .distanceRowing
         ] {
             if let distance = HKQuantityType.quantityType(forIdentifier: identifier) {
-                toShare.insert(distance)
+                types.append(distance)
             }
         }
         if let energy = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned) {
-            toShare.insert(energy)
+            types.append(energy)
         }
         if let heartRate = HKQuantityType.quantityType(forIdentifier: .heartRate) {
-            toShare.insert(heartRate)
+            types.append(heartRate)
         }
+        return types
+#else
+        return []
+#endif
+    }
+
+    private func needsAuthorizationUpgrade() -> Bool {
+#if canImport(HealthKit)
+        requiredWriteTypes().contains { healthStore.authorizationStatus(for: $0) == .notDetermined }
+#else
+        return false
+#endif
+    }
+
+    func requestAuthorization() async -> Bool {
+#if canImport(HealthKit)
+        guard HKHealthStore.isHealthDataAvailable() else { return false }
+        let toShare = Set(requiredWriteTypes())
         return await withCheckedContinuation { continuation in
             healthStore.requestAuthorization(toShare: toShare, read: [HKObjectType.workoutType()]) { success, _ in
                 continuation.resume(returning: success)
@@ -122,8 +145,9 @@ final class HealthKitSyncService {
             return true
         }
         let granted = await requestAuthorization()
-        syncEnabled = granted
-        return granted
+        let fullyAuthorized = authorizationState() == .authorized
+        syncEnabled = granted && fullyAuthorized
+        return syncEnabled
     }
 
     func saveCompletedSession(_ session: WorkoutSession, exercises: [Exercise]) async throws {

@@ -145,7 +145,7 @@ struct HomeActiveWorkoutCard: View {
                 }
                 .buttonStyle(.bordered)
             }
-            .controlSize(.small)
+            .padding(.top, 4)
         }
         .homeCardTier(.primary)
         .overlay {

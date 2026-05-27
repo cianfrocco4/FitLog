@@ -20,13 +20,27 @@ final class SessionStore {
     func loadSessions() -> [WorkoutSession] {
         let descriptor = FetchDescriptor<SDWorkoutSessionV2>(sortBy: [SortDescriptor(\.startTime)])
         guard let rows = try? modelContext.fetch(descriptor) else { return [] }
+        let completedRows = rows.filter { $0.endTime != nil }
         #if DEBUG
-        print("[SwiftData V2] Loaded \(rows.count) sessions")
+        print("[SwiftData V2] Loaded \(completedRows.count) completed sessions")
         #endif
-        return rows.compactMap { $0.toDomain() }
+        return completedRows.compactMap { $0.toDomain() }
     }
 
     func appendSession(_ session: WorkoutSession) {
+        upsertSession(session)
+    }
+
+    func upsertSession(_ session: WorkoutSession) {
+        let sessionId = session.id
+        let descriptor = FetchDescriptor<SDWorkoutSessionV2>(
+            predicate: #Predicate { $0.sessionId == sessionId }
+        )
+        if let existing = try? modelContext.fetch(descriptor) {
+            for row in existing {
+                modelContext.delete(row)
+            }
+        }
         modelContext.insert(SDWorkoutSessionV2.from(session))
         try? modelContext.save()
     }

@@ -14,7 +14,7 @@ enum FitlogWorkoutSheetDetent {
     static let expanded = PresentationDetent.fraction(0.85)
 
     static let all: Set<PresentationDetent> = [collapsed, medium, expanded]
-    static let defaultOpen = medium
+    static let defaultOpen = expanded
 }
 
 private enum OpenCurrentWorkoutSheetKey: EnvironmentKey {

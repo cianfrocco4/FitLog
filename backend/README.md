@@ -11,6 +11,7 @@ Small backend that forwards FitLog’s **OpenAI** and **MuscleWiki form guide** 
 | `OPENAI_API_KEY`    | Yes (for chat)                   | —             | Your OpenAI API key                 |
 | `OPENAI_MODEL`      | No                               | `gpt-4o-mini` | Model ID (e.g. `gpt-5-mini`)        |
 | `MUSCLEWIKI_API_KEY`| Yes (for form guide routes)      | —             | Your MuscleWiki API key (`mw_…`)    |
+| `FITLOG_PROXY_SHARED_SECRET` | Recommended (production) | — | Shared secret the iOS app sends as `X-FitLog-Proxy-Secret` |
 
 ## Run locally
 
@@ -29,8 +30,9 @@ Server listens on port 3000. The app will call `http://localhost:3000` only when
 
 1. [railway.app](https://railway.app) → New Project → Deploy from GitHub (or “Empty project” and connect repo).
 2. Add a service: **Deploy from GitHub** → select your repo, set **Root Directory** to `backend` (or push only the backend folder).
-3. In the service: **Variables** → add `OPENAI_API_KEY` and `MUSCLEWIKI_API_KEY`.
+3. In the service: **Variables** → add `OPENAI_API_KEY`, `MUSCLEWIKI_API_KEY`, and `FITLOG_PROXY_SHARED_SECRET`.
 4. Deploy. Note the public URL (e.g. `https://your-app.up.railway.app`). No extra config needed; Railway runs `npm start` by default if you have a `package.json` in the deploy root.
+5. Set the same `FITLOG_PROXY_SHARED_SECRET` value in the iOS app (`Info.plist` key `FITLOG_PROXY_SHARED_SECRET` or Xcode scheme env).
 
 ### Render
 
@@ -38,8 +40,9 @@ Server listens on port 3000. The app will call `http://localhost:3000` only when
 2. Connect repo, set **Root Directory** to `backend`.
 3. **Build command:** (leave empty or `npm install`)  
    **Start command:** `npm start`
-4. **Environment** → add `OPENAI_API_KEY` and `MUSCLEWIKI_API_KEY`.
+4. **Environment** → add `OPENAI_API_KEY`, `MUSCLEWIKI_API_KEY`, and `FITLOG_PROXY_SHARED_SECRET`.
 5. Deploy. Use the service URL as the base URL in the app (e.g. `https://the-workout-log.onrender.com`).
+6. Mirror `FITLOG_PROXY_SHARED_SECRET` in the iOS app configuration.
 
 ### Fly.io
 
@@ -73,7 +76,7 @@ Set `FITLOG_AI_BASE_URL` in the iOS app to this service URL.
 
 ### MuscleWiki (Form guide)
 
-Proxies MuscleWiki with the server’s `MUSCLEWIKI_API_KEY`. No client auth required.
+Proxies MuscleWiki with the server’s `MUSCLEWIKI_API_KEY`. When `FITLOG_PROXY_SHARED_SECRET` is set, clients must send header `X-FitLog-Proxy-Secret`.
 
 | Proxy route | Upstream |
 |-------------|----------|
@@ -87,6 +90,6 @@ Returns **503** if `MUSCLEWIKI_API_KEY` is not set on the server.
 
 Set `FITLOG_FORM_GUIDE_BASE_URL` in the iOS app to this service URL (can be the same host as `FITLOG_AI_BASE_URL`).
 
-No auth required from the client (the server’s keys are used). For production you can add API keys or rate limiting later.
+When `FITLOG_PROXY_SHARED_SECRET` is configured on the server, set the same value in the iOS app (`FITLOG_PROXY_SHARED_SECRET`). Requests without the header are rejected with **401**. Rate limits: **30** chat requests and **120** form-guide requests per IP per minute.
 
 See **FORM_GUIDE_SETUP.md** in the repo root for iOS configuration.

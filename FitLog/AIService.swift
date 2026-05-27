@@ -1008,6 +1008,9 @@ final class AIService: ObservableObject {
         if !useProxy, let key = apiKey {
             request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         }
+        if useProxy {
+            FitLogProxyConfig.applyProxyAuthHeaders(to: &request)
+        }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let messagePayload: [[String: Any]] = messages.map { ["role": $0.role, "content": $0.content] }
         var body: [String: Any] = [

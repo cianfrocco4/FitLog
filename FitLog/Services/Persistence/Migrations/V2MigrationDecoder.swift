@@ -77,18 +77,28 @@ enum V2MigrationDecoder {
             entry.referencedWorkout = workoutMap[entry.workoutId]
         }
 
-        // 6. PR backfill
-        let prRows = buildPRRows(sessions: snapshot.sessions)
-        for pr in prRows {
-            context.insert(pr)
+        // 6. Extended snapshot data (split presets, PRs, dynamic program)
+        MigrationSnapshotExtras.insertExtendedSnapshotData(snapshot, into: context)
+
+        // 7. PR backfill — skip when snapshot already has PR rows or store already contains PRs
+        let existingPRs = (try? context.fetch(FetchDescriptor<SDPersonalRecordV2>())) ?? []
+        if snapshot.personalRecords.isEmpty && existingPRs.isEmpty {
+            let prRows = buildPRRows(sessions: snapshot.sessions)
+            for pr in prRows {
+                context.insert(pr)
+            }
         }
 
         try context.save()
 
-        log.notice("V2 migration: complete (exercises=\(exerciseMap.count), workouts=\(workoutMap.count), sessions=\(sessionCount), prs=\(prRows.count))")
+        log.notice("V2 migration: complete (exercises=\(exerciseMap.count), workouts=\(workoutMap.count), sessions=\(sessionCount), prs=\(snapshot.personalRecords.count))")
     }
 
     // MARK: - PR backfill
+
+    static func buildPRRowsForMigration(sessions: [WorkoutSession]) -> [SDPersonalRecordV2] {
+        buildPRRows(sessions: sessions)
+    }
 
     private static func buildPRRows(sessions: [WorkoutSession]) -> [SDPersonalRecordV2] {
         // Track per-exercise bests: [exerciseId: [kind: SDPersonalRecordV2]]

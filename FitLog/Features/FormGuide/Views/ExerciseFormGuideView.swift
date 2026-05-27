@@ -198,7 +198,7 @@ struct ExerciseFormGuideInfoButton: View {
             Image(systemName: "figure.strengthtraining.traditional")
                 .font(.body.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .frame(minWidth: 32, minHeight: 32)
+                .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

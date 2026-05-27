@@ -18,6 +18,25 @@ final class PersonalRecordStore {
 
     // MARK: - Query
 
+    func loadAllForBackup() -> [BackupPersonalRecord] {
+        let descriptor = FetchDescriptor<SDPersonalRecordV2>()
+        let rows = (try? modelContext.fetch(descriptor)) ?? []
+        return MigrationSnapshotExtras.personalRecords(from: rows)
+    }
+
+    /// Replaces all PR rows with records from an imported backup snapshot.
+    func replaceAllFromBackup(_ records: [BackupPersonalRecord]) {
+        do {
+            try modelContext.delete(model: SDPersonalRecordV2.self)
+            MigrationSnapshotExtras.insertPersonalRecords(records, into: modelContext)
+            try modelContext.save()
+        } catch {
+            #if DEBUG
+            print("[SwiftData V2] Replace personal records failed: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
     func currentBests(forExerciseId id: UUID) -> [SDPersonalRecordV2] {
         let descriptor = FetchDescriptor<SDPersonalRecordV2>(
             predicate: #Predicate { $0.exerciseId == id }

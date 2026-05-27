@@ -3,9 +3,10 @@
  * Deploy to Railway, Render, Fly.io, or any Node host.
  *
  * Env:
- *   OPENAI_API_KEY      (required for /v1/chat/completions)
- *   OPENAI_MODEL        (optional) e.g. gpt-4o-mini. Default: gpt-4o-mini
- *   MUSCLEWIKI_API_KEY  (required for /v1/form-guide/* routes)
+ *   OPENAI_API_KEY              (required for /v1/chat/completions)
+ *   OPENAI_MODEL                (optional) e.g. gpt-4o-mini. Default: gpt-4o-mini
+ *   MUSCLEWIKI_API_KEY          (required for /v1/form-guide/* routes)
+ *   FITLOG_PROXY_SHARED_SECRET  (recommended) shared secret for app requests
  *
  * GET  /health
  * POST /v1/chat/completions
@@ -19,6 +20,10 @@ const http = require('http');
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const MUSCLEWIKI_BASE = 'https://api.musclewiki.com';
 const DEFAULT_MODEL = 'gpt-4o-mini';
+const MAX_CHAT_TOKENS = 1000;
+const CHAT_RATE_LIMIT = 30;
+const FORM_GUIDE_RATE_LIMIT = 120;
+const RATE_WINDOW_MS = 60_000;
 
 function getModel() {
   const v = process.env.OPENAI_MODEL;
@@ -53,12 +58,52 @@ function sendJSON(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
+const rateBuckets = new Map();
+
+function clientKey(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.length > 0) {
+    return forwarded.split(',')[0].trim();
+  }
+  return req.socket.remoteAddress || 'unknown';
+}
+
+function consumeRateLimit(key, limit) {
+  const now = Date.now();
+  const bucket = rateBuckets.get(key) || { count: 0, resetAt: now + RATE_WINDOW_MS };
+  if (now >= bucket.resetAt) {
+    bucket.count = 0;
+    bucket.resetAt = now + RATE_WINDOW_MS;
+  }
+  bucket.count += 1;
+  rateBuckets.set(key, bucket);
+  return bucket.count <= limit;
+}
+
+function verifyProxyAuth(req, res) {
+  const secret = getOptionalEnv('FITLOG_PROXY_SHARED_SECRET');
+  if (!secret) return true;
+  const provided = req.headers['x-fitlog-proxy-secret'];
+  if (provided === secret) return true;
+  sendJSON(res, 401, { error: 'Unauthorized' });
+  return false;
+}
+
+function enforceRateLimit(req, res, limit) {
+  const key = `${clientKey(req)}:${limit}`;
+  if (consumeRateLimit(key, limit)) return true;
+  sendJSON(res, 429, { error: 'Rate limit exceeded' });
+  return false;
+}
+
 async function forwardToOpenAI(apiKey, body) {
   const model = getModel();
+  const requestedTokens = Number.isFinite(body.max_tokens) ? body.max_tokens : 500;
+  const maxTokens = Math.min(Math.max(1, requestedTokens), MAX_CHAT_TOKENS);
   const payload = JSON.stringify({
     model,
     messages: body.messages,
-    max_tokens: body.max_tokens ?? 500,
+    max_tokens: maxTokens,
   });
   const res = await fetch(OPENAI_URL, {
     method: 'POST',
@@ -122,6 +167,9 @@ async function forwardMuscleWikiGET(upstreamPath, reqQuery, req, res) {
 }
 
 async function handleChatCompletions(req, res) {
+  if (!verifyProxyAuth(req, res)) return;
+  if (!enforceRateLimit(req, res, CHAT_RATE_LIMIT)) return;
+
   let apiKey;
   try {
     apiKey = getEnv('OPENAI_API_KEY');
@@ -155,6 +203,9 @@ async function handleChatCompletions(req, res) {
 }
 
 function handleFormGuideRoute(path, reqQuery, req, res) {
+  if (!verifyProxyAuth(req, res)) return true;
+  if (!enforceRateLimit(req, res, FORM_GUIDE_RATE_LIMIT)) return true;
+
   const searchPrefix = '/v1/form-guide/search';
   const exercisePrefix = '/v1/form-guide/exercises/';
   const streamPrefix = '/v1/form-guide/stream/videos/branded/';
@@ -190,7 +241,7 @@ function handleFormGuideRoute(path, reqQuery, req, res) {
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range, X-FitLog-Proxy-Secret');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -207,6 +258,7 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         service: 'fitlog-proxy',
         formGuide: getOptionalEnv('MUSCLEWIKI_API_KEY') != null,
+        authRequired: getOptionalEnv('FITLOG_PROXY_SHARED_SECRET') != null,
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       if (req.method === 'GET') {
