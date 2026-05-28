@@ -142,7 +142,7 @@ struct DynamicProgramBuilderView: View {
                         ? (viewModel.builderMode == .aiGenerate ? "Generate" : "Create draft")
                         : "Save to Plan",
                     isPrimaryDisabled: reviewPrimaryDisabled,
-                    isLoading: viewModel.isGenerating || viewModel.isApplying,
+                    isLoading: viewModel.isGenerating || viewModel.isConnectingToProxy || viewModel.isApplying,
                     onPrimary: handleReviewPrimaryAction
                 )
             }
@@ -510,16 +510,16 @@ struct DynamicProgramBuilderView: View {
                     Button {
                         Task { await viewModel.generate(aiService: aiService, dataManager: dataManager) }
                     } label: {
-                        if viewModel.isGenerating {
+                        if viewModel.isGenerating || viewModel.isConnectingToProxy {
                             HStack {
                                 ProgressView()
-                                Text("Generating…")
+                                Text(viewModel.generationStatusMessage ?? "Generating…")
                             }
                         } else {
                             Text(aiService.isConfigured ? "Generate with AI" : "Build from local presets")
                         }
                     }
-                    .disabled(viewModel.isGenerating)
+                    .disabled(viewModel.isGenerating || viewModel.isConnectingToProxy)
                 } footer: {
                     Text(aiService.isConfigured
                         ? "Uses your essentials and structure settings to draft a program."
@@ -537,6 +537,19 @@ struct DynamicProgramBuilderView: View {
             if let err = viewModel.errorMessage, !err.isEmpty {
                 Section {
                     Text(err).foregroundStyle(.red).font(.footnote)
+                }
+            }
+
+            if viewModel.offersLocalPresetFallback, viewModel.generatedProgram == nil {
+                Section {
+                    Button {
+                        Task { await viewModel.generateFromLocalPresets(dataManager: dataManager) }
+                    } label: {
+                        Label("Use built-in presets instead", systemImage: "books.vertical")
+                    }
+                    .disabled(viewModel.isGenerating || viewModel.isConnectingToProxy)
+                } footer: {
+                    Text("Creates a program locally without AI when the service is slow or unavailable.")
                 }
             }
 
@@ -592,7 +605,7 @@ struct DynamicProgramBuilderView: View {
 
     private var reviewPrimaryDisabled: Bool {
         if viewModel.generatedProgram == nil {
-            return viewModel.isGenerating
+            return viewModel.isGenerating || viewModel.isConnectingToProxy
         }
         return viewModel.isApplying
             || viewModel.flattenedEditableDaysForConfirmation().isEmpty

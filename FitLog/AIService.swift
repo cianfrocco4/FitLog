@@ -139,14 +139,35 @@ final class AIService: ObservableObject {
         lastProxyWakeDate = now
         proxyWakeLock.unlock()
 
+        let sess = session
+        Task(priority: .utility) {
+            await Self.pingProxyHealth(at: root, session: sess, timeout: 25)
+        }
+    }
+
+    /// Awaits a proxy health check before the first heavy AI request (e.g. program generation).
+    func ensureProxyAwake() async {
+        guard let baseRaw = proxyBaseURL?.trimmingCharacters(in: .whitespacesAndNewlines), !baseRaw.isEmpty,
+              let root = URL(string: baseRaw) else { return }
+
+        proxyWakeLock.lock()
+        lastProxyWakeDate = Date()
+        proxyWakeLock.unlock()
+
+        _ = await Self.pingProxyHealth(at: root, session: session, timeout: 20)
+    }
+
+    private static func pingProxyHealth(at root: URL, session: URLSession, timeout: TimeInterval) async -> Bool {
         let url = root.appendingPathComponent("health")
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.timeoutInterval = 25
-
-        let sess = session
-        Task(priority: .utility) {
-            _ = try? await sess.data(for: request)
+        request.timeoutInterval = timeout
+        do {
+            let (_, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return false }
+            return (200 ... 299).contains(http.statusCode)
+        } catch {
+            return false
         }
     }
 
@@ -1025,8 +1046,26 @@ final class AIService: ObservableObject {
             body["response_format"] = ["type": "json_object"]
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw AIServiceError.invalidResponse }
+        request.timeoutInterval = maxTokens >= 2000 ? 120 : 30
+
+        let data: Data
+        let http: HTTPURLResponse
+        do {
+            let (responseData, urlResponse) = try await session.data(for: request)
+            guard let httpResponse = urlResponse as? HTTPURLResponse else { throw AIServiceError.invalidResponse }
+            data = responseData
+            http = httpResponse
+        } catch let urlError as URLError where urlError.code == .timedOut {
+            throw AIServiceError.timeout
+        } catch let urlError as URLError where urlError.code == .networkConnectionLost || urlError.code == .notConnectedToInternet {
+            throw AIServiceError.proxyUnavailable
+        } catch {
+            throw error
+        }
+
+        if http.statusCode == 502 || http.statusCode == 503 || http.statusCode == 504 {
+            throw AIServiceError.proxyUnavailable
+        }
         if http.statusCode != 200 {
             #if DEBUG
             let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? [String: Any]
@@ -1047,6 +1086,8 @@ enum AIServiceError: LocalizedError {
     case emptyContent
     case invalidJSONContent
     case apiError(statusCode: Int, message: String)
+    case timeout
+    case proxyUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -1057,9 +1098,23 @@ enum AIServiceError: LocalizedError {
         case .emptyContent:
             return "The assistant didn’t return any text. Please try again."
         case .invalidJSONContent:
-            return "Could not read the AI response."
+            return "Could not read the AI response. The service may still be waking up — wait a moment and try again."
         case .apiError:
             return "Couldn’t reach the AI service. Please try again in a moment."
+        case .timeout:
+            return "The AI service took too long to respond. It may be waking up — please wait a moment and try again."
+        case .proxyUnavailable:
+            return "Couldn’t connect to the AI service. Check your network and try again in a moment."
+        }
+    }
+
+    /// True when the user may prefer built-in presets instead of retrying AI.
+    var suggestsLocalPresetFallback: Bool {
+        switch self {
+        case .timeout, .proxyUnavailable, .apiError, .invalidJSONContent:
+            return true
+        case .notConfigured, .invalidResponse, .emptyContent:
+            return false
         }
     }
 }

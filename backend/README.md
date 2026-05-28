@@ -13,6 +13,8 @@ Small backend that forwards FitLog’s **OpenAI** and **MuscleWiki form guide** 
 | `MUSCLEWIKI_API_KEY`| Yes (for form guide routes)      | —             | Your MuscleWiki API key (`mw_…`)    |
 | `FITLOG_PROXY_SHARED_SECRET` | Recommended (production) | — | Shared secret the iOS app sends as `X-FitLog-Proxy-Secret` |
 
+Chat completions cap `max_tokens` at **4096** per request (program generation needs large JSON responses).
+
 ## Run locally
 
 ```bash

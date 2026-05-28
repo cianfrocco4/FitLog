@@ -109,6 +109,12 @@ final class DynamicProgramBuilderViewModel {
     var generatedProgram: DynamicProgram?
     var errorMessage: String?
     var isGenerating = false
+    /// True while awaiting proxy `/health` before the first completion.
+    var isConnectingToProxy = false
+    /// Human-readable generation substate (connecting, per-block progress).
+    var generationStatusMessage: String?
+    /// After AI timeout/unavailable, offer built-in preset generation.
+    var offersLocalPresetFallback = false
     /// Incremented on successful generation for `.sensoryFeedback` triggers.
     var generationSuccessCount = 0
     /// True when the last successful generation used local presets (no AI client).
@@ -565,11 +571,23 @@ final class DynamicProgramBuilderViewModel {
 
     func generate(aiService: AIService, dataManager: DataManager) async {
         errorMessage = nil
+        offersLocalPresetFallback = false
         isGenerating = true
         lastGenerationUsedLocalPresets = false
-        defer { isGenerating = false }
+        defer {
+            isGenerating = false
+            isConnectingToProxy = false
+            generationStatusMessage = nil
+        }
 
-        aiService.wakeProxyHostIfNeeded()
+        if aiService.isConfigured {
+            isConnectingToProxy = true
+            generationStatusMessage = "Connecting to AI…"
+            await aiService.ensureProxyAwake()
+            isConnectingToProxy = false
+        } else {
+            aiService.wakeProxyHostIfNeeded()
+        }
 
         if request.blockSpecs.count == 1 {
             request.blockSpecs[0].progressionStrategy = request.splitInput.resolvedProgressionStrategy()
@@ -578,13 +596,25 @@ final class DynamicProgramBuilderViewModel {
         let allowed = dataManager.globalExercises.map(\.name).sorted()
         let existingTemplates = dataManager.userWorkouts.map(\.name)
         let library = dataManager.globalExercises
+        let blockCount = request.isPeriodized && request.blockSpecs.count > 1 ? request.blockSpecs.count : 1
+
+        if blockCount > 1 {
+            generationStatusMessage = "Generating phase 1 of \(blockCount)…"
+        } else {
+            generationStatusMessage = "Generating program…"
+        }
 
         do {
             let program = try await aiService.generateDynamicProgram(
                 request: request,
                 allowedExerciseNames: allowed,
                 existingWorkoutTemplateNames: existingTemplates,
-                exerciseLibrary: library
+                exerciseLibrary: library,
+                onBlockProgress: { completed, total in
+                    Task { @MainActor in
+                        self.generationStatusMessage = "Generating phase \(completed) of \(total)…"
+                    }
+                }
             )
             generatedProgram = program
             applyErrorMessage = nil
@@ -596,8 +626,49 @@ final class DynamicProgramBuilderViewModel {
             generatedProgram = nil
             perBlockEditableDays = []
             generationBalanceWarnings = []
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            if let aiError = error as? AIServiceError {
+                errorMessage = aiError.errorDescription
+                offersLocalPresetFallback = aiError.suggestsLocalPresetFallback && aiService.isConfigured
+            } else {
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                offersLocalPresetFallback = aiService.isConfigured
+            }
         }
+    }
+
+    /// Builds a program from FitLog’s built-in rotation presets (no network).
+    func generateFromLocalPresets(dataManager: DataManager) async {
+        errorMessage = nil
+        offersLocalPresetFallback = false
+        isGenerating = true
+        lastGenerationUsedLocalPresets = false
+        defer {
+            isGenerating = false
+            generationStatusMessage = nil
+        }
+
+        generationStatusMessage = "Building from presets…"
+
+        if request.blockSpecs.count == 1 {
+            request.blockSpecs[0].progressionStrategy = request.splitInput.resolvedProgressionStrategy()
+        }
+
+        let library = dataManager.globalExercises
+        let multi = request.isPeriodized && request.blockSpecs.count > 1
+        let proposal = DynamicProgramMapper.localWorkoutSplitProposal(from: request.splitInput, library: library)
+        var program: DynamicProgram
+        if multi {
+            program = DynamicProgramMapper.multiBlock(from: proposal, request: request, library: library)
+        } else {
+            program = DynamicProgramMapper.singleBlock(from: proposal, request: request, library: library)
+        }
+        program.generatedWithAI = false
+        generatedProgram = program
+        applyErrorMessage = nil
+        generationSuccessCount += 1
+        lastGenerationUsedLocalPresets = true
+        editableBlockIndex = 0
+        rebuildEditableDaysFromProgram()
     }
 
     func rebuildEditableDaysFromProgram() {

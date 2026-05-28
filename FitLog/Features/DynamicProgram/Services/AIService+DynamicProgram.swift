@@ -13,7 +13,8 @@ extension AIService {
         request: DynamicProgramGenerationRequest,
         allowedExerciseNames: [String],
         existingWorkoutTemplateNames: [String],
-        exerciseLibrary: [Exercise]
+        exerciseLibrary: [Exercise],
+        onBlockProgress: ((Int, Int) -> Void)? = nil
     ) async throws -> DynamicProgram {
         let multi = request.isPeriodized && request.blockSpecs.count > 1
 
@@ -34,7 +35,8 @@ extension AIService {
                 request: request,
                 allowedExerciseNames: allowedExerciseNames,
                 existingWorkoutTemplateNames: existingWorkoutTemplateNames,
-                exerciseLibrary: exerciseLibrary
+                exerciseLibrary: exerciseLibrary,
+                onBlockProgress: onBlockProgress
             )
             program.generatedWithAI = true
             return program
@@ -54,14 +56,17 @@ extension AIService {
         request: DynamicProgramGenerationRequest,
         allowedExerciseNames: [String],
         existingWorkoutTemplateNames: [String],
-        exerciseLibrary: [Exercise]
+        exerciseLibrary: [Exercise],
+        onBlockProgress: ((Int, Int) -> Void)? = nil
     ) async throws -> DynamicProgram {
         var blocks: [ProgramBlock] = []
         blocks.reserveCapacity(request.blockSpecs.count)
         var sessionsPerWeek = request.splitInput.sessionsPerWeek
         var preferredWeekdays: [Int] = request.splitInput.preferredWeekdays
 
-        for spec in request.blockSpecs {
+        let totalBlocks = request.blockSpecs.count
+        for (index, spec) in request.blockSpecs.enumerated() {
+            onBlockProgress?(index + 1, totalBlocks)
             var structured = request.splitInput
             let blockNote = """
             [Block phase — follow strictly]
