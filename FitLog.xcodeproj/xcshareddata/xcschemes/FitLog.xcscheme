@@ -92,6 +92,18 @@
             ReferencedContainer = "container:FitLog.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <EnvironmentVariables>
+         <EnvironmentVariable
+            key = "FITLOG_AI_BASE_URL"
+            value = "https://the-workout-log.onrender.com"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "FITLOG_FORM_GUIDE_BASE_URL"
+            value = "https://the-workout-log.onrender.com"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+      </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"

@@ -25,10 +25,16 @@ enum OpenAIConfig {
     /// Base URL of your AI proxy (option 1), e.g. "https://your-app.up.railway.app". No trailing slash.
     /// From env FITLOG_AI_BASE_URL or Info.plist key FITLOG_AI_BASE_URL.
     static var aiBaseURL: String? {
+        let resolved: String?
         if let env = ProcessInfo.processInfo.environment["FITLOG_AI_BASE_URL"].flatMap(trimmed) {
-            return env
+            resolved = env
+        } else {
+            resolved = (Bundle.main.object(forInfoDictionaryKey: "FITLOG_AI_BASE_URL") as? String).flatMap(trimmed)
         }
-        return (Bundle.main.object(forInfoDictionaryKey: "FITLOG_AI_BASE_URL") as? String).flatMap(trimmed)
+        #if DEBUG
+        FitLogProxyEndpoints.warnIfStagingProxyConfigured(aiBaseURL: resolved, formGuideBaseURL: nil)
+        #endif
+        return resolved
     }
 
     /// Model ID for Chat Completions (e.g. "gpt-4o-mini", "gpt-5-mini").

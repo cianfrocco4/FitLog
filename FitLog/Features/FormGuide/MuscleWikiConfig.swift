@@ -16,10 +16,16 @@ enum MuscleWikiConfig {
     /// Proxy base URL (option 1). From env FITLOG_FORM_GUIDE_BASE_URL or Info.plist.
     /// When set, the app calls your server; MUSCLEWIKI_API_KEY stays on the server.
     static var proxyBaseURL: String? {
+        let resolved: String?
         if let env = ProcessInfo.processInfo.environment["FITLOG_FORM_GUIDE_BASE_URL"].flatMap(trimmed) {
-            return env
+            resolved = env
+        } else {
+            resolved = (Bundle.main.object(forInfoDictionaryKey: "FITLOG_FORM_GUIDE_BASE_URL") as? String).flatMap(trimmed)
         }
-        return (Bundle.main.object(forInfoDictionaryKey: "FITLOG_FORM_GUIDE_BASE_URL") as? String).flatMap(trimmed)
+        #if DEBUG
+        FitLogProxyEndpoints.warnIfStagingProxyConfigured(aiBaseURL: nil, formGuideBaseURL: resolved)
+        #endif
+        return resolved
     }
 
     /// Direct API key (dev fallback). Ignored when proxyBaseURL is set.
