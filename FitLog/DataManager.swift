@@ -735,10 +735,13 @@ final class DataManager {
         var createdByPlanKey: [String: Exercise] = [:]
         var map: [UUID: UUID] = [:]
         var orderedLibraryIds: [UUID] = []
+        let isMultiBlock = program.blocks.count > 1
         for block in program.blocks {
             for template in block.weeklyTemplates {
                 guard let wid = createFlexWorkoutFromBlockTemplate(
                     template,
+                    blockName: block.name,
+                    isMultiBlock: isMultiBlock,
                     createdByPlanKey: &createdByPlanKey
                 ) else { continue }
                 map[template.id] = wid
@@ -753,6 +756,8 @@ final class DataManager {
     @discardableResult
     private func createFlexWorkoutFromBlockTemplate(
         _ template: BlockWeeklyTemplate,
+        blockName: String = "",
+        isMultiBlock: Bool = false,
         createdByPlanKey: inout [String: Exercise]
     ) -> UUID? {
         guard !template.slots.isEmpty else { return nil }
@@ -760,7 +765,12 @@ final class DataManager {
             templateSlot(from: slot, createdByPlanKey: &createdByPlanKey)
         }
         guard !templateSlots.isEmpty else { return nil }
-        let name = uniqueFlexWorkoutName(template.dayName)
+        let baseName = ProgramBlockNaming.materializedWorkoutName(
+            dayName: template.dayName,
+            blockName: blockName,
+            isMultiBlock: isMultiBlock
+        )
+        let name = uniqueFlexWorkoutName(baseName)
         return createWorkoutWithFlexibleSlots(name: name, slots: templateSlots)
     }
 

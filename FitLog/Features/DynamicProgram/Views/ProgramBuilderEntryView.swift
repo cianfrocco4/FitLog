@@ -2,14 +2,14 @@
 //  ProgramBuilderEntryView.swift
 //  FitLog
 //
-//  Three-path entry: Quick Start gallery, AI chat builder, or custom wizard.
+//  Three-path entry: Guided Coach, Templates, or Advanced Builder.
 //
 
 import SwiftUI
 
 enum ProgramBuilderRoute: Hashable {
+    case guidedCoach
     case quickStart
-    case aiChat
     case customBuild
 }
 
@@ -17,14 +17,20 @@ struct ProgramBuilderEntryView: View {
     @Bindable var viewModel: DynamicProgramBuilderViewModel
     @Environment(DataManager.self) private var dataManager
 
-    @State private var highlightQuickStart = false
+    @State private var coachVM: CoachConversationViewModel
+    @State private var highlightGuidedCoach = false
+
+    init(viewModel: DynamicProgramBuilderViewModel) {
+        self.viewModel = viewModel
+        _coachVM = State(wrappedValue: CoachConversationViewModel(builderViewModel: viewModel))
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 headerSection
                 pathCards
-                if highlightQuickStart {
+                if highlightGuidedCoach {
                     tipBanner
                 }
             }
@@ -35,17 +41,19 @@ struct ProgramBuilderEntryView: View {
         .navigationBarTitleDisplayMode(.large)
         .navigationDestination(for: ProgramBuilderRoute.self) { route in
             switch route {
+            case .guidedCoach:
+                CoachConversationView(coachVM: coachVM)
             case .quickStart:
                 ProgramTemplateGalleryView(viewModel: viewModel)
-            case .aiChat:
-                AIProgramChatBuilderView(viewModel: viewModel)
             case .customBuild:
-                DynamicProgramBuilderView(viewModel: viewModel)
+                DynamicProgramBuilderView(viewModel: viewModel, hidesBuilderModePicker: false)
             }
         }
         .onAppear {
             viewModel.bootstrapFromContext(dataManager: dataManager)
-            highlightQuickStart = viewModel.shouldPromoteQuickStart
+            let savedRoute = SplitBuilderPreferencesStore.load().programBuilderEntryRouteRaw
+            highlightGuidedCoach = savedRoute == nil || savedRoute == ProgramBuilderEntryRoute.guidedCoach.rawValue
+                || viewModel.shouldPromoteQuickStart == false
         }
     }
 
@@ -53,7 +61,7 @@ struct ProgramBuilderEntryView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("How do you want to build?")
                 .font(.title2.weight(.semibold))
-            Text("Pick a fast path or customize every detail. You can edit everything before saving to Plan.")
+            Text("Start with your coach for personalized recommendations, pick a template, or customize every detail.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -64,24 +72,24 @@ struct ProgramBuilderEntryView: View {
     private var pathCards: some View {
         VStack(spacing: 14) {
             pathCard(
+                route: .guidedCoach,
+                title: "Guided Coach",
+                subtitle: "Answer a few questions. Your coach recommends a program and you stay in control.",
+                systemImage: "figure.strengthtraining.traditional",
+                tint: FitlogPalette.chartPrimary,
+                recommended: highlightGuidedCoach
+            )
+            pathCard(
                 route: .quickStart,
-                title: "Quick Start",
+                title: "Templates",
                 subtitle: "One-tap curated programs for common goals and splits.",
                 systemImage: "sparkles",
                 tint: FitlogPalette.highlight,
-                recommended: highlightQuickStart
-            )
-            pathCard(
-                route: .aiChat,
-                title: "AI Builder",
-                subtitle: "Describe your program in plain language and refine it in chat.",
-                systemImage: "bubble.left.and.text.bubble.right.fill",
-                tint: FitlogPalette.chartPrimary,
                 recommended: false
             )
             pathCard(
                 route: .customBuild,
-                title: "Custom Build",
+                title: "Advanced Builder",
                 subtitle: "Step through essentials, structure, and review with full control.",
                 systemImage: "slider.horizontal.3",
                 tint: FitlogPalette.chartSecondary,
@@ -146,12 +154,28 @@ struct ProgramBuilderEntryView: View {
             )
         }
         .buttonStyle(.plain)
+        .simultaneousGesture(TapGesture().onEnded {
+            persistEntryRoute(route)
+        })
         .accessibilityLabel(title)
         .accessibilityHint(subtitle)
     }
 
+    private func persistEntryRoute(_ route: ProgramBuilderRoute) {
+        var state = SplitBuilderPreferencesStore.load()
+        switch route {
+        case .guidedCoach:
+            state.programBuilderEntryRouteRaw = ProgramBuilderEntryRoute.guidedCoach.rawValue
+        case .quickStart:
+            state.programBuilderEntryRouteRaw = ProgramBuilderEntryRoute.templates.rawValue
+        case .customBuild:
+            state.programBuilderEntryRouteRaw = ProgramBuilderEntryRoute.advancedBuilder.rawValue
+        }
+        SplitBuilderPreferencesStore.save(state)
+    }
+
     private var tipBanner: some View {
-        Label("New here? Quick Start gets you a complete program in one tap.", systemImage: "lightbulb.fill")
+        Label("New here? Guided Coach walks you through goals, schedule, and recommendations like a personal trainer.", systemImage: "lightbulb.fill")
             .font(.caption)
             .foregroundStyle(.secondary)
             .padding(12)
@@ -160,7 +184,7 @@ struct ProgramBuilderEntryView: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(Color.accentColor.opacity(0.08))
             )
-            .accessibilityLabel("Tip. New here? Quick Start gets you a complete program in one tap.")
+            .accessibilityLabel("Tip. New here? Guided Coach walks you through goals, schedule, and recommendations like a personal trainer.")
     }
 }
 

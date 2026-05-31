@@ -80,7 +80,7 @@ enum WorkoutKind: String, Codable, CaseIterable, Identifiable, Hashable, Sendabl
 // MARK: - Program builder cardio preference
 
 /// How cardio is woven into a training program (wizard + mapper).
-enum CardioProgramPreference: String, CaseIterable, Identifiable, Sendable {
+enum CardioProgramPreference: String, CaseIterable, Identifiable, Sendable, Codable {
     case none = "None — strength only"
     case postWorkout = "Post-workout cardio (add cardio finisher slots to strength days)"
     case dedicatedDays = "Dedicated cardio days (separate cardio-only rotation days)"
@@ -101,6 +101,139 @@ enum CardioProgramPreference: String, CaseIterable, Identifiable, Sendable {
 
     var includesDedicatedCardioDays: Bool {
         self == .dedicatedDays || self == .mixed
+    }
+}
+
+/// High-level cardio intent for program builder template generation.
+enum CardioProgramGoal: String, CaseIterable, Identifiable, Sendable, Codable {
+    case generalHealth = "General health & fitness"
+    case fatLoss = "Fat loss & conditioning"
+    case enduranceBuilding = "Build endurance"
+    case racePrep = "Race or event prep"
+    case activeRecovery = "Active recovery only"
+
+    var id: String { rawValue }
+
+    static func fromStored(_ raw: String?) -> CardioProgramGoal {
+        guard let raw, let match = Self.allCases.first(where: { $0.rawValue == raw }) else {
+            return .generalHealth
+        }
+        return match
+    }
+
+    /// Suggested default integration style for this goal.
+    var defaultPreference: CardioProgramPreference {
+        switch self {
+        case .generalHealth: return .postWorkout
+        case .fatLoss: return .mixed
+        case .enduranceBuilding: return .dedicatedDays
+        case .racePrep: return .dedicatedDays
+        case .activeRecovery: return .postWorkout
+        }
+    }
+}
+
+/// User-facing cardio builder settings (wizard + per-block overrides).
+struct CardioProgramConfiguration: Codable, Equatable, Sendable {
+    var goal: CardioProgramGoal
+    var preference: CardioProgramPreference
+    /// Dedicated cardio-only rotation days per week (1…4) when preference includes dedicated days.
+    var dedicatedDayCount: Int
+    /// Post-workout finisher length in minutes (5, 10, 15, or 20).
+    var finisherDurationMinutes: Int
+    var finisherZone: CardioIntensityZone
+    /// Minutes added to steady cardio per week within a block (progression hint for templates).
+    var weeklyProgressionMinutes: Int
+
+    init(
+        goal: CardioProgramGoal = .generalHealth,
+        preference: CardioProgramPreference = .none,
+        dedicatedDayCount: Int = 2,
+        finisherDurationMinutes: Int = 10,
+        finisherZone: CardioIntensityZone = .zone2,
+        weeklyProgressionMinutes: Int = 5
+    ) {
+        self.goal = goal
+        self.preference = preference
+        self.dedicatedDayCount = min(max(1, dedicatedDayCount), 4)
+        self.finisherDurationMinutes = Self.clampedFinisherMinutes(finisherDurationMinutes)
+        self.finisherZone = finisherZone
+        self.weeklyProgressionMinutes = min(max(0, weeklyProgressionMinutes), 15)
+    }
+
+    static let none = CardioProgramConfiguration(preference: .none)
+
+    static func clampedFinisherMinutes(_ minutes: Int) -> Int {
+        let allowed = [5, 10, 15, 20]
+        if allowed.contains(minutes) { return minutes }
+        return allowed.min(by: { abs($0 - minutes) < abs($1 - minutes) }) ?? 10
+    }
+
+    static func fromSplitInput(_ input: WorkoutSplitBuilderStructuredInput) -> CardioProgramConfiguration {
+        let goal = CardioProgramGoal.fromStored(input.cardioGoal)
+        let preference = CardioProgramPreference.fromStored(input.cardioPreference)
+        let effectivePreference: CardioProgramPreference = preference == .none && goal != .generalHealth
+            ? goal.defaultPreference
+            : preference
+        return CardioProgramConfiguration(
+            goal: goal,
+            preference: effectivePreference,
+            dedicatedDayCount: input.cardioDedicatedDayCount ?? 2,
+            finisherDurationMinutes: input.cardioFinisherDurationMinutes ?? 10,
+            finisherZone: CardioIntensityZone(rawValue: input.cardioFinisherZoneRaw ?? 2) ?? .zone2,
+            weeklyProgressionMinutes: input.cardioWeeklyProgressionMinutes ?? 5
+        )
+    }
+
+    /// Estimated weekly cardio minutes for summary UI (rough heuristic).
+    var estimatedWeeklyMinutes: Int {
+        switch preference {
+        case .none:
+            return 0
+        case .postWorkout:
+            return finisherDurationMinutes * 3
+        case .dedicatedDays:
+            return dedicatedDayCount * defaultSessionMinutes
+        case .mixed:
+            return (finisherDurationMinutes * 2) + (dedicatedDayCount * defaultSessionMinutes)
+        }
+    }
+
+    private var defaultSessionMinutes: Int {
+        switch goal {
+        case .generalHealth: return 25
+        case .fatLoss: return 30
+        case .enduranceBuilding: return 40
+        case .racePrep: return 45
+        case .activeRecovery: return 20
+        }
+    }
+}
+
+/// How cardio volume evolves across weeks inside a block.
+enum CardioProgressionStrategy: String, Codable, CaseIterable, Identifiable, Sendable {
+    case steady
+    case weeklyDurationIncrease
+    case weeklyIntervalIncrease
+    case taper
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .steady: return "Steady volume"
+        case .weeklyDurationIncrease: return "Add time each week"
+        case .weeklyIntervalIncrease: return "Add intervals each week"
+        case .taper: return "Taper before deload"
+        }
+    }
+
+    static func forGoal(_ goal: CardioProgramGoal) -> CardioProgressionStrategy {
+        switch goal {
+        case .generalHealth, .activeRecovery: return .steady
+        case .fatLoss: return .weeklyIntervalIncrease
+        case .enduranceBuilding, .racePrep: return .weeklyDurationIncrease
+        }
     }
 }
 

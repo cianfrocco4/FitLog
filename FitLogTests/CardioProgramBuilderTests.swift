@@ -77,6 +77,60 @@ final class CardioProgramBuilderTests: XCTestCase {
         XCTAssertTrue(result[templates.count].slots.allSatisfy { $0.modality == .cardio })
     }
 
+    func testApplyCardioPreference_dedicatedDays_respectsConfiguredDayCount() {
+        let templates = [
+            BlockWeeklyTemplate(
+                dayName: "Push",
+                focus: "",
+                slots: [
+                    SplitBuilderEditableSlot(
+                        label: "Bench",
+                        targetMuscleNames: [MuscleGroup.chest.rawValue],
+                        sets: 3,
+                        reps: "8-12"
+                    )
+                ]
+            )
+        ]
+        let config = CardioProgramConfiguration(
+            goal: .fatLoss,
+            preference: .dedicatedDays,
+            dedicatedDayCount: 3
+        )
+        let result = DynamicProgramMapper.applyCardioPreference(
+            to: templates,
+            preference: .dedicatedDays,
+            sessionsPerWeek: 4,
+            library: [],
+            configuration: config
+        )
+        XCTAssertEqual(result.count, 4)
+        XCTAssertEqual(result.filter { $0.slots.allSatisfy { $0.modality == .cardio } }.count, 3)
+    }
+
+    func testFinisherSlot_usesConfiguredDurationAndZone() {
+        let config = CardioProgramConfiguration(
+            goal: .generalHealth,
+            preference: .postWorkout,
+            finisherDurationMinutes: 15,
+            finisherZone: .zone3
+        )
+        let slot = CardioProgramTemplates.finisherSlot(library: [], configuration: config)
+        XCTAssertEqual(slot.cardioPrescription?.targetDurationSec, 15 * 60)
+        XCTAssertEqual(slot.cardioPrescription?.targetZone, .zone3)
+    }
+
+    func testCardioProgramConfiguration_fromSplitInput() {
+        var input = DynamicProgramGenerationRequest.simpleDefault().splitInput
+        input.cardioGoal = CardioProgramGoal.fatLoss.rawValue
+        input.cardioPreference = CardioProgramPreference.none.rawValue
+        input.cardioDedicatedDayCount = 3
+        let config = CardioProgramConfiguration.fromSplitInput(input)
+        XCTAssertEqual(config.goal, CardioProgramGoal.fatLoss)
+        XCTAssertEqual(config.preference, CardioProgramPreference.mixed)
+        XCTAssertEqual(config.dedicatedDayCount, 3)
+    }
+
     func testApplyCardioPreference_dedicatedDays_appendsCardioDays() {
         let templates = (0 ..< 4).map { i in
             BlockWeeklyTemplate(
@@ -131,7 +185,7 @@ final class CardioProgramBuilderTests: XCTestCase {
             from: proposal,
             blockFocus: BlockFocus(kind: .hybrid, emphasisLabel: "Strength + cardio"),
             library: [],
-            cardioPreference: .none
+            configuration: .none
         )
         XCTAssertGreaterThanOrEqual(templates.count, 2)
         XCTAssertTrue(templates[0].slots.contains { $0.label == "Bench" })

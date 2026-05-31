@@ -82,6 +82,8 @@ private enum DPDeloadPick: String, CaseIterable, Identifiable {
 
 struct DynamicProgramBuilderView: View {
     @Bindable var viewModel: DynamicProgramBuilderViewModel
+    /// When true (Advanced Builder path), hide the AI/Manual segmented control.
+    var hidesBuilderModePicker: Bool = false
     @EnvironmentObject private var aiService: AIService
     @Environment(DataManager.self) private var dataManager
     @Environment(\.modelContext) private var modelContext
@@ -308,20 +310,22 @@ struct DynamicProgramBuilderView: View {
 
     private var essentialsStep: some View {
         Form {
-            Section {
-                Picker("Program build style", selection: $viewModel.builderMode) {
-                    ForEach(DynamicProgramBuilderViewModel.ProgramBuilderMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
+            if !hidesBuilderModePicker {
+                Section {
+                    Picker("Program build style", selection: $viewModel.builderMode) {
+                        ForEach(DynamicProgramBuilderViewModel.ProgramBuilderMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
                     }
-                }
-                .pickerStyle(.segmented)
+                    .pickerStyle(.segmented)
 
-                Text(builderModeHelp)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } header: {
-                Text("Builder")
+                    Text(builderModeHelp)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } header: {
+                    Text("Builder")
+                }
             }
 
             Section("Essentials") {
@@ -346,6 +350,17 @@ struct DynamicProgramBuilderView: View {
                 ), in: 1 ... maxSessionsAllowed) {
                     Text("Sessions per week: \(viewModel.request.splitInput.sessionsPerWeek)")
                 }
+
+                Picker("Include cardio?", selection: cardioInclusionBinding) {
+                    Text("None — strength only").tag(CardioProgramPreference.none.rawValue)
+                    Text("Light (short finishers after lifting)").tag(CardioProgramPreference.postWorkout.rawValue)
+                    Text("Dedicated cardio days").tag(CardioProgramPreference.dedicatedDays.rawValue)
+                    Text("Mixed (dedicated + finishers)").tag(CardioProgramPreference.mixed.rawValue)
+                }
+                .accessibilityHint("Choose whether your program includes cardio work")
+            }
+            .onChange(of: viewModel.request.splitInput.primaryGoal) { _, _ in
+                viewModel.applyGoalBasedCardioDefaults()
             }
 
             Section("Preferred training days") {
@@ -423,9 +438,25 @@ struct DynamicProgramBuilderView: View {
                             Stepper(value: $spec.durationWeeks, in: 1 ... 52) {
                                 Text("Duration: \(spec.durationWeeks) weeks")
                             }
+                            if viewModel.showPhaseCustomization || viewModel.programStructurePreset == .custom {
+                                BlockCardioOverrideSection(
+                                    spec: $spec,
+                                    inheritLabel: CardioProgramPreference.fromStored(viewModel.request.splitInput.cardioPreference).rawValue
+                                )
+                            }
                         }
                         .padding(.vertical, 4)
                     }
+                }
+            }
+
+            if viewModel.hasCardioEnabled {
+                Section("Cardio details") {
+                    CardioProgramConfigurationSection(
+                        splitInput: $viewModel.request.splitInput,
+                        showPerBlockHint: viewModel.request.isPeriodized,
+                        onUserEdited: { viewModel.markCardioPreferenceCustomized() }
+                    )
                 }
             }
 
@@ -458,11 +489,6 @@ struct DynamicProgramBuilderView: View {
                 }
                 Picker("Deload preference", selection: deloadBinding) {
                     ForEach(DPDeloadPick.allCases) { g in Text(g.rawValue).tag(g.rawValue) }
-                }
-                Picker("Cardio in program", selection: cardioPreferenceBinding) {
-                    ForEach(CardioProgramPreference.allCases) { preference in
-                        Text(preference.rawValue).tag(preference.rawValue)
-                    }
                 }
             }
 
@@ -558,32 +584,24 @@ struct DynamicProgramBuilderView: View {
                     ProgramValidationBanner(result: viewModel.programValidationResult)
                 }
 
-                Section("Timeline") {
-                    DynamicProgramTimelineView(program: program, anchorDate: viewModel.programAnchorDate, builderViewModel: viewModel)
-                        .frame(minHeight: 180)
-                }
+                DisclosureGroup("Program overview") {
+                    DynamicProgramTimelineView(
+                        program: program,
+                        anchorDate: viewModel.programAnchorDate,
+                        builderViewModel: nil
+                    )
+                    .frame(minHeight: 140)
 
-                Section("Calendar overview") {
                     ProgramCalendarPreviewView(
                         program: program,
                         anchorDate: viewModel.programAnchorDate,
                         weeklySetTotalsByBlock: ProgramCalendarPreviewView.weeklySetTotalsPerBlock(program: program)
                     )
-                    .frame(minHeight: 160)
+                    .frame(minHeight: 140)
                 }
 
                 if viewModel.builderMode == .manualBuild {
                     ManualBlockEditorView(viewModel: viewModel)
-                }
-
-                if !viewModel.generationBalanceWarnings.isEmpty {
-                    Section("Balance checks") {
-                        ForEach(viewModel.generationBalanceWarnings) { w in
-                            Label(w.message, systemImage: w.severity == .caution ? "exclamationmark.triangle.fill" : "info.circle")
-                                .font(.caption)
-                                .foregroundStyle(w.severity == .caution ? Color.orange : Color.secondary)
-                        }
-                    }
                 }
 
                 DynamicProgramGeneratedTemplateEditor(viewModel: viewModel)
@@ -642,6 +660,19 @@ struct DynamicProgramBuilderView: View {
         Binding(get: { viewModel.request.splitInput.primaryGoal }, set: { viewModel.request.splitInput.primaryGoal = $0 })
     }
 
+    private var cardioInclusionBinding: Binding<String> {
+        Binding(
+            get: { viewModel.request.splitInput.cardioPreference },
+            set: { newValue in
+                viewModel.request.splitInput.cardioPreference = newValue
+                viewModel.markCardioPreferenceCustomized()
+                if CardioProgramPreference.fromStored(newValue) != .none {
+                    viewModel.applyCardioGoalForCurrentPrimaryGoal()
+                }
+            }
+        )
+    }
+
     private var equipmentBinding: Binding<String> {
         Binding(get: { viewModel.request.splitInput.equipment }, set: { viewModel.request.splitInput.equipment = $0 })
     }
@@ -667,10 +698,6 @@ struct DynamicProgramBuilderView: View {
 
     private var deloadBinding: Binding<String> {
         Binding(get: { viewModel.request.splitInput.deloadPreference }, set: { viewModel.request.splitInput.deloadPreference = $0 })
-    }
-
-    private var cardioPreferenceBinding: Binding<String> {
-        Binding(get: { viewModel.request.splitInput.cardioPreference }, set: { viewModel.request.splitInput.cardioPreference = $0 })
     }
 
     private var splitBinding: Binding<String> {

@@ -21,7 +21,7 @@ import Foundation
 enum SplitBuilderPreferencesStore {
 
     /// Bump when adding non-optional fields or changing semantics; implement migration from previous.
-    private static let currentSchemaVersion = 4
+    private static let currentSchemaVersion = 6
     private static let envelopeKey = "fitlog.splitBuilder.wizardEnvelope.v1"
 
     struct State: Equatable {
@@ -41,6 +41,11 @@ enum SplitBuilderPreferencesStore {
         var recoveryContextNotes: String?
         var deloadPreferenceRaw: String?
         var cardioPreferenceRaw: String?
+        var cardioGoalRaw: String?
+        var cardioDedicatedDayCount: Int?
+        var cardioFinisherDurationMinutes: Int?
+        var cardioFinisherZoneRaw: Int?
+        var cardioWeeklyProgressionMinutes: Int?
         var variationModeRaw: String?
         var customRotationLength: Int?
         var variationNotes: String?
@@ -52,6 +57,8 @@ enum SplitBuilderPreferencesStore {
         var dynamicBlockSpecsJSON: String?
         /// `"ai"` or `"manual"` for unified program builder mode.
         var programBuilderModeRaw: String?
+        /// Last selected program builder entry route (`guidedCoach`, `templates`, `advancedBuilder`).
+        var programBuilderEntryRouteRaw: String?
 
         static let `default` = State(
             primaryGoalRaw: nil,
@@ -70,6 +77,11 @@ enum SplitBuilderPreferencesStore {
             recoveryContextNotes: nil,
             deloadPreferenceRaw: nil,
             cardioPreferenceRaw: nil,
+            cardioGoalRaw: nil,
+            cardioDedicatedDayCount: nil,
+            cardioFinisherDurationMinutes: nil,
+            cardioFinisherZoneRaw: nil,
+            cardioWeeklyProgressionMinutes: nil,
             variationModeRaw: nil,
             customRotationLength: nil,
             variationNotes: nil,
@@ -77,7 +89,8 @@ enum SplitBuilderPreferencesStore {
             isPeriodizedProgram: nil,
             busyDayPolicyRaw: nil,
             dynamicBlockSpecsJSON: nil,
-            programBuilderModeRaw: nil
+            programBuilderModeRaw: nil,
+            programBuilderEntryRouteRaw: nil
         )
     }
 
@@ -99,6 +112,11 @@ enum SplitBuilderPreferencesStore {
         var recoveryContextNotes: String?
         var deloadPreferenceRaw: String?
         var cardioPreferenceRaw: String?
+        var cardioGoalRaw: String?
+        var cardioDedicatedDayCount: Int?
+        var cardioFinisherDurationMinutes: Int?
+        var cardioFinisherZoneRaw: Int?
+        var cardioWeeklyProgressionMinutes: Int?
         var variationModeRaw: String?
         var customRotationLength: Int?
         var variationNotes: String?
@@ -107,6 +125,7 @@ enum SplitBuilderPreferencesStore {
         var busyDayPolicyRaw: String?
         var dynamicBlockSpecsJSON: String?
         var programBuilderModeRaw: String?
+        var programBuilderEntryRouteRaw: String?
     }
 
     static func load() -> State {
@@ -114,7 +133,7 @@ enum SplitBuilderPreferencesStore {
         let dec = JSONDecoder()
         guard let env = try? dec.decode(EnvelopeV1.self, from: data) else { return .default }
         switch env.schemaVersion {
-        case 1, 2, 3, 4:
+        case 1, 2, 3, 4, 5, 6:
             return State(
                 primaryGoalRaw: env.primaryGoalRaw,
                 equipmentRaw: env.equipmentRaw,
@@ -132,6 +151,11 @@ enum SplitBuilderPreferencesStore {
                 recoveryContextNotes: env.recoveryContextNotes,
                 deloadPreferenceRaw: env.deloadPreferenceRaw,
                 cardioPreferenceRaw: env.cardioPreferenceRaw,
+                cardioGoalRaw: env.cardioGoalRaw,
+                cardioDedicatedDayCount: env.cardioDedicatedDayCount,
+                cardioFinisherDurationMinutes: env.cardioFinisherDurationMinutes,
+                cardioFinisherZoneRaw: env.cardioFinisherZoneRaw,
+                cardioWeeklyProgressionMinutes: env.cardioWeeklyProgressionMinutes,
                 variationModeRaw: env.variationModeRaw,
                 customRotationLength: env.customRotationLength,
                 variationNotes: env.variationNotes,
@@ -139,7 +163,8 @@ enum SplitBuilderPreferencesStore {
                 isPeriodizedProgram: env.isPeriodizedProgram,
                 busyDayPolicyRaw: env.busyDayPolicyRaw,
                 dynamicBlockSpecsJSON: env.dynamicBlockSpecsJSON,
-                programBuilderModeRaw: env.programBuilderModeRaw
+                programBuilderModeRaw: env.programBuilderModeRaw,
+                programBuilderEntryRouteRaw: env.programBuilderEntryRouteRaw
             )
         default:
             // Future: migrate from unknown version or legacy keys
@@ -166,6 +191,11 @@ enum SplitBuilderPreferencesStore {
             recoveryContextNotes: state.recoveryContextNotes,
             deloadPreferenceRaw: state.deloadPreferenceRaw,
             cardioPreferenceRaw: state.cardioPreferenceRaw,
+            cardioGoalRaw: state.cardioGoalRaw,
+            cardioDedicatedDayCount: state.cardioDedicatedDayCount,
+            cardioFinisherDurationMinutes: state.cardioFinisherDurationMinutes,
+            cardioFinisherZoneRaw: state.cardioFinisherZoneRaw,
+            cardioWeeklyProgressionMinutes: state.cardioWeeklyProgressionMinutes,
             variationModeRaw: state.variationModeRaw,
             customRotationLength: state.customRotationLength,
             variationNotes: state.variationNotes,
@@ -173,7 +203,8 @@ enum SplitBuilderPreferencesStore {
             isPeriodizedProgram: state.isPeriodizedProgram,
             busyDayPolicyRaw: state.busyDayPolicyRaw,
             dynamicBlockSpecsJSON: state.dynamicBlockSpecsJSON,
-            programBuilderModeRaw: state.programBuilderModeRaw
+            programBuilderModeRaw: state.programBuilderModeRaw,
+            programBuilderEntryRouteRaw: state.programBuilderEntryRouteRaw
         )
         guard let data = try? JSONEncoder().encode(env) else { return }
         UserDefaults.standard.set(data, forKey: envelopeKey)

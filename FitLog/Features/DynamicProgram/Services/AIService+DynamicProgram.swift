@@ -68,6 +68,7 @@ extension AIService {
         for (index, spec) in request.blockSpecs.enumerated() {
             onBlockProgress?(index + 1, totalBlocks)
             var structured = request.splitInput
+            let blockLabel = ProgramBlockNaming.shortBlockLabel(spec.title.isEmpty ? spec.focus.displayTitle : spec.title)
             let blockNote = """
             [Block phase — follow strictly]
             Block title: \(spec.title)
@@ -76,11 +77,15 @@ extension AIService {
             Progression style (enum): \(spec.progressionStrategy.rawValue)
             Volume multiplier: \(spec.volumeMultiplier)
             Deload block: \(spec.isDeloadBlock ? "yes" : "no")
+            Workout day naming: prefix each workouts[].name with "\(blockLabel): " (e.g. "\(blockLabel): Push A") so phases stay distinct.
             """
+            let blockCardio = DynamicProgramMapper.resolvedCardioConfiguration(for: spec, request: request)
+            let cardioNote = cardioAdjustmentNote(for: blockCardio)
+            let combinedNote = blockNote + "\n\n" + cardioNote
             if let existing = structured.adjustmentInstruction, !existing.isEmpty {
-                structured.adjustmentInstruction = blockNote + "\n\n" + existing
+                structured.adjustmentInstruction = combinedNote + "\n\n" + existing
             } else {
-                structured.adjustmentInstruction = blockNote
+                structured.adjustmentInstruction = combinedNote
             }
 
             let proposal = try await generateWorkoutSplitProposal(
@@ -103,7 +108,15 @@ extension AIService {
             guard let block = program.blocks.first else {
                 throw AIServiceError.invalidResponse
             }
-            blocks.append(block)
+            var prefixedBlock = block
+            if totalBlocks > 1 {
+                prefixedBlock.weeklyTemplates = ProgramBlockNaming.applyBlockPrefixIfNeeded(
+                    to: block.weeklyTemplates,
+                    blockName: block.name,
+                    isMultiBlock: true
+                )
+            }
+            blocks.append(prefixedBlock)
         }
 
         let name = request.programName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "My program" : request.programName
@@ -115,5 +128,32 @@ extension AIService {
             busyDayPolicy: request.busyDayPolicy,
             generatedWithAI: true
         )
+    }
+
+    private func cardioAdjustmentNote(for config: CardioProgramConfiguration) -> String {
+        guard config.preference != .none else {
+            return "Cardio: none for this phase — strength only."
+        }
+        var lines: [String] = [
+            "Cardio goal: \(config.goal.rawValue)",
+            "Cardio integration: \(config.preference.rawValue)",
+        ]
+        if config.preference.includesPostWorkoutFinishers {
+            lines.append("Post-workout finisher: \(config.finisherDurationMinutes) min at \(config.finisherZone.displayName).")
+        }
+        if config.preference.includesDedicatedCardioDays {
+            lines.append("Dedicated cardio days per week: \(config.dedicatedDayCount). Vary steady, tempo, intervals, or sport-specific work.")
+        }
+        switch config.goal {
+        case .fatLoss:
+            lines.append("Prefer HIIT, EMOM, or tempo finishers; keep total session time realistic.")
+        case .enduranceBuilding, .racePrep:
+            lines.append("Include progressive duration or interval volume; label slots clearly (Zone 2, Tempo, Intervals).")
+        case .activeRecovery:
+            lines.append("Keep intensity low (Zone 1–2); no hard intervals unless user notes say otherwise.")
+        case .generalHealth:
+            lines.append("Favor easy steady cardio; optional short finishers after lifting.")
+        }
+        return lines.joined(separator: "\n")
     }
 }

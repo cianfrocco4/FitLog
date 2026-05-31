@@ -16,6 +16,13 @@ struct DynamicBlockGenerationSpec: Identifiable, Equatable, Sendable {
     var progressionStrategy: ProgressionStrategy
     var volumeMultiplier: Double
     var isDeloadBlock: Bool
+    /// Per-block cardio overrides (nil = inherit program defaults).
+    var cardioGoal: CardioProgramGoal?
+    var cardioPreference: CardioProgramPreference?
+    var cardioDedicatedDayCount: Int?
+    var cardioFinisherDurationMinutes: Int?
+    var cardioFinisherZone: CardioIntensityZone?
+    var cardioWeeklyProgressionMinutes: Int?
 
     init(
         id: UUID = UUID(),
@@ -24,7 +31,13 @@ struct DynamicBlockGenerationSpec: Identifiable, Equatable, Sendable {
         durationWeeks: Int = 4,
         progressionStrategy: ProgressionStrategy = .doubleProgression,
         volumeMultiplier: Double = 1.0,
-        isDeloadBlock: Bool = false
+        isDeloadBlock: Bool = false,
+        cardioGoal: CardioProgramGoal? = nil,
+        cardioPreference: CardioProgramPreference? = nil,
+        cardioDedicatedDayCount: Int? = nil,
+        cardioFinisherDurationMinutes: Int? = nil,
+        cardioFinisherZone: CardioIntensityZone? = nil,
+        cardioWeeklyProgressionMinutes: Int? = nil
     ) {
         self.id = id
         self.title = title
@@ -33,6 +46,12 @@ struct DynamicBlockGenerationSpec: Identifiable, Equatable, Sendable {
         self.progressionStrategy = progressionStrategy
         self.volumeMultiplier = volumeMultiplier
         self.isDeloadBlock = isDeloadBlock
+        self.cardioGoal = cardioGoal
+        self.cardioPreference = cardioPreference
+        self.cardioDedicatedDayCount = cardioDedicatedDayCount
+        self.cardioFinisherDurationMinutes = cardioFinisherDurationMinutes
+        self.cardioFinisherZone = cardioFinisherZone
+        self.cardioWeeklyProgressionMinutes = cardioWeeklyProgressionMinutes
     }
 }
 
@@ -122,6 +141,12 @@ struct PersistedDynamicBlockSpec: Codable, Equatable, Sendable {
     var progressionStrategyRaw: String
     var volumeMultiplier: Double
     var isDeloadBlock: Bool
+    var cardioGoalRaw: String?
+    var cardioPreferenceRaw: String?
+    var cardioDedicatedDayCount: Int?
+    var cardioFinisherDurationMinutes: Int?
+    var cardioFinisherZoneRaw: Int?
+    var cardioWeeklyProgressionMinutes: Int?
 }
 
 extension DynamicBlockGenerationSpec {
@@ -135,7 +160,13 @@ extension DynamicBlockGenerationSpec {
             durationWeeks: persisted.durationWeeks,
             progressionStrategy: progression,
             volumeMultiplier: persisted.volumeMultiplier,
-            isDeloadBlock: persisted.isDeloadBlock
+            isDeloadBlock: persisted.isDeloadBlock,
+            cardioGoal: persisted.cardioGoalRaw.flatMap { CardioProgramGoal(rawValue: $0) },
+            cardioPreference: persisted.cardioPreferenceRaw.flatMap { CardioProgramPreference(rawValue: $0) },
+            cardioDedicatedDayCount: persisted.cardioDedicatedDayCount,
+            cardioFinisherDurationMinutes: persisted.cardioFinisherDurationMinutes,
+            cardioFinisherZone: persisted.cardioFinisherZoneRaw.flatMap { CardioIntensityZone(rawValue: $0) },
+            cardioWeeklyProgressionMinutes: persisted.cardioWeeklyProgressionMinutes
         )
     }
 
@@ -148,7 +179,13 @@ extension DynamicBlockGenerationSpec {
             durationWeeks: durationWeeks,
             progressionStrategyRaw: progressionStrategy.rawValue,
             volumeMultiplier: volumeMultiplier,
-            isDeloadBlock: isDeloadBlock
+            isDeloadBlock: isDeloadBlock,
+            cardioGoalRaw: cardioGoal?.rawValue,
+            cardioPreferenceRaw: cardioPreference?.rawValue,
+            cardioDedicatedDayCount: cardioDedicatedDayCount,
+            cardioFinisherDurationMinutes: cardioFinisherDurationMinutes,
+            cardioFinisherZoneRaw: cardioFinisherZone?.rawValue,
+            cardioWeeklyProgressionMinutes: cardioWeeklyProgressionMinutes
         )
     }
 }

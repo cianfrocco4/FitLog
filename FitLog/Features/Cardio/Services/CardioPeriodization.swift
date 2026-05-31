@@ -2,7 +2,7 @@
 //  CardioPeriodization.swift
 //  FitLog
 //
-//  Scales cardio prescriptions from block volume multiplier and deload flags.
+//  Scales cardio prescriptions from block volume multiplier, deload flags, and weekly progression.
 //
 
 import Foundation
@@ -15,16 +15,17 @@ enum CardioPeriodization {
     ) -> CardioPrescription {
         guard let ctx = blockContext else { return prescription }
         let scale = effectiveScale(blockContext: ctx)
-        guard scale != 1.0 else { return prescription }
-
         var rx = prescription
-        if let sec = rx.targetDurationSec, sec > 0 {
-            rx.targetDurationSec = max(60, Int((Double(sec) * scale).rounded()))
+        if scale != 1.0 {
+            if let sec = rx.targetDurationSec, sec > 0 {
+                rx.targetDurationSec = max(60, Int((Double(sec) * scale).rounded()))
+            }
+            if let meters = rx.targetDistanceM, meters > 0 {
+                rx.targetDistanceM = max(100, meters * scale)
+            }
+            rx.intervals = rx.intervals.map { scaledInterval($0, scale: scale) }
         }
-        if let meters = rx.targetDistanceM, meters > 0 {
-            rx.targetDistanceM = max(100, meters * scale)
-        }
-        rx.intervals = rx.intervals.map { scaledInterval($0, scale: scale) }
+        rx = applyWeeklyProgression(to: rx, blockContext: ctx)
         return rx
     }
 
@@ -49,6 +50,39 @@ enum CardioPeriodization {
     private static func effectiveScale(blockContext: BlockContext) -> Double {
         if blockContext.isDeloadBlock { return 0.7 }
         return max(0.5, min(1.35, blockContext.volumeMultiplier))
+    }
+
+    private static func applyWeeklyProgression(
+        to prescription: CardioPrescription,
+        blockContext: BlockContext
+    ) -> CardioPrescription {
+        let weekIndex = max(0, blockContext.weekIndexInBlock - 1)
+        guard weekIndex > 0 else { return prescription }
+
+        var rx = prescription
+        switch blockContext.cardioProgressionStrategy {
+        case .steady:
+            break
+        case .weeklyDurationIncrease:
+            let bumpSec = blockContext.cardioWeeklyProgressionMinutes * 60 * weekIndex
+            if let sec = rx.targetDurationSec, sec > 0 {
+                rx.targetDurationSec = sec + bumpSec
+            } else if rx.targetDurationSec == nil, bumpSec > 0 {
+                rx.targetDurationSec = 20 * 60 + bumpSec
+            }
+        case .weeklyIntervalIncrease:
+            rx.intervals = rx.intervals.map { spec in
+                var copy = spec
+                copy.repeatCount = min(20, copy.repeatCount + weekIndex)
+                return copy
+            }
+        case .taper:
+            let weeksRemaining = max(0, blockContext.blockDurationWeeks - blockContext.weekIndexInBlock)
+            if weeksRemaining <= 1, let sec = rx.targetDurationSec, sec > 0 {
+                rx.targetDurationSec = max(60, Int((Double(sec) * 0.85).rounded()))
+            }
+        }
+        return rx
     }
 
     private static func scaledInterval(_ spec: CardioIntervalSpec, scale: Double) -> CardioIntervalSpec {

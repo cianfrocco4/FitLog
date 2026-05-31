@@ -81,6 +81,16 @@ struct WorkoutSplitBuilderStructuredInput: Equatable {
     var deloadPreference: String
     /// Cardio integration preference for program builder (see `CardioProgramPreference`).
     var cardioPreference: String = CardioProgramPreference.none.rawValue
+    /// Cardio goal when cardio is included (see `CardioProgramGoal`).
+    var cardioGoal: String = CardioProgramGoal.generalHealth.rawValue
+    /// Dedicated cardio days per week (1…4); nil = default.
+    var cardioDedicatedDayCount: Int? = nil
+    /// Post-workout finisher minutes (5/10/15/20); nil = default.
+    var cardioFinisherDurationMinutes: Int? = nil
+    /// `CardioIntensityZone.rawValue` for finishers; nil = Zone 2.
+    var cardioFinisherZoneRaw: Int? = nil
+    /// Minutes added to cardio per week within a block; nil = default.
+    var cardioWeeklyProgressionMinutes: Int? = nil
     /// How much day-to-day/template variation the user wants (simple, balanced, high, custom).
     var variationMode: String = "Balanced variation"
     /// Desired number of distinct workout templates in the rotation. May exceed sessionsPerWeek.
@@ -353,6 +363,11 @@ final class AIService: ObservableObject {
             recoveryContextNotes: String(structured.recoveryContextNotes.prefix(400)),
             deloadPreference: structured.deloadPreference,
             cardioPreference: structured.cardioPreference,
+            cardioGoal: structured.cardioGoal,
+            cardioDedicatedDayCount: structured.cardioDedicatedDayCount,
+            cardioFinisherDurationMinutes: structured.cardioFinisherDurationMinutes,
+            cardioFinisherZoneRaw: structured.cardioFinisherZoneRaw,
+            cardioWeeklyProgressionMinutes: structured.cardioWeeklyProgressionMinutes,
             variationMode: structured.variationMode,
             desiredWorkoutRotationLength: desiredRotationLength,
             variationNotes: String(structured.variationNotes.prefix(400)),
@@ -398,10 +413,12 @@ final class AIService: ObservableObject {
             - If deloadPreference mentions a cadence, mention it briefly in rationale (the app may schedule separately).
 
             Cardio integration (when cardioPreference in the user JSON is not "None — strength only"):
-            - Post-workout cardio: append a final cardio slot to each strength workout (10–15 min steady Zone 2 or easy walk). Use modality cardio with a suggestedExerciseName from the allowed exercise list when possible.
-            - Dedicated cardio days: include pure cardio rotation days (steady or intervals) using allowed cardio exercise names; balance with strength days across the week.
+            - Honor cardioGoal when choosing modality, duration, and intensity (general health = easy steady; fat loss = HIIT/tempo mix; endurance/race prep = longer steady + structured intervals; active recovery = Zone 1–2 only).
+            - Post-workout cardio: append a final cardio slot to each strength workout using cardioFinisherDurationMinutes and cardioFinisherZone when provided (default 10 min Zone 2).
+            - Dedicated cardio days: include pure cardio rotation days; use cardioDedicatedDayCount when set (1–4), otherwise balance with strength days across the week.
             - Mixed: combine dedicated cardio days AND optional short finishers on some strength days; keep total weekly volume realistic for sessionDurationMinutes.
-            - Cardio slots use sets: 1, reps: "steady" or "intervals", and label describing the work (e.g. "Zone 2 finisher"). The app stores cardio prescriptions separately — still provide clear slot labels.
+            - Cardio slots use sets: 1, reps: "steady", "intervals", or "circuit", and descriptive labels (e.g. "Zone 2 finisher", "Tempo run", "HIIT intervals"). Prefer varied prescriptions (tempo, fartlek, pyramid intervals, EMOM) when the goal supports it.
+            - When generating multi-phase programs, prefix each workouts[].name with the block phase label provided in adjustmentInstruction.
 
             Program balance (mandatory — applies to EVERY split style: PPL, upper/lower, bro-style, full body, athletic, “no preference”, etc.):
             UPPER BODY — push vs pull:
@@ -533,6 +550,11 @@ final class AIService: ObservableObject {
         let recoveryContextNotes: String
         let deloadPreference: String
         let cardioPreference: String
+        let cardioGoal: String
+        let cardioDedicatedDayCount: Int?
+        let cardioFinisherDurationMinutes: Int?
+        let cardioFinisherZoneRaw: Int?
+        let cardioWeeklyProgressionMinutes: Int?
         let variationMode: String
         let desiredWorkoutRotationLength: Int
         let variationNotes: String
@@ -1076,6 +1098,11 @@ final class AIService: ObservableObject {
         }
         let raw = try extractAssistantTextFromChatCompletionsJSON(data)
         return raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Structured JSON request for Guided Coach rationale and follow-up (same transport as other AI features).
+    func performProgramCoachJSONRequest(system: String, user: String, maxTokens: Int = 800) async throws -> String {
+        try await performRequest(system: system, user: user, maxTokens: maxTokens, jsonObject: true)
     }
 }
 

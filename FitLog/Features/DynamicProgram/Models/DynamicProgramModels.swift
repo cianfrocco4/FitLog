@@ -127,10 +127,20 @@ struct ProgramBlock: Identifiable, Codable, Equatable, Sendable {
     var warmUpTemplate: [SplitBuilderEditableSlot]?
     /// Optional cooldown / mobility slots (manual builder).
     var cooldownTemplate: [SplitBuilderEditableSlot]?
+    /// Cardio goal for this block (nil = inherit program default).
+    var cardioGoal: CardioProgramGoal?
+    /// Cardio integration style for this block (nil = inherit program default).
+    var cardioPreference: CardioProgramPreference?
+    var cardioDedicatedDayCount: Int?
+    var cardioFinisherDurationMinutes: Int?
+    var cardioFinisherZone: CardioIntensityZone?
+    var cardioWeeklyProgressionMinutes: Int?
 
     enum CodingKeys: String, CodingKey {
         case id, name, focus, durationWeeks, weeklyTemplates, progressionStrategy, isDeloadBlock, volumeMultiplier
         case deloadWeekNumber, notes, warmUpTemplate, cooldownTemplate
+        case cardioGoal, cardioPreference, cardioDedicatedDayCount, cardioFinisherDurationMinutes
+        case cardioFinisherZone, cardioWeeklyProgressionMinutes
     }
 
     init(
@@ -145,7 +155,13 @@ struct ProgramBlock: Identifiable, Codable, Equatable, Sendable {
         deloadWeekNumber: Int? = nil,
         notes: String? = nil,
         warmUpTemplate: [SplitBuilderEditableSlot]? = nil,
-        cooldownTemplate: [SplitBuilderEditableSlot]? = nil
+        cooldownTemplate: [SplitBuilderEditableSlot]? = nil,
+        cardioGoal: CardioProgramGoal? = nil,
+        cardioPreference: CardioProgramPreference? = nil,
+        cardioDedicatedDayCount: Int? = nil,
+        cardioFinisherDurationMinutes: Int? = nil,
+        cardioFinisherZone: CardioIntensityZone? = nil,
+        cardioWeeklyProgressionMinutes: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -159,6 +175,12 @@ struct ProgramBlock: Identifiable, Codable, Equatable, Sendable {
         self.notes = notes
         self.warmUpTemplate = warmUpTemplate
         self.cooldownTemplate = cooldownTemplate
+        self.cardioGoal = cardioGoal
+        self.cardioPreference = cardioPreference
+        self.cardioDedicatedDayCount = cardioDedicatedDayCount
+        self.cardioFinisherDurationMinutes = cardioFinisherDurationMinutes
+        self.cardioFinisherZone = cardioFinisherZone
+        self.cardioWeeklyProgressionMinutes = cardioWeeklyProgressionMinutes
     }
 
     init(from decoder: Decoder) throws {
@@ -175,6 +197,12 @@ struct ProgramBlock: Identifiable, Codable, Equatable, Sendable {
         notes = try c.decodeIfPresent(String.self, forKey: .notes)
         warmUpTemplate = try c.decodeIfPresent([SplitBuilderEditableSlot].self, forKey: .warmUpTemplate)
         cooldownTemplate = try c.decodeIfPresent([SplitBuilderEditableSlot].self, forKey: .cooldownTemplate)
+        cardioGoal = try c.decodeIfPresent(CardioProgramGoal.self, forKey: .cardioGoal)
+        cardioPreference = try c.decodeIfPresent(CardioProgramPreference.self, forKey: .cardioPreference)
+        cardioDedicatedDayCount = try c.decodeIfPresent(Int.self, forKey: .cardioDedicatedDayCount)
+        cardioFinisherDurationMinutes = try c.decodeIfPresent(Int.self, forKey: .cardioFinisherDurationMinutes)
+        cardioFinisherZone = try c.decodeIfPresent(CardioIntensityZone.self, forKey: .cardioFinisherZone)
+        cardioWeeklyProgressionMinutes = try c.decodeIfPresent(Int.self, forKey: .cardioWeeklyProgressionMinutes)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -191,6 +219,41 @@ struct ProgramBlock: Identifiable, Codable, Equatable, Sendable {
         try c.encodeIfPresent(notes, forKey: .notes)
         try c.encodeIfPresent(warmUpTemplate, forKey: .warmUpTemplate)
         try c.encodeIfPresent(cooldownTemplate, forKey: .cooldownTemplate)
+        try c.encodeIfPresent(cardioGoal, forKey: .cardioGoal)
+        try c.encodeIfPresent(cardioPreference, forKey: .cardioPreference)
+        try c.encodeIfPresent(cardioDedicatedDayCount, forKey: .cardioDedicatedDayCount)
+        try c.encodeIfPresent(cardioFinisherDurationMinutes, forKey: .cardioFinisherDurationMinutes)
+        try c.encodeIfPresent(cardioFinisherZone, forKey: .cardioFinisherZone)
+        try c.encodeIfPresent(cardioWeeklyProgressionMinutes, forKey: .cardioWeeklyProgressionMinutes)
+    }
+
+    /// Resolves effective cardio settings for template generation (block overrides program defaults).
+    func resolvedCardioConfiguration(fallback: CardioProgramConfiguration) -> CardioProgramConfiguration {
+        var config = fallback
+        if let cardioGoal { config.goal = cardioGoal }
+        if let cardioPreference { config.preference = cardioPreference }
+        if let cardioDedicatedDayCount { config.dedicatedDayCount = cardioDedicatedDayCount }
+        if let cardioFinisherDurationMinutes {
+            config.finisherDurationMinutes = CardioProgramConfiguration.clampedFinisherMinutes(cardioFinisherDurationMinutes)
+        }
+        if let cardioFinisherZone { config.finisherZone = cardioFinisherZone }
+        if let cardioWeeklyProgressionMinutes { config.weeklyProgressionMinutes = cardioWeeklyProgressionMinutes }
+        if specFocusForcesCardio {
+            switch focus.kind {
+            case .endurance:
+                config.preference = .dedicatedDays
+                config.goal = .enduranceBuilding
+            case .hybrid:
+                config.preference = .mixed
+            default:
+                break
+            }
+        }
+        return config
+    }
+
+    private var specFocusForcesCardio: Bool {
+        focus.kind == .endurance || focus.kind == .hybrid
     }
 }
 
@@ -334,4 +397,29 @@ struct BlockContext: Equatable, Sendable {
     let isDeloadBlock: Bool
     /// Planned block length in weeks (from `ProgramBlock.durationWeeks`).
     let blockDurationWeeks: Int
+    /// Optional cardio weekly duration bump (minutes) applied per week in block.
+    let cardioWeeklyProgressionMinutes: Int
+    let cardioProgressionStrategy: CardioProgressionStrategy
+
+    init(
+        blockId: UUID,
+        focus: BlockFocus,
+        volumeMultiplier: Double,
+        progressionStrategy: ProgressionStrategy,
+        weekIndexInBlock: Int,
+        isDeloadBlock: Bool,
+        blockDurationWeeks: Int,
+        cardioWeeklyProgressionMinutes: Int = 0,
+        cardioProgressionStrategy: CardioProgressionStrategy = .steady
+    ) {
+        self.blockId = blockId
+        self.focus = focus
+        self.volumeMultiplier = volumeMultiplier
+        self.progressionStrategy = progressionStrategy
+        self.weekIndexInBlock = weekIndexInBlock
+        self.isDeloadBlock = isDeloadBlock
+        self.blockDurationWeeks = blockDurationWeeks
+        self.cardioWeeklyProgressionMinutes = cardioWeeklyProgressionMinutes
+        self.cardioProgressionStrategy = cardioProgressionStrategy
+    }
 }

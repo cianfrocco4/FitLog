@@ -144,6 +144,8 @@ final class DynamicProgramBuilderViewModel {
     var customTotalProgramWeeks: Int = 8
     /// When true, show per-block editors even for preset layouts (user chose “Customize phases”).
     var showPhaseCustomization: Bool = false
+    /// User explicitly chose cardio inclusion on Essentials; skip goal-based auto defaults.
+    var cardioPreferenceManuallySet = false
 
     private var didLoadPreferences = false
     private var didBootstrapFromContext = false
@@ -165,6 +167,43 @@ final class DynamicProgramBuilderViewModel {
         case .sixteen: return 16
         case .custom: return min(52, max(1, customTotalProgramWeeks))
         }
+    }
+
+    var hasCardioEnabled: Bool {
+        CardioProgramPreference.fromStored(request.splitInput.cardioPreference) != .none
+    }
+
+    /// Applies cardio goal/preference from primary goal when user has not chosen inclusion yet.
+    func applyGoalBasedCardioDefaults() {
+        guard !cardioPreferenceManuallySet else { return }
+        guard CardioProgramPreference.fromStored(request.splitInput.cardioPreference) == .none else { return }
+
+        let goal = request.splitInput.primaryGoal.lowercased()
+        if goal.contains("fat loss") || goal.contains("conditioning") {
+            request.splitInput.cardioGoal = CardioProgramGoal.fatLoss.rawValue
+            request.splitInput.cardioPreference = CardioProgramPreference.mixed.rawValue
+        } else if goal.contains("athletic") || goal.contains("sport performance") {
+            request.splitInput.cardioGoal = CardioProgramGoal.enduranceBuilding.rawValue
+            request.splitInput.cardioPreference = CardioProgramPreference.mixed.rawValue
+        } else if goal.contains("general fitness") || goal.contains("health") {
+            request.splitInput.cardioGoal = CardioProgramGoal.generalHealth.rawValue
+        }
+    }
+
+    /// Updates cardio goal when user opts into cardio on Essentials.
+    func applyCardioGoalForCurrentPrimaryGoal() {
+        let goal = request.splitInput.primaryGoal.lowercased()
+        if goal.contains("fat loss") || goal.contains("conditioning") {
+            request.splitInput.cardioGoal = CardioProgramGoal.fatLoss.rawValue
+        } else if goal.contains("athletic") || goal.contains("sport performance") {
+            request.splitInput.cardioGoal = CardioProgramGoal.enduranceBuilding.rawValue
+        } else {
+            request.splitInput.cardioGoal = CardioProgramGoal.generalHealth.rawValue
+        }
+    }
+
+    func markCardioPreferenceCustomized() {
+        cardioPreferenceManuallySet = true
     }
 
     init(request: DynamicProgramGenerationRequest = .simpleDefault()) {
@@ -220,6 +259,14 @@ final class DynamicProgramBuilderViewModel {
         }
         if let g = s.deloadPreferenceRaw { request.splitInput.deloadPreference = g }
         if let g = s.cardioPreferenceRaw { request.splitInput.cardioPreference = g }
+        if let g = s.cardioGoalRaw { request.splitInput.cardioGoal = g }
+        if let n = s.cardioDedicatedDayCount { request.splitInput.cardioDedicatedDayCount = n }
+        if let n = s.cardioFinisherDurationMinutes { request.splitInput.cardioFinisherDurationMinutes = n }
+        if let n = s.cardioFinisherZoneRaw { request.splitInput.cardioFinisherZoneRaw = n }
+        if let n = s.cardioWeeklyProgressionMinutes { request.splitInput.cardioWeeklyProgressionMinutes = n }
+        if CardioProgramPreference.fromStored(request.splitInput.cardioPreference) != .none {
+            cardioPreferenceManuallySet = true
+        }
         if let g = s.variationModeRaw { request.splitInput.variationMode = g }
         if let n = s.customRotationLength {
             request.splitInput.desiredWorkoutRotationLength = min(max(1, n), 7)
@@ -275,6 +322,11 @@ final class DynamicProgramBuilderViewModel {
         state.recoveryContextNotes = request.splitInput.recoveryContextNotes
         state.deloadPreferenceRaw = request.splitInput.deloadPreference
         state.cardioPreferenceRaw = request.splitInput.cardioPreference
+        state.cardioGoalRaw = request.splitInput.cardioGoal
+        state.cardioDedicatedDayCount = request.splitInput.cardioDedicatedDayCount
+        state.cardioFinisherDurationMinutes = request.splitInput.cardioFinisherDurationMinutes
+        state.cardioFinisherZoneRaw = request.splitInput.cardioFinisherZoneRaw
+        state.cardioWeeklyProgressionMinutes = request.splitInput.cardioWeeklyProgressionMinutes
         state.variationModeRaw = request.splitInput.variationMode
         state.customRotationLength = request.splitInput.desiredWorkoutRotationLength
         state.variationNotes = request.splitInput.variationNotes
@@ -458,7 +510,13 @@ final class DynamicProgramBuilderViewModel {
                 durationWeeks: block.durationWeeks,
                 progressionStrategy: block.progressionStrategy,
                 volumeMultiplier: block.volumeMultiplier,
-                isDeloadBlock: block.isDeloadBlock
+                isDeloadBlock: block.isDeloadBlock,
+                cardioGoal: block.cardioGoal,
+                cardioPreference: block.cardioPreference,
+                cardioDedicatedDayCount: block.cardioDedicatedDayCount,
+                cardioFinisherDurationMinutes: block.cardioFinisherDurationMinutes,
+                cardioFinisherZone: block.cardioFinisherZone,
+                cardioWeeklyProgressionMinutes: block.cardioWeeklyProgressionMinutes
             )
         }
         syncProgramStructureUIAfterLoadingPreferences()

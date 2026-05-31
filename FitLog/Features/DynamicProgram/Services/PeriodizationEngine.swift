@@ -196,6 +196,7 @@ struct PeriodizationEngine: Sendable {
             return nil
         }
         let block = placement.block
+        let cardioGoal = block.cardioGoal ?? .generalHealth
         return BlockContext(
             blockId: block.id,
             focus: block.focus,
@@ -203,7 +204,9 @@ struct PeriodizationEngine: Sendable {
             progressionStrategy: block.progressionStrategy,
             weekIndexInBlock: placement.weekInBlock,
             isDeloadBlock: block.isDeloadBlock,
-            blockDurationWeeks: block.durationWeeks
+            blockDurationWeeks: block.durationWeeks,
+            cardioWeeklyProgressionMinutes: block.cardioWeeklyProgressionMinutes ?? 0,
+            cardioProgressionStrategy: CardioProgressionStrategy.forGoal(cardioGoal)
         )
     }
 

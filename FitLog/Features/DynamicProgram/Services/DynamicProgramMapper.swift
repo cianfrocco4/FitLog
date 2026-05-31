@@ -8,17 +8,50 @@
 import Foundation
 
 enum DynamicProgramMapper {
+    /// Resolves cardio settings for a block spec, merging global wizard input with per-block overrides.
+    static func resolvedCardioConfiguration(
+        for spec: DynamicBlockGenerationSpec,
+        request: DynamicProgramGenerationRequest,
+        defaultPreference: CardioProgramPreference? = nil
+    ) -> CardioProgramConfiguration {
+        var config = CardioProgramConfiguration.fromSplitInput(request.splitInput)
+        if let defaultPreference, config.preference == .none {
+            config.preference = defaultPreference
+        }
+        if let goal = spec.cardioGoal { config.goal = goal }
+        if let pref = spec.cardioPreference { config.preference = pref }
+        if let count = spec.cardioDedicatedDayCount { config.dedicatedDayCount = count }
+        if let minutes = spec.cardioFinisherDurationMinutes {
+            config.finisherDurationMinutes = CardioProgramConfiguration.clampedFinisherMinutes(minutes)
+        }
+        if let zone = spec.cardioFinisherZone { config.finisherZone = zone }
+        if let progression = spec.cardioWeeklyProgressionMinutes {
+            config.weeklyProgressionMinutes = progression
+        }
+        switch spec.focus.kind {
+        case .endurance:
+            config.preference = .dedicatedDays
+            config.goal = .enduranceBuilding
+        case .hybrid:
+            config.preference = .mixed
+        default:
+            break
+        }
+        return config
+    }
+
     /// Converts each rotation day in the proposal to a weekly template.
     static func weeklyTemplates(
         from proposal: WorkoutSplitProposal,
         blockFocus: BlockFocus? = nil,
         library: [Exercise] = [],
-        cardioPreference: CardioProgramPreference = .none
+        configuration: CardioProgramConfiguration = .none
     ) -> [BlockWeeklyTemplate] {
         if blockFocus?.kind == .endurance {
             return CardioProgramTemplates.enduranceWeeklyTemplates(
                 sessionsPerWeek: proposal.sessionsPerWeek,
-                library: library
+                library: library,
+                configuration: configuration
             )
         }
         let base = proposal.workouts.map { day in
@@ -30,12 +63,14 @@ enum DynamicProgramMapper {
                 dayNotes: editable.dayNotes
             )
         }
-        let effectivePreference: CardioProgramPreference = blockFocus?.kind == .hybrid ? .mixed : cardioPreference
+        var config = configuration
+        if blockFocus?.kind == .hybrid { config.preference = .mixed }
         return applyCardioPreference(
             to: base,
-            preference: effectivePreference,
+            preference: config.preference,
             sessionsPerWeek: proposal.sessionsPerWeek,
-            library: library
+            library: library,
+            configuration: config
         )
     }
 
@@ -44,27 +79,30 @@ enum DynamicProgramMapper {
         to templates: [BlockWeeklyTemplate],
         preference: CardioProgramPreference,
         sessionsPerWeek: Int,
-        library: [Exercise]
+        library: [Exercise],
+        configuration: CardioProgramConfiguration = .none
     ) -> [BlockWeeklyTemplate] {
         guard preference != .none, !templates.isEmpty else { return templates }
 
         var result = templates
+        var config = configuration
+        config.preference = preference
 
         if preference.includesPostWorkoutFinishers {
             result = result.map { day in
                 var copy = day
                 let hasCardio = copy.slots.contains { $0.modality == .cardio }
                 if !hasCardio {
-                    copy.slots.append(CardioProgramTemplates.finisherSlot(library: library))
+                    copy.slots.append(CardioProgramTemplates.finisherSlot(library: library, configuration: config))
                 }
                 return copy
             }
         }
 
         if preference.includesDedicatedCardioDays {
-            let cardioDayCount = max(1, min(sessionsPerWeek / 2, 3))
+            let cardioDayCount = min(max(1, config.dedicatedDayCount), 4)
             let dedicatedDays = (0 ..< cardioDayCount).map { index in
-                CardioProgramTemplates.dedicatedCardioDay(library: library, index: index)
+                CardioProgramTemplates.dedicatedCardioDay(library: library, index: index, configuration: config)
             }
             if result.count + dedicatedDays.count <= 7 {
                 result.append(contentsOf: dedicatedDays)
@@ -105,19 +143,12 @@ enum DynamicProgramMapper {
         library: [Exercise] = []
     ) -> DynamicProgram {
         let spec = request.blockSpecs.first ?? DynamicBlockGenerationSpec(title: "Block 1", focus: BlockFocus(kind: .general, emphasisLabel: ""))
-        let storedCardioPref = CardioProgramPreference.fromStored(request.splitInput.cardioPreference)
-        let cardioPref: CardioProgramPreference = {
-            switch spec.focus.kind {
-            case .endurance: return .none
-            case .hybrid: return .mixed
-            default: return storedCardioPref
-            }
-        }()
+        let blockCardio = resolvedCardioConfiguration(for: spec, request: request)
         let templates = weeklyTemplates(
             from: proposal,
             blockFocus: spec.focus,
             library: library,
-            cardioPreference: cardioPref
+            configuration: blockCardio
         )
         let block = ProgramBlock(
             name: spec.title.isEmpty ? "Block 1" : spec.title,
@@ -126,7 +157,13 @@ enum DynamicProgramMapper {
             weeklyTemplates: templates,
             progressionStrategy: spec.progressionStrategy,
             isDeloadBlock: spec.isDeloadBlock,
-            volumeMultiplier: spec.volumeMultiplier
+            volumeMultiplier: spec.volumeMultiplier,
+            cardioGoal: blockCardio.goal,
+            cardioPreference: blockCardio.preference,
+            cardioDedicatedDayCount: blockCardio.dedicatedDayCount,
+            cardioFinisherDurationMinutes: blockCardio.finisherDurationMinutes,
+            cardioFinisherZone: blockCardio.finisherZone,
+            cardioWeeklyProgressionMinutes: blockCardio.weeklyProgressionMinutes
         )
         let name = request.programName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "My program" : request.programName
         return DynamicProgram(
@@ -148,7 +185,7 @@ enum DynamicProgramMapper {
         let rawBaseTemplates = weeklyTemplates(
             from: proposal,
             library: library,
-            cardioPreference: .none
+            configuration: .none
         )
         let specs = request.blockSpecs
         let effectiveSpecs: [DynamicBlockGenerationSpec] = {
@@ -157,36 +194,53 @@ enum DynamicProgramMapper {
             }
             return specs
         }()
+        let isMultiBlock = effectiveSpecs.count > 1
         let blocks: [ProgramBlock] = effectiveSpecs.map { spec in
+            let blockName = spec.title.isEmpty ? spec.focus.displayTitle : spec.title
+            let blockCardio = resolvedCardioConfiguration(for: spec, request: request, defaultPreference: cardioPref)
             let templates: [BlockWeeklyTemplate] = switch spec.focus.kind {
             case .endurance:
                 CardioProgramTemplates.enduranceWeeklyTemplates(
                     sessionsPerWeek: proposal.sessionsPerWeek,
-                    library: library
+                    library: library,
+                    configuration: blockCardio
                 )
             case .hybrid:
                 applyCardioPreference(
                     to: duplicateWeeklyTemplates(rawBaseTemplates),
                     preference: .mixed,
                     sessionsPerWeek: proposal.sessionsPerWeek,
-                    library: library
+                    library: library,
+                    configuration: blockCardio
                 )
             default:
                 applyCardioPreference(
                     to: duplicateWeeklyTemplates(rawBaseTemplates),
-                    preference: cardioPref,
+                    preference: blockCardio.preference,
                     sessionsPerWeek: proposal.sessionsPerWeek,
-                    library: library
+                    library: library,
+                    configuration: blockCardio
                 )
             }
+            let prefixedTemplates = ProgramBlockNaming.applyBlockPrefixIfNeeded(
+                to: templates,
+                blockName: blockName,
+                isMultiBlock: isMultiBlock
+            )
             return ProgramBlock(
-                name: spec.title.isEmpty ? spec.focus.displayTitle : spec.title,
+                name: blockName,
                 focus: spec.focus,
                 durationWeeks: spec.durationWeeks,
-                weeklyTemplates: templates,
+                weeklyTemplates: prefixedTemplates,
                 progressionStrategy: spec.progressionStrategy,
                 isDeloadBlock: spec.isDeloadBlock,
-                volumeMultiplier: spec.volumeMultiplier
+                volumeMultiplier: spec.volumeMultiplier,
+                cardioGoal: blockCardio.goal,
+                cardioPreference: blockCardio.preference,
+                cardioDedicatedDayCount: blockCardio.dedicatedDayCount,
+                cardioFinisherDurationMinutes: blockCardio.finisherDurationMinutes,
+                cardioFinisherZone: blockCardio.finisherZone,
+                cardioWeeklyProgressionMinutes: blockCardio.weeklyProgressionMinutes
             )
         }
         let name = request.programName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "My program" : request.programName

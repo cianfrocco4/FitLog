@@ -2,7 +2,7 @@
 //  SplitBuilderView.swift
 //  FitLog
 //
-//  Presents the program builder entry (Quick Start, AI chat, or custom wizard).
+//  Presents the program builder entry (Guided Coach, Templates, or Advanced Builder).
 //
 
 import SwiftUI
