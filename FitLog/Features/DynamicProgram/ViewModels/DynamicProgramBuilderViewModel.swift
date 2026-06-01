@@ -113,6 +113,10 @@ final class DynamicProgramBuilderViewModel {
     var isConnectingToProxy = false
     /// Human-readable generation substate (connecting, per-block progress).
     var generationStatusMessage: String?
+    /// Current block index completed during multi-phase generation (0 when not started).
+    var generationBlockCompleted: Int = 0
+    /// Total blocks to generate for the current run.
+    var generationBlockTotal: Int = 1
     /// After AI timeout/unavailable, offer built-in preset generation.
     var offersLocalPresetFallback = false
     /// Incremented on successful generation for `.sensoryFeedback` triggers.
@@ -632,10 +636,14 @@ final class DynamicProgramBuilderViewModel {
         offersLocalPresetFallback = false
         isGenerating = true
         lastGenerationUsedLocalPresets = false
+        generationBlockCompleted = 0
+        generationBlockTotal = 1
         defer {
             isGenerating = false
             isConnectingToProxy = false
             generationStatusMessage = nil
+            generationBlockCompleted = 0
+            generationBlockTotal = 1
         }
 
         if aiService.isConfigured {
@@ -655,6 +663,7 @@ final class DynamicProgramBuilderViewModel {
         let existingTemplates = dataManager.userWorkouts.map(\.name)
         let library = dataManager.globalExercises
         let blockCount = request.isPeriodized && request.blockSpecs.count > 1 ? request.blockSpecs.count : 1
+        generationBlockTotal = blockCount
 
         if blockCount > 1 {
             generationStatusMessage = "Generating phase 1 of \(blockCount)…"
@@ -670,6 +679,8 @@ final class DynamicProgramBuilderViewModel {
                 exerciseLibrary: library,
                 onBlockProgress: { completed, total in
                     Task { @MainActor in
+                        self.generationBlockCompleted = completed
+                        self.generationBlockTotal = total
                         self.generationStatusMessage = "Generating phase \(completed) of \(total)…"
                     }
                 }

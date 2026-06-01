@@ -241,6 +241,88 @@ struct CoachBlueprint: Equatable, Sendable {
     }
 }
 
+// MARK: - Discuss threads
+
+enum CoachDiscussMessageRole: String, Sendable, Equatable {
+    case coach
+    case user
+    case system
+}
+
+enum CoachDiscussMessageKind: Equatable, Sendable {
+    case text(String)
+    case typing
+    case suggestions([CoachFollowUpSuggestedChange])
+}
+
+struct CoachDiscussMessage: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let role: CoachDiscussMessageRole
+    let kind: CoachDiscussMessageKind
+    let timestamp: Date
+
+    init(
+        id: UUID = UUID(),
+        role: CoachDiscussMessageRole,
+        kind: CoachDiscussMessageKind,
+        timestamp: Date = Date()
+    ) {
+        self.id = id
+        self.role = role
+        self.kind = kind
+        self.timestamp = timestamp
+    }
+
+    var displayText: String? {
+        switch kind {
+        case .text(let text): return text
+        case .typing: return nil
+        case .suggestions: return nil
+        }
+    }
+}
+
+struct CoachDiscussThread: Equatable, Sendable {
+    var topic: CoachRecommendationTopic
+    var messages: [CoachDiscussMessage]
+    var pendingSuggestions: [CoachFollowUpSuggestedChange]
+    var isThinking: Bool
+    var lastUpdatedAt: Date
+    var hasUnreadCoachReply: Bool
+
+    init(
+        topic: CoachRecommendationTopic,
+        messages: [CoachDiscussMessage] = [],
+        pendingSuggestions: [CoachFollowUpSuggestedChange] = [],
+        isThinking: Bool = false,
+        lastUpdatedAt: Date = Date(),
+        hasUnreadCoachReply: Bool = false
+    ) {
+        self.topic = topic
+        self.messages = messages
+        self.pendingSuggestions = pendingSuggestions
+        self.isThinking = isThinking
+        self.lastUpdatedAt = lastUpdatedAt
+        self.hasUnreadCoachReply = hasUnreadCoachReply
+    }
+
+    var hasDiscussion: Bool {
+        !messages.isEmpty
+    }
+
+    var latestCoachSummary: String? {
+        messages.reversed().first(where: { $0.role == .coach && $0.displayText != nil })?.displayText
+    }
+
+    /// Visible messages excluding typing placeholder when not thinking.
+    var visibleMessages: [CoachDiscussMessage] {
+        messages.filter { message in
+            if case .typing = message.kind { return isThinking }
+            return true
+        }
+    }
+}
+
 // MARK: - Messages
 
 enum CoachMessageKind: Equatable, Sendable {

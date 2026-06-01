@@ -18,8 +18,12 @@ final class CoachConversationViewModel {
     private(set) var pendingIntakeTopic: CoachIntakeTopic?
     private(set) var isThinking = false
     private(set) var errorMessage: String?
-    private(set) var discussingTopic: CoachRecommendationTopic?
-    private(set) var pendingFollowUpSuggestions: [CoachFollowUpSuggestedChange] = []
+    private(set) var activeDiscussTopic: CoachRecommendationTopic?
+    private(set) var discussThreads: [CoachRecommendationTopic: CoachDiscussThread] = [:]
+    private(set) var discussDrafts: [CoachRecommendationTopic: String] = [:]
+    private(set) var discussScrollTrigger = 0
+    private(set) var scrollToGenerationTrigger = 0
+    private(set) var focusedDiscussTopic: CoachRecommendationTopic?
     var draftText = ""
     var scheduleSessions: Int = 3
     var scheduleWeekdays: Set<Int> = []
@@ -287,14 +291,16 @@ final class CoachConversationViewModel {
         transitionToReview()
     }
 
-    func applyRecommendationOverride(topic: CoachRecommendationTopic, newValue: String) {
+    func applyRecommendationOverride(topic: CoachRecommendationTopic, newValue: String, acceptAfterApply: Bool = true) {
         guard var built = blueprint else { return }
         if let change = CoachRecommendationEngine.applyRecommendationChange(to: &built, topic: topic, newValue: newValue) {
             blueprint = built
             appendMessage(CoachMessage(kind: .changeSummary([change])))
             appendTrainerMessage("Updated — \(change.diffDescription).")
         }
-        acceptRecommendation(topic)
+        if acceptAfterApply {
+            acceptRecommendation(topic)
+        }
     }
 
     var allRecommendationsAccepted: Bool {
@@ -302,49 +308,126 @@ final class CoachConversationViewModel {
         return built.recommendations.allSatisfy(\.isAccepted)
     }
 
+    // MARK: - Discuss (per-topic threads)
+
+    func thread(for topic: CoachRecommendationTopic) -> CoachDiscussThread? {
+        discussThreads[topic]
+    }
+
+    func draft(for topic: CoachRecommendationTopic) -> Binding<String> {
+        Binding(
+            get: { self.discussDrafts[topic] ?? "" },
+            set: { self.discussDrafts[topic] = $0 }
+        )
+    }
+
+    func isDiscussing(_ topic: CoachRecommendationTopic) -> Bool {
+        activeDiscussTopic == topic
+    }
+
     func beginDiscuss(topic: CoachRecommendationTopic) {
-        discussingTopic = topic
-        draftText = ""
+        activeDiscussTopic = topic
+        focusedDiscussTopic = topic
+        bumpDiscussScrollTrigger()
+
+        var thread = discussThreads[topic] ?? CoachDiscussThread(topic: topic)
+        if thread.messages.isEmpty {
+            let seed = "Ask me anything about \(topic.title.lowercased()) — happy to explain the tradeoffs."
+            thread.messages.append(CoachDiscussMessage(role: .coach, kind: .text(seed)))
+            thread.lastUpdatedAt = Date()
+        }
+        discussThreads[topic] = thread
     }
 
-    func cancelDiscuss() {
-        discussingTopic = nil
-        pendingFollowUpSuggestions = []
-        draftText = ""
+    func endDiscuss(topic: CoachRecommendationTopic) {
+        guard activeDiscussTopic == topic else { return }
+        activeDiscussTopic = nil
+        focusedDiscussTopic = nil
+        bumpDiscussScrollTrigger()
     }
 
-    func submitFollowUp(aiService: AIService) async {
-        let question = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !question.isEmpty, var built = blueprint else { return }
-        appendUserMessage(question)
-        draftText = ""
-        isThinking = true
-        appendTypingIndicator()
+    func submitFollowUp(for topic: CoachRecommendationTopic, aiService: AIService) async {
+        let question = (discussDrafts[topic] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty, let built = blueprint else { return }
+
+        appendDiscussMessage(topic: topic, role: .user, kind: .text(question))
+        discussDrafts[topic] = ""
+        setDiscussThinking(topic: topic, isThinking: true)
+        appendDiscussTyping(topic: topic)
+        bumpDiscussScrollTrigger()
 
         if let response = await aiService.respondToCoachFollowUp(
             blueprint: built,
             intake: intake,
             question: question,
-            topic: discussingTopic
+            topic: topic
         ) {
-            removeTypingIndicator()
-            appendTrainerMessage(response.answer)
-            pendingFollowUpSuggestions = response.suggestedChanges
-            if response.requiresUserConfirmation, !response.suggestedChanges.isEmpty {
-                appendTrainerMessage("Want me to apply these changes? Tap Apply on each suggestion below.")
+            removeDiscussTyping(topic: topic)
+            appendDiscussMessage(topic: topic, role: .coach, kind: .text(response.answer))
+
+            let validSuggestions = response.suggestedChanges.filter { suggestion in
+                guard let resolved = suggestion.resolvedTopic else { return false }
+                return resolved == topic
+            }
+            if !validSuggestions.isEmpty {
+                appendDiscussMessage(topic: topic, role: .coach, kind: .suggestions(validSuggestions))
+                var thread = discussThreads[topic] ?? CoachDiscussThread(topic: topic)
+                thread.pendingSuggestions = validSuggestions
+                discussThreads[topic] = thread
             }
         } else {
-            removeTypingIndicator()
-            appendTrainerMessage(localFollowUpAnswer(for: question, topic: discussingTopic))
+            removeDiscussTyping(topic: topic)
+            let fallback = localFollowUpAnswer(for: question, topic: topic)
+            appendDiscussMessage(topic: topic, role: .coach, kind: .text(fallback))
         }
-        isThinking = false
+
+        setDiscussThinking(topic: topic, isThinking: false)
+        bumpDiscussScrollTrigger()
     }
 
-    func applySuggestedChange(_ change: CoachFollowUpSuggestedChange) {
-        guard let topic = change.resolvedTopic else { return }
-        applyRecommendationOverride(topic: topic, newValue: change.suggestedValue)
-        pendingFollowUpSuggestions.removeAll { $0.topic == change.topic }
-        discussingTopic = nil
+    func applySuggestedChange(_ change: CoachFollowUpSuggestedChange, in topic: CoachRecommendationTopic) {
+        guard change.resolvedTopic == topic else { return }
+        applyRecommendationOverride(topic: topic, newValue: change.suggestedValue, acceptAfterApply: false)
+
+        var thread = discussThreads[topic] ?? CoachDiscussThread(topic: topic)
+        thread.pendingSuggestions.removeAll { $0.topic == change.topic }
+        let appliedText = "Applied: \(topic.title) updated to \(change.suggestedValue)."
+        thread.messages.append(CoachDiscussMessage(role: .system, kind: .text(appliedText)))
+        thread.lastUpdatedAt = Date()
+        discussThreads[topic] = thread
+        bumpDiscussScrollTrigger()
+    }
+
+    private func appendDiscussMessage(topic: CoachRecommendationTopic, role: CoachDiscussMessageRole, kind: CoachDiscussMessageKind) {
+        var thread = discussThreads[topic] ?? CoachDiscussThread(topic: topic)
+        thread.messages.append(CoachDiscussMessage(role: role, kind: kind))
+        thread.lastUpdatedAt = Date()
+        discussThreads[topic] = thread
+    }
+
+    private func appendDiscussTyping(topic: CoachRecommendationTopic) {
+        var thread = discussThreads[topic] ?? CoachDiscussThread(topic: topic)
+        thread.messages.removeAll { if case .typing = $0.kind { return true }; return false }
+        thread.messages.append(CoachDiscussMessage(role: .coach, kind: .typing))
+        thread.isThinking = true
+        discussThreads[topic] = thread
+    }
+
+    private func removeDiscussTyping(topic: CoachRecommendationTopic) {
+        guard var thread = discussThreads[topic] else { return }
+        thread.messages.removeAll { if case .typing = $0.kind { return true }; return false }
+        thread.isThinking = false
+        discussThreads[topic] = thread
+    }
+
+    private func setDiscussThinking(topic: CoachRecommendationTopic, isThinking: Bool) {
+        guard var thread = discussThreads[topic] else { return }
+        thread.isThinking = isThinking
+        discussThreads[topic] = thread
+    }
+
+    private func bumpDiscussScrollTrigger() {
+        discussScrollTrigger += 1
     }
 
     private func localFollowUpAnswer(for question: String, topic: CoachRecommendationTopic?) -> String {
@@ -361,6 +444,8 @@ final class CoachConversationViewModel {
     // MARK: - Review & generate
 
     private func transitionToReview() {
+        activeDiscussTopic = nil
+        focusedDiscussTopic = nil
         phase = .review
         appendMessage(CoachMessage(kind: .phaseDivider("Here's your program blueprint")))
         appendTrainerMessage("Here's what I recommend. You can change anything before I build it — you're in control.")
@@ -385,7 +470,10 @@ final class CoachConversationViewModel {
         phase = .generating
         applyBlueprintToBuilder()
         appendTrainerMessage("Building your program now…")
+        appendTypingIndicator()
+        scrollToGenerationTrigger += 1
         await builderViewModel.generate(aiService: aiService, dataManager: dataManager)
+        removeTypingIndicator()
         if builderViewModel.generatedProgram != nil {
             phase = .complete
             navigateToReview = true
@@ -394,6 +482,10 @@ final class CoachConversationViewModel {
             errorMessage = builderViewModel.errorMessage ?? "Could not build the program."
             appendTrainerMessage(errorMessage ?? "Something went wrong. You can try again or use built-in presets from the editor.")
         }
+    }
+
+    var generationStatusLine: String {
+        builderViewModel.generationStatusMessage ?? "Building your program…"
     }
 
     func appendFinalNotes(_ notes: String) {

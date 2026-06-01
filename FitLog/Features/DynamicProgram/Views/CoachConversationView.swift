@@ -11,7 +11,7 @@ struct CoachConversationView: View {
     @Bindable var coachVM: CoachConversationViewModel
     @EnvironmentObject private var aiService: AIService
     @Environment(DataManager.self) private var dataManager
-    @FocusState private var isComposerFocused: Bool
+    @FocusState private var isReviewComposerFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,9 +41,20 @@ struct CoachConversationView: View {
                             if coachVM.messages.contains(where: { if case .recommendationCards = $0.kind { return true }; return false }) {
                                 CoachRecommendationCardsSection(
                                     recommendations: blueprint.recommendations,
+                                    activeDiscussTopic: coachVM.activeDiscussTopic,
+                                    threadProvider: { coachVM.thread(for: $0) },
+                                    draftProvider: { coachVM.draft(for: $0) },
+                                    shouldFocusComposer: { coachVM.focusedDiscussTopic == $0 },
                                     onAccept: { coachVM.acceptRecommendation($0) },
                                     onAdjust: { topic, value in coachVM.applyRecommendationOverride(topic: topic, newValue: value) },
                                     onDiscuss: { coachVM.beginDiscuss(topic: $0) },
+                                    onSendDiscuss: { topic in
+                                        Task { await coachVM.submitFollowUp(for: topic, aiService: aiService) }
+                                    },
+                                    onApplySuggestion: { topic, change in
+                                        coachVM.applySuggestedChange(change, in: topic)
+                                    },
+                                    onDoneDiscuss: { coachVM.endDiscuss(topic: $0) },
                                     onAcceptAll: { coachVM.acceptAllRecommendations() }
                                 )
                                 .id("recommendation-cards")
@@ -58,28 +69,54 @@ struct CoachConversationView: View {
                                         await coachVM.buildProgram(aiService: aiService, dataManager: dataManager)
                                     }
                                 },
-                                isLoading: coachVM.phase == .generating
+                                isLoading: false
                             )
                             .id("blueprint-summary")
                         }
 
-                        if !coachVM.pendingFollowUpSuggestions.isEmpty {
-                            followUpSuggestions
+                        if coachVM.phase == .generating, let blueprint = coachVM.blueprint {
+                            CoachProgramGenerationProgressView(
+                                statusMessage: coachVM.generationStatusLine,
+                                isConnecting: coachVM.builderViewModel.isConnectingToProxy,
+                                blockCompleted: coachVM.builderViewModel.generationBlockCompleted,
+                                blockTotal: coachVM.builderViewModel.generationBlockTotal,
+                                programTitle: blueprint.programName,
+                                daysPerWeek: blueprint.sessionsPerWeek
+                            )
+                            .id("generation-progress")
                         }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
+                    .padding(.bottom, showReviewComposer ? 8 : 0)
                 }
+                .scrollDismissesKeyboard(.interactively)
                 .onChange(of: coachVM.messages.count) { _, _ in
                     scrollToBottom(proxy: proxy)
                 }
-                .onChange(of: coachVM.phase) { _, _ in
-                    scrollToBottom(proxy: proxy)
+                .onChange(of: coachVM.phase) { _, phase in
+                    scrollForPhase(phase: phase, proxy: proxy)
+                }
+                .onChange(of: coachVM.scrollToGenerationTrigger) { _, _ in
+                    scrollToGenerationProgress(proxy: proxy)
+                }
+                .onChange(of: coachVM.builderViewModel.generationStatusMessage) { _, _ in
+                    guard coachVM.phase == .generating else { return }
+                    scrollToGenerationProgress(proxy: proxy)
+                }
+                .onChange(of: coachVM.activeDiscussTopic) { _, topic in
+                    guard let topic else { return }
+                    scrollToDiscussCard(topic: topic, proxy: proxy)
+                }
+                .onChange(of: coachVM.discussScrollTrigger) { _, _ in
+                    if let topic = coachVM.activeDiscussTopic {
+                        scrollToDiscussCard(topic: topic, proxy: proxy)
+                    }
                 }
             }
 
-            if showComposer {
-                composerBar
+            if showReviewComposer {
+                reviewComposerBar
             }
         }
         .navigationTitle("Guided Coach")
@@ -151,48 +188,19 @@ struct CoachConversationView: View {
         }
     }
 
-    private var followUpSuggestions: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Suggested changes")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            ForEach(coachVM.pendingFollowUpSuggestions, id: \.topic) { suggestion in
-                Button {
-                    coachVM.applySuggestedChange(suggestion)
-                } label: {
-                    HStack {
-                        Text("Apply: \(suggestion.suggestedValue)")
-                            .font(.caption)
-                        Spacer()
-                        Image(systemName: "checkmark.circle")
-                    }
-                }
-                .buttonStyle(.bordered)
-                .accessibilityHint("Apply this suggested change")
-            }
-        }
+    private var showReviewComposer: Bool {
+        coachVM.phase == .review && coachVM.pendingIntakeTopic == nil
     }
 
-    private var showComposer: Bool {
-        coachVM.discussingTopic != nil
-            || (coachVM.phase == .review && coachVM.pendingIntakeTopic == nil)
-    }
-
-    private var composerBar: some View {
+    private var reviewComposerBar: some View {
         HStack(spacing: 10) {
-            TextField(
-                coachVM.discussingTopic != nil ? "Ask the coach…" : "Any final notes?",
-                text: $coachVM.draftText,
-                axis: .vertical
-            )
-            .lineLimit(1 ... 4)
-            .textFieldStyle(.roundedBorder)
-            .focused($isComposerFocused)
+            TextField("Any final notes?", text: $coachVM.draftText, axis: .vertical)
+                .lineLimit(1 ... 4)
+                .textFieldStyle(.roundedBorder)
+                .focused($isReviewComposerFocused)
 
             Button {
-                if coachVM.discussingTopic != nil {
-                    Task { await coachVM.submitFollowUp(aiService: aiService) }
-                } else if !coachVM.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if !coachVM.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     coachVM.appendFinalNotes(coachVM.draftText)
                     coachVM.draftText = ""
                 }
@@ -200,8 +208,8 @@ struct CoachConversationView: View {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.title2)
             }
-            .disabled(coachVM.isThinking || (coachVM.discussingTopic == nil && coachVM.draftText.isEmpty))
-            .accessibilityLabel("Send")
+            .disabled(coachVM.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityLabel("Save final notes")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -209,13 +217,34 @@ struct CoachConversationView: View {
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy) {
-        withAnimation(.easeOut(duration: 0.2)) {
-            if coachVM.phase == .review {
+        scrollForPhase(phase: coachVM.phase, proxy: proxy)
+    }
+
+    private func scrollForPhase(phase: CoachPhase, proxy: ScrollViewProxy) {
+        withAnimation(.easeOut(duration: 0.22)) {
+            if phase == .generating {
+                proxy.scrollTo("generation-progress", anchor: .center)
+            } else if phase == .review {
                 proxy.scrollTo("blueprint-summary", anchor: .bottom)
-            } else if coachVM.phase == .recommendations {
+            } else if phase == .recommendations, coachVM.activeDiscussTopic == nil {
                 proxy.scrollTo("recommendation-cards", anchor: .bottom)
             } else if let last = coachVM.messages.last {
                 proxy.scrollTo(last.id, anchor: .bottom)
+            }
+        }
+    }
+
+    private func scrollToGenerationProgress(proxy: ScrollViewProxy) {
+        withAnimation(.easeOut(duration: 0.2)) {
+            proxy.scrollTo("generation-progress", anchor: .center)
+        }
+    }
+
+    private func scrollToDiscussCard(topic: CoachRecommendationTopic, proxy: ScrollViewProxy) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(120))
+            withAnimation(.easeOut(duration: 0.24)) {
+                proxy.scrollTo("recommendation-\(topic.rawValue)", anchor: .center)
             }
         }
     }
