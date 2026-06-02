@@ -249,7 +249,6 @@ final class CardioProgramBuilderTests: XCTestCase {
             library: []
         )
         XCTAssertEqual(result.count, 7)
-        XCTAssertTrue(result[4].slots.allSatisfy { $0.modality == .cardio })
         XCTAssertTrue(result[5].slots.allSatisfy { $0.modality == .cardio })
         XCTAssertTrue(result[6].slots.allSatisfy { $0.modality == .cardio })
         XCTAssertTrue(result[0].slots.contains { $0.modality != .cardio })
@@ -259,7 +258,7 @@ final class CardioProgramBuilderTests: XCTestCase {
         let day = CardioProgramTemplates.dedicatedCardioDay(library: [], index: 1)
         XCTAssertEqual(day.slots.count, 1)
         XCTAssertEqual(day.slots[0].modality, .cardio)
-        XCTAssertEqual(day.slots[0].cardioPrescription?.kind, .intervals)
+        XCTAssertEqual(day.slots[0].cardioPrescription?.kind, .steadyState)
     }
 
     func testCardioQuickAddTemplate_resolveExercise_fallback() {

@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import UserNotifications
+import UniformTypeIdentifiers
 import os
 
 private let log = Logger(
@@ -57,12 +58,12 @@ struct FitLogApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if authVM.isLoggedIn {
+            if authVM.isLoggedIn || authVM.usesLocalOnlyMode {
                 if let migError = migrationError {
                     FitLogRecoverySheet(
                         error: migError,
                         onRestoreLatest: { restoreFromLatestBackup() },
-                        onChooseFile: { /* Phase B: DataTransferService file import */ },
+                        onRestoreFromFile: { url in restoreFromBackupFile(at: url) },
                         onReset: { resetAndRelaunch() }
                     )
                 } else {
@@ -76,6 +77,8 @@ struct FitLogApp: App {
                         .environmentObject(userPreferences)
                         .onAppear {
                             dataVM.healthSyncStatusMessage = dataVM.healthSyncService.statusMessage
+                            dataVM.publishIntentExerciseLibrary()
+                            currentVM.processPendingIntentActions()
                             if !FitLogUITestLaunch.isActive {
                                 aiService.wakeProxyHostIfNeeded()
                                 formGuideService.wakeProxyAndRetryIfNeeded()
@@ -102,12 +105,13 @@ struct FitLogApp: App {
             switch newPhase {
             case .background:
                 currentVM.appDidEnterBackground()
-                if authVM.isLoggedIn, !FitLogUITestLaunch.isActive {
+                if (authVM.isLoggedIn || authVM.usesLocalOnlyMode), !FitLogUITestLaunch.isActive {
                     formGuideService.stopKeepAlive()
                 }
             case .active:
                 currentVM.appDidBecomeActive()
-                if authVM.isLoggedIn, !FitLogUITestLaunch.isActive {
+                currentVM.processPendingIntentActions()
+                if authVM.isLoggedIn || authVM.usesLocalOnlyMode, !FitLogUITestLaunch.isActive {
                     aiService.wakeProxyHostIfNeeded()
                     formGuideService.wakeProxyAndRetryIfNeeded()
                     if currentVM.isInProgress {
@@ -152,16 +156,8 @@ struct FitLogApp: App {
                 }
             }
 
-            removeStoreArtifacts(at: storeURL)
-            if let fresh = try? ModelContainer(
-                for: schema,
-                migrationPlan: FitLogMigrationPlan.self,
-                configurations: config
-            ) {
-                log.warning("Migration failed, no backup available — started fresh")
-                return (fresh, nil)
-            }
-
+            // Preserve the corrupt on-disk store and surface recovery UI instead of wiping user data.
+            log.error("Migration failed with no backup available — preserving store for recovery UI")
             let memWithPlan = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
             let memNoPlan = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
             if let c = try? ModelContainer(
@@ -203,8 +199,26 @@ struct FitLogApp: App {
     @discardableResult
     private func restoreFromLatestBackup() -> Bool {
         guard let snapshot = FitLogMigrationPlan.readBestAvailableRecoverySnapshot() else { return false }
+        return restoreFromSnapshot(snapshot)
+    }
 
-        // Validate the snapshot decodes before deleting anything on disk.
+    /// Restores from a user-selected `.fitlog` or `.json` backup file.
+    @discardableResult
+    private func restoreFromBackupFile(at url: URL) -> Bool {
+        let access = url.startAccessingSecurityScopedResource()
+        defer {
+            if access { url.stopAccessingSecurityScopedResource() }
+        }
+        guard let data = try? Data(contentsOf: url) else { return false }
+        let format = DataTransferService.inferFormat(from: url) ?? .json
+        guard format == .json else { return false }
+        guard let snapshot = try? DataTransferService.importSnapshot(from: data, format: .json) else { return false }
+        return restoreFromSnapshot(snapshot)
+    }
+
+    /// Validates, replaces the on-disk store, imports `snapshot`, and rebinds app state.
+    @discardableResult
+    private func restoreFromSnapshot(_ snapshot: BackupSnapshot) -> Bool {
         do {
             let probeCtx = ModelContext(activeModelContainer)
             try V2MigrationDecoder.decode(snapshot: snapshot, into: probeCtx)

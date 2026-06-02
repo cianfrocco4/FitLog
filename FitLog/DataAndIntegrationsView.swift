@@ -13,6 +13,7 @@ struct DataAndIntegrationsView: View {
     @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var showArchiveImporter = false
+    @State private var showImportConfirm = false
     @State private var archiveExportURL: URL?
     @State private var csvExportURL: URL?
     @State private var alertMessage: String?
@@ -83,7 +84,7 @@ struct DataAndIntegrationsView: View {
 
             Section("Import") {
                 Button(role: .destructive) {
-                    showArchiveImporter = true
+                    showImportConfirm = true
                 } label: {
                     Label("Import data file", systemImage: "square.and.arrow.down")
                 }
@@ -94,6 +95,19 @@ struct DataAndIntegrationsView: View {
         }
         .navigationTitle("Data & Integrations")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog(
+            "Replace all data on this device?",
+            isPresented: $showImportConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Choose file and import", role: .destructive) {
+                dataVM.rotateBackup()
+                showArchiveImporter = true
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("A local backup is saved first. Import replaces your current workouts, history, and programs.")
+        }
         .fileImporter(
             isPresented: $showArchiveImporter,
             allowedContentTypes: [.fitlogArchive, .json, .fitlogCSV, .commaSeparatedText]

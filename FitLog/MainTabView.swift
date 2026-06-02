@@ -61,6 +61,7 @@ struct MainTabView: View {
                 .tag(FitlogRootTab.coach)
             MoreTabRootView()
                 .environment(dataVM)
+                .environment(currentVM)
                 .environmentObject(userPreferences)
                 .environmentObject(authVM)
                 .workoutCollapsedBarInset()
@@ -175,6 +176,19 @@ struct MainTabView: View {
             } else if !FitLogUITestLaunch.isActive, !userPreferences.hasCompletedOnboarding {
                 showOnboarding = true
             }
+        }
+        .alert(
+            "Could not save",
+            isPresented: Binding(
+                get: { dataVM.persistenceFailureReporter.alertMessage != nil },
+                set: { if !$0 { dataVM.persistenceFailureReporter.clear() } }
+            )
+        ) {
+            Button("OK", role: .cancel) {
+                dataVM.persistenceFailureReporter.clear()
+            }
+        } message: {
+            Text(dataVM.persistenceFailureReporter.alertMessage ?? "")
         }
     }
 

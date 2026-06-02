@@ -92,6 +92,9 @@ struct DynamicProgramBuilderView: View {
     @State private var confirmClearDynamicProgram = false
     @State private var showApplyReviewSheet = false
     @State private var showSavedPresetBrowser = false
+    @State private var showSavePresetAlert = false
+    @State private var presetSaveName = ""
+    @State private var presetSavedMessage: String?
 
     private var calendar: Calendar { .current }
 
@@ -160,6 +163,15 @@ struct DynamicProgramBuilderView: View {
                 }
                 .accessibilityLabel("Load saved preset")
             }
+            if viewModel.generatedProgram != nil, viewModel.wizardStep == .reviewAndEdit {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save preset") {
+                        presetSaveName = viewModel.request.programName
+                        showSavePresetAlert = true
+                    }
+                    .accessibilityLabel("Save rotation as preset")
+                }
+            }
             if dataManager.dynamicProgramState != nil {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Clear", role: .destructive) {
@@ -196,6 +208,31 @@ struct DynamicProgramBuilderView: View {
             Button("Done", role: .cancel) { dismiss() }
         } message: {
             Text(viewModel.applySavedDetail)
+        }
+        .alert("Save preset", isPresented: $showSavePresetAlert) {
+            TextField("Preset name", text: $presetSaveName)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                guard let prog = viewModel.generatedProgram else { return }
+                let ok = dataManager.saveSplitPreset(
+                    name: presetSaveName,
+                    days: viewModel.flattenedEditableDaysForConfirmation(),
+                    sessionsPerWeek: prog.defaultSessionsPerWeek,
+                    preferredWeekdays: prog.preferredWeekdays
+                )
+                presetSavedMessage = ok ? "Preset saved." : "Could not save preset. Add at least one training day first."
+            }
+        }
+        .alert(
+            "Preset",
+            isPresented: Binding(
+                get: { presetSavedMessage != nil },
+                set: { if !$0 { presetSavedMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(presetSavedMessage ?? "")
         }
         .sheet(isPresented: $showApplyReviewSheet) {
             if let prog = viewModel.generatedProgram {

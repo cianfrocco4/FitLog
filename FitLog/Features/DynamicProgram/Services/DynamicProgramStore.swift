@@ -24,7 +24,8 @@ final class DynamicProgramStore {
         return first.toDomain()
     }
 
-    func saveActiveState(_ state: DynamicProgramState) {
+    @discardableResult
+    func saveActiveState(_ state: DynamicProgramState) -> Bool {
         do {
             let all = try modelContext.fetch(FetchDescriptor<SDDynamicProgramV2>())
             for row in all {
@@ -32,10 +33,12 @@ final class DynamicProgramStore {
             }
             modelContext.insert(SDDynamicProgramV2.from(state))
             try modelContext.save()
+            return true
         } catch {
             #if DEBUG
             print("[SwiftData V2] Save dynamic program failed: \(error.localizedDescription)")
             #endif
+            return false
         }
     }
 

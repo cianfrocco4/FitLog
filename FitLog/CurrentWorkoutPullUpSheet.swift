@@ -445,6 +445,7 @@ struct CurrentWorkoutPullUpSheet: View {
     @State private var logSetSheetSelection: LogSetSheetSelection?
     @State private var resolveSlotSelection: ResolveSlotWE?
     @State private var showFinishConfirmation = false
+    @State private var showFinishEmptyConfirm = false
     @State private var showCardioFinisherOffer = false
     @State private var cardioFinisherOffered = false
     @State private var exerciseLogCountBeforeFinisherQuickAdd: Int?
@@ -975,11 +976,7 @@ struct CurrentWorkoutPullUpSheet: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Finish") {
-                        if resolvedExercisesWithNoSets.isEmpty {
-                            requestFinishWorkout()
-                        } else {
-                            showFinishConfirmation = true
-                        }
+                        handleFinishTap()
                     }
                     .foregroundStyle(.red)
                     .fontWeight(.semibold)
@@ -1104,14 +1101,15 @@ struct CurrentWorkoutPullUpSheet: View {
                     .environmentObject(aiService)
                     .environmentObject(userPreferences)
             }
-            .alert("Finish workout?", isPresented: $showFinishConfirmation) {
-                Button("Cancel", role: .cancel) {}
-                Button("Finish anyway", role: .destructive) {
-                    requestFinishWorkout()
-                }
-            } message: {
-                Text("These exercises have no sets logged: \(resolvedExercisesWithNoSets.joined(separator: ", ")).")
-            }
+            .modifier(
+                PullUpFinishGuardAlerts(
+                    showFinishConfirmation: $showFinishConfirmation,
+                    showFinishEmptyConfirm: $showFinishEmptyConfirm,
+                    unresolvedExerciseNames: resolvedExercisesWithNoSets,
+                    onProceedAfterUnresolved: proceedFinishAfterUnresolvedCheck,
+                    onProceedAfterEmpty: proceedFinishAfterEmptyCheck
+                )
+            )
             .confirmationDialog(
                 "Add a cardio finisher?",
                 isPresented: $showCardioFinisherOffer,
@@ -1252,23 +1250,44 @@ struct CurrentWorkoutPullUpSheet: View {
     }
 
     private var resolvedExercisesWithNoSets: [String] {
-        guard let logs = currentVM.currentSession?.exerciseLogs else { return [] }
-        return logs.compactMap { log in
-            guard !log.workoutExercise.isSlotPlaceholder, log.loggedSets.isEmpty else { return nil }
-            return dataVM.displayName(for: log.workoutExercise)
+        currentVM.resolvedExercisesWithNoSets()
+    }
+
+    private func handleFinishTap() {
+        switch currentVM.nextFinishStep(cardioFinisherAlreadyOffered: cardioFinisherOffered) {
+        case .confirmEmptyWorkout:
+            showFinishEmptyConfirm = true
+        case .confirmUnresolvedExercises:
+            showFinishConfirmation = true
+        case .offerCardioFinisher:
+            showCardioFinisherOffer = true
+        case .ready:
+            finishWorkout()
         }
     }
 
-    private func requestFinishWorkout() {
-        if !cardioFinisherOffered, currentVM.shouldOfferCardioFinisherOnFinish() {
+    private func proceedFinishAfterEmptyCheck() {
+        switch currentVM.nextFinishStep(cardioFinisherAlreadyOffered: cardioFinisherOffered) {
+        case .confirmUnresolvedExercises:
+            showFinishConfirmation = true
+        case .offerCardioFinisher:
             showCardioFinisherOffer = true
-        } else {
+        default:
+            finishWorkout()
+        }
+    }
+
+    private func proceedFinishAfterUnresolvedCheck() {
+        switch currentVM.nextFinishStep(cardioFinisherAlreadyOffered: cardioFinisherOffered) {
+        case .offerCardioFinisher:
+            showCardioFinisherOffer = true
+        default:
             finishWorkout()
         }
     }
 
     private func finishWorkout() {
-        currentVM.stopWorkout(showCompletionSummary: true)
+        currentVM.finishWorkoutFromUI(showCompletionSummary: true)
         dismiss()
     }
 
@@ -3183,5 +3202,33 @@ struct CurrentWorkoutPullUpSheet: View {
 
     private func statusSupersetToggleTitle(for log: ExerciseLog) -> String {
         isExerciseActive(log) ? "Remove from superset" : "Add to superset"
+    }
+}
+
+// MARK: - Finish guard dialogs (extracted for Swift type-checker)
+
+private struct PullUpFinishGuardAlerts: ViewModifier {
+    @Binding var showFinishConfirmation: Bool
+    @Binding var showFinishEmptyConfirm: Bool
+    let unresolvedExerciseNames: [String]
+    let onProceedAfterUnresolved: () -> Void
+    let onProceedAfterEmpty: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .alert("Finish workout?", isPresented: $showFinishConfirmation) {
+                Button("Cancel", role: .cancel) {}
+                Button("Finish anyway", role: .destructive, action: onProceedAfterUnresolved)
+            } message: {
+                Text("These exercises have no sets logged: \(unresolvedExerciseNames.joined(separator: ", ")).")
+            }
+            .confirmationDialog(
+                "Finish without logging any sets?",
+                isPresented: $showFinishEmptyConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Finish anyway", role: .destructive, action: onProceedAfterEmpty)
+                Button("Cancel", role: .cancel) {}
+            }
     }
 }

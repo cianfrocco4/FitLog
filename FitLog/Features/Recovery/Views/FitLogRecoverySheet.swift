@@ -8,18 +8,19 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct FitLogRecoverySheet: View {
     let error: Error
     /// Return `true` when restore succeeded (caller typically clears the migration error and dismisses this sheet).
     let onRestoreLatest: () -> Bool
-    let onChooseFile: () -> Void
+    let onRestoreFromFile: (URL) -> Bool
     let onReset: () -> Void
 
     @State private var showResetConfirm = false
+    @State private var showBackupImporter = false
     @State private var isRestoring = false
     @State private var restoreError: String?
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         NavigationStack {
@@ -48,6 +49,25 @@ struct FitLogRecoverySheet: View {
         ) {
             Button("Erase and Continue", role: .destructive) { onReset() }
             Button("Cancel", role: .cancel) {}
+        }
+        .fileImporter(
+            isPresented: $showBackupImporter,
+            allowedContentTypes: [.fitlogArchive, .json]
+        ) { result in
+            switch result {
+            case .success(let url):
+                Task { @MainActor in
+                    isRestoring = true
+                    restoreError = nil
+                    let ok = onRestoreFromFile(url)
+                    isRestoring = false
+                    if !ok {
+                        restoreError = "Could not restore from the selected file. Choose a valid FitLog .fitlog or .json export."
+                    }
+                }
+            case .failure:
+                restoreError = "File selection was cancelled or failed."
+            }
         }
         .interactiveDismissDisabled()
     }
@@ -87,7 +107,6 @@ struct FitLogRecoverySheet: View {
 
     private var actionsSection: some View {
         VStack(spacing: 16) {
-            // Primary: restore from latest backup
             Button {
                 Task { @MainActor in
                     isRestoring = true
@@ -117,10 +136,9 @@ struct FitLogRecoverySheet: View {
             .accessibilityLabel("Restore from latest backup")
             .accessibilityHint("Loads your most recent automatic backup")
 
-            // Secondary: choose a backup file
             Button {
                 restoreError = nil
-                onChooseFile()
+                showBackupImporter = true
             } label: {
                 Label("Choose backup file…", systemImage: "folder")
                     .frame(maxWidth: .infinity)
@@ -128,13 +146,13 @@ struct FitLogRecoverySheet: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
+            .disabled(isRestoring)
             .accessibilityLabel("Choose backup file")
             .accessibilityHint("Opens Files to select a backup JSON")
 
             Divider()
                 .padding(.vertical, 4)
 
-            // Destructive: reset
             Button(role: .destructive) {
                 showResetConfirm = true
             } label: {
@@ -159,7 +177,7 @@ struct FitLogRecoverySheet: View {
     FitLogRecoverySheet(
         error: FitLogMigrationError.backupNotFound,
         onRestoreLatest: { false },
-        onChooseFile: {},
+        onRestoreFromFile: { _ in false },
         onReset: {}
     )
 }
@@ -168,7 +186,7 @@ struct FitLogRecoverySheet: View {
     FitLogRecoverySheet(
         error: FitLogMigrationError.decodingFailed("Unexpected null at keyPath exercises[3].id"),
         onRestoreLatest: { false },
-        onChooseFile: {},
+        onRestoreFromFile: { _ in false },
         onReset: {}
     )
     .preferredColorScheme(.dark)

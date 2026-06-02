@@ -31,7 +31,8 @@ final class SessionStore {
         upsertSession(session)
     }
 
-    func upsertSession(_ session: WorkoutSession) {
+    @discardableResult
+    func upsertSession(_ session: WorkoutSession) -> Bool {
         let sessionId = session.id
         let descriptor = FetchDescriptor<SDWorkoutSessionV2>(
             predicate: #Predicate { $0.sessionId == sessionId }
@@ -42,7 +43,15 @@ final class SessionStore {
             }
         }
         modelContext.insert(SDWorkoutSessionV2.from(session))
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+            return true
+        } catch {
+            #if DEBUG
+            print("[SwiftData V2] Upsert session failed: \(error.localizedDescription)")
+            #endif
+            return false
+        }
     }
 
     @discardableResult
@@ -73,12 +82,20 @@ final class SessionStore {
         return (try? modelContext.fetch(descriptor))?.first?.toDomain()
     }
 
-    func upsertActiveSession(_ session: WorkoutSession) {
-        // Remove any existing active row first
+    @discardableResult
+    func upsertActiveSession(_ session: WorkoutSession) -> Bool {
         clearActiveSession()
         let row = SDWorkoutSessionV2.from(session)
         modelContext.insert(row)
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+            return true
+        } catch {
+            #if DEBUG
+            print("[SwiftData V2] Save active session failed: \(error.localizedDescription)")
+            #endif
+            return false
+        }
     }
 
     func clearActiveSession() {

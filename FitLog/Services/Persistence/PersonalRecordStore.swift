@@ -212,6 +212,100 @@ final class PersonalRecordStore {
         if !events.isEmpty { try? modelContext.save() }
         return events
     }
+
+    // MARK: - Reconciliation
+
+    /// Recomputes stored PR rows for one exercise from the provided set history (e.g. after delete/edit).
+    func reconcileBests(
+        forExerciseId exerciseId: UUID,
+        fromSets sets: [(set: LoggedSet, sessionId: UUID)],
+        exerciseName: String
+    ) {
+        let existing = currentBests(forExerciseId: exerciseId)
+        for row in existing {
+            modelContext.delete(row)
+        }
+
+        let strengthEntries = sets.filter { $0.set.countsTowardLoadPRMetrics }
+        if let bestWeightEntry = strengthEntries.max(by: { $0.set.weight < $1.set.weight }) {
+            insertPRRow(
+                exerciseId: exerciseId,
+                kind: .maxWeight,
+                value: bestWeightEntry.set.weight,
+                set: bestWeightEntry.set,
+                sessionId: bestWeightEntry.sessionId
+            )
+        }
+        if let best1RMEntry = strengthEntries.max(by: {
+            PersonalRecordDetector.epley(weight: $0.set.weight, reps: $0.set.reps)
+                < PersonalRecordDetector.epley(weight: $1.set.weight, reps: $1.set.reps)
+        }) {
+            insertPRRow(
+                exerciseId: exerciseId,
+                kind: .estimatedOneRM,
+                value: PersonalRecordDetector.epley(weight: best1RMEntry.set.weight, reps: best1RMEntry.set.reps),
+                set: best1RMEntry.set,
+                sessionId: best1RMEntry.sessionId
+            )
+        }
+        if let bestVolumeEntry = strengthEntries.max(by: { $0.set.totalVolumeLoad < $1.set.totalVolumeLoad }) {
+            insertPRRow(
+                exerciseId: exerciseId,
+                kind: .maxVolume,
+                value: bestVolumeEntry.set.totalVolumeLoad,
+                set: bestVolumeEntry.set,
+                sessionId: bestVolumeEntry.sessionId
+            )
+        }
+
+        let cardioEntries = sets.filter { $0.set.countsTowardCardioTotals }
+        if let bestDistance = cardioEntries.compactMap({ entry -> (LoggedSet, UUID, Double)? in
+            guard let dist = entry.set.cardioMetrics?.distanceM, dist > 0 else { return nil }
+            return (entry.set, entry.sessionId, dist)
+        }).max(by: { $0.2 < $1.2 }) {
+            insertPRRow(exerciseId: exerciseId, kind: .maxDistance, value: bestDistance.2, set: bestDistance.0, sessionId: bestDistance.1)
+        }
+        if let bestDuration = cardioEntries.compactMap({ entry -> (LoggedSet, UUID, Double)? in
+            guard let sec = entry.set.cardioMetrics?.durationSec, sec > 0 else { return nil }
+            return (entry.set, entry.sessionId, Double(sec))
+        }).max(by: { $0.2 < $1.2 }) {
+            insertPRRow(exerciseId: exerciseId, kind: .longestDuration, value: bestDuration.2, set: bestDuration.0, sessionId: bestDuration.1)
+        }
+        if let bestPace = cardioEntries.compactMap({ entry -> (LoggedSet, UUID, Double)? in
+            guard let pace = entry.set.cardioMetrics?.resolvedPaceSecPerKm, pace > 0 else { return nil }
+            return (entry.set, entry.sessionId, Double(pace))
+        }).min(by: { $0.2 < $1.2 }) {
+            insertPRRow(exerciseId: exerciseId, kind: .bestPace, value: bestPace.2, set: bestPace.0, sessionId: bestPace.1)
+        }
+        if let bestCalories = cardioEntries.compactMap({ entry -> (LoggedSet, UUID, Double)? in
+            guard let cal = entry.set.cardioMetrics?.calories, cal > 0 else { return nil }
+            return (entry.set, entry.sessionId, cal)
+        }).max(by: { $0.2 < $1.2 }) {
+            insertPRRow(exerciseId: exerciseId, kind: .maxCalories, value: bestCalories.2, set: bestCalories.0, sessionId: bestCalories.1)
+        }
+
+        try? modelContext.save()
+    }
+
+    private func insertPRRow(
+        exerciseId: UUID,
+        kind: PRKind,
+        value: Double,
+        set: LoggedSet,
+        sessionId: UUID
+    ) {
+        modelContext.insert(
+            SDPersonalRecordV2(
+                prId: UUID(),
+                exerciseId: exerciseId,
+                kindRaw: kind.rawValue,
+                value: value,
+                setId: set.id,
+                sessionId: sessionId,
+                achievedAt: set.timestamp
+            )
+        )
+    }
 }
 
 // MARK: - PRKind ↔ PersonalRecordEvent.Kind bridge

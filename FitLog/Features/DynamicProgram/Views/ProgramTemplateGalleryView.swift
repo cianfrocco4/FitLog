@@ -45,6 +45,19 @@ struct ProgramTemplateGalleryView: View {
             }
         }
         .sensoryFeedback(.success, trigger: viewModel.generationSuccessCount)
+        .alert(
+            "Could not build program",
+            isPresented: Binding(
+                get: { viewModel.errorMessage != nil },
+                set: { if !$0 { viewModel.errorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {
+                viewModel.errorMessage = nil
+            }
+        } message: {
+            Text(viewModel.errorMessage ?? "Something went wrong while generating your program.")
+        }
     }
 
     private var categoryFilters: some View {

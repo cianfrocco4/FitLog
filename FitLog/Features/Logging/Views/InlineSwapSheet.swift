@@ -20,6 +20,10 @@ struct InlineSwapSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
+    @State private var pendingSwapExercise: Exercise?
+    @State private var showSwapClearsSetsConfirm = false
+
+    private var hasLoggedSets: Bool { !exerciseLog.loggedSets.isEmpty }
 
     var body: some View {
         NavigationStack {
@@ -32,8 +36,7 @@ struct InlineSwapSheet: View {
                                 displayName: displayNames[exercise.id],
                                 badge: matchBadge(for: exercise)
                             ) {
-                                onConfirm(exercise)
-                                dismiss()
+                                requestSwap(to: exercise)
                             }
                         }
                     }
@@ -47,8 +50,7 @@ struct InlineSwapSheet: View {
                                 displayName: displayNames[exercise.id],
                                 badge: nil
                             ) {
-                                onConfirm(exercise)
-                                dismiss()
+                                requestSwap(to: exercise)
                             }
                         }
                     }
@@ -70,6 +72,33 @@ struct InlineSwapSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .confirmationDialog(
+            "Swap and clear logged sets?",
+            isPresented: $showSwapClearsSetsConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Swap and clear sets", role: .destructive) {
+                if let pendingSwapExercise {
+                    onConfirm(pendingSwapExercise)
+                    dismiss()
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingSwapExercise = nil
+            }
+        } message: {
+            Text("This exercise already has logged sets. Swapping replaces the movement and clears those sets so history stays accurate.")
+        }
+    }
+
+    private func requestSwap(to exercise: Exercise) {
+        if hasLoggedSets {
+            pendingSwapExercise = exercise
+            showSwapClearsSetsConfirm = true
+        } else {
+            onConfirm(exercise)
+            dismiss()
+        }
     }
 
     // MARK: - Filtering

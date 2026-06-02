@@ -56,6 +56,7 @@ final class DataManager {
     let dataTransferService: DataTransferServiceClient
     var healthSyncEnabled: Bool = false
     var healthSyncStatusMessage: String?
+    var persistenceFailureReporter = PersistenceFailureReporter()
 
     private let bodyMetricsStore = BodyMetricsStore()
     var bodyMetricEntries: [BodyMetricEntry] = []
@@ -112,7 +113,7 @@ final class DataManager {
         rotateBackup()
         freezeYesterdayPlanAssignmentIfNeeded()
         reconcileSkippedCycleTrainingDays()
-        publishWidgetSnapshot()
+        publishIntentExerciseLibrary()
         reloadBodyAndPhotosFromDisk()
     }
 
@@ -363,20 +364,13 @@ final class DataManager {
 
     // MARK: - Rotating backups
 
-    private static let maxBackups = 2
+    private static let maxBackups = 7
 
     func rotateBackup() {
         let dir = URL.applicationSupportDirectory.appending(path: "Backups", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
-        let snapshot = BackupSnapshot(
-            schemaVersion: currentSchemaVersion,
-            exercises: globalExercises,
-            workouts: userWorkouts,
-            sessions: completedSessions,
-            program: trainingProgram,
-            displayNames: exerciseLocalDisplayNames
-        )
+        let snapshot = backupSnapshot()
 
         guard let data = try? JSONEncoder().encode(snapshot) else {
             #if DEBUG
@@ -443,8 +437,12 @@ final class DataManager {
         saveWorkouts()
     }
 
-    func uniqueWorkoutName(_ base: String) -> String {
-        let names = Set(userWorkouts.map(\.name))
+    func uniqueWorkoutName(_ base: String, excludingWorkoutId: UUID? = nil) -> String {
+        let names = Set(
+            userWorkouts
+                .filter { $0.id != excludingWorkoutId }
+                .map(\.name)
+        )
         return workoutStore.uniqueName(base, existingWorkoutNames: names, existingTemplateNames: names)
     }
 
@@ -498,8 +496,11 @@ final class DataManager {
     }
 
     func renameWorkout(_ workout: Workout, newName: String) {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
         guard let index = userWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
-        userWorkouts[index].name = newName
+        let unique = uniqueWorkoutName(trimmed, excludingWorkoutId: workout.id)
+        userWorkouts[index].name = unique
         saveWorkouts()
     }
 
@@ -570,7 +571,11 @@ final class DataManager {
         for i in userWorkouts.indices {
             userWorkouts[i].workoutKind = WorkoutKind.derived(from: userWorkouts[i], exercises: globalExercises)
         }
-        return workoutStore.saveWorkouts(userWorkouts)
+        let ok = workoutStore.saveWorkouts(userWorkouts)
+        if !ok {
+            persistenceFailureReporter.report("Could not save workouts. Your last change may not persist after you quit the app.")
+        }
+        return ok
     }
 
     // MARK: - Workouts with flexible (open) slots
@@ -830,9 +835,14 @@ final class DataManager {
     func applyDynamicProgram(_ program: DynamicProgram, anchorDate: Date = Date()) -> Bool {
         let cal = Calendar.current
         let anchorStart = cal.startOfDay(for: anchorDate)
+        let workoutsBeforeApply = userWorkouts
         let map = materializeDynamicProgramWorkouts(for: program)
         let templateIds = program.blocks.flatMap(\.weeklyTemplates).map(\.id)
-        guard !templateIds.isEmpty, templateIds.allSatisfy({ map[$0] != nil }) else { return false }
+        guard !templateIds.isEmpty, templateIds.allSatisfy({ map[$0] != nil }) else {
+            userWorkouts = workoutsBeforeApply
+            _ = saveWorkouts()
+            return false
+        }
         let state = DynamicProgramState(
             program: program,
             anchorDate: anchorStart,
@@ -1114,8 +1124,13 @@ final class DataManager {
         saveWorkouts()
     }
 
-    func saveExercises() {
-        exerciseStore.saveExercises(globalExercises)
+    @discardableResult
+    func saveExercises() -> Bool {
+        let ok = exerciseStore.saveExercises(globalExercises)
+        if !ok {
+            persistenceFailureReporter.report("Could not save exercises. Your last change may not persist after you quit the app.")
+        }
+        return ok
     }
 
     // MARK: - Local exercise display names
@@ -1273,7 +1288,6 @@ final class DataManager {
     func refreshCompletedSessions() {
         completedSessions = sessionStore.loadSessions()
         reconcileSkippedCycleTrainingDays()
-        publishWidgetSnapshot()
     }
 
     func appendCompletedSession(_ session: WorkoutSession) {
@@ -1282,9 +1296,10 @@ final class DataManager {
         } else {
             completedSessions.append(session)
         }
-        sessionStore.upsertSession(session)
+        if !sessionStore.upsertSession(session) {
+            persistenceFailureReporter.report("Could not save workout history. This session may be missing after you quit the app.")
+        }
         reconcileSkippedCycleTrainingDays()
-        publishWidgetSnapshot()
     }
 
     /// Template for a new live session from a **completed** session (library + flexible slots when possible).
@@ -1317,7 +1332,6 @@ final class DataManager {
             return false
         }
         reconcileSkippedCycleTrainingDays()
-        publishWidgetSnapshot()
         return true
     }
 
@@ -1335,7 +1349,6 @@ final class DataManager {
             return false
         }
         reconcileSkippedCycleTrainingDays()
-        publishWidgetSnapshot()
         return true
     }
 
@@ -1344,7 +1357,8 @@ final class DataManager {
         let ok = sessionStore.saveSessions(completedSessions)
         if ok {
             reconcileSkippedCycleTrainingDays()
-            publishWidgetSnapshot()
+        } else {
+            persistenceFailureReporter.report("Could not save workout history.")
         }
         return ok
     }
@@ -1693,14 +1707,17 @@ final class DataManager {
     // MARK: - Training program
 
     func saveTrainingProgram() {
-        programStore.saveProgram(trainingProgram)
-        publishWidgetSnapshot()
+        if !programStore.saveProgram(trainingProgram) {
+            persistenceFailureReporter.report("Could not save your training program.")
+        }
     }
 
     /// Persists `dynamicProgramState` and syncs schedule + cycle (when materialized) into `trainingProgram`.
     func saveDynamicProgramState() {
         if let s = dynamicProgramState {
-            dynamicProgramStore.saveActiveState(s)
+            if !dynamicProgramStore.saveActiveState(s) {
+                persistenceFailureReporter.report("Could not save your program.")
+            }
         } else {
             dynamicProgramStore.clearActiveState()
         }
@@ -1708,7 +1725,6 @@ final class DataManager {
         if dynamicProgramState != nil {
             saveTrainingProgram()
         }
-        publishWidgetSnapshot()
     }
 
     /// Replaces the active dynamic program (or clears when `nil`).
@@ -2110,7 +2126,82 @@ final class DataManager {
         splitPresetStore.replaceAllFromBackup(snapshot.splitPresets)
         prStore.replaceAllFromBackup(snapshot.personalRecords)
         reconcileSkippedCycleTrainingDays()
-        publishWidgetSnapshot()
+        publishIntentExerciseLibrary()
+    }
+
+    /// Publishes exercise names for App Intents / Shortcuts entity queries.
+    func publishIntentExerciseLibrary() {
+        let entries = globalExercises.map {
+            FitLogIntentBridge.ExerciseSnapshotEntry(id: $0.id, name: resolvedDisplayName(for: $0))
+        }
+        FitLogIntentBridge.publishExerciseLibrary(entries)
+    }
+
+    /// Recomputes PR rows for one exercise after set delete/edit in an active or completed session.
+    func reconcilePersonalRecords(forExerciseId exerciseId: UUID, activeSession: WorkoutSession?) {
+        var tuples: [(set: LoggedSet, sessionId: UUID)] = []
+        for session in completedSessions {
+            for log in session.exerciseLogs where log.workoutExercise.exerciseId == exerciseId {
+                for set in log.loggedSets {
+                    tuples.append((set, session.id))
+                }
+            }
+        }
+        if let activeSession {
+            for log in activeSession.exerciseLogs where log.workoutExercise.exerciseId == exerciseId {
+                for set in log.loggedSets {
+                    tuples.append((set, activeSession.id))
+                }
+            }
+        }
+        let name = globalExercises.first(where: { $0.id == exerciseId })?.name ?? "Exercise"
+        prStore.reconcileBests(forExerciseId: exerciseId, fromSets: tuples, exerciseName: name)
+    }
+
+    @discardableResult
+    func saveSplitPreset(
+        name: String,
+        days: [SplitBuilderEditableDay],
+        sessionsPerWeek: Int,
+        preferredWeekdays: [Int],
+        notes: String = ""
+    ) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !days.isEmpty else { return false }
+        _ = splitPresetStore.savePreset(
+            name: trimmed,
+            notes: notes,
+            sessionsPerWeek: min(max(1, sessionsPerWeek), 7),
+            preferredWeekdays: preferredWeekdays.filter { (1...7).contains($0) }.sorted(),
+            days: days
+        )
+        return true
+    }
+
+    /// Deletes all locally stored workout data while keeping the app usable.
+    func eraseAllAppData() {
+        rotateBackup()
+        globalExercises = []
+        userWorkouts = []
+        completedSessions = []
+        exerciseLocalDisplayNames = [:]
+        trainingProgram = TrainingProgramState.empty(anchorDayKey: TrainingProgramState.dayKey(for: Date()))
+        dynamicProgramState = nil
+        bodyMetricEntries = []
+        progressPhotoRecords = []
+
+        _ = exerciseStore.saveExercises([])
+        _ = workoutStore.saveWorkouts([])
+        _ = sessionStore.saveSessions([])
+        _ = programStore.saveProgram(trainingProgram)
+        dynamicProgramStore.clearActiveState()
+        splitPresetStore.replaceAllFromBackup([])
+        prStore.replaceAllFromBackup([])
+        sessionStore.clearActiveSession()
+
+        preloadFullExerciseLibrary()
+        preloadCardioExerciseLibraryIfNeeded()
+        publishIntentExerciseLibrary()
     }
 
     private func postDynamicProgramBlockTransitionIfNeeded(

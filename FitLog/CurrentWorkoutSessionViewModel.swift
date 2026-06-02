@@ -94,6 +94,7 @@ final class CurrentWorkoutSessionViewModel {
     }
     
     func startWorkout(_ workout: Workout, sessionPlanOrigin: WorkoutPlanRef? = nil) {
+        guard !workout.exercises.isEmpty else { return }
         let logs = workout.exercises.map { ex in
             ExerciseLog(id: UUID(), workoutExercise: ex, loggedSets: [])
         }
@@ -255,7 +256,11 @@ final class CurrentWorkoutSessionViewModel {
     /// Persist the active session to SwiftData so it survives app kills.
     private func saveActiveSession() {
         guard let session = currentSession, session.endTime == nil else { return }
-        dataManager.sessionStore.upsertActiveSession(session)
+        if !dataManager.sessionStore.upsertActiveSession(session) {
+            dataManager.persistenceFailureReporter.report(
+                "Could not save your active workout. Progress may be lost if the app closes unexpectedly."
+            )
+        }
         saveTimerState()
     }
 
@@ -445,6 +450,62 @@ final class CurrentWorkoutSessionViewModel {
             SplitBuilderPreferencesStore.load().cardioPreferenceRaw
         )
         return pref.includesPostWorkoutFinishers
+    }
+
+    enum FinishWorkoutStep: Equatable {
+        case confirmEmptyWorkout
+        case confirmUnresolvedExercises([String])
+        case offerCardioFinisher
+        case ready
+    }
+
+    func totalLoggedSetCount() -> Int {
+        currentSession?.exerciseLogs.reduce(0) { $0 + $1.loggedSets.count } ?? 0
+    }
+
+    func resolvedExercisesWithNoSets() -> [String] {
+        guard let logs = currentSession?.exerciseLogs else { return [] }
+        return logs.compactMap { log in
+            guard !log.workoutExercise.isSlotPlaceholder, log.loggedSets.isEmpty else { return nil }
+            return dataManager.displayName(for: log.workoutExercise)
+        }
+    }
+
+    func nextFinishStep(cardioFinisherAlreadyOffered: Bool) -> FinishWorkoutStep {
+        Self.evaluateFinishStep(
+            exerciseLogs: currentSession?.exerciseLogs ?? [],
+            cardioFinisherAlreadyOffered: cardioFinisherAlreadyOffered,
+            shouldOfferCardioFinisher: shouldOfferCardioFinisherOnFinish(),
+            displayName: { dataManager.displayName(for: $0) }
+        )
+    }
+
+    /// Pure finish-guard evaluation (shared with unit tests).
+    nonisolated static func evaluateFinishStep(
+        exerciseLogs: [ExerciseLog],
+        cardioFinisherAlreadyOffered: Bool,
+        shouldOfferCardioFinisher: Bool,
+        displayName: (WorkoutExercise) -> String
+    ) -> FinishWorkoutStep {
+        let totalSets = exerciseLogs.reduce(0) { $0 + $1.loggedSets.count }
+        if totalSets == 0 {
+            return .confirmEmptyWorkout
+        }
+        let unresolved = exerciseLogs.compactMap { log -> String? in
+            guard !log.workoutExercise.isSlotPlaceholder, log.loggedSets.isEmpty else { return nil }
+            return displayName(log.workoutExercise)
+        }
+        if !unresolved.isEmpty {
+            return .confirmUnresolvedExercises(unresolved)
+        }
+        if !cardioFinisherAlreadyOffered, shouldOfferCardioFinisher {
+            return .offerCardioFinisher
+        }
+        return .ready
+    }
+
+    func finishWorkoutFromUI(showCompletionSummary: Bool = true) {
+        stopWorkout(showCompletionSummary: showCompletionSummary)
     }
 
     /// Appends a new flexible slot to the backing library workout and a matching row to the active session.
@@ -654,9 +715,10 @@ final class CurrentWorkoutSessionViewModel {
     }
 
     /// Swap the exercise at the given log index with a new exercise (mid-session swap).
-    /// Preserves already-logged sets and slot context.
-    func swapExercise(atIndex exerciseIndex: Int, to exercise: Exercise) {
+    /// Clears logged sets by default so history stays attributed to the correct movement.
+    func swapExercise(atIndex exerciseIndex: Int, to exercise: Exercise, clearExistingSets: Bool = true) {
         guard var session = currentSession, exerciseIndex < session.exerciseLogs.count else { return }
+        let priorExerciseId = session.exerciseLogs[exerciseIndex].workoutExercise.exerciseId
         let snap = ExerciseSnapshot(from: exercise)
         let workoutExerciseId = session.exerciseLogs[exerciseIndex].workoutExercise.id
 
@@ -671,10 +733,15 @@ final class CurrentWorkoutSessionViewModel {
             we.resolution = .concrete(snap)
             session.workout.exercises[wi] = we
         }
-        // Update exercise log's workoutExercise (keep logged sets)
         var we = session.exerciseLogs[exerciseIndex].workoutExercise
         we.resolution = .concrete(snap)
         session.exerciseLogs[exerciseIndex].workoutExercise = we
+        if clearExistingSets {
+            session.exerciseLogs[exerciseIndex].loggedSets = []
+            if let priorExerciseId {
+                dataManager.reconcilePersonalRecords(forExerciseId: priorExerciseId, activeSession: session)
+            }
+        }
 
         currentSession = session
         recordWorkoutActivity()
@@ -805,6 +872,9 @@ final class CurrentWorkoutSessionViewModel {
         }
         currentSession = session
         recordWorkoutActivity()
+        if let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exerciseId {
+            dataManager.reconcilePersonalRecords(forExerciseId: exId, activeSession: session)
+        }
         saveActiveSession()
     }
 
@@ -944,7 +1014,7 @@ final class CurrentWorkoutSessionViewModel {
 
     func deleteSet(exerciseIndex: Int, setIndex: Int) {
         guard var session = currentSession, exerciseIndex < session.exerciseLogs.count, setIndex < session.exerciseLogs[exerciseIndex].loggedSets.count else { return }
-        
+
         session.exerciseLogs[exerciseIndex].loggedSets.remove(at: setIndex)
         guard let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exerciseId else { return }
         // If no sets remain, this exercise is no longer active or completed.
@@ -954,6 +1024,7 @@ final class CurrentWorkoutSessionViewModel {
         }
         currentSession = session
         recordWorkoutActivity()
+        dataManager.reconcilePersonalRecords(forExerciseId: exId, activeSession: session)
         saveActiveSession()
     }
 
@@ -978,6 +1049,8 @@ final class CurrentWorkoutSessionViewModel {
             wasTimerRunning = true
             backgroundDate = Date()
             restTimer?.invalidate()
+            clearRestCompletionNotification()
+            scheduleRestNotification(seconds: remainingRestTime)
         }
         if currentSession != nil && currentSession?.endTime == nil {
             saveActiveSession()
@@ -991,10 +1064,14 @@ final class CurrentWorkoutSessionViewModel {
             remainingRestTime = max(0, remainingRestTime - Int(elapsed))
             if remainingRestTime > 0 {
                 startRestCountdown(seconds: remainingRestTime)
+                scheduleRestNotification(seconds: remainingRestTime)
             } else {
+                clearRestCompletionNotification()
                 Task { @MainActor in
                     RestTimerLiveActivityCoordinator.shared.endRestActivity()
                 }
+                Self.playRestCompleteFeedback()
+                showRestCompleteAlert = true
             }
             backgroundDate = nil
             wasTimerRunning = false
@@ -1620,6 +1697,59 @@ final class CurrentWorkoutSessionViewModel {
             session.activeExerciseIds.insert(exerciseId, at: 0)
         }
         session.completedExerciseIds.removeAll { $0 == exerciseId }
+    }
+
+    // MARK: - App Intents bridge
+
+    func processPendingIntentActions() {
+        if let workoutName = FitLogIntentBridge.consumePendingStartWorkoutName() {
+            let trimmed = workoutName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty,
+               let workout = dataManager.userWorkouts.first(where: {
+                   $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame
+               }) {
+                if !isInProgress {
+                    startWorkout(workout, sessionPlanOrigin: .workout(workout.id))
+                }
+            }
+        }
+
+        if let restSeconds = FitLogIntentBridge.consumePendingRestTimerSeconds(),
+           isInProgress,
+           restSeconds > 0 {
+            startRestCountdown(seconds: restSeconds)
+            scheduleRestNotification(seconds: restSeconds)
+        }
+
+        if let pendingLog = FitLogIntentBridge.consumePendingLogSet() {
+            applyPendingLogSet(pendingLog)
+        }
+    }
+
+    private func applyPendingLogSet(_ payload: FitLogIntentBridge.PendingLogSet) {
+        guard currentSession != nil else { return }
+        let exerciseIndex: Int?
+        if let exerciseId = payload.exerciseId {
+            exerciseIndex = currentSession?.exerciseLogs.firstIndex {
+                $0.workoutExercise.exerciseId == exerciseId
+            }
+        } else if let activeId = currentSession?.activeExerciseIds.first {
+            exerciseIndex = currentSession?.exerciseLogs.firstIndex {
+                $0.workoutExercise.exerciseId == activeId
+            }
+        } else {
+            exerciseIndex = currentSession?.exerciseLogs.firstIndex {
+                !$0.workoutExercise.isSlotPlaceholder
+            }
+        }
+        guard let exerciseIndex else { return }
+        logSet(
+            exerciseIndex: exerciseIndex,
+            weight: payload.weight,
+            reps: payload.reps,
+            restTime: 90,
+            rpe: payload.rpe
+        )
     }
 }
 

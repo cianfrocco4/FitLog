@@ -452,7 +452,7 @@ final class DynamicProgramBuilderViewModel {
         applyProgramStructureSelections()
     }
 
-    /// Merges a saved split preset into schedule + notes (templates still come from generation).
+    /// Merges a saved split preset into schedule fields and hydrates the first block's rotation days.
     func applySavedPreset(name: String, days: [SplitBuilderEditableDay], sessionsPerWeek: Int, preferredWeekdays: [Int]) {
         request.splitInput.sessionsPerWeek = min(max(1, sessionsPerWeek), 7)
         request.splitInput.preferredWeekdays = preferredWeekdays.filter { $0 >= 1 && $0 <= 7 }.sorted()
@@ -461,13 +461,25 @@ final class DynamicProgramBuilderViewModel {
         if request.programName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || request.programName == defaultName {
             request.programName = trimmedName.isEmpty ? defaultName : trimmedName
         }
-        let dayLines = days.map { d in
-            let focus = d.focus.trimmingCharacters(in: .whitespacesAndNewlines)
-            return focus.isEmpty ? d.name : "\(d.name) (\(focus))"
-        }.joined(separator: ", ")
-        let note = "Loaded preset ‘\(name)’ — rotation ideas: \(dayLines)."
-        let existing = request.splitInput.additionalNotes
-        request.splitInput.additionalNotes = existing.isEmpty ? note : "\(existing)\n\(note)"
+
+        ensureManualDraftIfNeeded()
+        if generatedProgram == nil {
+            if request.blockSpecs.isEmpty {
+                applyProgramStructureSelections()
+            }
+            generatedProgram = DynamicProgramMapper.blankProgram(from: request)
+        }
+        guard generatedProgram != nil else { return }
+
+        if perBlockEditableDays.isEmpty {
+            perBlockEditableDays = [days]
+        } else {
+            perBlockEditableDays[0] = days
+        }
+        persistPerBlockTemplatesIntoProgram()
+        refreshGenerationBalanceWarnings()
+        wizardStep = .reviewAndEdit
+        errorMessage = nil
     }
 
     private func syncProgramStructureUIAfterLoadingPreferences() {

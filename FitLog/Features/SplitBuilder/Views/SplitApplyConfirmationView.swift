@@ -20,6 +20,9 @@ struct SplitApplyConfirmationView: View {
 
     @State private var anchorDate: Date = Date()
     @State private var conflict: SplitConflictDiff?
+    @State private var presetName: String = "My Split"
+    @State private var showSavePresetAlert = false
+    @State private var presetSavedMessage: String?
 
     private var proposalDays: [WorkoutSplitProposalDay] {
         days.map { $0.toProposalDay() }
@@ -42,10 +45,40 @@ struct SplitApplyConfirmationView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel)
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Save preset") {
+                        showSavePresetAlert = true
+                    }
+                    .accessibilityLabel("Save split as preset")
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Apply", action: confirmApply)
                         .fontWeight(.semibold)
                 }
+            }
+            .alert("Save preset", isPresented: $showSavePresetAlert) {
+                TextField("Preset name", text: $presetName)
+                Button("Cancel", role: .cancel) {}
+                Button("Save") {
+                    let ok = dataVM.saveSplitPreset(
+                        name: presetName,
+                        days: days,
+                        sessionsPerWeek: sessionsPerWeek,
+                        preferredWeekdays: preferredWeekdays
+                    )
+                    presetSavedMessage = ok ? "Preset saved." : "Could not save preset."
+                }
+            }
+            .alert(
+                "Preset",
+                isPresented: Binding(
+                    get: { presetSavedMessage != nil },
+                    set: { if !$0 { presetSavedMessage = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(presetSavedMessage ?? "")
             }
             .onAppear {
                 computeConflict()

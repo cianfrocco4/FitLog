@@ -26,17 +26,20 @@ final class ExerciseStore {
         return rows.map { $0.toDomain() }
     }
 
-    func saveExercises(_ exercises: [Exercise]) {
+    @discardableResult
+    func saveExercises(_ exercises: [Exercise]) -> Bool {
         do {
             try modelContext.delete(model: SDExerciseV2.self)
             for ex in exercises {
                 modelContext.insert(SDExerciseV2.from(ex))
             }
             try modelContext.save()
+            return true
         } catch {
             #if DEBUG
             print("[SwiftData V2] Save exercises failed: \(error.localizedDescription)")
             #endif
+            return false
         }
     }
 

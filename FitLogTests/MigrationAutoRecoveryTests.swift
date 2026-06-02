@@ -60,7 +60,7 @@ struct MigrationAutoRecoveryTests {
         }
     }
 
-    @Test func openContainerWithRecovery_startsFreshWhenNoBackupExists() throws {
+    @Test func openContainerWithRecovery_surfacesRecoveryUIWhenNoBackupExists() throws {
         let storeURL = FileManager.default.temporaryDirectory.appending(
             path: "FitLogAutoRecoveryFreshTest_\(UUID().uuidString).store",
             directoryHint: .notDirectory
@@ -80,7 +80,7 @@ struct MigrationAutoRecoveryTests {
             try Data("not a sqlite store".utf8).write(to: storeURL, options: .atomic)
 
             let result = FitLogApp.openContainerWithRecovery(storeURL: storeURL)
-            #expect(result.error == nil)
+            #expect(result.error != nil)
 
             let ctx = ModelContext(result.container)
             let exercises = try ctx.fetch(FetchDescriptor<SDExerciseV2>())

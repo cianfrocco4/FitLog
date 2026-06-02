@@ -12,22 +12,39 @@ import AuthenticationServices
 final class AuthViewModel: ObservableObject {
     @Published var isLoggedIn = false
     @Published var errorMessage: String?
-    
+
     @AppStorage("appleUserIdentifier") private var appleUserIdentifier: String = ""
     @AppStorage("appleUserEmail") var userEmail: String = ""
     @AppStorage("appleUserName") var userName: String = ""
-    
+    @AppStorage("fitlogUsesLocalOnlyMode") private var usesLocalOnlyModeStorage = false
+
+    /// True when the user skipped Sign in with Apple and uses the app locally only.
+    var usesLocalOnlyMode: Bool {
+        usesLocalOnlyModeStorage && !isLoggedIn
+    }
+
     init() {
         if FitLogUITestLaunch.isActive {
             // Avoid ASAuthorizationAppleIDProvider network/credential callbacks on CI simulators.
             isLoggedIn = true
             return
         }
+        if usesLocalOnlyModeStorage && appleUserIdentifier.isEmpty {
+            return
+        }
         checkCredentialStateIfNeeded()
     }
-    
+
+    /// Continue without Sign in with Apple (local-only mode).
+    func continueWithoutSignIn() {
+        usesLocalOnlyModeStorage = true
+        isLoggedIn = false
+        errorMessage = nil
+    }
+
     /// Call after Sign in with Apple succeeds (from LoginView's onCompletion).
     func handleAppleSignIn(credential: ASAuthorizationAppleIDCredential) {
+        usesLocalOnlyModeStorage = false
         appleUserIdentifier = credential.user
         if let email = credential.email { userEmail = email }
         if let name = credential.fullName {
@@ -37,15 +54,16 @@ final class AuthViewModel: ObservableObject {
         isLoggedIn = true
         errorMessage = nil
     }
-    
+
     func logout() {
         appleUserIdentifier = ""
         userEmail = ""
         userName = ""
         isLoggedIn = false
+        usesLocalOnlyModeStorage = false
         errorMessage = nil
     }
-    
+
     private func checkCredentialStateIfNeeded() {
         guard !appleUserIdentifier.isEmpty else {
             isLoggedIn = false

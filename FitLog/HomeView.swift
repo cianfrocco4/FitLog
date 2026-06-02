@@ -44,6 +44,11 @@ struct HomeView: View {
     @State private var homeBlockTransitionToast: String?
     @State private var homeBlockTransitionToastSerial = 0
     @State private var showCardioResolveFailureAlert = false
+    @State private var homeCardioFinisherOffered = false
+    @State private var showHomeFinishEmptyConfirm = false
+    @State private var showHomeFinishUnresolvedConfirm = false
+    @State private var showHomeCardioFinisherOffer = false
+    @State private var homeUnresolvedExerciseNames: [String] = []
 
     private var homeRefreshKey: String {
         let cycleSig = dataVM.trainingProgram.cycleEntries.map(\.cacheKey).joined(separator: ",")
@@ -228,6 +233,31 @@ struct HomeView: View {
         cachedTodayCompletedRefs = completedRefs
     }
 
+    private func handleHomeFinishTap() {
+        switch currentVM.nextFinishStep(cardioFinisherAlreadyOffered: homeCardioFinisherOffered) {
+        case .confirmEmptyWorkout:
+            showHomeFinishEmptyConfirm = true
+        case .confirmUnresolvedExercises(let names):
+            homeUnresolvedExerciseNames = names
+            showHomeFinishUnresolvedConfirm = true
+        case .offerCardioFinisher:
+            showHomeCardioFinisherOffer = true
+        case .ready:
+            currentVM.finishWorkoutFromUI(showCompletionSummary: true)
+            homeCardioFinisherOffered = false
+        }
+    }
+
+    private func proceedHomeFinishAfterUnresolvedCheck() {
+        switch currentVM.nextFinishStep(cardioFinisherAlreadyOffered: homeCardioFinisherOffered) {
+        case .offerCardioFinisher:
+            showHomeCardioFinisherOffer = true
+        default:
+            currentVM.finishWorkoutFromUI(showCompletionSummary: true)
+            homeCardioFinisherOffered = false
+        }
+    }
+
     private func isPlannedWorkoutCompletedToday(plan: WorkoutPlanRef) -> Bool {
         cachedTodayCompletedRefs.contains(plan.cacheKey)
     }
@@ -301,7 +331,7 @@ struct HomeView: View {
                     if currentVM.isInProgress {
                         HomeActiveWorkoutCard(
                             onOpen: { openCurrentWorkoutSheet?() },
-                            onFinish: { currentVM.stopWorkout(showCompletionSummary: true) }
+                            onFinish: handleHomeFinishTap
                         )
                             .listRowInsets(homeDashboardListInsets)
                             .listRowSeparator(.hidden)
@@ -614,6 +644,42 @@ struct HomeView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text("Add a cardio exercise to your library first, then try again.")
+            }
+            .confirmationDialog(
+                "Finish without logging any sets?",
+                isPresented: $showHomeFinishEmptyConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Finish anyway", role: .destructive) {
+                    currentVM.finishWorkoutFromUI(showCompletionSummary: true)
+                    homeCardioFinisherOffered = false
+                }
+                Button("Cancel", role: .cancel) {}
+            }
+            .confirmationDialog(
+                "Some exercises have no logged sets",
+                isPresented: $showHomeFinishUnresolvedConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Finish anyway", role: .destructive) {
+                    proceedHomeFinishAfterUnresolvedCheck()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(homeUnresolvedExerciseNames.joined(separator: ", "))
+            }
+            .confirmationDialog(
+                "Add a cardio finisher?",
+                isPresented: $showHomeCardioFinisherOffer,
+                titleVisibility: .visible
+            ) {
+                Button("Skip") {
+                    homeCardioFinisherOffered = true
+                    currentVM.finishWorkoutFromUI(showCompletionSummary: true)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Optional quick cardio before you wrap up.")
             }
             .navigationDestination(item: $todayPlanDetailRoute) { route in
                 switch route {

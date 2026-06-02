@@ -68,6 +68,11 @@ struct WorkoutPlanView: View {
     @State private var showCardioBuilder = false
     @State private var showCardioExercisePicker = false
     @State private var cardioPrescriptionEdit: CardioPrescriptionEditItem?
+    @State private var planCardioFinisherOffered = false
+    @State private var showPlanFinishEmptyConfirm = false
+    @State private var showPlanFinishUnresolvedConfirm = false
+    @State private var showPlanCardioFinisherOffer = false
+    @State private var planUnresolvedExerciseNames: [String] = []
 
     private struct CardioPrescriptionEditItem: Identifiable {
         let id: UUID
@@ -152,8 +157,9 @@ struct WorkoutPlanView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(isThisLibrarySessionActive ? "Stop" : "Start") {
                     if isThisLibrarySessionActive {
-                        currentVM.stopWorkout()
+                        handlePlanStopTap()
                     } else {
+                        guard !workout.exercises.isEmpty else { return }
                         currentVM.startWorkoutResolvingConflict(
                             workoutForSessionStart,
                             sessionPlanOrigin: .workout(workout.id)
@@ -164,6 +170,7 @@ struct WorkoutPlanView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(isThisLibrarySessionActive ? .red : .green)
+                .disabled(!isThisLibrarySessionActive && workout.exercises.isEmpty)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Rename") {
@@ -253,6 +260,67 @@ struct WorkoutPlanView: View {
                 prescription: item.prescription
             )
             .environment(dataVM)
+        }
+        .confirmationDialog(
+            "Finish without logging any sets?",
+            isPresented: $showPlanFinishEmptyConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Finish anyway", role: .destructive) {
+                currentVM.finishWorkoutFromUI(showCompletionSummary: false)
+                planCardioFinisherOffered = false
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .confirmationDialog(
+            "Some exercises have no logged sets",
+            isPresented: $showPlanFinishUnresolvedConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Finish anyway", role: .destructive) {
+                proceedPlanStopAfterUnresolvedCheck()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(planUnresolvedExerciseNames.joined(separator: ", "))
+        }
+        .confirmationDialog(
+            "Add a cardio finisher?",
+            isPresented: $showPlanCardioFinisherOffer,
+            titleVisibility: .visible
+        ) {
+            Button("Skip") {
+                planCardioFinisherOffered = true
+                currentVM.finishWorkoutFromUI(showCompletionSummary: false)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Optional quick cardio before you wrap up.")
+        }
+    }
+
+    private func handlePlanStopTap() {
+        switch currentVM.nextFinishStep(cardioFinisherAlreadyOffered: planCardioFinisherOffered) {
+        case .confirmEmptyWorkout:
+            showPlanFinishEmptyConfirm = true
+        case .confirmUnresolvedExercises(let names):
+            planUnresolvedExerciseNames = names
+            showPlanFinishUnresolvedConfirm = true
+        case .offerCardioFinisher:
+            showPlanCardioFinisherOffer = true
+        case .ready:
+            currentVM.finishWorkoutFromUI(showCompletionSummary: false)
+            planCardioFinisherOffered = false
+        }
+    }
+
+    private func proceedPlanStopAfterUnresolvedCheck() {
+        switch currentVM.nextFinishStep(cardioFinisherAlreadyOffered: planCardioFinisherOffered) {
+        case .offerCardioFinisher:
+            showPlanCardioFinisherOffer = true
+        default:
+            currentVM.finishWorkoutFromUI(showCompletionSummary: false)
+            planCardioFinisherOffered = false
         }
     }
 

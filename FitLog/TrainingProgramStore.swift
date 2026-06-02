@@ -24,15 +24,17 @@ final class TrainingProgramStore {
         return first.toDomain()
     }
 
-    func saveProgram(_ program: TrainingProgramState) {
+    func saveProgram(_ program: TrainingProgramState) -> Bool {
         do {
             try modelContext.delete(model: SDTrainingProgramV2.self)
             modelContext.insert(SDTrainingProgramV2.from(program))
             try modelContext.save()
+            return true
         } catch {
             #if DEBUG
             print("[SwiftData V2] Save training program failed: \(error.localizedDescription)")
             #endif
+            return false
         }
     }
 }

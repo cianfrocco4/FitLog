@@ -18,6 +18,7 @@ struct EditExerciseSheet: View {
     @State private var selectedMuscles: [MuscleGroup]
     @State private var showMusclePicker = false
     @State private var showDeleteConfirmation = false
+    @State private var showExactNameConflict = false
 
     init(exercise: Exercise) {
         self.exercise = exercise
@@ -51,7 +52,7 @@ struct EditExerciseSheet: View {
                     Button("Save") {
                         saveAndDismiss()
                     }
-                    .disabled(!isBuiltIn && name.isEmpty)
+                    .disabled(!isBuiltIn && (name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
                 }
             }
             .keyboardDismissToolbar()
@@ -66,6 +67,11 @@ struct EditExerciseSheet: View {
                 Button("Cancel", role: .cancel) { }
             } message: {
                 Text("This will remove \"\(exercise.name)\" from the library and from any workouts that include it. This cannot be undone.")
+            }
+            .alert("Name already used", isPresented: $showExactNameConflict) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Another exercise in your library already uses this name.")
             }
         }
     }
@@ -161,9 +167,17 @@ struct EditExerciseSheet: View {
                 configurationOptions: exercise.configurationOptions
             )
         } else {
+            let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedName.isEmpty else { return }
+            if dataVM.globalExercises.contains(where: {
+                $0.id != exercise.id && $0.name.caseInsensitiveCompare(trimmedName) == .orderedSame
+            }) {
+                showExactNameConflict = true
+                return
+            }
             updated = Exercise(
                 id: exercise.id,
-                name: name,
+                name: trimmedName,
                 description: description,
                 targetedMuscles: selectedMuscles,
                 isCustom: true,

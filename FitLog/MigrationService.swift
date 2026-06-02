@@ -36,7 +36,9 @@ enum MigrationService {
         guard hasAnyLegacyData else {
             UserDefaults.standard.set(true, forKey: migrationFlag)
             #if DEBUG
+            #if DEBUG
             print("[Migration] No legacy UserDefaults data found — marking complete")
+            #endif
             #endif
             return
         }
@@ -46,11 +48,15 @@ enum MigrationService {
             UserDefaults.standard.set(true, forKey: migrationFlag)
             cleanupLegacyKeys()
             #if DEBUG
+            #if DEBUG
             print("[Migration] Success — UserDefaults keys removed")
+            #endif
             #endif
         } catch {
             #if DEBUG
+            #if DEBUG
             print("[Migration] FAILED: \(error). UserDefaults left intact for fallback.")
+            #endif
             #endif
         }
     }
