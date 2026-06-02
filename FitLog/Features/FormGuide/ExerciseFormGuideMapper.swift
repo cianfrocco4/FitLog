@@ -21,9 +21,15 @@ enum ExerciseFormGuideMapper {
 
     private static var resolvedCache: [String: ExerciseFormGuideMappingEntry] = [:]
 
-    static func mapping(for exercise: Exercise) -> ExerciseFormGuideMappingEntry? {
+    static func mapping(for exercise: Exercise, muscleWikiOverrideId: Int? = nil) -> ExerciseFormGuideMappingEntry? {
         let canonical = exercise.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !canonical.isEmpty else { return nil }
+
+        if let overrideId = muscleWikiOverrideId {
+            let entry = ExerciseFormGuideMappingEntry(searchQuery: canonical, muscleWikiId: overrideId)
+            storeCache(canonical, entry)
+            return entry
+        }
 
         if let cached = resolvedCache[canonical] {
             return cached
@@ -50,8 +56,8 @@ enum ExerciseFormGuideMapper {
         return fallback
     }
 
-    static func searchQuery(for exercise: Exercise) -> String {
-        mapping(for: exercise)?.searchQuery ?? exercise.name
+    static func searchQuery(for exercise: Exercise, muscleWikiOverrideId: Int? = nil) -> String {
+        mapping(for: exercise, muscleWikiOverrideId: muscleWikiOverrideId)?.searchQuery ?? exercise.name
     }
 
     /// Exposed for unit tests to verify the bundled JSON is present in the app bundle.

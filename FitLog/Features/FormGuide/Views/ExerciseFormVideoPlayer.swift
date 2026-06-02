@@ -83,6 +83,7 @@ private struct ExerciseFormVideoPlayerRepresentable: UIViewControllerRepresentab
             guard configuredVideoID != video.id else {
                 player?.isMuted = isMuted
                 if shouldAutoPlay {
+                    FormGuideAudioSession.activateForMutedVideoPlayback()
                     player?.play()
                 } else {
                     player?.pause()
@@ -106,6 +107,7 @@ private struct ExerciseFormVideoPlayerRepresentable: UIViewControllerRepresentab
             configuredVideoID = video.id
 
             if shouldAutoPlay {
+                FormGuideAudioSession.activateForMutedVideoPlayback()
                 queuePlayer.play()
             }
         }

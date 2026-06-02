@@ -2,26 +2,99 @@
 //  HomeProgramSummaryCard.swift
 //  FitLog
 //
-//  Consolidated active program card for the Home tab.
+//  Consolidated active program card for the Home tab with this-week session strip.
 //
 
 import SwiftUI
+
+struct HomeProgramWeekSession: Identifiable, Equatable {
+    let id: String
+    let date: Date
+    let weekdayLabel: String
+    let title: String
+    let libraryWorkoutId: UUID?
+    let isToday: Bool
+    let isCompleted: Bool
+    let isRest: Bool
+    let isUnscheduled: Bool
+}
 
 struct HomeProgramSummaryCard: View {
     @Environment(DataManager.self) var dataVM
 
     let state: DynamicProgramState
-    let isExpanded: Bool
-    let onToggleExpanded: () -> Void
     let onOpenDetail: () -> Void
     let onBuildNew: () -> Void
+    let onOpenWorkout: (UUID) -> Void
+    let onStartWorkout: (Workout) -> Void
+
+    private var calendar: Calendar { .current }
+
+    private var weekSessions: [HomeProgramWeekSession] {
+        let dayStarts = TrainingProgramState.orderedCalendarDaysInWeek(containing: Date(), calendar: calendar)
+        let weekdayFormatter: DateFormatter = {
+            let f = DateFormatter()
+            f.dateFormat = "EEE"
+            return f
+        }()
+        return dayStarts.map { dayStart in
+            let plan = dataVM.resolvedScheduleDay(for: dayStart, calendar: calendar)
+            let dayKey = TrainingProgramState.dayKey(for: dayStart, calendar: calendar)
+            let isToday = calendar.isDateInToday(dayStart)
+            switch plan {
+            case .rest:
+                return HomeProgramWeekSession(
+                    id: dayKey,
+                    date: dayStart,
+                    weekdayLabel: weekdayFormatter.string(from: dayStart),
+                    title: "Rest",
+                    libraryWorkoutId: nil,
+                    isToday: isToday,
+                    isCompleted: false,
+                    isRest: true,
+                    isUnscheduled: false
+                )
+            case .unscheduled:
+                return HomeProgramWeekSession(
+                    id: dayKey,
+                    date: dayStart,
+                    weekdayLabel: weekdayFormatter.string(from: dayStart),
+                    title: "—",
+                    libraryWorkoutId: nil,
+                    isToday: isToday,
+                    isCompleted: false,
+                    isRest: false,
+                    isUnscheduled: true
+                )
+            case .workout(let ref):
+                let name = dataVM.userWorkouts.first(where: { $0.id == ref.libraryWorkoutId })?.name ?? "Workout"
+                let completed = dataVM.completedSessions.contains { session in
+                    guard let end = session.endTime else { return false }
+                    guard calendar.isDate(end, inSameDayAs: dayStart) else { return false }
+                    return session.sessionPlanOrigin?.cacheKey == ref.cacheKey
+                }
+                return HomeProgramWeekSession(
+                    id: dayKey,
+                    date: dayStart,
+                    weekdayLabel: weekdayFormatter.string(from: dayStart),
+                    title: name,
+                    libraryWorkoutId: ref.libraryWorkoutId,
+                    isToday: isToday,
+                    isCompleted: completed,
+                    isRest: false,
+                    isUnscheduled: false
+                )
+            }
+        }
+    }
 
     var body: some View {
-        let cal = Calendar.current
+        let cal = calendar
         let pe = PeriodizationEngine(calendar: cal)
         let today = cal.startOfDay(for: Date())
         let placement = pe.blockPlacement(on: today, state: state)
         let sessionProgress = dataVM.dynamicProgramBlockSessionProgress(calendar: cal)
+        let sessions = weekSessions
 
         VStack(alignment: .leading, spacing: 12) {
             Button(action: onOpenDetail) {
@@ -56,29 +129,91 @@ struct HomeProgramSummaryCard: View {
             .buttonStyle(.plain)
             .accessibilityHint("Opens your active program details")
 
-            if isExpanded {
-                if let nextLine = nextBlockLine(placement: placement, state: state) {
-                    Text(nextLine)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("This week")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
 
-                Button("Build a new program", action: onBuildNew)
-                    .buttonStyle(.bordered)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityHint("Opens the program builder to create a different program")
+                ForEach(sessions) { session in
+                    programWeekRow(session)
+                }
             }
 
-            Button(action: onToggleExpanded) {
-                Label(isExpanded ? "Show less" : "Show more", systemImage: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(.caption.weight(.semibold))
+            HStack(spacing: 10) {
+                Button("View full program", action: onOpenDetail)
+                    .buttonStyle(.borderedProminent)
+                    .frame(maxWidth: .infinity)
+                Button("New program", action: onBuildNew)
+                    .buttonStyle(.bordered)
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .controlSize(.small)
         }
         .homeCardTier(.tertiary)
         .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder
+    private func programWeekRow(_ session: HomeProgramWeekSession) -> some View {
+        let rowContent = HStack(spacing: 10) {
+            Text(session.weekdayLabel)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(session.isToday ? Color.accentColor : Color.secondary)
+                .frame(width: 32, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(session.title)
+                    .font(.subheadline.weight(session.isToday ? .semibold : .regular))
+                    .foregroundStyle(session.isRest || session.isUnscheduled ? .secondary : .primary)
+                    .lineLimit(1)
+                if session.isToday, !session.isRest, !session.isUnscheduled {
+                    Text("Today")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            if session.isCompleted {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .accessibilityLabel("Completed")
+            } else if session.isToday,
+                      let libraryId = session.libraryWorkoutId,
+                      let workout = dataVM.userWorkouts.first(where: { $0.id == libraryId }) {
+                Button("Start") {
+                    onStartWorkout(workout)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.mini)
+                .accessibilityHint("Starts today's scheduled workout")
+            } else if session.isRest {
+                Image(systemName: "moon.zzz")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .accessibilityLabel("Rest day")
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .background {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(session.isToday ? Color.accentColor.opacity(0.08) : Color(.tertiarySystemFill).opacity(0.5))
+        }
+
+        if let libraryId = session.libraryWorkoutId, !session.isRest {
+            Button {
+                onOpenWorkout(libraryId)
+            } label: {
+                rowContent
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens workout details")
+        } else {
+            rowContent
+        }
     }
 
     private func blockWeekLine(placement: (index: Int, block: ProgramBlock, weekInBlock: Int), blockCount: Int) -> String {
@@ -86,14 +221,6 @@ struct HomeProgramSummaryCard: View {
             return "Block \(placement.index + 1) of \(blockCount) · Week \(placement.weekInBlock + 1) of \(placement.block.durationWeeks)"
         }
         return "\(placement.block.name) · Week \(placement.weekInBlock + 1) of \(placement.block.durationWeeks)"
-    }
-
-    private func nextBlockLine(placement: (index: Int, block: ProgramBlock, weekInBlock: Int)?, state: DynamicProgramState) -> String? {
-        guard let placement else { return nil }
-        let nextIdx = placement.index + 1
-        guard state.program.blocks.indices.contains(nextIdx) else { return nil }
-        let nb = state.program.blocks[nextIdx]
-        return "Up next: \(nb.name) (\(nb.durationWeeks) wk)"
     }
 
     private func sessionProgressRing(completed: Int, planned: Int) -> some View {
@@ -122,27 +249,36 @@ struct HomeBuildProgramCard: View {
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 12) {
-                Image(systemName: "rectangle.stack")
-                    .font(.title2)
-                    .foregroundStyle(.tint)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Build a program")
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text("Goals, phases, schedule, then save to Plan")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.leading)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    Image(systemName: "rectangle.stack.badge.plus")
+                        .font(.title2)
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .background(Color.accentColor.gradient, in: RoundedRectangle(cornerRadius: 10))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Build your program")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                        Text("Goals, phases, and weekly schedule—then save to Plan")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
+                Text("Get started")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.accentColor)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
             }
         }
         .buttonStyle(.plain)
         .homeCardTier(.tertiary)
+        .accessibilityLabel("Build a program")
         .accessibilityHint("Opens the program builder")
     }
 }

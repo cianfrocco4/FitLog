@@ -39,6 +39,7 @@ struct LogSetView: View {
     var prefillReps: Int? = nil
     /// Reps-first layout with optional added vs assisted load (net stored as signed weight).
     var prefillBodyweightMode: Bool = false
+    var prefillDropSetEnabled: Bool = false
 
     @State private var weight: Double = 0.0
     @State private var reps: Int = 0
@@ -449,6 +450,26 @@ struct LogSetView: View {
                 }
                 if let r = prefillReps {
                     reps = min(50, max(0, r))
+                }
+                if prefillDropSetEnabled, !bodyweightMode {
+                    dropSetEnabled = true
+                    setTypeChoice = .working
+                    if dropRows.isEmpty {
+                        let dropWeight: Double
+                        if let w = prefillDisplayWeight {
+                            dropWeight = clampDisplay(w)
+                        } else if let session = sessionVM.currentSession,
+                                  exerciseIndex < session.exerciseLogs.count,
+                                  let last = session.exerciseLogs[exerciseIndex].loggedSets.last {
+                            dropWeight = clampDisplay(
+                                WeightStoreConversion.displayValue(storedPounds: last.weight * 0.8, unit: displayUnit)
+                            )
+                        } else {
+                            dropWeight = 0
+                        }
+                        let dropRepsValue = prefillReps ?? reps
+                        dropRows = [EditableDropRow(weight: dropWeight, reps: max(1, dropRepsValue))]
+                    }
                 }
             }
 

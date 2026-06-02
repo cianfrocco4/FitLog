@@ -856,6 +856,25 @@ final class CurrentWorkoutSessionViewModel {
         saveActiveSession()
     }
 
+    /// Appends a lighter drop segment to an existing logged set (inline drop-set flow).
+    func appendDropSegment(exerciseIndex: Int, setIndex: Int, weight: Double, reps: Int) {
+        guard var session = currentSession,
+              exerciseIndex < session.exerciseLogs.count,
+              setIndex < session.exerciseLogs[exerciseIndex].loggedSets.count,
+              reps > 0
+        else { return }
+        session.exerciseLogs[exerciseIndex].loggedSets[setIndex].dropSegments.append(
+            DropSetSegment(weight: weight, reps: reps)
+        )
+        session.exerciseLogs[exerciseIndex].loggedSets[setIndex].setType = .dropSet
+        currentSession = session
+        recordWorkoutActivity()
+        if let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exerciseId {
+            dataManager.reconcilePersonalRecords(forExerciseId: exId, activeSession: session)
+        }
+        saveActiveSession()
+    }
+
     /// Updates weight/reps (and optional type) on an existing logged set (inline edit). Does not re-run PR detection or rest timer.
     func updateSet(exerciseIndex: Int, setIndex: Int, weight: Double, reps: Int, setType: ExerciseSetType? = nil) {
         guard var session = currentSession,

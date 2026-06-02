@@ -9,15 +9,19 @@ import SwiftUI
 
 struct WorkoutQuickSetTypeBar: View {
     @Binding var selection: ExerciseSetType
+    /// Drop sets require an existing logged set on this exercise.
+    var dropSetEnabled: Bool = true
 
-    private let types: [ExerciseSetType] = [.working, .warmup, .amrap, .failure, .timed]
+    private let types: [ExerciseSetType] = [.working, .warmup, .dropSet, .amrap, .failure, .timed]
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(types, id: \.self) { type in
                     let isOn = selection == type
+                    let isDropDisabled = type == .dropSet && !dropSetEnabled
                     Button {
+                        guard !isDropDisabled else { return }
                         selection = type
                     } label: {
                         Text(shortLabel(type))
@@ -35,9 +39,14 @@ struct WorkoutQuickSetTypeBar: View {
                             )
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(isOn ? Color.accentColor : Color.primary)
+                    .foregroundStyle(isDropDisabled ? Color.secondary.opacity(0.45) : (isOn ? Color.accentColor : Color.primary))
+                    .disabled(isDropDisabled)
                     .accessibilityLabel("Set type \(type.logPickerLabel)")
-                    .accessibilityHint(isOn ? "Selected" : "Double tap to select")
+                    .accessibilityHint(
+                        isDropDisabled
+                            ? "Log a working set first to add drop segments"
+                            : (isOn ? "Selected" : "Double tap to select")
+                    )
                     .accessibilityAddTraits(isOn ? [.isButton, .isSelected] : .isButton)
                 }
             }

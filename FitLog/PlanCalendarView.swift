@@ -121,6 +121,7 @@ struct PlanCalendarView: View {
                     dataVM.publishWidgetSnapshot()
                 }
             }
+            .workoutBottomScrollClearance()
             .onReceive(NotificationCenter.default.publisher(for: .fitlogOpenProgramBuilder)) { _ in
                 showProgramBuilder = true
             }

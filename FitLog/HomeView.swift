@@ -38,7 +38,6 @@ struct HomeView: View {
     @State private var workoutSearchText = ""
     @State private var showNewExercise = false
     @State private var showStartWorkoutSheet = false
-    @State private var programSectionExpanded = false
     @State private var startWorkoutFeedbackSerial = 0
     @State private var homeFirstPaintSkeleton = true
     @State private var homeBlockTransitionToast: String?
@@ -402,14 +401,10 @@ struct HomeView: View {
                     if let dyn = dataVM.dynamicProgramState {
                         HomeProgramSummaryCard(
                             state: dyn,
-                            isExpanded: programSectionExpanded,
-                            onToggleExpanded: {
-                                withAnimation(.easeInOut(duration: 0.22)) {
-                                    programSectionExpanded.toggle()
-                                }
-                            },
                             onOpenDetail: { showActiveProgramDetail = true },
-                            onBuildNew: { showSplitBuilder = true }
+                            onBuildNew: { showSplitBuilder = true },
+                            onOpenWorkout: { todayPlanDetailRoute = .plannedWorkout($0) },
+                            onStartWorkout: { startWorkoutFromTodayPlan($0) }
                         )
                         .listRowInsets(homeDashboardListInsets)
                         .listRowSeparator(.hidden)
@@ -513,6 +508,7 @@ struct HomeView: View {
             .scrollContentBackground(.hidden)
             .listSectionSpacing(12)
             .animation(.easeInOut(duration: 0.28), value: homeFirstPaintSkeleton)
+            .workoutBottomScrollClearance()
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if !currentVM.isInProgress {
                     HomeStartWorkoutFAB(isWorkoutActive: currentVM.isInProgress) {
@@ -1253,6 +1249,7 @@ private struct HomeWorkoutLibraryView: View {
             }
         }
         .workoutReplaceConflictConfirmation(currentVM: currentVM, pending: $pendingWorkoutReplace)
+        .workoutBottomScrollClearance()
     }
 }
 

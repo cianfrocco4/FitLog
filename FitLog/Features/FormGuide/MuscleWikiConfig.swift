@@ -59,7 +59,10 @@ enum MuscleWikiConfig {
         return muscleWikiBaseURL.appending(path: "stream/videos/branded")
     }
 
-    static func searchURL(query: String, limit: Int = 1) -> URL? {
+    static let defaultSearchLimit = 1
+    static let alternativeSearchLimit = 8
+
+    static func searchURL(query: String, limit: Int = defaultSearchLimit) -> URL? {
         var components = URLComponents(url: apiRootURL.appending(path: "search"), resolvingAgainstBaseURL: false)
         components?.queryItems = [
             URLQueryItem(name: "q", value: query),

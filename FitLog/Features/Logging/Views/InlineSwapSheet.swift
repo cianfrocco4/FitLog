@@ -2,61 +2,101 @@
 //  InlineSwapSheet.swift
 //  FitLog
 //
-//  Quick exercise swap sheet, accessible via long-press on an exercise card.
-//  Filters the global library by matching muscles/movement pattern to preserve slot context.
+//  Quick exercise swap sheet with muscle/pattern-aware ranking.
 //
 
 import SwiftUI
 
 struct InlineSwapSheet: View {
-    /// The log being replaced.
     let exerciseLog: ExerciseLog
-    /// Full exercise library to search.
     let allExercises: [Exercise]
-    /// Display names map (exercise id → custom name).
     let displayNames: [UUID: String]
-    /// Called with the chosen replacement exercise.
+    let baselineExercise: Exercise?
     let onConfirm: (Exercise) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(DataManager.self) private var dataVM
     @State private var searchText = ""
     @State private var pendingSwapExercise: Exercise?
     @State private var showSwapClearsSetsConfirm = false
+    @State private var showCreateCustom = false
 
     private var hasLoggedSets: Bool { !exerciseLog.loggedSets.isEmpty }
+
+    private var currentExerciseId: UUID? { exerciseLog.workoutExercise.exerciseId }
+
+    private var filteredExercises: [Exercise] {
+        let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        return allExercises.filter { ex in
+            guard ex.id != currentExerciseId else { return false }
+            if query.isEmpty { return true }
+            let name = (displayNames[ex.id] ?? ex.name).lowercased()
+            return name.contains(query) || ex.targetedMuscles.contains { $0.rawValue.lowercased().contains(query) }
+        }
+    }
+
+    private var rankedSections: [(tier: String, exercises: [Exercise])] {
+        guard let baseline = baselineExercise else {
+            let sorted = filteredExercises.sorted { ($0.name) < ($1.name) }
+            return sorted.isEmpty ? [] : [("All exercises", sorted)]
+        }
+        let scored = filteredExercises.map { ex in
+            (ex, ExerciseSwapSimilarity.score(candidate: ex, baseline: baseline, slotMuscleMatch: false))
+        }
+        let tiers = ["Strong matches", "Good matches", "Partial matches", "Weaker matches"]
+        var sections: [(String, [Exercise])] = []
+        for tier in tiers {
+            let items = scored
+                .filter { ExerciseSwapSimilarity.tierLabel(score: $0.1) == tier }
+                .sorted { $0.1 > $1.1 }
+                .map(\.0)
+            if !items.isEmpty {
+                sections.append((tier, items))
+            }
+        }
+        return sections
+    }
 
     var body: some View {
         NavigationStack {
             List {
-                if !topMatches.isEmpty {
-                    Section("Best matches") {
-                        ForEach(topMatches) { exercise in
-                            ExerciseSwapRow(
-                                exercise: exercise,
-                                displayName: displayNames[exercise.id],
-                                badge: matchBadge(for: exercise)
-                            ) {
-                                requestSwap(to: exercise)
-                            }
+                Section {
+                    Button {
+                        showCreateCustom = true
+                    } label: {
+                        Label("Create new exercise", systemImage: "plus.circle.fill")
+                            .font(.body.weight(.semibold))
+                    }
+                    .accessibilityHint("Adds a custom exercise and swaps it into this workout")
+                }
+
+                if let baseline = baselineExercise, searchText.isEmpty {
+                    Section {
+                        Text(ExerciseSwapSimilarity.matchSummary(
+                            candidate: baseline,
+                            baseline: baseline,
+                            slot: nil,
+                            slotMuscleMatch: false
+                        ))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    } header: {
+                        Text("Replacing")
+                    } footer: {
+                        Text(dataVM.resolvedDisplayName(for: baseline))
+                            .font(.subheadline.weight(.medium))
+                    }
+                }
+
+                ForEach(rankedSections, id: \.tier) { section in
+                    Section(section.tier) {
+                        ForEach(section.exercises) { exercise in
+                            swapRow(exercise: exercise)
                         }
                     }
                 }
 
-                if !otherResults.isEmpty {
-                    Section("Other results") {
-                        ForEach(otherResults) { exercise in
-                            ExerciseSwapRow(
-                                exercise: exercise,
-                                displayName: displayNames[exercise.id],
-                                badge: nil
-                            ) {
-                                requestSwap(to: exercise)
-                            }
-                        }
-                    }
-                }
-
-                if topMatches.isEmpty && otherResults.isEmpty {
+                if rankedSections.isEmpty {
                     ContentUnavailableView.search(text: searchText)
                 }
             }
@@ -68,6 +108,15 @@ struct InlineSwapSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
+            }
+            .sheet(isPresented: $showCreateCustom) {
+                InlineSwapCreateExerciseSheet(
+                    baseline: baselineExercise,
+                    onCreated: { created in
+                        requestSwap(to: created)
+                    }
+                )
+                .environment(dataVM)
             }
         }
         .presentationDetents([.medium, .large])
@@ -91,6 +140,54 @@ struct InlineSwapSheet: View {
         }
     }
 
+    @ViewBuilder
+    private func swapRow(exercise: Exercise) -> some View {
+        let score = baselineExercise.map {
+            ExerciseSwapSimilarity.score(candidate: exercise, baseline: $0, slotMuscleMatch: false)
+        }
+        Button {
+            requestSwap(to: exercise)
+        } label: {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(displayNames[exercise.id] ?? exercise.name)
+                        .fontWeight(.medium)
+                    if let baseline = baselineExercise {
+                        Text(ExerciseSwapSimilarity.matchSummary(
+                            candidate: exercise,
+                            baseline: baseline,
+                            slot: nil,
+                            slotMuscleMatch: false
+                        ))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                    } else if !exercise.targetedMuscles.isEmpty {
+                        Text(exercise.targetedMuscles.map(\.rawValue).joined(separator: ", "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+                if let score, let badge = ExerciseSwapSimilarity.fitBadge(score: score) {
+                    Text(badge)
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.accentColor.opacity(0.14), in: Capsule())
+                        .foregroundStyle(Color.accentColor)
+                }
+                Image(systemName: "arrow.left.arrow.right")
+                    .foregroundStyle(.tint)
+                    .imageScale(.small)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Swap to \(displayNames[exercise.id] ?? exercise.name)")
+    }
+
     private func requestSwap(to exercise: Exercise) {
         if hasLoggedSets {
             pendingSwapExercise = exercise
@@ -100,126 +197,97 @@ struct InlineSwapSheet: View {
             dismiss()
         }
     }
-
-    // MARK: - Filtering
-
-    private var slotMuscles: Set<MuscleGroup> {
-        guard case .flexible(let bp) = exerciseLog.workoutExercise.resolution else { return [] }
-        return Set(bp.targetedMuscles)
-    }
-
-    private var slotPattern: MovementPattern? {
-        guard case .flexible(let bp) = exerciseLog.workoutExercise.resolution else { return nil }
-        return bp.movementPattern
-    }
-
-    private var slotRole: ExerciseRole? {
-        guard case .flexible(let bp) = exerciseLog.workoutExercise.resolution else { return nil }
-        return bp.exerciseRole
-    }
-
-    /// Current exercise id — excluded from results
-    private var currentExerciseId: UUID? { exerciseLog.workoutExercise.exerciseId }
-
-    private var filteredExercises: [Exercise] {
-        let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
-        return allExercises.filter { ex in
-            guard ex.id != currentExerciseId else { return false }
-            if query.isEmpty { return true }
-            let name = (displayNames[ex.id] ?? ex.name).lowercased()
-            return name.contains(query)
-        }
-    }
-
-    private func score(for exercise: Exercise) -> Int {
-        var s = 0
-        let muscles = slotMuscles
-        if !muscles.isEmpty {
-            let overlap = Set(exercise.targetedMuscles).intersection(muscles)
-            s += overlap.count * 2
-        }
-        if let pattern = slotPattern, exercise.movementPattern == pattern { s += 3 }
-        if let role = slotRole, exercise.exerciseRole == role { s += 2 }
-        return s
-    }
-
-    private var topMatches: [Exercise] {
-        guard !slotMuscles.isEmpty || slotPattern != nil else { return [] }
-        return filteredExercises.filter { score(for: $0) > 0 }
-            .sorted { score(for: $0) > score(for: $1) }
-    }
-
-    private var otherResults: [Exercise] {
-        let topIds = Set(topMatches.map(\.id))
-        return filteredExercises.filter { !topIds.contains($0.id) }
-            .sorted { ($0.name) < ($1.name) }
-    }
-
-    private func matchBadge(for exercise: Exercise) -> String? {
-        var tags: [String] = []
-        let muscles = slotMuscles
-        if !muscles.isEmpty {
-            let overlap = Set(exercise.targetedMuscles).intersection(muscles)
-            if !overlap.isEmpty { tags.append(overlap.map(\.rawValue).joined(separator: ", ")) }
-        }
-        if let pattern = slotPattern, exercise.movementPattern == pattern {
-            tags.append(pattern.rawValue.capitalized)
-        }
-        return tags.isEmpty ? nil : tags.prefix(2).joined(separator: " · ")
-    }
 }
 
-// MARK: - Row
+// MARK: - Inline custom exercise creation
 
-private struct ExerciseSwapRow: View {
-    let exercise: Exercise
-    let displayName: String?
-    let badge: String?
-    let onTap: () -> Void
+private struct InlineSwapCreateExerciseSheet: View {
+    let baseline: Exercise?
+    let onCreated: (Exercise) -> Void
+
+    @Environment(DataManager.self) private var dataVM
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var selectedMuscles: [MuscleGroup] = []
 
     var body: some View {
-        Button(action: onTap) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(displayName ?? exercise.name)
-                        .fontWeight(.medium)
-                    if let badge {
-                        Text(badge)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+        NavigationStack {
+            Form {
+                Section("Exercise name") {
+                    TextField("Name", text: $name)
+                }
+                Section("Muscles (up to 3)") {
+                    ForEach(MuscleGroup.allCases) { muscle in
+                        let isOn = selectedMuscles.contains(muscle)
+                        Button {
+                            toggleMuscle(muscle)
+                        } label: {
+                            HStack {
+                                Text(muscle.rawValue)
+                                Spacer()
+                                if isOn {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.tint)
+                                }
+                            }
+                        }
+                        .foregroundStyle(.primary)
                     }
                 }
-                Spacer()
-                Image(systemName: "arrow.left.arrow.right")
-                    .foregroundStyle(.tint)
-                    .imageScale(.small)
+                if let baseline {
+                    Section("Fit vs current exercise") {
+                        Text(ExerciseSwapSimilarity.matchSummary(
+                            candidate: Exercise(
+                                id: UUID(),
+                                name: name.isEmpty ? "New exercise" : name,
+                                description: "",
+                                targetedMuscles: selectedMuscles,
+                                isCustom: true
+                            ),
+                            baseline: baseline,
+                            slot: nil,
+                            slotMuscleMatch: false
+                        ))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
             }
-            .contentShape(Rectangle())
+            .navigationTitle("New exercise")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create & swap") {
+                        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmed.isEmpty, !selectedMuscles.isEmpty else { return }
+                        let created = dataVM.addNewExercise(
+                            name: trimmed,
+                            description: "",
+                            muscles: Array(selectedMuscles.prefix(3))
+                        )
+                        onCreated(created)
+                        dismiss()
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || selectedMuscles.isEmpty)
+                }
+            }
+            .onAppear {
+                if selectedMuscles.isEmpty, let baseline {
+                    selectedMuscles = Array(baseline.targetedMuscles.prefix(3))
+                }
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Swap to \(displayName ?? exercise.name)")
-        .accessibilityHint("Replaces the current exercise in this set")
+        .presentationDetents([.medium, .large])
     }
-}
 
-#Preview {
-    InlineSwapSheet(
-        exerciseLog: ExerciseLog(
-            id: UUID(),
-            workoutExercise: WorkoutExercise(
-                id: UUID(),
-                resolution: .flexible(
-                    SlotBlueprint(id: UUID(), label: "Main push",
-                                  targetedMuscles: [.chest, .triceps],
-                                  exerciseRole: .compound,
-                                  movementPattern: .horizontalPush,
-                                  defaultExerciseId: nil)
-                )
-            ),
-            loggedSets: []
-        ),
-        allExercises: [],
-        displayNames: [:],
-        onConfirm: { _ in }
-    )
+    private func toggleMuscle(_ muscle: MuscleGroup) {
+        if let idx = selectedMuscles.firstIndex(of: muscle) {
+            selectedMuscles.remove(at: idx)
+        } else if selectedMuscles.count < 3 {
+            selectedMuscles.append(muscle)
+        }
+    }
 }

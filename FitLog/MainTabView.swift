@@ -20,6 +20,7 @@ struct MainTabView: View {
     @State private var showOnboarding = false
     @State private var rootTab: FitlogRootTab = .home
     @State private var coachDeepLink: FitlogCoachDeepLink = .idle
+    @State private var workoutChromeMetrics = WorkoutChromeMetrics()
 
     private var activeCoachTip: String? {
         guard userPreferences.hasCompletedOnboarding else { return nil }
@@ -71,6 +72,8 @@ struct MainTabView: View {
         .environment(\.fitlogRootTabSelection, $rootTab)
         .environment(\.fitlogCoachDeepLink, $coachDeepLink)
         .environment(\.isCurrentWorkoutSheetPresented, showCurrentWorkoutPullUp)
+        .environment(\.fitlogWorkoutSheetDetent, workoutSheetDetent)
+        .environment(\.workoutChromeMetrics, workoutChromeMetrics)
         .environment(\.openCurrentWorkoutSheet, {
             currentVM.pendingPullUpFocus = nil
             showCurrentWorkoutPullUp = true
@@ -104,7 +107,9 @@ struct MainTabView: View {
         }
         .onChange(of: showCurrentWorkoutPullUp) { _, isOpen in
             if isOpen {
-                workoutSheetDetent = FitlogWorkoutSheetDetent.defaultOpen
+                withAnimation(.easeInOut(duration: 0.35)) {
+                    workoutSheetDetent = FitlogWorkoutSheetDetent.defaultOpen
+                }
             }
         }
         .onChange(of: workoutSheetDetent) { _, newDetent in

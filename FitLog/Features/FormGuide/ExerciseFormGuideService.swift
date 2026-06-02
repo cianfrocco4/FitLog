@@ -22,6 +22,9 @@ final class ExerciseFormGuideService {
     private var retryTasks: [UUID: Task<Void, Never>] = [:]
     private var keepAliveTask: Task<Void, Never>?
 
+    /// Set from app root so MuscleWiki overrides read through `UserPreferences` (single source of truth).
+    weak var userPreferences: UserPreferences?
+
     private static let retryDelays: [TimeInterval] = [3, 8, 20, 45]
     private static let keepAliveInterval: TimeInterval = 240
 
@@ -89,6 +92,23 @@ final class ExerciseFormGuideService {
               inFlightTasks[exercise.id] == nil
         else { return }
         Task { await guide(for: exercise) }
+    }
+
+    func invalidateGuide(for exerciseId: UUID) {
+        guideCache.removeValue(forKey: exerciseId)
+        unavailableExerciseIds.remove(exerciseId)
+        loadStates[exerciseId] = .idle
+        inFlightTasks[exerciseId]?.cancel()
+        inFlightTasks.removeValue(forKey: exerciseId)
+    }
+
+    func searchAlternativeCandidates(query: String) async throws -> [MuscleWikiExercisePayload] {
+        guard let url = MuscleWikiConfig.searchURL(
+            query: query,
+            limit: MuscleWikiConfig.alternativeSearchLimit
+        ) else { return [] }
+        let data = try await performGET(url: url)
+        return try ExerciseFormGuidePayloadParser.decodeSearchResults(from: data)
     }
 
     func streamRequestHeaders() -> [String: String] {
@@ -209,12 +229,13 @@ final class ExerciseFormGuideService {
     }
 
     private func fetchMuscleWikiPayload(for exercise: Exercise) async throws -> MuscleWikiExercisePayload {
-        if let mapping = ExerciseFormGuideMapper.mapping(for: exercise),
+        let overrideId = userPreferences?.formGuideMuscleWikiOverride(for: exercise.id)
+        if let mapping = ExerciseFormGuideMapper.mapping(for: exercise, muscleWikiOverrideId: overrideId),
            let muscleWikiId = mapping.muscleWikiId {
             return try await fetchExercise(id: muscleWikiId)
         }
 
-        let query = ExerciseFormGuideMapper.searchQuery(for: exercise)
+        let query = ExerciseFormGuideMapper.searchQuery(for: exercise, muscleWikiOverrideId: overrideId)
         if let searchMatch = try await searchExercise(query: query) {
             return searchMatch
         }
@@ -229,7 +250,10 @@ final class ExerciseFormGuideService {
     }
 
     private func searchExercise(query: String) async throws -> MuscleWikiExercisePayload? {
-        guard let url = MuscleWikiConfig.searchURL(query: query, limit: 1) else { return nil }
+        guard let url = MuscleWikiConfig.searchURL(
+            query: query,
+            limit: MuscleWikiConfig.defaultSearchLimit
+        ) else { return nil }
         let data = try await performGET(url: url)
         let results = try ExerciseFormGuidePayloadParser.decodeSearchResults(from: data)
         guard let first = results.first else { return nil }

@@ -180,6 +180,7 @@ final class UserPreferences: ObservableObject {
         static let effortInputStyle = "fitlog.effortInputStyle"
         static let formGuideGender = "fitlog.formGuideGender"
         static let formGuideAngle = "fitlog.formGuideAngle"
+        static let formGuideMuscleWikiOverrides = "fitlog.formGuideMuscleWikiOverrides"
     }
 
     private let defaults: UserDefaults
@@ -227,6 +228,11 @@ final class UserPreferences: ObservableObject {
         didSet { defaults.set(formGuideAngle.rawValue, forKey: Keys.formGuideAngle) }
     }
 
+    /// User-selected MuscleWiki exercise id per FitLog exercise (wrong-video corrections).
+    private var formGuideMuscleWikiOverridesStorage: [String: Int] {
+        didSet { defaults.set(formGuideMuscleWikiOverridesStorage, forKey: Keys.formGuideMuscleWikiOverrides) }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         if let raw = defaults.string(forKey: Keys.weightUnit),
@@ -259,6 +265,22 @@ final class UserPreferences: ObservableObject {
         } else {
             _formGuideAngle = Published(initialValue: .front)
         }
+        let overrideDict = defaults.dictionary(forKey: Keys.formGuideMuscleWikiOverrides) as? [String: Int] ?? [:]
+        formGuideMuscleWikiOverridesStorage = overrideDict
+    }
+
+    func formGuideMuscleWikiOverride(for exerciseId: UUID) -> Int? {
+        formGuideMuscleWikiOverridesStorage[exerciseId.uuidString]
+    }
+
+    func setFormGuideMuscleWikiOverride(_ muscleWikiId: Int?, for exerciseId: UUID) {
+        var copy = formGuideMuscleWikiOverridesStorage
+        if let muscleWikiId {
+            copy[exerciseId.uuidString] = muscleWikiId
+        } else {
+            copy.removeValue(forKey: exerciseId.uuidString)
+        }
+        formGuideMuscleWikiOverridesStorage = copy
     }
 
     func markOnboardingComplete() {

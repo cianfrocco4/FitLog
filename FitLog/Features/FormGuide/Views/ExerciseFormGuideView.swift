@@ -10,7 +10,8 @@ import SwiftUI
 struct ExerciseFormGuideCompactView: View {
     let exercise: Exercise
     var height: CGFloat = 120
-    var shouldAutoPlay: Bool = true
+    /// When false, shows a thumbnail / button until the user opts in (avoids autoplay + audio route).
+    var shouldAutoPlay: Bool = false
     var onTap: (() -> Void)?
 
     @Environment(ExerciseFormGuideService.self) private var formGuideService
@@ -20,6 +21,7 @@ struct ExerciseFormGuideCompactView: View {
     @State private var guide: ExerciseFormGuide?
     @State private var isLoading = false
     @State private var loadError: String?
+    @State private var showInlineVideo = false
 
     private var serviceLoadState: ExerciseFormGuideLoadState {
         formGuideService.loadState(for: exercise.id)
@@ -35,34 +37,55 @@ struct ExerciseFormGuideCompactView: View {
                 gender: userPreferences.formGuideGender,
                 angle: userPreferences.formGuideAngle
             ) {
-                Button {
-                    onTap?()
-                } label: {
-                    ZStack(alignment: .bottomLeading) {
-                        ExerciseFormVideoPlayer(
-                            video: video,
-                            requestHeaders: formGuideService.streamRequestHeaders(),
-                            shouldAutoPlay: shouldAutoPlay && !reduceMotion
-                        )
-                        .frame(maxWidth: .infinity)
-                        .frame(height: height)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                VStack(alignment: .leading, spacing: 8) {
+                    if showInlineVideo || (shouldAutoPlay && !reduceMotion) {
+                        ZStack(alignment: .bottomLeading) {
+                            ExerciseFormVideoPlayer(
+                                video: video,
+                                requestHeaders: formGuideService.streamRequestHeaders(),
+                                shouldAutoPlay: true
+                            )
+                            .frame(maxWidth: .infinity)
+                            .frame(height: height)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-                        HStack(spacing: 6) {
-                            Image(systemName: "figure.strengthtraining.traditional")
-                            Text("Form guide")
-                                .font(.caption.weight(.semibold))
+                            HStack(spacing: 6) {
+                                Image(systemName: "figure.strengthtraining.traditional")
+                                Text("Form guide")
+                                    .font(.caption.weight(.semibold))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(.black.opacity(0.45), in: Capsule())
+                            .padding(10)
                         }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(.black.opacity(0.45), in: Capsule())
-                        .padding(10)
+                    } else {
+                        formGuideThumbnailButton(video: video, guide: resolvedGuide)
+                    }
+                    HStack(spacing: 8) {
+                        if !showInlineVideo && !(shouldAutoPlay && !reduceMotion) {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    showInlineVideo = true
+                                }
+                            } label: {
+                                Label("Show form video", systemImage: "play.circle")
+                                    .font(.caption.weight(.semibold))
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .accessibilityHint("Plays a muted demonstration without interrupting your music")
+                        }
+                        if onTap != nil {
+                            Button("Full guide") {
+                                onTap?()
+                            }
+                            .font(.caption.weight(.semibold))
+                            .accessibilityHint("Opens the full form guide sheet")
+                        }
                     }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Form guide for \(exercise.name)")
-                .accessibilityHint("Double tap to open full form guide")
             } else if let resolvedGuide, onTap != nil {
                 Button {
                     onTap?()
@@ -104,6 +127,45 @@ struct ExerciseFormGuideCompactView: View {
         .onChange(of: serviceLoadState) { _, newState in
             syncFromServiceLoadState(newState)
         }
+    }
+
+    @ViewBuilder
+    private func formGuideThumbnailButton(video: ExerciseFormGuideVideo, guide: ExerciseFormGuide) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showInlineVideo = true
+            }
+        } label: {
+            ZStack {
+                if let imageURL = video.ogImageURL {
+                    AsyncImage(url: imageURL) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image.resizable().scaledToFill()
+                        default:
+                            Color.secondary.opacity(0.15)
+                        }
+                    }
+                } else {
+                    Color.secondary.opacity(0.12)
+                    Image(systemName: "figure.strengthtraining.traditional")
+                        .font(.largeTitle)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(alignment: .center) {
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 40))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, .black.opacity(0.35))
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Show form video for \(guide.title)")
+        .accessibilityHint("Plays a muted demonstration")
     }
 
     private func stepsOnlyPlaceholder(for guide: ExerciseFormGuide) -> some View {
@@ -230,12 +292,16 @@ struct ExerciseFormGuideSheet: View {
     @State private var selectedAngle: FormGuideAngle = .front
     @State private var selectedGender: FormGuideGender = .male
     @State private var selectedTipIndex = 0
+    @State private var showAlternativesPicker = false
+    @State private var alternativeCandidates: [MuscleWikiExercisePayload] = []
+    @State private var alternativesLoading = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     videoSection
+                    wrongVideoAlternativesSection
                     keyCueSection
                     tipsCarouselSection
                     stepsSection
@@ -256,7 +322,80 @@ struct ExerciseFormGuideSheet: View {
             }
             .sensoryFeedback(.selection, trigger: selectedAngle)
             .sensoryFeedback(.selection, trigger: selectedGender)
+            .sheet(isPresented: $showAlternativesPicker) {
+                formGuideAlternativesPicker
+            }
         }
+    }
+
+    @ViewBuilder
+    private var wrongVideoAlternativesSection: some View {
+        if formGuideService.isConfigured {
+            Button {
+                Task { await loadAlternativeCandidates() }
+            } label: {
+                Label("Wrong video? Choose another", systemImage: "arrow.triangle.swap")
+                    .font(.subheadline.weight(.medium))
+            }
+            .disabled(alternativesLoading)
+            .accessibilityHint("Search similar demonstrations and save your preferred match")
+            if alternativesLoading {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+    }
+
+    private var formGuideAlternativesPicker: some View {
+        NavigationStack {
+            List(alternativeCandidates, id: \.id) { candidate in
+                Button {
+                    applyAlternativeSelection(candidate)
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(candidate.name)
+                            .font(.body.weight(.medium))
+                        if candidate.videos?.isEmpty == false {
+                            Text("Has demonstration video")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Similar exercises")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showAlternativesPicker = false }
+                }
+            }
+            .overlay {
+                if alternativeCandidates.isEmpty {
+                    ContentUnavailableView(
+                        "No alternatives",
+                        systemImage: "video.slash",
+                        description: Text("Try again later or check your connection.")
+                    )
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func loadAlternativeCandidates() async {
+        alternativesLoading = true
+        defer { alternativesLoading = false }
+        let query = ExerciseFormGuideMapper.searchQuery(for: exercise)
+        alternativeCandidates = (try? await formGuideService.searchAlternativeCandidates(query: query)) ?? []
+        showAlternativesPicker = true
+    }
+
+    private func applyAlternativeSelection(_ candidate: MuscleWikiExercisePayload) {
+        userPreferences.setFormGuideMuscleWikiOverride(candidate.id, for: exercise.id)
+        formGuideService.invalidateGuide(for: exercise.id)
+        showAlternativesPicker = false
+        Task { await loadContent() }
     }
 
     @ViewBuilder

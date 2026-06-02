@@ -107,6 +107,7 @@ final class DataManager {
         preloadCardioExerciseLibraryIfNeeded()
 
         migrateLegacyCustomExercises()
+        backfillStrengthExerciseMetadataIfNeeded()
         migrateWorkoutsToUnifiedSlotsIfNeeded()
         migrateCardioSchemaIfNeeded()
         repairSessionConcreteSnapshotsIfNeeded()
@@ -1280,7 +1281,28 @@ final class DataManager {
             Exercise(id: UUID(), name: "Russian Twist", description: "Weighted or bodyweight twist", targetedMuscles: [MG.obliques]),
             Exercise(id: UUID(), name: "Cable Crunch", description: "Kneeling cable crunch", targetedMuscles: [MG.abs])
         ]
+        for index in globalExercises.indices {
+            StrengthExerciseMetadataCatalog.apply(to: &globalExercises[index])
+        }
         saveExercises()
+    }
+
+    private func backfillStrengthExerciseMetadataIfNeeded() {
+        let key = "fitlog.strengthExerciseMetadataV1"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        var changed = false
+        for index in globalExercises.indices {
+            guard globalExercises[index].modality == .strength, !globalExercises[index].isCustom else { continue }
+            let beforeRole = globalExercises[index].exerciseRole
+            let beforePattern = globalExercises[index].movementPattern
+            StrengthExerciseMetadataCatalog.apply(to: &globalExercises[index])
+            if globalExercises[index].exerciseRole != beforeRole
+                || globalExercises[index].movementPattern != beforePattern {
+                changed = true
+            }
+        }
+        if changed { saveExercises() }
+        UserDefaults.standard.set(true, forKey: key)
     }
 
     // MARK: - Sessions

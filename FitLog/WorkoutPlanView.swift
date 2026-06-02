@@ -147,6 +147,7 @@ struct WorkoutPlanView: View {
             }
         }
         .navigationTitle(workout.name)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarLeading) {
                 if let onDone = creationFlowOnDone {
@@ -171,15 +172,16 @@ struct WorkoutPlanView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(isThisLibrarySessionActive ? .red : .green)
                 .disabled(!isThisLibrarySessionActive && workout.exercises.isEmpty)
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Rename") {
-                    newWorkoutName = workout.name
-                    showRenameAlert = true
-                }
+                .accessibilityLabel(isThisLibrarySessionActive ? "Stop workout" : "Start workout")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    Button {
+                        newWorkoutName = workout.name
+                        showRenameAlert = true
+                    } label: {
+                        Label("Rename", systemImage: "pencil")
+                    }
                     Picker("View", selection: $displayOrder) {
                         ForEach(ExerciseDisplayOrder.allCases, id: \.self) { order in
                             Text(order.rawValue).tag(order)
@@ -187,10 +189,13 @@ struct WorkoutPlanView: View {
                     }
                     .pickerStyle(.inline)
                 } label: {
-                    Label("View", systemImage: "line.3.horizontal.decrease.circle")
+                    Image(systemName: "ellipsis.circle")
                 }
+                .accessibilityLabel("Workout options")
+                .accessibilityHint("Rename workout or change exercise list view")
             }
         }
+        .workoutBottomScrollClearance()
         .sheet(item: $addExercisePresentation) { mode in
             switch mode {
             case .quickAdd:

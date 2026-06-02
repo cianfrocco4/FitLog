@@ -76,6 +76,7 @@ struct FitLogApp: App {
                         .environmentObject(dayMonitor)
                         .environmentObject(userPreferences)
                         .onAppear {
+                            formGuideService.userPreferences = userPreferences
                             dataVM.healthSyncStatusMessage = dataVM.healthSyncService.statusMessage
                             dataVM.publishIntentExerciseLibrary()
                             currentVM.processPendingIntentActions()

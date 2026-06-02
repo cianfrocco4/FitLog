@@ -14,42 +14,59 @@ struct WorkoutExercisePillStrip: View {
     let displayName: (WorkoutExercise) -> String
     let isExerciseCompleted: (ExerciseLog) -> Bool
     let isExerciseActive: (ExerciseLog) -> Bool
-    /// When set (e.g. sheet expanded to `.large`), called after the user picks a pill.
+    let supersetLetter: (ExerciseLog) -> String?
     var onSelectExercise: ((Int) -> Void)? = nil
+    var onAddExercise: (() -> Void)? = nil
+    var onQuickSwap: ((Int) -> Void)? = nil
+    var onToggleSuperset: ((Int) -> Void)? = nil
+    var onMarkCompleted: ((Int) -> Void)? = nil
+    var onRemoveExercise: ((Int) -> Void)? = nil
 
     var body: some View {
-        if logs.count >= 2 {
-            VStack(spacing: 4) {
-                ScrollViewReader { proxy in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            ForEach(Array(logs.enumerated()), id: \.element.id) { index, log in
-                                exercisePill(index: index, log: log)
-                                    .id(log.id)
+        VStack(spacing: 4) {
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(Array(logs.enumerated()), id: \.element.id) { index, log in
+                            exercisePill(index: index, log: log)
+                                .id(log.id)
+                        }
+                        if let onAddExercise {
+                            Button(action: onAddExercise) {
+                                Label("Add", systemImage: "plus")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(Color.accentColor)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(Color.accentColor.opacity(0.12))
+                                    .clipShape(Capsule())
                             }
-                        }
-                        .padding(.horizontal)
-                    }
-                    .onChange(of: expandedExerciseIndex) { _, newIdx in
-                        guard let idx = newIdx,
-                              idx < logs.count else { return }
-                        let targetId = logs[idx].id
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            proxy.scrollTo(targetId, anchor: .center)
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Add exercise")
+                            .accessibilityHint("Opens the exercise picker")
                         }
                     }
+                    .padding(.horizontal)
                 }
-                if activeExerciseIdsCount > 1 {
-                    Text("Blue pills = superset. Rest starts after the last exercise in the group.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal)
+                .onChange(of: expandedExerciseIndex) { _, newIdx in
+                    guard let idx = newIdx,
+                          idx < logs.count else { return }
+                    let targetId = logs[idx].id
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        proxy.scrollTo(targetId, anchor: .center)
+                    }
                 }
             }
-            .padding(.vertical, 6)
+            if activeExerciseIdsCount > 1 {
+                Text("Blue outline = superset round. Rest after the last letter in the group.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal)
+            }
         }
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder
@@ -60,24 +77,32 @@ struct WorkoutExercisePillStrip: View {
         let done = log.loggedSets.count
         let isPlaceholder = log.workoutExercise.isSlotPlaceholder
         let isCompleted = isExerciseCompleted(log)
-        let inSuperset = isExerciseActive(log)
+        let inSuperset = isExerciseActive(log) && activeExerciseIdsCount > 1
+        let letter = supersetLetter(log)
 
         Button {
-            let newSelection: Int? = isSelected ? nil : index
             withAnimation(.easeInOut(duration: 0.2)) {
-                expandedExerciseIndex = newSelection
+                expandedExerciseIndex = index
             }
-            if newSelection != nil {
-                onSelectExercise?(index)
-            }
+            onSelectExercise?(index)
         } label: {
             HStack(spacing: 4) {
+                if let letter {
+                    Text(letter)
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.blue)
+                        .frame(minWidth: 16)
+                }
                 Text(name)
                     .font(.caption.weight(isSelected ? .semibold : .regular))
                     .lineLimit(1)
                 if isPlaceholder {
                     Image(systemName: "square.dashed")
                         .font(.caption2)
+                } else if isCompleted {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(isSelected ? Color.white.opacity(0.9) : Color.green)
                 } else if rec > 0 {
                     Text("\(done)/\(rec)")
                         .font(.caption2.weight(.medium))
@@ -87,7 +112,7 @@ struct WorkoutExercisePillStrip: View {
                         .font(.caption2.weight(.medium))
                         .monospacedDigit()
                 }
-                if rec > 0 || done > 0 {
+                if !isCompleted, rec > 0 || done > 0 {
                     pillProgressDots(done: done, target: max(rec, done), isSelected: isSelected)
                 }
             }
@@ -100,12 +125,29 @@ struct WorkoutExercisePillStrip: View {
                 Capsule()
                     .strokeBorder(inSuperset && !isSelected ? Color.blue.opacity(0.55) : Color.clear, lineWidth: 1.5)
             )
-            .opacity(isCompleted ? 0.55 : 1)
+            .opacity(isCompleted && !isSelected ? 0.55 : 1)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityPillLabel(name: name, done: done, rec: rec, isPlaceholder: isPlaceholder))
-        .accessibilityHint(isSelected ? "Double tap to collapse this exercise" : "Double tap to expand and log sets")
-        .accessibilityAddTraits(.isButton)
+        .contextMenu {
+            if log.workoutExercise.exerciseId != nil, let onQuickSwap {
+                Button("Quick swap", systemImage: "arrow.left.arrow.right") { onQuickSwap(index) }
+            }
+            if log.workoutExercise.exerciseId != nil, let onToggleSuperset {
+                Button(
+                    inSuperset ? "Remove from superset" : "Add to superset",
+                    systemImage: "bolt.horizontal"
+                ) { onToggleSuperset(index) }
+            }
+            if log.workoutExercise.exerciseId != nil, !isCompleted, let onMarkCompleted {
+                Button("Mark done", systemImage: "checkmark.circle") { onMarkCompleted(index) }
+            }
+            if let onRemoveExercise {
+                Button("Remove", systemImage: "trash", role: .destructive) { onRemoveExercise(index) }
+            }
+        }
+        .accessibilityLabel(accessibilityPillLabel(name: name, done: done, rec: rec, isPlaceholder: isPlaceholder, letter: letter))
+        .accessibilityHint(isSelected ? "Currently selected exercise" : "Double tap to log sets for this exercise")
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
     private func pillProgressDots(done: Int, target: Int, isSelected: Bool) -> some View {
@@ -120,11 +162,14 @@ struct WorkoutExercisePillStrip: View {
         .accessibilityHidden(true)
     }
 
-    private func accessibilityPillLabel(name: String, done: Int, rec: Int, isPlaceholder: Bool) -> String {
-        if isPlaceholder { return "\(name), unresolved slot" }
-        if rec > 0 { return "\(name), \(done) of \(rec) sets" }
-        if done > 0 { return "\(name), \(done) sets logged" }
-        return name
+    private func accessibilityPillLabel(name: String, done: Int, rec: Int, isPlaceholder: Bool, letter: String?) -> String {
+        var parts: [String] = []
+        if let letter { parts.append("Superset \(letter)") }
+        parts.append(name)
+        if isPlaceholder { parts.append("unresolved slot") }
+        else if rec > 0 { parts.append("\(done) of \(rec) sets") }
+        else if done > 0 { parts.append("\(done) sets logged") }
+        return parts.joined(separator: ", ")
     }
 
     private func abbreviatedName(for we: WorkoutExercise) -> String {
@@ -147,10 +192,12 @@ struct WorkoutExercisePillStrip: View {
             WorkoutExercisePillStrip(
                 logs: [],
                 expandedExerciseIndex: $expanded,
-                activeExerciseIdsCount: 1,
+                activeExerciseIdsCount: 2,
                 displayName: { $0.snapshot?.nameAtTimeOfLog ?? "Exercise" },
                 isExerciseCompleted: { _ in false },
-                isExerciseActive: { _ in true }
+                isExerciseActive: { _ in true },
+                supersetLetter: { _ in "A" },
+                onAddExercise: {}
             )
         }
     }

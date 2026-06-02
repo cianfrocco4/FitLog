@@ -10,6 +10,7 @@ import SwiftUI
 struct CurrentWorkoutCollapsedBar: View {
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @Environment(DataManager.self) var dataVM
+    @Environment(\.workoutChromeMetrics) private var chromeMetrics
     @Environment(\.openCurrentWorkoutSheet) private var openSheet
 
     @State private var showSwipeHint = true
@@ -130,6 +131,13 @@ struct CurrentWorkoutCollapsedBar: View {
         }
         .shadow(color: .black.opacity(0.12), radius: 6, y: -2)
         .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { height in
+            if height > 0 {
+                chromeMetrics.collapsedBarHeight = height
+            }
+        }
         .onAppear {
             showSwipeHint = true
             scheduleSwipeHintDismissal()
