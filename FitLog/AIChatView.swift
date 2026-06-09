@@ -234,7 +234,7 @@ struct AIChatView: View {
 
     private var introBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Ask about your plan, workouts, exercises, or recent training. I only help with FitLog-related strength training—not medical advice, general chat, or unrelated topics.")
+            Text("Ask about your plan, workouts, exercises, or recent training. I only help with \(AppBrand.name)-related strength training—not medical advice, general chat, or unrelated topics.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             Text("Not medical advice. AI can be wrong—verify important changes.")

@@ -273,7 +273,7 @@ enum DynamicProgramMapper {
         let sessions = min(max(1, structured.sessionsPerWeek), 7)
         let preferred = structured.preferredWeekdays.filter { $0 >= 1 && $0 <= 7 }.sorted()
         return WorkoutSplitProposal(
-            rationale: "Built from FitLog’s local rotation presets (no AI). You can edit templates after saving.",
+            rationale: "Built from \(AppBrand.name)’s built-in rotation presets (no AI). You can edit templates after saving.",
             sessionsPerWeek: sessions,
             preferredWeekdays: preferred,
             workouts: workouts

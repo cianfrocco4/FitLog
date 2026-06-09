@@ -10,7 +10,7 @@ import AppIntents
 
 struct StartWorkoutIntent: AppIntent {
     static var title: LocalizedStringResource = "Start Workout"
-    static var description = IntentDescription("Begin a new workout session in FitLog")
+    static var description = IntentDescription("Begin a new workout session in The Workout Log")
     static var openAppWhenRun: Bool = true
 
     @Parameter(title: "Workout Name", description: "Optional workout template name")

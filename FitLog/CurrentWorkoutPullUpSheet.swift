@@ -430,10 +430,6 @@ struct CurrentWorkoutPullUpSheet: View {
         return primaryExerciseLogIndex ?? 0
     }
 
-    private func shouldSkipInFocusNavigation(_ log: ExerciseLog) -> Bool {
-        isExerciseCompleted(log) && !isExerciseActive(log)
-    }
-
     private func nextFocusIndex(after index: Int, logs: [ExerciseLog]) -> Int? {
         guard let session = currentVM.currentSession else { return nil }
         if isSupersetLoggingContext(exerciseIndex: index),
@@ -446,10 +442,8 @@ struct CurrentWorkoutPullUpSheet: View {
                 return nextIdx
             }
         }
-        for i in (index + 1)..<logs.count where !shouldSkipInFocusNavigation(logs[i]) {
-            return i
-        }
-        return nil
+        let next = index + 1
+        return logs.indices.contains(next) ? next : nil
     }
 
     private func previousFocusIndex(before index: Int, logs: [ExerciseLog]) -> Int? {
@@ -464,10 +458,8 @@ struct CurrentWorkoutPullUpSheet: View {
                 return prevIdx
             }
         }
-        for i in stride(from: index - 1, through: 0, by: -1) where !shouldSkipInFocusNavigation(logs[i]) {
-            return i
-        }
-        return nil
+        let prev = index - 1
+        return prev >= 0 ? prev : nil
     }
 
     private func advanceFocusedExercise(by delta: Int) {

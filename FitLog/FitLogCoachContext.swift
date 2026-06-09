@@ -26,7 +26,7 @@ extension DataManager {
         }()
 
         var lines: [String] = []
-        lines.append("# FitLog snapshot")
+        lines.append("# \(AppBrand.name) snapshot")
         lines.append("Generated (device local date): \(today.formatted(date: .abbreviated, time: .omitted))")
         lines.append("")
         lines.append("## Today’s plan (from calendar)")

@@ -745,6 +745,11 @@ struct DayPlanSheet: View {
 
     @State private var swapPlanRef: WorkoutPlanRef?
     @State private var pendingWorkoutReplace: PendingWorkoutReplace?
+    @State private var showMoveWorkoutPicker = false
+    @State private var moveTargetDate = Date()
+    @State private var showMoveReplaceConfirm = false
+    @State private var pendingMoveTargetDate: Date?
+    @State private var moveWorkoutFeedbackSerial = 0
 
     private var calendar: Calendar { .current }
     private var dayKey: String { TrainingProgramState.dayKey(for: date, calendar: calendar) }
@@ -860,6 +865,15 @@ struct DayPlanSheet: View {
                         Button("Use default plan") {
                             dataVM.clearTrainingDayOverride(dayKey: dayKey)
                         }
+
+                        if case .workout = dataVM.resolvedScheduleDay(for: date, calendar: calendar) {
+                            Button("Move to another day…") {
+                                let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date())) ?? date
+                                moveTargetDate = max(tomorrow, calendar.startOfDay(for: date))
+                                showMoveWorkoutPicker = true
+                            }
+                            .accessibilityHint("Reschedules this workout to a different day and marks this day as rest.")
+                        }
                     }
                 }
 
@@ -897,8 +911,113 @@ struct DayPlanSheet: View {
                     swapPlanRef = nil
                 }
             }
+            .sheet(isPresented: $showMoveWorkoutPicker) {
+                moveWorkoutDatePickerSheet
+            }
+            .confirmationDialog(
+                "Replace existing workout?",
+                isPresented: $showMoveReplaceConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Replace and move", role: .destructive) {
+                    if let target = pendingMoveTargetDate {
+                        performMoveWorkout(to: target)
+                    }
+                    pendingMoveTargetDate = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingMoveTargetDate = nil
+                }
+            } message: {
+                if let target = pendingMoveTargetDate {
+                    Text(moveReplaceConfirmationMessage(for: target))
+                }
+            }
+            .sensoryFeedback(.success, trigger: moveWorkoutFeedbackSerial)
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private var moveWorkoutDatePickerSheet: some View {
+        let todayStart = calendar.startOfDay(for: Date())
+        let sourceStart = calendar.startOfDay(for: date)
+        return NavigationStack {
+            Form {
+                if case .workout(let ref) = dataVM.resolvedScheduleDay(for: date, calendar: calendar) {
+                    Section {
+                        Text("Move \(dataVM.planLabel(for: ref)) from this day to another date. This day becomes a rest day.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("This is a one-off day swap for this week—it does not permanently reorder your program rotation.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                Section("New day") {
+                    DatePicker(
+                        "Target date",
+                        selection: $moveTargetDate,
+                        in: todayStart...,
+                        displayedComponents: .date
+                    )
+                    .datePickerStyle(.graphical)
+                    .accessibilityLabel("Target date for moved workout")
+                }
+            }
+            .navigationTitle("Move workout")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showMoveWorkoutPicker = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Move") {
+                        requestMoveWorkout(to: moveTargetDate, sourceStart: sourceStart)
+                    }
+                    .disabled(calendar.isDate(moveTargetDate, inSameDayAs: sourceStart))
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func requestMoveWorkout(to targetDate: Date, sourceStart: Date) {
+        guard !calendar.isDate(targetDate, inSameDayAs: sourceStart) else { return }
+        if targetDayHasWorkout(targetDate) {
+            pendingMoveTargetDate = targetDate
+            showMoveReplaceConfirm = true
+        } else {
+            performMoveWorkout(to: targetDate)
+        }
+    }
+
+    private func targetDayHasWorkout(_ targetDate: Date) -> Bool {
+        if case .workout = dataVM.resolvedScheduleDay(for: targetDate, calendar: calendar) {
+            return true
+        }
+        return false
+    }
+
+    private func moveReplaceConfirmationMessage(for targetDate: Date) -> String {
+        let label: String
+        switch dataVM.resolvedScheduleDay(for: targetDate, calendar: calendar) {
+        case .workout(let ref):
+            label = dataVM.planLabel(for: ref)
+        default:
+            label = "the existing assignment"
+        }
+        let dateText = targetDate.formatted(date: .abbreviated, time: .omitted)
+        return "\(dateText) already has \(label). Moving here will replace that assignment."
+    }
+
+    private func performMoveWorkout(to targetDate: Date) {
+        guard case .workout(let ref) = dataVM.resolvedScheduleDay(for: date, calendar: calendar) else { return }
+        let targetKey = TrainingProgramState.dayKey(for: targetDate, calendar: calendar)
+        dataVM.setTrainingDayOverride(dayKey: targetKey, intent: .workout, planRef: ref)
+        dataVM.setTrainingDayOverride(dayKey: dayKey, intent: .rest)
+        moveWorkoutFeedbackSerial += 1
+        showMoveWorkoutPicker = false
+        dismiss()
     }
 
     private func dynamicProgramBusyPolicyFootnote(_ policy: BusyDayPolicy) -> String {

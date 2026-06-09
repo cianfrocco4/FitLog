@@ -10,7 +10,7 @@ import AppIntents
 
 struct LogSetIntent: AppIntent {
     static var title: LocalizedStringResource = "Log Set"
-    static var description = IntentDescription("Log a set for the current exercise in FitLog")
+    static var description = IntentDescription("Log a set for the current exercise in The Workout Log")
     static var openAppWhenRun: Bool = true
 
     @Parameter(title: "Exercise", description: "Exercise name")
@@ -55,7 +55,7 @@ struct LogSetIntent: AppIntent {
             )
         )
 
-        let message = "Queued \(reps) reps at \(Int(weight)) lbs — open FitLog to apply"
+        let message = "Queued \(reps) reps at \(Int(weight)) lbs — open \(AppBrand.name) to apply"
         return .result(value: message)
     }
 }

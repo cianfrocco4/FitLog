@@ -23,6 +23,8 @@ struct WorkoutFocusedExerciseNavBar: View {
                     .font(.body.weight(.semibold))
                     .frame(minWidth: 44, minHeight: 44)
             }
+            .buttonStyle(.plain)
+            .foregroundStyle(canGoPrevious ? .primary : .tertiary)
             .disabled(!canGoPrevious)
             .accessibilityLabel("Previous exercise")
 
@@ -43,6 +45,8 @@ struct WorkoutFocusedExerciseNavBar: View {
                     .font(.body.weight(.semibold))
                     .frame(minWidth: 44, minHeight: 44)
             }
+            .buttonStyle(.plain)
+            .foregroundStyle(canGoNext ? .primary : .tertiary)
             .disabled(!canGoNext)
             .accessibilityLabel("Next exercise")
         }

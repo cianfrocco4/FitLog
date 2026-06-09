@@ -66,7 +66,7 @@ struct WorkoutCompletionSummary: Equatable, Identifiable {
         let vol = WeightStoreConversion.displayValue(storedPounds: totalVolumePounds, unit: displayUnit)
         let unit = displayUnit.shortLabel
         var lines: [String] = [
-            "FitLog — \(workoutName)",
+            "\(AppBrand.name) — \(workoutName)",
             "Duration: \(durationFormatted)",
             "Working sets: \(totalSets)",
             "Volume: \(String(format: "%.0f", vol)) \(unit)",
@@ -326,7 +326,7 @@ private struct WorkoutCompletionShareCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("FitLog")
+            Text(AppBrand.name)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.white.opacity(0.75))
             Text(summary.workoutName)

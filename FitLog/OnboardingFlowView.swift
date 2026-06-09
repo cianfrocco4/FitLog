@@ -76,7 +76,7 @@ struct OnboardingFlowView: View {
             Image(systemName: "figure.strengthtraining.traditional")
                 .font(.system(size: 56))
                 .foregroundStyle(.tint)
-            Text("Welcome to FitLog")
+            Text("Welcome to \(AppBrand.name)")
                 .font(.largeTitle.weight(.bold))
                 .multilineTextAlignment(.center)
             Text("Track strength and cardio in one place — sets, intervals, weekly trends, and Apple Health export.")

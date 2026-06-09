@@ -39,7 +39,7 @@ enum DataTransferError: LocalizedError {
         case .unreadableFile:
             return "Could not read the selected file."
         case .invalidJSON:
-            return "The JSON file is not a valid FitLog export."
+            return "The JSON file is not a valid \(AppBrand.name) export."
         case .invalidCSV:
             return "The CSV file format is invalid."
         case .emptyImport:
@@ -88,7 +88,7 @@ final class DataTransferServiceClient {
 
     func writeArchiveExportFile() throws -> URL {
         let data = try makeArchiveData()
-        let name = "FitLog-\(dateStamp()).fitlog"
+        let name = "\(AppBrand.exportFilePrefix)-\(dateStamp()).fitlog"
         let url = temporaryExportURL(fileName: name)
         try data.write(to: url, options: .atomic)
         return url
@@ -96,7 +96,7 @@ final class DataTransferServiceClient {
 
     func writeCSVExportFile() throws -> URL {
         let text = try makeSessionsCSV()
-        let name = "FitLog-Sessions-\(dateStamp()).csv"
+        let name = "\(AppBrand.exportFilePrefix)-Sessions-\(dateStamp()).csv"
         let url = temporaryExportURL(fileName: name)
         try Data(text.utf8).write(to: url, options: .atomic)
         return url

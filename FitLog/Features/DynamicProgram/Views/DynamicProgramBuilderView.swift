@@ -586,7 +586,7 @@ struct DynamicProgramBuilderView: View {
                 } footer: {
                     Text(aiService.isConfigured
                         ? "Uses your essentials and structure settings to draft a program."
-                        : "No AI configured — uses FitLog’s built-in rotation templates.")
+                        : "No AI configured — uses \(AppBrand.name)’s built-in rotation templates.")
                 }
             } else if viewModel.builderMode == .manualBuild, viewModel.generatedProgram == nil {
                 Section {

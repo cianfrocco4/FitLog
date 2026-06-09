@@ -69,9 +69,13 @@ struct ScheduleAdaptationService: Sendable {
     /// Reconciles skipped rotation keys for missed **planned** training days (mirrors `DataManager.reconcileSkippedCycleTrainingDays` intent).
     func mergeSkippedRotationKeysThroughYesterday(
         state: inout DynamicProgramState,
-        completedSessions: [WorkoutSession]
+        completedSessions: [WorkoutSession],
+        dayOverrides: [String: ScheduleDayOverride] = [:],
+        weekOverrides: [String: ScheduleWeekOverride] = [:],
+        frozenCalendarDays: [String: FrozenPlanDay] = [:],
+        asOf: Date = Date()
     ) {
-        let todayStart = calendar.startOfDay(for: Date())
+        let todayStart = calendar.startOfDay(for: asOf)
         guard let yesterday = calendar.date(byAdding: .day, value: -1, to: todayStart) else { return }
 
         var walkStart: Date
@@ -83,16 +87,31 @@ struct ScheduleAdaptationService: Sendable {
             walkStart = yesterday
         }
 
+        let scheduleEngine = TrainingScheduleEngine(calendar: calendar)
+        let overrideProgram = TrainingProgramState(
+            cycleEntries: [],
+            sessionsPerWeek: 0,
+            preferredWeekdays: [],
+            anchorDayKey: "",
+            dayOverrides: dayOverrides,
+            weekOverrides: weekOverrides
+        )
+        let context = ReconcileContext(
+            scheduleEngine: scheduleEngine,
+            overrideProgram: overrideProgram,
+            frozenCalendarDays: frozenCalendarDays
+        )
+
         var newSkips = state.skippedProgramTrainingDayKeys
         var walk = walkStart
         if walk > yesterday { return }
 
         while walk <= yesterday {
             let dk = TrainingProgramState.dayKey(for: walk, calendar: calendar)
-            let resolved = periodization.resolvedTemplateDay(on: walk, state: state)
+            let resolved = reconcileResolution(on: walk, state: state, context: context)
             let done = hasCompletedWorkout(on: walk, sessions: completedSessions)
             switch resolved {
-            case .training, .flex:
+            case .training, .flex, .manualWorkout:
                 if done {
                     newSkips.remove(dk)
                 } else {
@@ -104,6 +123,14 @@ struct ScheduleAdaptationService: Sendable {
             guard let nx = calendar.date(byAdding: .day, value: 1, to: walk) else { break }
             walk = nx
         }
+
+        applyOffDayMakeupCredits(
+            state: state,
+            completedSessions: completedSessions,
+            context: context,
+            skippedDayKeys: &newSkips
+        )
+
         state.skippedProgramTrainingDayKeys = newSkips
     }
 
@@ -127,6 +154,119 @@ struct ScheduleAdaptationService: Sendable {
     }
 
     // MARK: - Helpers
+
+    private struct ReconcileContext {
+        let scheduleEngine: TrainingScheduleEngine
+        let overrideProgram: TrainingProgramState
+        let frozenCalendarDays: [String: FrozenPlanDay]
+    }
+
+    private enum ReconcileResolution {
+        case training
+        case flex
+        case manualWorkout
+        case rest
+        case unscheduled
+    }
+
+    private func reconcileResolution(
+        on date: Date,
+        state: DynamicProgramState,
+        context: ReconcileContext
+    ) -> ReconcileResolution {
+        let dayKey = TrainingProgramState.dayKey(for: date, calendar: calendar)
+        if let frozen = context.frozenCalendarDays[dayKey] {
+            switch frozen.asResolved() {
+            case .rest:
+                return .rest
+            case .unscheduled:
+                return .unscheduled
+            case .workout:
+                return .manualWorkout
+            }
+        }
+
+        if let overridden = context.scheduleEngine.resolveOverriddenDay(date: date, program: context.overrideProgram) {
+            switch overridden {
+            case .rest:
+                return .rest
+            case .unscheduled:
+                return .unscheduled
+            case .workout:
+                return .manualWorkout
+            }
+        }
+
+        let resolved = periodization.resolvedTemplateDay(on: date, state: state)
+        switch resolved {
+        case .training:
+            return .training
+        case .flex:
+            return .flex
+        case .rest:
+            return .rest
+        case .unscheduled:
+            return .unscheduled
+        }
+    }
+
+    /// Credits off-day makeup sessions whose `sessionPlanOrigin` matches an outstanding missed planned template.
+    private func applyOffDayMakeupCredits(
+        state: DynamicProgramState,
+        completedSessions: [WorkoutSession],
+        context: ReconcileContext,
+        skippedDayKeys: inout Set<String>
+    ) {
+        let workoutToTemplate = Dictionary(
+            state.materializedTemplateWorkoutIds.map { ($1, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        guard !workoutToTemplate.isEmpty, !skippedDayKeys.isEmpty else { return }
+
+        var creditsByTemplate: [UUID: Int] = [:]
+        for session in completedSessions where session.isCompleted {
+            let completionDay = calendar.startOfDay(for: session.endTime ?? session.startTime)
+            let resolution = reconcileResolution(on: completionDay, state: state, context: context)
+            guard resolution == .rest || resolution == .unscheduled else { continue }
+            guard let origin = session.sessionPlanOrigin,
+                  case .workout(let workoutId) = origin,
+                  let templateId = workoutToTemplate[workoutId]
+            else { continue }
+            creditsByTemplate[templateId, default: 0] += 1
+        }
+
+        guard !creditsByTemplate.isEmpty else { return }
+
+        var templateIdByDayKey: [String: UUID] = [:]
+        for dayKey in skippedDayKeys.sorted() {
+            guard let date = TrainingProgramState.date(fromDayKey: dayKey, calendar: calendar),
+                  let templateId = plannedTemplateId(on: date, state: state)
+            else { continue }
+            templateIdByDayKey[dayKey] = templateId
+        }
+
+        for dayKey in skippedDayKeys.sorted() {
+            guard let templateId = templateIdByDayKey[dayKey],
+                  let remaining = creditsByTemplate[templateId], remaining > 0
+            else { continue }
+            skippedDayKeys.remove(dayKey)
+            creditsByTemplate[templateId] = remaining - 1
+        }
+    }
+
+    /// Template that was planned on a training day, evaluated as if that day were not skipped.
+    private func plannedTemplateId(on date: Date, state: DynamicProgramState) -> UUID? {
+        let dayKey = TrainingProgramState.dayKey(for: date, calendar: calendar)
+        var probe = state
+        probe.skippedProgramTrainingDayKeys.remove(dayKey)
+        let resolved = periodization.resolvedTemplateDay(on: date, state: probe)
+        switch resolved {
+        case .training(let template), .flex(let template):
+            return template.id
+        case .rest, .unscheduled:
+            return nil
+        }
+    }
 
     private func hasCompletedWorkout(on day: Date, sessions: [WorkoutSession]) -> Bool {
         sessions.contains { session in

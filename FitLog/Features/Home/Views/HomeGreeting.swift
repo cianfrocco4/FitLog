@@ -58,6 +58,6 @@ enum HomeGreeting {
 
     static func navigationTitle(firstName: String?) -> String {
         if let firstName, !firstName.isEmpty { return firstName }
-        return "FitLog"
+        return AppBrand.name
     }
 }

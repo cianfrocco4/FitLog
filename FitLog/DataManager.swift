@@ -1962,6 +1962,52 @@ final class DataManager {
         p.cyclePhaseOffset = ((p.cyclePhaseOffset % n) + n) % n
     }
 
+    /// Missed planned workouts still outstanding in rotation order (oldest first).
+    struct OutstandingMissedMakeup: Equatable, Identifiable, Sendable {
+        let dayKey: String
+        let missedDate: Date
+        let planRef: WorkoutPlanRef
+        let workout: Workout
+        let templateLabel: String
+
+        var id: String { dayKey }
+    }
+
+    /// Planned workouts the user missed that have not yet been credited (including via off-day makeup).
+    func outstandingMissedMakeups(calendar: Calendar = .current, limit: Int = .max) -> [OutstandingMissedMakeup] {
+        guard let dyn = dynamicProgramState, limit > 0 else { return [] }
+        let cal = calendar
+        let pe = PeriodizationEngine(calendar: cal)
+        var results: [OutstandingMissedMakeup] = []
+
+        for dayKey in dyn.skippedProgramTrainingDayKeys.sorted() {
+            if results.count >= limit { break }
+            guard let date = TrainingProgramState.date(fromDayKey: dayKey, calendar: cal) else { continue }
+            var probe = dyn
+            probe.skippedProgramTrainingDayKeys.remove(dayKey)
+            let resolved = pe.resolvedTemplateDay(on: date, state: probe)
+            let template: BlockWeeklyTemplate?
+            switch resolved {
+            case .training(let t), .flex(let t):
+                template = t
+            case .rest, .unscheduled:
+                template = nil
+            }
+            guard let template,
+                  let workoutId = dyn.materializedTemplateWorkoutIds[template.id],
+                  let workout = userWorkouts.first(where: { $0.id == workoutId })
+            else { continue }
+            results.append(OutstandingMissedMakeup(
+                dayKey: dayKey,
+                missedDate: date,
+                planRef: .workout(workoutId),
+                workout: workout,
+                templateLabel: template.dayName
+            ))
+        }
+        return results
+    }
+
     /// Marks past days where a workout was planned but nothing was logged so the rotation does not stay stuck on missed sessions.
     func reconcileSkippedCycleTrainingDays(calendar: Calendar = .current) {
         let cal = calendar
@@ -1991,7 +2037,13 @@ final class DataManager {
                 }
             }
 
-            adapter.mergeSkippedRotationKeysThroughYesterday(state: &dyn, completedSessions: completedSessions)
+            adapter.mergeSkippedRotationKeysThroughYesterday(
+                state: &dyn,
+                completedSessions: completedSessions,
+                dayOverrides: trainingProgram.dayOverrides,
+                weekOverrides: trainingProgram.weekOverrides,
+                frozenCalendarDays: trainingProgram.frozenCalendarDays
+            )
             dynamicProgramState = dyn
             syncTrainingProgramFromDynamicProgram(calendar: cal)
             saveTrainingProgram()
@@ -2009,6 +2061,7 @@ final class DataManager {
             return
         }
 
+        // Legacy (non-dynamic) programs: same-calendar-day completion only; no off-day makeup crediting.
         let todayStart = cal.startOfDay(for: Date())
         guard let yesterday = cal.date(byAdding: .day, value: -1, to: todayStart) else { return }
 

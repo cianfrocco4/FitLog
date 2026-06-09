@@ -62,7 +62,7 @@ struct FitLogRecoverySheet: View {
                     let ok = onRestoreFromFile(url)
                     isRestoring = false
                     if !ok {
-                        restoreError = "Could not restore from the selected file. Choose a valid FitLog .fitlog or .json export."
+                        restoreError = "Could not restore from the selected file. Choose a valid \(AppBrand.name) .fitlog or .json export."
                     }
                 }
             case .failure:
@@ -80,10 +80,10 @@ struct FitLogRecoverySheet: View {
                 .font(.system(size: 56))
                 .foregroundStyle(.orange)
                 .accessibilityHidden(true)
-            Text("FitLog could not open your data")
+            Text("\(AppBrand.name) could not open your data")
                 .font(.title2.bold())
                 .multilineTextAlignment(.center)
-            Text("A database upgrade failed. “Restore from latest” loads the newest automatic JSON backup (V1→V2 export, unified-slots export, or the periodic backup FitLog writes when you use the app). Typical restore finishes in a few seconds; if nothing is found, you’ll see a message below.")
+            Text("A database upgrade failed. “Restore from latest” loads the newest automatic JSON backup (V1→V2 export, unified-slots export, or the periodic backup \(AppBrand.name) writes when you use the app). Typical restore finishes in a few seconds; if nothing is found, you’ll see a message below.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -165,7 +165,7 @@ struct FitLogRecoverySheet: View {
             .controlSize(.large)
             .sensoryFeedback(.warning, trigger: showResetConfirm)
             .accessibilityLabel("Reset and continue")
-            .accessibilityHint("Erases all workout data and opens FitLog fresh. Cannot be undone.")
+            .accessibilityHint("Erases all workout data and opens \(AppBrand.name) fresh. Cannot be undone.")
         }
         .padding(.horizontal)
     }

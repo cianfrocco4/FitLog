@@ -32,6 +32,7 @@ struct HomeView: View {
 
     @State private var cachedTodayPlan: ResolvedScheduleDay = .unscheduled
     @State private var cachedWeekGlance: DataManager.WeekAtAGlance?
+    @State private var cachedOutstandingMakeups: [DataManager.OutstandingMissedMakeup] = []
     @State private var cachedTodayCompletedRefs: Set<String> = []
     @State private var cachedProgressSummary: HomeProgressSummary?
     @State private var cachedWeeklyRecap: DataManager.WeeklyRecapSummary?
@@ -54,7 +55,10 @@ struct HomeView: View {
         let dynSig: String = {
             guard let d = dataVM.dynamicProgramState else { return "dyn:none" }
             let shiftSig = d.blockShiftDays.map { "\($0.key.uuidString):\($0.value)" }.sorted().joined(separator: ",")
-            return "dyn:\(d.program.id.uuidString)-\(Int(d.anchorDate.timeIntervalSince1970))-\(d.materializedTemplateWorkoutIds.count)-\(d.busyDayKeys.count)-\(d.missedSessionDayKeys.count)-\(shiftSig)"
+            let busySig = d.busyDayKeys.sorted().joined(separator: ",")
+            let missedSig = d.missedSessionDayKeys.sorted().joined(separator: ",")
+            let skippedSig = d.skippedProgramTrainingDayKeys.sorted().joined(separator: ",")
+            return "dyn:\(d.program.id.uuidString)-\(Int(d.anchorDate.timeIntervalSince1970))-\(d.materializedTemplateWorkoutIds.count)-\(busySig)-\(missedSig)-\(skippedSig)-\(shiftSig)"
         }()
         return "\(dayMonitor.currentDayKey)-\(dataVM.completedSessions.count)-\(cycleSig)-\(dataVM.trainingProgram.anchorDayKey)-\(dataVM.trainingProgram.dayOverrides.count)-\(dataVM.trainingProgram.weekOverrides.count)-\(userPreferences.dismissedProgramAssignmentBanner)-\(userPreferences.dismissedCardioGetStartedBanner)-\(dynSig)"
     }
@@ -214,6 +218,7 @@ struct HomeView: View {
 
     private func refreshCachedHomeData() {
         cachedTodayPlan = dataVM.resolvedScheduleDay(for: Date(), calendar: .current)
+        cachedOutstandingMakeups = dataVM.outstandingMissedMakeups(calendar: .current, limit: 1)
         cachedWeekGlance = dataVM.weekAtAGlance(referenceDate: Date(), calendar: .current)
         cachedProgressSummary = dataVM.homeProgressSummary(referenceDate: Date(), calendar: .current)
         cachedWeeklyRecap = dataVM.weeklyRecapSummary()
@@ -1062,6 +1067,10 @@ struct HomeView: View {
                 }
             }
 
+            if let makeup = cachedOutstandingMakeups.first, shouldShowCatchUpMakeupCard(makeup) {
+                catchUpMakeupCard(makeup)
+            }
+
             if let glance = cachedWeekGlance {
                 Divider()
                     .padding(.vertical, 2)
@@ -1072,6 +1081,48 @@ struct HomeView: View {
             }
         }
         .homeCardTier(.primary)
+    }
+
+    private func shouldShowCatchUpMakeupCard(_: DataManager.OutstandingMissedMakeup) -> Bool {
+        switch cachedTodayPlan {
+        case .rest, .unscheduled:
+            return true
+        case .workout:
+            return false
+        }
+    }
+
+    private func catchUpMakeupCard(_ makeup: DataManager.OutstandingMissedMakeup) -> some View {
+        let workout = makeup.workout
+        let ref = makeup.planRef
+        let sessionWorkout = workout.hasFlexibleSlots ? dataVM.sessionInstance(from: workout) : workout
+        let thisPlanActive = currentVM.isActiveSessionMatching(workout: sessionWorkout, planRef: ref)
+        let missedDateLabel = Self.homeDateFormatter.string(from: makeup.missedDate)
+        let subtitle = "\(workout.listDetailSubtitle) · missed \(missedDateLabel)"
+        return TodayWorkoutCard(
+            title: workout.name,
+            subtitle: subtitle,
+            isCompleted: false,
+            isThisPlanActive: thisPlanActive,
+            isAnotherWorkoutActive: currentVM.isInProgress && !thisPlanActive,
+            onStartPlanWorkout: { startWorkoutFromTodayPlan(workout) },
+            onResumeCompletedToday: {},
+            openActiveWorkout: { openCurrentWorkoutSheet?() },
+            onViewWorkoutDetail: { todayPlanDetailRoute = .plannedWorkout(workout.id) },
+            detailLabel: "View workout"
+        )
+        .overlay(alignment: .topLeading) {
+            Label("Catch up", systemImage: "arrow.uturn.backward.circle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(FitlogPalette.caution)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding(12)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Catch up on missed workout \(workout.name) from \(missedDateLabel)")
+        .accessibilityHint("Starts the planned workout you missed so your program order stays on track.")
     }
 
     @ViewBuilder

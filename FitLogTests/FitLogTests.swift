@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SwiftData
 import Testing
 @testable import FitLog
 
@@ -341,5 +342,363 @@ struct FitLogTests {
         let stats = SplitProposalProgramAnalyzer.stats(for: days)
         let warns = SplitProposalProgramAnalyzer.warnings(stats: stats, days: days)
         #expect(warns.contains { $0.message.localizedCaseInsensitiveContains("leg") })
+    }
+
+    // MARK: - Dynamic program rotation / makeup
+
+    @Test func scheduleAdaptation_onPlanCompletionsPreserveRotationOrder() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.firstWeekday = 1
+        let (anchor, mon, wed, fri, templates, workoutIds) = Self.monWedFriFixture(calendar: cal)
+        let idPush = workoutIds[0], idPull = workoutIds[1], idLegs = workoutIds[2]
+
+        var state = Self.dynamicState(
+            anchor: anchor,
+            templates: templates,
+            workoutIds: workoutIds,
+            calendar: cal
+        )
+        let adapter = ScheduleAdaptationService(calendar: cal)
+        let pe = PeriodizationEngine(calendar: cal)
+
+        let sessions = [
+            Self.completedSession(on: mon, workoutId: idPush, name: "Push", calendar: cal),
+            Self.completedSession(on: wed, workoutId: idPull, name: "Pull", calendar: cal),
+            Self.completedSession(on: fri, workoutId: idLegs, name: "Legs", calendar: cal)
+        ]
+        let nextMonday = cal.date(byAdding: .day, value: 7, to: mon)!
+        adapter.mergeSkippedRotationKeysThroughYesterday(
+            state: &state,
+            completedSessions: sessions,
+            asOf: cal.date(byAdding: .day, value: 1, to: nextMonday)!
+        )
+
+        #expect(state.skippedProgramTrainingDayKeys.isEmpty)
+        let nextIdx = pe.cycleTemplateIndex(on: nextMonday, state: state, templatesCount: 3)
+        #expect(nextIdx == 0)
+        #expect(state.materializedTemplateWorkoutIds[templates[nextIdx!].id] == idPush)
+    }
+
+    @Test func scheduleAdaptation_offDayMakeupCreditsMissedSlotAndAdvancesRotation() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.firstWeekday = 1
+        let (anchor, mon, wed, fri, templates, workoutIds) = Self.monWedFriFixture(calendar: cal)
+        let idPush = workoutIds[0], idPull = workoutIds[1], idLegs = workoutIds[2]
+        let sunday = cal.date(byAdding: .day, value: 6, to: mon)!
+        let nextMonday = cal.date(byAdding: .day, value: 7, to: mon)!
+
+        var state = Self.dynamicState(
+            anchor: anchor,
+            templates: templates,
+            workoutIds: workoutIds,
+            calendar: cal
+        )
+        let adapter = ScheduleAdaptationService(calendar: cal)
+        let pe = PeriodizationEngine(calendar: cal)
+
+        let sessions = [
+            Self.completedSession(on: mon, workoutId: idPush, name: "Push", calendar: cal),
+            Self.completedSession(on: wed, workoutId: idPull, name: "Pull", calendar: cal),
+            Self.completedSession(on: sunday, workoutId: idLegs, name: "Legs", calendar: cal, origin: idLegs)
+        ]
+        adapter.mergeSkippedRotationKeysThroughYesterday(
+            state: &state,
+            completedSessions: sessions,
+            asOf: nextMonday
+        )
+
+        let friKey = TrainingProgramState.dayKey(for: fri, calendar: cal)
+        #expect(!state.skippedProgramTrainingDayKeys.contains(friKey))
+        let nextIdx = pe.cycleTemplateIndex(on: nextMonday, state: state, templatesCount: 3)
+        #expect(nextIdx == 0)
+        #expect(state.materializedTemplateWorkoutIds[templates[nextIdx!].id] == idPush)
+    }
+
+    @Test func scheduleAdaptation_unrelatedOffDayWorkoutDoesNotCreditMissedSlot() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.firstWeekday = 1
+        let (anchor, mon, wed, fri, templates, workoutIds) = Self.monWedFriFixture(calendar: cal)
+        let idPush = workoutIds[0], idPull = workoutIds[1], idLegs = workoutIds[2]
+        let unrelatedId = UUID()
+        let sunday = cal.date(byAdding: .day, value: 6, to: mon)!
+        let nextMonday = cal.date(byAdding: .day, value: 7, to: mon)!
+
+        var state = Self.dynamicState(
+            anchor: anchor,
+            templates: templates,
+            workoutIds: workoutIds,
+            calendar: cal
+        )
+        let adapter = ScheduleAdaptationService(calendar: cal)
+        let pe = PeriodizationEngine(calendar: cal)
+
+        let sessions = [
+            Self.completedSession(on: mon, workoutId: idPush, name: "Push", calendar: cal),
+            Self.completedSession(on: wed, workoutId: idPull, name: "Pull", calendar: cal),
+            Self.completedSession(on: sunday, workoutId: unrelatedId, name: "Cardio", calendar: cal, origin: unrelatedId)
+        ]
+        adapter.mergeSkippedRotationKeysThroughYesterday(
+            state: &state,
+            completedSessions: sessions,
+            asOf: nextMonday
+        )
+
+        let friKey = TrainingProgramState.dayKey(for: fri, calendar: cal)
+        #expect(state.skippedProgramTrainingDayKeys.contains(friKey))
+        let nextIdx = pe.cycleTemplateIndex(on: nextMonday, state: state, templatesCount: 3)
+        #expect(nextIdx == 2)
+        #expect(state.materializedTemplateWorkoutIds[templates[nextIdx!].id] == idLegs)
+    }
+
+    @Test func scheduleAdaptation_manualRestOverrideDoesNotMarkDayMissed() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.firstWeekday = 1
+        let (anchor, mon, wed, fri, templates, workoutIds) = Self.monWedFriFixture(calendar: cal)
+        let idPush = workoutIds[0], idPull = workoutIds[1]
+        let nextMonday = cal.date(byAdding: .day, value: 7, to: mon)!
+        let friKey = TrainingProgramState.dayKey(for: fri, calendar: cal)
+
+        var state = Self.dynamicState(
+            anchor: anchor,
+            templates: templates,
+            workoutIds: workoutIds,
+            calendar: cal
+        )
+        let adapter = ScheduleAdaptationService(calendar: cal)
+        let dayOverrides = [friKey: ScheduleDayOverride(intent: .rest)]
+
+        let sessions = [
+            Self.completedSession(on: mon, workoutId: idPush, name: "Push", calendar: cal),
+            Self.completedSession(on: wed, workoutId: idPull, name: "Pull", calendar: cal)
+        ]
+        adapter.mergeSkippedRotationKeysThroughYesterday(
+            state: &state,
+            completedSessions: sessions,
+            dayOverrides: dayOverrides,
+            asOf: nextMonday
+        )
+
+        #expect(!state.skippedProgramTrainingDayKeys.contains(friKey))
+    }
+
+    @Test func scheduleAdaptation_duplicateWorkoutMappingDoesNotTrap() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.firstWeekday = 1
+        let (anchor, mon, wed, fri, templates, workoutIds) = Self.monWedFriFixture(calendar: cal)
+        let idPush = workoutIds[0], idPull = workoutIds[1], idLegs = workoutIds[2]
+        let nextMonday = cal.date(byAdding: .day, value: 7, to: mon)!
+
+        var state = Self.dynamicState(
+            anchor: anchor,
+            templates: templates,
+            workoutIds: workoutIds,
+            calendar: cal
+        )
+        state.materializedTemplateWorkoutIds = [
+            templates[0].id: idLegs,
+            templates[1].id: idPull,
+            templates[2].id: idLegs
+        ]
+
+        let adapter = ScheduleAdaptationService(calendar: cal)
+        let sessions = [
+            Self.completedSession(on: mon, workoutId: idPush, name: "Push", calendar: cal),
+            Self.completedSession(on: wed, workoutId: idPull, name: "Pull", calendar: cal),
+            Self.completedSession(on: fri, workoutId: idLegs, name: "Legs", calendar: cal, origin: idLegs)
+        ]
+        adapter.mergeSkippedRotationKeysThroughYesterday(
+            state: &state,
+            completedSessions: sessions,
+            asOf: nextMonday
+        )
+        #expect(state.skippedProgramTrainingDayKeys.isEmpty)
+    }
+
+    @Test func scheduleAdaptation_singleMakeupClearsExactlyOneMissedSlot() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.firstWeekday = 1
+        let (anchor, mon, wed, fri, templates, workoutIds) = Self.monWedFriFixture(calendar: cal)
+        let idPush = workoutIds[0], idPull = workoutIds[1], idLegs = workoutIds[2]
+        let friWeek2 = cal.date(byAdding: .day, value: 7, to: fri)!
+        let sundayWeek2 = cal.date(byAdding: .day, value: 2, to: friWeek2)!
+        let monWeek3 = cal.date(byAdding: .day, value: 3, to: friWeek2)!
+        let friKey1 = TrainingProgramState.dayKey(for: fri, calendar: cal)
+        let friKey2 = TrainingProgramState.dayKey(for: friWeek2, calendar: cal)
+
+        var state = Self.dynamicState(
+            anchor: anchor,
+            templates: templates,
+            workoutIds: workoutIds,
+            calendar: cal
+        )
+        let adapter = ScheduleAdaptationService(calendar: cal)
+
+        let monWeek2 = cal.date(byAdding: .day, value: 7, to: mon)!
+        let wedWeek2 = cal.date(byAdding: .day, value: 7, to: wed)!
+        let sessions = [
+            Self.completedSession(on: mon, workoutId: idPush, name: "Push", calendar: cal),
+            Self.completedSession(on: wed, workoutId: idPull, name: "Pull", calendar: cal),
+            Self.completedSession(on: monWeek2, workoutId: idPush, name: "Push", calendar: cal),
+            Self.completedSession(on: wedWeek2, workoutId: idPull, name: "Pull", calendar: cal),
+            Self.completedSession(on: sundayWeek2, workoutId: idLegs, name: "Legs", calendar: cal, origin: idLegs)
+        ]
+        adapter.mergeSkippedRotationKeysThroughYesterday(
+            state: &state,
+            completedSessions: sessions,
+            asOf: monWeek3
+        )
+
+        #expect(state.skippedProgramTrainingDayKeys.contains(friKey1) != state.skippedProgramTrainingDayKeys.contains(friKey2))
+        #expect(state.skippedProgramTrainingDayKeys.count == 1)
+    }
+
+    @Test func scheduleAdaptation_frozenRestDayIsNotMarkedMissed() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.firstWeekday = 1
+        let (anchor, mon, wed, fri, templates, workoutIds) = Self.monWedFriFixture(calendar: cal)
+        let idPush = workoutIds[0], idPull = workoutIds[1]
+        let nextMonday = cal.date(byAdding: .day, value: 7, to: mon)!
+        let friKey = TrainingProgramState.dayKey(for: fri, calendar: cal)
+
+        var state = Self.dynamicState(
+            anchor: anchor,
+            templates: templates,
+            workoutIds: workoutIds,
+            calendar: cal
+        )
+        let adapter = ScheduleAdaptationService(calendar: cal)
+        let frozen = [friKey: FrozenPlanDay(kind: .rest)]
+
+        let sessions = [
+            Self.completedSession(on: mon, workoutId: idPush, name: "Push", calendar: cal),
+            Self.completedSession(on: wed, workoutId: idPull, name: "Pull", calendar: cal)
+        ]
+        adapter.mergeSkippedRotationKeysThroughYesterday(
+            state: &state,
+            completedSessions: sessions,
+            frozenCalendarDays: frozen,
+            asOf: nextMonday
+        )
+
+        #expect(!state.skippedProgramTrainingDayKeys.contains(friKey))
+    }
+
+    @Test @MainActor func outstandingMissedMakeups_honorsLimitAndOrdering() throws {
+        var cal = Calendar(identifier: .gregorian)
+        cal.firstWeekday = 1
+        let (anchor, mon, wed, fri, templates, workoutIds) = Self.monWedFriFixture(calendar: cal)
+        let friWeek2 = cal.date(byAdding: .day, value: 7, to: fri)!
+        let friKey1 = TrainingProgramState.dayKey(for: fri, calendar: cal)
+        let friKey2 = TrainingProgramState.dayKey(for: friWeek2, calendar: cal)
+
+        var state = Self.dynamicState(
+            anchor: anchor,
+            templates: templates,
+            workoutIds: workoutIds,
+            calendar: cal
+        )
+        state.skippedProgramTrainingDayKeys = [friKey2, friKey1]
+
+        let container = try Self.makeInMemoryContainer()
+        let dm = DataManager(modelContainer: container)
+        dm.dynamicProgramState = state
+        dm.userWorkouts = [
+            Workout(id: workoutIds[0], name: "Push", exercises: []),
+            Workout(id: workoutIds[1], name: "Pull", exercises: []),
+            Workout(id: workoutIds[2], name: "Legs", exercises: [])
+        ]
+
+        let all = dm.outstandingMissedMakeups(calendar: cal)
+        #expect(all.count == 2)
+        #expect(all[0].dayKey == friKey1)
+        #expect(all[1].dayKey == friKey2)
+        #expect(all[0].workout.name == "Legs")
+
+        let limited = dm.outstandingMissedMakeups(calendar: cal, limit: 1)
+        #expect(limited.count == 1)
+        #expect(limited[0].dayKey == friKey1)
+    }
+}
+
+// MARK: - Dynamic program test fixtures
+
+private extension FitLogTests {
+    static func monWedFriFixture(calendar: Calendar) -> (
+        anchor: Date,
+        mon: Date,
+        wed: Date,
+        fri: Date,
+        templates: [BlockWeeklyTemplate],
+        workoutIds: [UUID]
+    ) {
+        let anchor = calendar.date(from: DateComponents(year: 2026, month: 3, day: 16))!
+        let mon = anchor
+        let wed = calendar.date(byAdding: .day, value: 2, to: mon)!
+        let fri = calendar.date(byAdding: .day, value: 4, to: mon)!
+        let slot = SplitBuilderEditableSlot(
+            label: "Main",
+            targetMuscleNames: [MuscleGroup.chest.rawValue],
+            sets: 3,
+            reps: "8-12"
+        )
+        let templates = [
+            BlockWeeklyTemplate(id: UUID(), dayName: "Push", focus: "Push", slots: [slot]),
+            BlockWeeklyTemplate(id: UUID(), dayName: "Pull", focus: "Pull", slots: [slot]),
+            BlockWeeklyTemplate(id: UUID(), dayName: "Legs", focus: "Legs", slots: [slot])
+        ]
+        let workoutIds = [UUID(), UUID(), UUID()]
+        return (anchor, mon, wed, fri, templates, workoutIds)
+    }
+
+    static func dynamicState(
+        anchor: Date,
+        templates: [BlockWeeklyTemplate],
+        workoutIds: [UUID],
+        calendar: Calendar
+    ) -> DynamicProgramState {
+        let block = ProgramBlock(
+            name: "Block 1",
+            focus: BlockFocus(kind: .hypertrophy),
+            durationWeeks: 8,
+            weeklyTemplates: templates
+        )
+        let program = DynamicProgram(
+            name: "Test",
+            blocks: [block],
+            defaultSessionsPerWeek: 3,
+            preferredWeekdays: [2, 4, 6]
+        )
+        let materialized = Dictionary(uniqueKeysWithValues: zip(templates.map(\.id), workoutIds))
+        return DynamicProgramState(
+            program: program,
+            anchorDate: anchor,
+            materializedTemplateWorkoutIds: materialized
+        )
+    }
+
+    static func completedSession(
+        on day: Date,
+        workoutId: UUID,
+        name: String,
+        calendar: Calendar,
+        origin: UUID? = nil
+    ) -> WorkoutSession {
+        let start = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: day)!
+        let end = calendar.date(bySettingHour: 11, minute: 0, second: 0, of: day)!
+        let originRef = origin.map { WorkoutPlanRef.workout($0) }
+        return WorkoutSession(
+            id: UUID(),
+            workout: Workout(id: workoutId, name: name, exercises: []),
+            startTime: start,
+            endTime: end,
+            exerciseLogs: [],
+            sessionPlanOrigin: originRef ?? .workout(workoutId)
+        )
+    }
+
+    static func makeInMemoryContainer() throws -> ModelContainer {
+        let schema = Schema(versionedSchema: FitLogSchemaV4.self)
+        let config = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
+        return try ModelContainer(for: schema, configurations: [config])
     }
 }
