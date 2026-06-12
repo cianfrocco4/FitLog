@@ -435,7 +435,7 @@ final class CardioProgramBuilderTests: XCTestCase {
     }
 
     private func makeInMemoryContainer() throws -> ModelContainer {
-        let schema = Schema(versionedSchema: FitLogSchemaV4.self)
+        let schema = Schema(versionedSchema: FitLogSchemaV5.self)
         let config = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
         return try ModelContainer(for: schema, configurations: [config])
     }

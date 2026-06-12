@@ -2,104 +2,11 @@
 //  AIChatView.swift
 //  FitLog
 //
-//  In-app coach chat scoped to FitLog data; client limits + strict system prompt.
+//  In-app coach chat scoped to FitLog data; persisted threads + streaming.
 //
 
 import SwiftUI
 import UIKit
-
-private enum CoachChatLimits {
-    static let maxMessageChars = 800
-    static let maxStoredMessages = 40
-    static let maxAPIConversationMessages = 24
-    static let sendCooldown: TimeInterval = 2
-}
-
-struct CoachChatMessage: Identifiable, Equatable {
-    let id: UUID
-    let isUser: Bool
-    let text: String
-    let created: Date
-
-    init(id: UUID = UUID(), isUser: Bool, text: String, created: Date = Date()) {
-        self.id = id
-        self.isUser = isUser
-        self.text = text
-        self.created = created
-    }
-}
-
-@MainActor
-final class CoachChatController: ObservableObject {
-    @Published private(set) var messages: [CoachChatMessage] = []
-    @Published var draft = ""
-    @Published private(set) var isSending = false
-    @Published var errorBanner: String?
-
-    private var lastSendTime: Date?
-
-    var canSend: Bool {
-        !isSending && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    func clearChat() {
-        messages = []
-        errorBanner = nil
-        draft = ""
-    }
-
-    func sendStarter(_ text: String, dataVM: DataManager, aiService: AIService) async {
-        draft = text
-        await send(dataVM: dataVM, aiService: aiService)
-    }
-
-    func send(dataVM: DataManager, aiService: AIService) async {
-        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        guard trimmed.count <= CoachChatLimits.maxMessageChars else {
-            errorBanner = "Message is too long (max \(CoachChatLimits.maxMessageChars) characters)."
-            return
-        }
-        if let last = lastSendTime, Date().timeIntervalSince(last) < CoachChatLimits.sendCooldown {
-            errorBanner = "Please wait a moment before sending another message."
-            return
-        }
-
-        errorBanner = nil
-        isSending = true
-        lastSendTime = Date()
-
-        let userMsg = CoachChatMessage(isUser: true, text: trimmed)
-        messages.append(userMsg)
-        draft = ""
-
-        if messages.count > CoachChatLimits.maxStoredMessages {
-            messages = Array(messages.suffix(CoachChatLimits.maxStoredMessages))
-        }
-
-        let snapshot = dataVM.coachDataContextSnapshot()
-        let tail = Array(messages.suffix(CoachChatLimits.maxAPIConversationMessages))
-        var apiTurns: [(role: String, content: String)] = []
-        for m in tail {
-            apiTurns.append((m.isUser ? "user" : "assistant", m.text))
-        }
-
-        do {
-            let reply = try await aiService.coachChat(conversation: apiTurns, contextSnapshot: snapshot)
-            let assistantMsg = CoachChatMessage(isUser: false, text: reply)
-            messages.append(assistantMsg)
-            if messages.count > CoachChatLimits.maxStoredMessages {
-                messages = Array(messages.suffix(CoachChatLimits.maxStoredMessages))
-            }
-        } catch {
-            errorBanner = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            messages.removeAll { $0.id == userMsg.id }
-            draft = trimmed
-        }
-
-        isSending = false
-    }
-}
 
 struct AIChatView: View {
     @Environment(DataManager.self) private var dataVM
@@ -108,10 +15,12 @@ struct AIChatView: View {
     @Environment(\.fitlogCoachDeepLink) private var coachDeepLink
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
 
-    @StateObject private var chat = CoachChatController()
+    @State private var viewModel = CoachChatViewModel()
     @FocusState private var isComposerFocused: Bool
     @State private var showProgramBuilder = false
     @State private var programBuilderPrefill: String?
+    @State private var showHistory = false
+    @State private var showContextSheet = false
 
     var body: some View {
         NavigationStack {
@@ -120,49 +29,47 @@ struct AIChatView: View {
                     notConfiguredBanner
                 }
 
-                if let err = chat.errorBanner {
-                    Text(err)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal)
-                        .padding(.vertical, 6)
+                if let err = viewModel.errorBanner {
+                    errorBannerView(err)
                 }
 
                 ScrollViewReader { proxy in
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 12) {
-                            introBlock
+                        LazyVStack(alignment: .leading, spacing: 12) {
+                            if viewModel.isConversationEmpty {
+                                emptyStateHero
+                            }
 
-                            ForEach(chat.messages) { msg in
-                                messageBubble(msg)
+                            ForEach(viewModel.messages) { msg in
+                                messageRow(msg)
                                     .id(msg.id)
                             }
 
-                            if chat.isSending {
-                                HStack(spacing: 8) {
-                                    ProgressView()
-                                    Text("Thinking…")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 4)
-                                .id("typing")
+                            if viewModel.isSending && !viewModel.isStreaming {
+                                typingIndicator
+                                    .id("typing")
                             }
                         }
                         .padding()
                     }
+                    .defaultScrollAnchor(.bottom)
                     .scrollDismissesKeyboard(.interactively)
-                    .onChange(of: chat.messages.count) { _, _ in
+                    .onChange(of: viewModel.messages.count) { _, _ in
                         scrollToBottom(proxy: proxy)
                     }
-                    .onChange(of: chat.isSending) { _, sending in
-                        if sending { scrollToBottom(proxy: proxy) }
+                    .onChange(of: viewModel.isStreaming) { _, streaming in
+                        if streaming { scrollToBottom(proxy: proxy) }
+                    }
+                    .onChange(of: viewModel.messages.last?.text) { _, _ in
+                        if viewModel.isStreaming { scrollToBottom(proxy: proxy) }
                     }
                 }
 
-                starterChips
+                if viewModel.isConversationEmpty {
+                    starterChips
+                }
+
+                disclaimerFooter
 
                 composer
             }
@@ -174,23 +81,7 @@ struct AIChatView: View {
                     Button("Done") { dismissCoachKeyboard() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 12) {
-                        if isComposerFocused {
-                            Button("Done") { dismissCoachKeyboard() }
-                        }
-                        Button {
-                            programBuilderPrefill = nil
-                            showProgramBuilder = true
-                        } label: {
-                            Label("Program builder", systemImage: "calendar.badge.clock")
-                        }
-                        .accessibilityHint("Opens the program builder to create or edit a training program")
-                        Button("Clear") {
-                            dismissCoachKeyboard()
-                            chat.clearChat()
-                        }
-                        .disabled(chat.messages.isEmpty && chat.draft.isEmpty)
-                    }
+                    overflowMenu
                 }
             }
             .sheet(isPresented: $showProgramBuilder, onDismiss: { programBuilderPrefill = nil }) {
@@ -200,6 +91,22 @@ struct AIChatView: View {
                     .environmentObject(aiService)
                     .environment(\.fitlogRootTabSelection, rootTabSelection)
                     .environment(\.fitlogAISplitCoachPrefill, programBuilderPrefill)
+            }
+            .sheet(isPresented: $showHistory) {
+                CoachConversationHistorySheet(
+                    conversations: viewModel.conversations,
+                    currentID: viewModel.currentConversationID,
+                    onSelect: { id in viewModel.loadConversation(id: id, dataVM: dataVM) },
+                    onDelete: { id in viewModel.deleteConversation(id: id, dataVM: dataVM) },
+                    onRename: { id, title in viewModel.renameConversation(id: id, title: title, dataVM: dataVM) },
+                    onNewChat: { viewModel.startNewConversation(dataVM: dataVM) }
+                )
+            }
+            .sheet(isPresented: $showContextSheet) {
+                CoachContextSheet(summary: viewModel.contextSummary)
+            }
+            .onAppear {
+                viewModel.bootstrap(dataVM: dataVM)
             }
             .onChange(of: coachDeepLink.wrappedValue, initial: true) { _, new in
                 switch new {
@@ -211,13 +118,130 @@ struct AIChatView: View {
                     break
                 }
             }
+            .sensoryFeedback(.selection, trigger: viewModel.sendFeedbackCount)
+            .sensoryFeedback(.success, trigger: viewModel.receiveFeedbackCount)
         }
     }
 
-    private func dismissCoachKeyboard() {
-        isComposerFocused = false
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    // MARK: - Toolbar
+
+    private var overflowMenu: some View {
+        Menu {
+            Button {
+                viewModel.startNewConversation(dataVM: dataVM)
+            } label: {
+                Label("New chat", systemImage: "plus.bubble")
+            }
+
+            Button {
+                showHistory = true
+            } label: {
+                Label("Chat history", systemImage: "clock.arrow.circlepath")
+            }
+
+            Button {
+                programBuilderPrefill = nil
+                showProgramBuilder = true
+            } label: {
+                Label("Program builder", systemImage: "calendar.badge.clock")
+            }
+
+            Button {
+                showContextSheet = true
+            } label: {
+                Label("What your coach sees", systemImage: "eye")
+            }
+
+            Divider()
+
+            Button(role: .destructive) {
+                dismissCoachKeyboard()
+                viewModel.clearCurrentConversation(dataVM: dataVM)
+            } label: {
+                Label("Clear chat", systemImage: "trash")
+            }
+            .disabled(viewModel.isConversationEmpty && viewModel.draft.isEmpty)
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .accessibilityLabel("Coach options")
     }
+
+    // MARK: - Messages
+
+    @ViewBuilder
+    private func messageRow(_ msg: CoachChatMessage) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            CoachChatBubbleView(
+                message: msg,
+                onCopy: { UIPasteboard.general.string = msg.text },
+                onRegenerate: msg.role == .assistant ? {
+                    viewModel.send(dataVM: dataVM, aiService: aiService, regenerateFrom: msg.id)
+                } : nil,
+                onFeedback: { feedback in
+                    viewModel.setFeedback(feedback, messageID: msg.id, dataVM: dataVM)
+                }
+            )
+
+            if !msg.actions.isEmpty {
+                ForEach(msg.actions) { action in
+                    CoachChatActionCardView(action: action) {
+                        applyAction(action, messageID: msg.id)
+                    }
+                }
+                .padding(.leading, 36)
+            }
+        }
+    }
+
+    private func applyAction(_ action: CoachChatAction, messageID: UUID) {
+        switch action.kind {
+        case .openProgramBuilder:
+            programBuilderPrefill = action.prefill
+            showProgramBuilder = true
+        case .openPlanTab:
+            rootTabSelection?.wrappedValue = .plan
+        case .openHomeTab:
+            rootTabSelection?.wrappedValue = .home
+        }
+        viewModel.markActionApplied(actionID: action.id, messageID: messageID)
+    }
+
+    // MARK: - Empty state
+
+    private var emptyStateHero: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Your training coach", systemImage: "figure.strengthtraining.traditional")
+                .font(.title3.weight(.semibold))
+            Text("Ask about your plan, workouts, exercises, or recent training. I'll use your logged data to give practical advice.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            if viewModel.contextSummary.sessionsThisWeek > 0 {
+                Text("You've logged \(viewModel.contextSummary.sessionsThisWeek) session\(viewModel.contextSummary.sessionsThisWeek == 1 ? "" : "s") in the last 7 days.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(FitlogPalette.subtleFill)
+        )
+        .accessibilityElement(children: .combine)
+    }
+
+    private var disclaimerFooter: some View {
+        Text("Not medical advice. AI can be wrong—verify important changes.")
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+            .padding(.top, 4)
+            .accessibilityLabel("Disclaimer. Not medical advice. AI can be wrong. Verify important changes.")
+    }
+
+    // MARK: - Banners & indicators
 
     private var notConfiguredBanner: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -232,48 +256,61 @@ struct AIChatView: View {
         .background(Color.orange.opacity(0.15))
     }
 
-    private var introBlock: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Ask about your plan, workouts, exercises, or recent training. I only help with \(AppBrand.name)-related strength training—not medical advice, general chat, or unrelated topics.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Text("Not medical advice. AI can be wrong—verify important changes.")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+    private func errorBannerView(_ message: String) -> some View {
+        HStack {
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.red)
+            Spacer()
+            if viewModel.showRetry {
+                Button("Retry") {
+                    viewModel.retryLastSend(dataVM: dataVM, aiService: aiService)
+                }
+                .font(.caption.weight(.semibold))
+            }
         }
-        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal)
+        .padding(.vertical, 6)
     }
 
-    private func messageBubble(_ msg: CoachChatMessage) -> some View {
-        HStack {
-            if msg.isUser { Spacer(minLength: 48) }
-            Text(msg.text)
-                .font(.body)
-                .padding(12)
-                .background(msg.isUser ? Color.accentColor.opacity(0.2) : Color(.secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-            if !msg.isUser { Spacer(minLength: 48) }
+    private var typingIndicator: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: "figure.strengthtraining.traditional")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(FitlogPalette.chartPrimary)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(FitlogPalette.subtleFill))
+                .accessibilityHidden(true)
+
+            CoachTypingIndicator()
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(FitlogPalette.subtleFill)
+                )
+            Spacer(minLength: 48)
         }
+        .accessibilityLabel("Coach is thinking")
     }
+
+    // MARK: - Starters & composer
 
     private var starterChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(starters, id: \.self) { title in
+                ForEach(viewModel.starterPrompts, id: \.self) { title in
                     Button(title) {
-                        Task {
-                            await chat.sendStarter(title, dataVM: dataVM, aiService: aiService)
-                        }
+                        viewModel.sendStarter(title, dataVM: dataVM, aiService: aiService)
                     }
-                    .disabled(!aiService.isConfigured || chat.isSending)
+                    .disabled(!aiService.isConfigured || viewModel.isSending)
                     .font(.caption)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(Color(.secondarySystemGroupedBackground))
                     .clipShape(Capsule())
+                    .accessibilityHint("Send this starter question")
                 }
             }
             .padding(.horizontal)
@@ -281,50 +318,59 @@ struct AIChatView: View {
         }
     }
 
-    private var starters: [String] {
-        [
-            "How can I improve my workout split?",
-            "Review my busiest workout day for balance",
-            "Suggest a small change for recovery",
-            "What should I focus on this week based on my log?"
-        ]
-    }
-
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField("Ask about your training…", text: $chat.draft, axis: .vertical)
+            TextField("Ask about your training…", text: $viewModel.draft, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...5)
                 .focused($isComposerFocused)
-                .onChange(of: chat.draft) { _, new in
-                    if new.count > CoachChatLimits.maxMessageChars {
-                        chat.draft = String(new.prefix(CoachChatLimits.maxMessageChars))
+                .onChange(of: viewModel.draft) { _, new in
+                    if new.count > 800 {
+                        viewModel.draft = String(new.prefix(800))
                     }
                 }
+                .accessibilityLabel("Message")
+                .accessibilityHint("Ask your coach about your training")
 
-            Button {
-                Task {
-                    await chat.send(dataVM: dataVM, aiService: aiService)
+            if viewModel.isSending {
+                Button {
+                    viewModel.cancelSend(dataVM: dataVM)
+                } label: {
+                    Image(systemName: "stop.circle.fill")
+                        .font(.title)
+                        .foregroundStyle(.red)
                 }
-            } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.title)
+                .accessibilityLabel("Stop")
+                .accessibilityHint("Stop the current response")
+            } else {
+                Button {
+                    viewModel.send(dataVM: dataVM, aiService: aiService)
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.title)
+                }
+                .disabled(!viewModel.canSend || !aiService.isConfigured)
+                .accessibilityLabel("Send")
+                .accessibilityHint("Send your message to the coach")
             }
-            .disabled(!chat.canSend || !aiService.isConfigured)
-            .accessibilityLabel("Send")
         }
         .padding()
         .background(.bar)
     }
 
+    // MARK: - Helpers
+
+    private func dismissCoachKeyboard() {
+        isComposerFocused = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
     private func scrollToBottom(proxy: ScrollViewProxy) {
-        DispatchQueue.main.async {
-            withAnimation(.easeOut(duration: 0.2)) {
-                if chat.isSending {
-                    proxy.scrollTo("typing", anchor: .bottom)
-                } else if let last = chat.messages.last {
-                    proxy.scrollTo(last.id, anchor: .bottom)
-                }
+        withAnimation(.easeOut(duration: 0.2)) {
+            if viewModel.isSending, !viewModel.isStreaming {
+                proxy.scrollTo("typing", anchor: .bottom)
+            } else if let last = viewModel.messages.last {
+                proxy.scrollTo(last.id, anchor: .bottom)
             }
         }
     }

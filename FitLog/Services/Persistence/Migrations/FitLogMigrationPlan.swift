@@ -31,12 +31,20 @@ private let log = Logger(
 
 enum FitLogMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [FitLogSchemaV1.self, FitLogSchemaV2.self, FitLogSchemaV3.self, FitLogSchemaV4.self]
+        [FitLogSchemaV1.self, FitLogSchemaV2.self, FitLogSchemaV3.self, FitLogSchemaV4.self, FitLogSchemaV5.self]
     }
 
     static var stages: [MigrationStage] {
-        [migrateV1ToV2, migrateV2ToV3, migrateV3ToV4]
+        [migrateV1ToV2, migrateV2ToV3, migrateV3ToV4, migrateV4ToV5]
     }
+
+    // MARK: - V4 → V5
+
+    /// Additive Coach chat models only — lightweight migration preserves all existing user data.
+    private static let migrateV4ToV5 = MigrationStage.lightweight(
+        fromVersion: FitLogSchemaV4.self,
+        toVersion: FitLogSchemaV5.self
+    )
 
     // MARK: - V3 → V4
 

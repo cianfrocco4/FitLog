@@ -18,10 +18,10 @@ struct SwiftDataSchemaV2Tests {
         #expect(container.schema.entities.count >= FitLogSchemaV2.models.count)
     }
 
-    @Test func liveSchemaV3_loadsInMemoryModelContainer() throws {
-        let schema = Schema(versionedSchema: FitLogSchemaV4.self)
+    @Test func liveSchemaV5_loadsInMemoryModelContainer() throws {
+        let schema = Schema(versionedSchema: FitLogSchemaV5.self)
         let config = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
         let container = try ModelContainer(for: schema, configurations: [config])
-        #expect(container.schema.entities.count >= FitLogSchemaV4.models.count)
+        #expect(container.schema.entities.count >= FitLogSchemaV5.models.count)
     }
 }

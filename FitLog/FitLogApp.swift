@@ -129,7 +129,7 @@ struct FitLogApp: App {
 
     /// Opens the on-disk store, attempting silent backup restore or a fresh start before surfacing recovery UI.
     static func openContainerWithRecovery(storeURL: URL) -> (container: ModelContainer, error: Error?) {
-        let schema = Schema(versionedSchema: FitLogSchemaV4.self)
+        let schema = Schema(versionedSchema: FitLogSchemaV5.self)
         let config = ModelConfiguration(url: storeURL, cloudKitDatabase: .none)
 
         do {
@@ -229,7 +229,7 @@ struct FitLogApp: App {
 
         Self.removePersistedStoreArtifacts()
 
-        let schema = Schema(versionedSchema: FitLogSchemaV4.self)
+        let schema = Schema(versionedSchema: FitLogSchemaV5.self)
         let config = ModelConfiguration(url: Self.persistedStoreURL(), cloudKitDatabase: .none)
         guard let freshContainer = try? ModelContainer(
             for: schema,
@@ -262,7 +262,7 @@ struct FitLogApp: App {
     /// Wipes the on-disk store (including WAL/SHM), opens an empty database, and rebinds app state so the user can continue without restarting.
     private func resetAndRelaunch() {
         Self.removePersistedStoreArtifacts()
-        let schema = Schema(versionedSchema: FitLogSchemaV4.self)
+        let schema = Schema(versionedSchema: FitLogSchemaV5.self)
         let config = ModelConfiguration(url: Self.persistedStoreURL(), cloudKitDatabase: .none)
         guard let freshContainer = try? ModelContainer(
             for: schema,

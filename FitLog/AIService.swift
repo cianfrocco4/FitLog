@@ -949,18 +949,249 @@ final class AIService: ObservableObject {
     // MARK: - FitLog coach chat (in-app training data only)
 
     /// Multi-turn chat: `conversation` must alternate user/assistant messages (user first). Roles are only `"user"` and `"assistant"`.
-    func coachChat(conversation: [(role: String, content: String)], contextSnapshot: String) async throws -> String {
+    func coachChat(
+        conversation: [(role: String, content: String)],
+        contextSnapshot: String,
+        includeStructuredActions: Bool = false
+    ) async throws -> String {
         if !isConfigured {
             throw AIServiceError.notConfigured
         }
         let trimmedSnapshot = contextSnapshot.trimmingCharacters(in: .whitespacesAndNewlines)
-        let systemContent = Self.fitLogCoachSystemPrompt + "\n\n--- User's \(AppBrand.name) data snapshot (ground truth; do not invent sessions or exercises not listed) ---\n" + (trimmedSnapshot.isEmpty ? "(no structured data yet)" : trimmedSnapshot)
+        var systemContent = Self.fitLogCoachSystemPrompt + "\n\n--- User's \(AppBrand.name) data snapshot (ground truth; do not invent sessions or exercises not listed) ---\n" + (trimmedSnapshot.isEmpty ? "(no structured data yet)" : trimmedSnapshot)
+        if includeStructuredActions {
+            systemContent += Self.coachChatStructuredSuffix
+        }
         var messages: [(role: String, content: String)] = [("system", systemContent)]
         messages.append(contentsOf: conversation)
         return try await performChatCompletions(messages: messages, maxTokens: 1400, jsonObject: false, temperature: nil)
     }
 
-    private static let fitLogCoachSystemPrompt = """
+    /// Structured coach chat with optional actionable suggestions. Falls back to plain text on parse failure.
+    func coachChatStructured(
+        conversation: [(role: String, content: String)],
+        contextSnapshot: String
+    ) async throws -> CoachChatStructuredResponse {
+        let raw = try await coachChat(
+            conversation: conversation,
+            contextSnapshot: contextSnapshot,
+            includeStructuredActions: true
+        )
+        return Self.parseStructuredCoachResponse(raw)
+    }
+
+    /// Streams assistant tokens when the endpoint supports SSE; falls back to a single chunk from non-streaming API.
+    func coachChatStream(
+        conversation: [(role: String, content: String)],
+        contextSnapshot: String
+    ) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    if !isConfigured { throw AIServiceError.notConfigured }
+                    let trimmedSnapshot = contextSnapshot.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let systemContent = Self.fitLogCoachSystemPrompt + "\n\n--- User's \(AppBrand.name) data snapshot (ground truth; do not invent sessions or exercises not listed) ---\n" + (trimmedSnapshot.isEmpty ? "(no structured data yet)" : trimmedSnapshot)
+                    var messages: [(role: String, content: String)] = [("system", systemContent)]
+                    messages.append(contentsOf: conversation)
+
+                    let didStream = try await streamChatCompletionsIncremental(
+                        messages: messages,
+                        maxTokens: 1400
+                    ) { delta in
+                        continuation.yield(delta)
+                    }
+
+                    if !didStream {
+                        let full = try await performChatCompletions(
+                            messages: messages,
+                            maxTokens: 1400,
+                            jsonObject: false,
+                            temperature: nil
+                        )
+                        if !full.isEmpty { continuation.yield(full) }
+                    }
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Parses SSE lines and invokes `onDelta` as each token arrives. Returns whether any delta was delivered.
+    private func streamChatCompletionsIncremental(
+        messages: [(role: String, content: String)],
+        maxTokens: Int,
+        onDelta: @escaping (String) -> Void
+    ) async throws -> Bool {
+        let useProxy = proxyBaseURL != nil
+        if !useProxy, (apiKey == nil || apiKey!.isEmpty) { throw AIServiceError.notConfigured }
+
+        var request = URLRequest(url: chatCompletionsURL)
+        request.httpMethod = "POST"
+        if !useProxy, let key = apiKey {
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        }
+        if useProxy {
+            FitLogProxyConfig.applyProxyAuthHeaders(to: &request)
+        }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+
+        let messagePayload: [[String: Any]] = messages.map { ["role": $0.role, "content": $0.content] }
+        let body: [String: Any] = [
+            "model": model,
+            "messages": messagePayload,
+            "max_tokens": maxTokens,
+            "stream": true,
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.timeoutInterval = maxTokens >= 2000 ? 120 : 60
+
+        let (bytes, response) = try await session.bytes(for: request)
+        guard let http = response as? HTTPURLResponse else { throw AIServiceError.invalidResponse }
+        guard http.statusCode == 200 else { return false }
+
+        let contentType = http.value(forHTTPHeaderField: "Content-Type") ?? ""
+        guard contentType.contains("text/event-stream") || contentType.contains("text/plain") else { return false }
+
+        var receivedAny = false
+        var lineData = Data()
+        for try await byte in bytes {
+            try Task.checkCancellation()
+            lineData.append(byte)
+            if byte == UInt8(ascii: "\n") {
+                if let line = String(data: lineData, encoding: .utf8),
+                   let delta = Self.parseSSEDataLine(line) {
+                    onDelta(delta)
+                    receivedAny = true
+                }
+                lineData.removeAll(keepingCapacity: true)
+            }
+        }
+        if !lineData.isEmpty,
+           let line = String(data: lineData, encoding: .utf8),
+           let delta = Self.parseSSEDataLine(line) {
+            onDelta(delta)
+            receivedAny = true
+        }
+        return receivedAny
+    }
+
+    /// Parses multiple SSE `data:` lines in order (for tests and diagnostics).
+    static func parseSSEDataLines(_ lines: [String]) -> [String] {
+        lines.compactMap { parseSSEDataLine($0) }
+    }
+
+    static func parseSSEDataLine(_ line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("data:") else { return nil }
+        let payload = trimmed.dropFirst(5).trimmingCharacters(in: .whitespaces)
+        if payload == "[DONE]" { return nil }
+        guard let data = payload.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = obj["choices"] as? [Any],
+              let first = choices.first as? [String: Any] else { return nil }
+
+        if let delta = first["delta"] as? [String: Any] {
+            if let content = delta["content"] as? String, !content.isEmpty { return content }
+            if let content = delta["text"] as? String, !content.isEmpty { return content }
+        }
+        if let message = first["message"] as? [String: Any],
+           let content = message["content"] as? String, !content.isEmpty {
+            return content
+        }
+        return nil
+    }
+
+    static func parseStructuredCoachResponse(_ raw: String) -> CoachChatStructuredResponse {
+        if let json = extractCoachJSONBlock(from: raw),
+           let parsed = decodeStructuredResponse(json) {
+            return parsed
+        }
+        if let data = extractCoachJSONData(from: raw),
+           let parsed = decodeStructuredResponse(data) {
+            return parsed
+        }
+        return CoachChatStructuredResponse(reply: stripCoachJSONArtifacts(from: raw), actions: [])
+    }
+
+    private static func extractCoachJSONBlock(from raw: String) -> Data? {
+        if let startRange = raw.range(of: "```json"),
+           let endRange = raw.range(of: "```", range: startRange.upperBound..<raw.endIndex) {
+            let slice = String(raw[startRange.upperBound..<endRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if slice.hasPrefix("{"), let data = slice.data(using: .utf8) { return data }
+        }
+        return extractCoachJSONData(from: raw)
+    }
+
+    private static func extractCoachJSONData(from raw: String) -> Data? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("{"), let data = trimmed.data(using: .utf8) { return data }
+        guard let start = trimmed.firstIndex(of: "{"),
+              let end = trimmed.lastIndex(of: "}") else { return nil }
+        return String(trimmed[start...end]).data(using: .utf8)
+    }
+
+    private static func decodeStructuredResponse(_ data: Data) -> CoachChatStructuredResponse? {
+        guard let json = try? JSONDecoder().decode(CoachChatStructuredJSON.self, from: data) else { return nil }
+        let reply = json.reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !reply.isEmpty else { return nil }
+        let actions = (json.actions ?? []).compactMap { item -> CoachChatAction? in
+            guard let kind = CoachChatActionKind(rawValue: item.kind) else { return nil }
+            let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else { return nil }
+            return CoachChatAction(
+                kind: kind,
+                title: title,
+                detail: item.detail?.trimmingCharacters(in: .whitespacesAndNewlines),
+                prefill: item.prefill?.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        return CoachChatStructuredResponse(reply: reply, actions: actions)
+    }
+
+    private static func stripCoachJSONArtifacts(from raw: String) -> String {
+        stripPartialCoachJSONFenceForDisplay(raw)
+    }
+
+    /// Hides trailing or incomplete ```json action fences while streaming.
+    static func stripPartialCoachJSONFenceForDisplay(_ raw: String) -> String {
+        var text = raw
+        if let start = text.range(of: "```json") {
+            if let end = text.range(of: "```", range: start.upperBound..<text.endIndex) {
+                text.removeSubrange(start.lowerBound..<end.upperBound)
+            } else {
+                text.removeSubrange(start.lowerBound..<text.endIndex)
+            }
+        } else if let start = text.firstIndex(of: "{"),
+                  let end = text.lastIndex(of: "}"),
+                  end > start,
+                  text[start...].contains("\"reply\"") {
+            text.removeSubrange(start...end)
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static let coachChatStructuredSuffix = """
+
+    When you can suggest a concrete next step inside \(AppBrand.name), you MAY append a JSON block after your reply using this exact shape (optional — omit if no action applies):
+    ```json
+    {
+      "reply": "same coaching answer as above",
+      "actions": [
+        { "kind": "openProgramBuilder", "title": "Open program builder", "detail": "optional one-line reason", "prefill": "optional notes to prefill" }
+      ]
+    }
+    ```
+    Valid action kinds: openProgramBuilder, openPlanTab, openHomeTab.
+    Only include actions the user can take in the app. Never auto-apply changes.
+    """
+
+    static let fitLogCoachSystemPrompt = """
     You are "\(AppBrand.name) Coach", a helper inside the \(AppBrand.name) iOS workout app. You ONLY help with topics that clearly relate to the user’s training in \(AppBrand.name).
 
     Allowed topics (examples):
@@ -1496,4 +1727,16 @@ private struct NewExerciseReviewJSON: Decodable {
     let suggestedMuscleNames: [String]?
     let muscleNote: String?
     let suggestedDescription: String?
+}
+
+private struct CoachChatStructuredJSON: Decodable {
+    let reply: String
+    let actions: [CoachChatActionJSON]?
+}
+
+private struct CoachChatActionJSON: Decodable {
+    let kind: String
+    let title: String
+    let detail: String?
+    let prefill: String?
 }

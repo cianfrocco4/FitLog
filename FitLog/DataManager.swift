@@ -52,11 +52,12 @@ final class DataManager {
     let dynamicProgramStore: DynamicProgramStore
     let splitPresetStore: SplitPresetStore
     let prStore: PersonalRecordStore
+    let coachChatStore: CoachChatStore
     let healthSyncService: HealthKitSyncService
     let dataTransferService: DataTransferServiceClient
     var healthSyncEnabled: Bool = false
     var healthSyncStatusMessage: String?
-    var persistenceFailureReporter = PersistenceFailureReporter()
+    var persistenceFailureReporter: PersistenceFailureReporter
 
     private let bodyMetricsStore = BodyMetricsStore()
     var bodyMetricEntries: [BodyMetricEntry] = []
@@ -66,6 +67,7 @@ final class DataManager {
 
     init(modelContainer: ModelContainer) {
         let ctx = ModelContext(modelContainer)
+        let failureReporter = PersistenceFailureReporter()
         self.workoutStore = WorkoutStore(modelContext: ctx)
         self.sessionStore = SessionStore(modelContext: ctx)
         self.exerciseStore = ExerciseStore(modelContext: ctx)
@@ -73,8 +75,10 @@ final class DataManager {
         self.dynamicProgramStore = DynamicProgramStore(modelContext: ctx)
         self.splitPresetStore = SplitPresetStore(modelContext: ctx)
         self.prStore = PersonalRecordStore(modelContext: ctx)
+        self.coachChatStore = CoachChatStore(modelContext: ctx, failureReporter: failureReporter)
         self.healthSyncService = HealthKitSyncService()
         self.dataTransferService = DataTransferServiceClient(dataManagerProvider: { nil })
+        self.persistenceFailureReporter = failureReporter
         loadAll()
         self.dataTransferService.attachDataManager(self)
         healthSyncEnabled = healthSyncService.syncEnabled
