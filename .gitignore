@@ -1,0 +1,14 @@
+# Release secrets — copy Config/Secrets.release.xcconfig.example and fill in locally
+Config/Secrets.release.xcconfig
+
+# Xcode user data
+xcuserdata/
+*.xcuserstate
+
+# Derived data (local)
+DerivedData/
+build/
+AppStoreScreenshots/
+
+# macOS
+.DS_Store

@@ -367,10 +367,12 @@ struct FitLogTests {
             Self.completedSession(on: fri, workoutId: idLegs, name: "Legs", calendar: cal)
         ]
         let nextMonday = cal.date(byAdding: .day, value: 7, to: mon)!
+        // Reconcile as of the next training week’s Monday so yesterday is Sunday (rest), not an
+        // incomplete Monday that would be marked skipped before the user has that session.
         adapter.mergeSkippedRotationKeysThroughYesterday(
             state: &state,
             completedSessions: sessions,
-            asOf: cal.date(byAdding: .day, value: 1, to: nextMonday)!
+            asOf: nextMonday
         )
 
         #expect(state.skippedProgramTrainingDayKeys.isEmpty)

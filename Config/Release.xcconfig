@@ -1,0 +1,5 @@
+// Release configuration overlay for FitLog app target.
+// Optional local secrets (gitignored) inject FITLOG_PROXY_SHARED_SECRET at archive time.
+#include? "Secrets.release.xcconfig"
+
+INFOPLIST_KEY_FITLOG_PROXY_SHARED_SECRET = $(FITLOG_PROXY_SHARED_SECRET)

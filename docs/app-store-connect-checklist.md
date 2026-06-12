@@ -30,10 +30,25 @@ Match the revised in-app policy (`PRIVACY_POLICY.md` / `docs/privacy-policy.html
 
 Before archiving for App Store:
 
-1. Set `FITLOG_PROXY_SHARED_SECRET` in **Release** configuration (Xcode build setting or scheme environment) to the same value as Render (`FITLOG_PROXY_SHARED_SECRET` on the server).
-2. Empty string in `Info.plist` is intentional for local dev; Release archive must inject the real secret or AI/form-guide requests return **401**.
+1. Copy `Config/Secrets.release.xcconfig.example` → `Config/Secrets.release.xcconfig` (gitignored).
+2. Set `FITLOG_PROXY_SHARED_SECRET` to match Render when `/health` reports `"authRequired": true`.
+3. Release builds load secrets via [Config/Release.xcconfig](../Config/Release.xcconfig) → `INFOPLIST_KEY_FITLOG_PROXY_SHARED_SECRET`.
 
-Verify in Render dashboard: **Environment** → `FITLOG_PROXY_SHARED_SECRET` matches the archived app.
+Verify proxy:
+
+```bash
+curl https://the-workout-log.onrender.com/health
+```
+
+Current production check (2026-06-11): `authRequired: false` — secret optional until enabled on Render.
+
+## Full submission walkthrough
+
+See [SUBMISSION_GUIDE.md](SUBMISSION_GUIDE.md) for step-by-step ASC setup, TestFlight, and review submission.
+
+See [APP_STORE_COMPLIANCE.md](APP_STORE_COMPLIANCE.md) for privacy labels, age rating, and review notes.
+
+See [APP_STORE_SMOKE_TEST.md](APP_STORE_SMOKE_TEST.md) for pre-submission device testing.
 
 ## Screenshots & metadata
 

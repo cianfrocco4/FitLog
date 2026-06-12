@@ -41,6 +41,7 @@
 		9226B5BE2F4DEC20006B04FE /* FitLogUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FitLogUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D12F4DEC20006BE001 /* RestTimerActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestTimerActivityAttributes.swift; sourceTree = "<group>"; };
 		A1B2C3D12F4DEC20006BE005 /* FitLogLiveActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FitLogLiveActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B2C3D4E52F4DEC20006BE020 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -124,6 +125,7 @@
 		9226B5972F4DEC1D006B04FE = {
 			isa = PBXGroup;
 			children = (
+				B2C3D4E62F4DEC20006BE021 /* Config */,
 				A1B2C3D12F4DEC20006BE002 /* Shared */,
 				9226B5A22F4DEC1D006B04FE /* FitLog */,
 				A1B2C3D12F4DEC20006BE00F /* FitLogLiveActivityExtension */,
@@ -150,6 +152,14 @@
 				A1B2C3D12F4DEC20006BE001 /* RestTimerActivityAttributes.swift */,
 			);
 			path = Shared;
+			sourceTree = "<group>";
+		};
+		B2C3D4E62F4DEC20006BE021 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				B2C3D4E52F4DEC20006BE020 /* Release.xcconfig */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -412,6 +422,7 @@
 		};
 		9226B5C92F4DEC20006B04FE /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = B2C3D4E52F4DEC20006BE020 /* Release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;

@@ -23,10 +23,18 @@ plutil -p "$APP/PrivacyInfo.xcprivacy"
 
 | Location | Key |
 |----------|-----|
-| iOS | `FITLOG_PROXY_SHARED_SECRET` — `Info.plist` placeholder; inject at archive time via Xcode User-Defined Setting or scheme env |
+| iOS (Release) | `Config/Secrets.release.xcconfig` → `FITLOG_PROXY_SHARED_SECRET` (gitignored) |
+| iOS (Release overlay) | `Config/Release.xcconfig` injects `INFOPLIST_KEY_FITLOG_PROXY_SHARED_SECRET` |
 | Server | `FITLOG_PROXY_SHARED_SECRET` on Render (`backend/README.md`) |
 
-Release builds with an empty secret will fail authenticated proxy calls when the server enforces the header.
+Setup:
+
+```bash
+cp Config/Secrets.release.xcconfig.example Config/Secrets.release.xcconfig
+# Edit secret when Render authRequired is true
+```
+
+Release builds with an empty secret work when the server does not require auth (`authRequired: false`).
 
 ## Deployment target
 
