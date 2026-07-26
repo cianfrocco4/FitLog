@@ -108,12 +108,14 @@ READINESS (free)
 
 PREMIUM / SUBSCRIPTIONS
 - RevenueCat + StoreKit: monthly, annual (14-day trial), optional lifetime
-- Provide sandbox REVENUECAT_API_KEY in review build Info.plist or scheme env
+- Public SDK key is in Info.plist (REVENUECAT_API_KEY, appl_…)
 - Restore purchases on paywall and in More → Subscription
+- Comp path: More → Subscription → copy App User ID → RevenueCat promotional entitlement → Restore / Refresh
 
 OPTIONAL FEATURES
 - HealthKit workout sync: More → Data & Integrations
-- AI Coach / program builder: Premium + network
+- AI Coach / program builder / Daily Adjust / Week in review: Premium
+- On Apple Intelligence devices (iOS 26+), short coaching may run on-device; otherwise cloud/heuristic fallbacks. Logging never depends on AI.
 
 NO DEMO ACCOUNT REQUIRED.
 ```
