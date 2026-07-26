@@ -16,8 +16,8 @@ plutil -p "$APP/PrivacyInfo.xcprivacy"
 
 ## App Group
 
-- **Removed for v1.** `FitLogIntentBridge` uses `UserDefaults.standard` because App Intents run in-process with `openAppWhenRun = true`.
-- `com.apple.security.application-groups` removed from `FitLog/FitLog.entitlements`.
+- **Active for widgets.** `group.com.acianfrocco.FitLog.shared` is declared in `FitLog/FitLog.entitlements` and used by `WidgetSnapshotStore` to share readiness/plan data with the `FitLogWidgets` extension.
+- App Intents may still use `UserDefaults.standard` when running in-process with `openAppWhenRun = true`.
 
 ## Proxy shared secret (Release)
 
@@ -40,6 +40,8 @@ Release builds with an empty secret work when the server does not require auth (
 
 - `IPHONEOS_DEPLOYMENT_TARGET = 18.0` (lowered from 18.2 for broader device support while keeping SwiftData / iOS 18 APIs).
 
-## Orphan widget source
+## Widget extension
 
-- `WidgetExtensionSource/TodayPlanWidget.swift` removed (no widget extension target in project).
+- Target: `FitLogWidgets` (`FitLogWidgets/ReadinessWidget.swift`)
+- Shares App Group payload via `Shared/WidgetSnapshot.swift` (member of app + widget targets)
+- Confirm portal App Group capability matches entitlements before TestFlight.

@@ -1,8 +1,10 @@
-# Privacy Policy for The Workout Log
+# Privacy Policy for Workout Log AI
 
-**Last updated:** May 2026
+**Last updated:** June 2026
 
-The Workout Log ("the app") is a local-first workout tracker. This policy describes what data the app uses, where it is stored, and what may be sent off your device.
+Workout Log AI ("the app") is a local-first workout tracker with optional Premium subscriptions and Apple Health readiness insights. This policy describes what data the app uses, where it is stored, and what may be sent off your device.
+
+**Not medical advice:** Readiness scores and AI coaching are general fitness tools only, not medical advice.
 
 ---
 
@@ -22,7 +24,11 @@ Body metrics and progress photos you add are stored locally on your device.
 
 ### Apple Health (optional)
 
-If you enable Health sync, the app reads and writes workout, body mass, heart rate, distance, and energy data through Apple Health according to your permission choices.
+If you enable Health sync or grant read access for readiness, the app may read sleep analysis, heart rate variability (HRV), resting heart rate, workouts, body mass, heart rate, distance, and energy data through Apple Health according to your permission choices. Readiness scores are computed on-device from this data.
+
+### Subscriptions (optional)
+
+Premium subscriptions are processed by Apple and managed through RevenueCat. We receive subscription status and an anonymous App User ID to unlock Premium features. Payment details are handled by Apple, not stored in the app.
 
 ### AI and form guide features (optional)
 
