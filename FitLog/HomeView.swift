@@ -24,6 +24,7 @@ struct HomeView: View {
     @State private var showPaywall = false
     @State private var paywallTrigger: PremiumFeature = .aiCoach
     @State private var paywallAnalyticsSource: String?
+    @State private var showDailyAdjust = false
 
     @State private var showNewWorkout = false
     @State private var newWorkoutLaunchHint: NewWorkoutLaunchHint?
@@ -414,6 +415,13 @@ struct HomeView: View {
                 homePremiumTeaserCard
             }
 
+            WeeklyInsightCard(
+                readinessTrendSummaries: readinessVM.todayScore.map { ["Today: \($0.score)/100 — \($0.band.displayTitle)"] } ?? []
+            )
+            .listRowInsets(homeDashboardListInsets)
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+
             if homeFirstPaintSkeleton {
                 FitlogSkeletonCardBlock()
                     .listRowInsets(homeDashboardListInsets)
@@ -719,6 +727,15 @@ struct HomeView: View {
                     triggerFeature: paywallTrigger,
                     analyticsSource: paywallAnalyticsSource
                 )
+                .environment(entitlementStore)
+            }
+            .sheet(isPresented: $showDailyAdjust) {
+                DailyAdjustSheet(
+                    readinessScore: readinessVM.todayScore,
+                    plannedWorkout: scheduledWorkoutForToday
+                )
+                .environment(dataVM)
+                .environmentObject(aiService)
                 .environment(entitlementStore)
             }
             .sheet(isPresented: $showNewExercise) {
@@ -1166,6 +1183,14 @@ struct HomeView: View {
                         onViewWorkoutDetail: { todayPlanDetailRoute = .plannedWorkout(id) },
                         detailLabel: "View workout"
                     )
+                    Button {
+                        showDailyAdjust = true
+                    } label: {
+                        Label("Adjust today’s plan", systemImage: "slider.horizontal.3")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityHint("Opens readiness-aware coaching to adjust today’s workout")
                 } else {
                     missingItemMessage("Missing workout", detail: "Your plan references a workout that isn’t in your library. Update the split in the Plan tab.")
                 }

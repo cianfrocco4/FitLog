@@ -23,6 +23,9 @@ enum AnalyticsEvent: String, Sendable {
     case restoreCompleted = "restore_completed"
     case restoreFailed = "restore_failed"
     case manageSubscriptionOpened = "manage_subscription_opened"
+    case onDeviceAIUsed = "on_device_ai_used"
+    case onDeviceAIUnavailable = "on_device_ai_unavailable"
+    case aiRoutedCloudFallback = "ai_routed_cloud_fallback"
 }
 
 /// Protocol seam for injecting a real analytics backend (RevenueCat events, Mixpanel, etc.).

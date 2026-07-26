@@ -194,10 +194,10 @@ struct OnboardingFlowView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Train smarter with Premium")
                 .font(.title2.weight(.semibold))
-            Text("Logging stays free forever. Premium unlocks AI coaching, readiness trends, and advanced analytics when you're ready.")
+            Text("Logging stays free forever. Premium unlocks private on-device coaching (Apple Intelligence), cloud AI when needed, readiness trends, and advanced analytics.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Label("AI coach and adaptive program builder", systemImage: "sparkles")
+            Label("On-device AI adjust + cloud coach & program builder", systemImage: "sparkles")
             Label("Readiness trends (7–90 days) from Apple Health", systemImage: "heart.text.square.fill")
             Label("Advanced analytics, unlimited history, and export", systemImage: "chart.xyaxis.line")
             Text("Not medical advice — general fitness coaching tool only.")

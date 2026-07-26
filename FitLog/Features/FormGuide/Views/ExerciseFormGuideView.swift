@@ -569,14 +569,15 @@ struct ExerciseFormGuideSheet: View {
     }
 
     private func loadFormTips() async -> [String] {
-        guard entitlementStore.hasAccess(to: .aiFormTips), aiService.isConfigured else {
-            return ExerciseFormHeuristicTips.tips(for: exercise)
-        }
-        do {
-            return try await aiService.fetchFormTips(for: exercise)
-        } catch {
-            return ExerciseFormHeuristicTips.tips(for: exercise)
-        }
+        let result = await AIRoutingService.shared.formCues(
+            exerciseName: exercise.name,
+            isPremium: entitlementStore.hasAccess(to: .aiFormTips),
+            aiService: aiService,
+            cloudFallback: {
+                try await aiService.fetchFormTips(for: exercise)
+            }
+        )
+        return result.cues
     }
 }
 

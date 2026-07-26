@@ -255,9 +255,14 @@ struct AIChatView: View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Premium AI Coach", systemImage: "sparkles")
                 .font(.subheadline.weight(.semibold))
-            Text("Unlock natural-language coaching, program generation, and personalized explanations with Premium.")
+            Text("Unlock natural-language coaching, program generation, and personalized explanations with Premium. On Apple Intelligence devices, short coaching can run privately on-device.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            if let availability = AIRoutingService.shared.availabilityBannerText {
+                Text(availability)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
             Button("View Premium") { showPaywall = true }
                 .font(.caption.weight(.semibold))
         }

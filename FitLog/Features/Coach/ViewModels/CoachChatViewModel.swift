@@ -385,6 +385,39 @@ final class CoachChatViewModel {
         var assistantCreated = false
         var accumulated = ""
 
+        // Short single-turn prompts prefer on-device Apple Intelligence when available.
+        if apiTurns.count == 1,
+           let only = apiTurns.first,
+           only.role == "user",
+           only.content.count <= 400,
+           AIRoutingService.shared.onDeviceAvailability.isAvailable {
+            do {
+                let system = "You are Workout Log AI Coach. Be concise. Not medical advice. Use the snapshot as ground truth.\n\n\(snapshot)"
+                let routed = try await AIRoutingService.shared.shortCoachReply(
+                    system: system,
+                    user: only.content,
+                    isPremium: true,
+                    preferOnDevice: true,
+                    aiService: aiService,
+                    cloudFallback: {
+                        try await aiService.coachChat(conversation: apiTurns, contextSnapshot: snapshot)
+                    }
+                )
+                assistant.text = routed.text
+                assistant.status = .sent
+                messages.append(assistant)
+                persistAssistantMessage(assistant, conversationID: conversationID, dataVM: dataVM, alreadyPersisted: false)
+                refreshConversations(dataVM: dataVM)
+                isSending = false
+                isStreaming = false
+                receiveFeedbackCount += 1
+                beginCooldown()
+                return
+            } catch {
+                // Fall through to streaming cloud path.
+            }
+        }
+
         do {
             let stream = aiService.coachChatStream(conversation: apiTurns, contextSnapshot: snapshot)
             for try await chunk in stream {

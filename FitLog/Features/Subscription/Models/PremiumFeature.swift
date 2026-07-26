@@ -42,7 +42,7 @@ enum PremiumFeature: String, CaseIterable, Sendable, Identifiable {
     var paywallBullet: String {
         switch self {
         case .aiCoach:
-            return "Natural-language coaching with clear explanations"
+            return "Private on-device coaching when available, plus cloud AI coach"
         case .aiProgramGeneration:
             return "Generate and adapt training plans from your goals"
         case .aiFormTips:
