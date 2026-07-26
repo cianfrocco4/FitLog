@@ -15,8 +15,8 @@ Branch: `feature/phase-1-workout-log-ai` → merge to `main` before / with submi
 ## 2. Merge to `main`
 
 - [x] Feature branch contains Phase 1 freemium + Phase 2 on-device AI  
-- [ ] PR opened (or direct merge) into `main`  
-- [ ] `main` pushed; GitHub Pages redeploys `privacy-policy.html` / `support.html`  
+- [x] Merged `feature/phase-1-workout-log-ai` → `main` (`fdd1a61`)  
+- [x] `main` pushed; confirm GitHub Pages redeploys `privacy-policy.html` / `support.html`  
 
 ## 3. App Store Connect packaging
 
