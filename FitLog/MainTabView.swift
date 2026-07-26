@@ -130,9 +130,13 @@ struct MainTabView: View {
             .environmentObject(userPreferences)
         }
         .sheet(isPresented: $showPostWorkoutPaywall) {
-            PaywallView(triggerFeature: .aiCoach, onDismiss: {
-                userPreferences.hasSeenPostWorkoutPaywall = true
-            })
+            PaywallView(
+                triggerFeature: .aiCoach,
+                analyticsSource: "post_workout",
+                onDismiss: {
+                    userPreferences.hasSeenPostWorkoutPaywall = true
+                }
+            )
             .environment(entitlementStore)
         }
         .fullScreenCover(isPresented: $showOnboarding) {
@@ -225,10 +229,11 @@ struct MainTabView: View {
     }
 
     private func maybePresentPostWorkoutPaywall() {
-        guard !entitlementStore.isPremium else { return }
-        guard !userPreferences.hasSeenPostWorkoutPaywall else { return }
-        guard userPreferences.hasTriggeredReadinessInsight else { return }
-        guard !dataVM.completedSessions.isEmpty else { return }
+        guard PremiumPromptPolicy.shouldPresentPostWorkoutPaywall(
+            isPremium: entitlementStore.isPremium,
+            hasSeen: userPreferences.hasSeenPostWorkoutPaywall,
+            completedCount: dataVM.completedSessions.count
+        ) else { return }
         userPreferences.hasSeenPostWorkoutPaywall = true
         showPostWorkoutPaywall = true
     }

@@ -18,9 +18,27 @@ private let log = Logger(
     category: "EntitlementStore"
 )
 
+/// UI-facing Premium status derived from RevenueCat entitlement (cancel ≠ immediate revoke).
+struct PremiumAccessDetails: Equatable, Sendable {
+    var isActive: Bool
+    /// `false` when the user canceled (or promo/lifetime with no renewal).
+    var willRenew: Bool
+    var expirationDate: Date?
+    var isPromotional: Bool
+
+    static let inactive = PremiumAccessDetails(
+        isActive: false,
+        willRenew: false,
+        expirationDate: nil,
+        isPromotional: false
+    )
+}
+
 @Observable @MainActor
 final class EntitlementStore {
     private(set) var isPremium = false
+    /// Richer status for Subscription settings (canceled-but-still-active, renewal date, etc.).
+    private(set) var premiumDetails = PremiumAccessDetails.inactive
     private(set) var appUserID: String?
     private(set) var isConfigured = false
     private(set) var isLoadingOfferings = false
@@ -79,6 +97,9 @@ final class EntitlementStore {
 #if DEBUG
     func setPremiumForTesting(_ premium: Bool) {
         isPremium = premium
+        premiumDetails = premium
+            ? PremiumAccessDetails(isActive: true, willRenew: true, expirationDate: nil, isPromotional: false)
+            : .inactive
     }
 #endif
 
@@ -204,6 +225,7 @@ final class EntitlementStore {
     private func apply(customerInfo: CustomerInfo) {
         self.customerInfo = customerInfo
         isPremium = PurchaseService.isPremiumActive(in: customerInfo)
+        premiumDetails = PurchaseService.premiumAccessDetails(in: customerInfo)
         appUserID = Purchases.shared.appUserID
     }
 #else

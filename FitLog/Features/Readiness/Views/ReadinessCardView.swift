@@ -9,8 +9,11 @@ struct ReadinessCardView: View {
     let score: ReadinessScore?
     let isLoading: Bool
     var healthConnectState: ReadinessHealthConnectState = .hidden
+    /// Free-user soft CTA; tap opens Premium (no auto sheet).
+    var showPremiumTrendsCTA: Bool = false
     var onTap: () -> Void
     var onConnectHealth: (() -> Void)?
+    var onUnlockTrends: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -70,6 +73,16 @@ struct ReadinessCardView: View {
                         .foregroundStyle(.secondary)
                 }
                 .accessibilityLabel("No Apple Health recovery data found yet")
+            }
+
+            if showPremiumTrendsCTA, score != nil, let onUnlockTrends {
+                Button(action: onUnlockTrends) {
+                    Label("Trends unlock with Premium", systemImage: "chart.line.uptrend.xyaxis")
+                        .font(.caption.weight(.semibold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityHint("Shows Premium options for readiness trends")
             }
         }
         .padding()

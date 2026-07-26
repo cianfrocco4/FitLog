@@ -15,11 +15,15 @@ struct HomeView: View {
     @EnvironmentObject var authVM: AuthViewModel
     @EnvironmentObject var aiService: AIService
     @EnvironmentObject var userPreferences: UserPreferences
+    @Environment(EntitlementStore.self) private var entitlementStore
     @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
 
     @State private var readinessVM = ReadinessViewModel()
     @State private var showReadinessDetail = false
+    @State private var showPaywall = false
+    @State private var paywallTrigger: PremiumFeature = .aiCoach
+    @State private var paywallAnalyticsSource: String?
 
     @State private var showNewWorkout = false
     @State private var newWorkoutLaunchHint: NewWorkoutLaunchHint?
@@ -95,6 +99,14 @@ struct HomeView: View {
 
     private var shouldShowCardioGetStartedCard: Bool {
         !userPreferences.dismissedCardioGetStartedBanner && !dataVM.hasLoggedCardio()
+    }
+
+    private var shouldShowHomePremiumCard: Bool {
+        PremiumPromptPolicy.shouldShowHomePremiumCard(
+            isPremium: entitlementStore.isPremium,
+            dismissed: userPreferences.dismissedHomePremiumCard,
+            snoozeUntil: userPreferences.homePremiumCardSnoozeUntil
+        )
     }
 
     private var workoutSearchTrimmed: String {
@@ -342,8 +354,14 @@ struct HomeView: View {
             score: readinessVM.todayScore,
             isLoading: readinessVM.isLoading,
             healthConnectState: readinessVM.connectState,
+            showPremiumTrendsCTA: !entitlementStore.isPremium && readinessVM.todayScore != nil,
             onTap: { showReadinessDetail = true },
-            onConnectHealth: connectAppleHealthFromHome
+            onConnectHealth: connectAppleHealthFromHome,
+            onUnlockTrends: {
+                paywallTrigger = .readinessTrends
+                paywallAnalyticsSource = "home_readiness_card"
+                showPaywall = true
+            }
         )
         .listRowInsets(homeDashboardListInsets)
         .listRowSeparator(.hidden)
@@ -354,6 +372,26 @@ struct HomeView: View {
         .onReceive(NotificationCenter.default.publisher(for: .fitlogWorkoutCompleted)) { _ in
             Task { await refreshReadinessForCurrentDay() }
         }
+    }
+
+    @ViewBuilder
+    private var homePremiumTeaserCard: some View {
+        HomePremiumCardView(
+            onSeePremium: {
+                paywallTrigger = .aiCoach
+                paywallAnalyticsSource = "home_card"
+                showPaywall = true
+            },
+            onRemindLater: {
+                userPreferences.snoozeHomePremiumCard()
+            },
+            onDismiss: {
+                userPreferences.dismissedHomePremiumCard = true
+            }
+        )
+        .listRowInsets(homeDashboardListInsets)
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
     }
 
     @ViewBuilder
@@ -371,6 +409,10 @@ struct HomeView: View {
             }
 
             readinessDashboardCard
+
+            if shouldShowHomePremiumCard {
+                homePremiumTeaserCard
+            }
 
             if homeFirstPaintSkeleton {
                 FitlogSkeletonCardBlock()
@@ -671,6 +713,13 @@ struct HomeView: View {
                     .environment(dataVM)
                     .environment(currentVM)
                     .environmentObject(aiService)
+            }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView(
+                    triggerFeature: paywallTrigger,
+                    analyticsSource: paywallAnalyticsSource
+                )
+                .environment(entitlementStore)
             }
             .sheet(isPresented: $showNewExercise) {
                 NewExerciseSheet()

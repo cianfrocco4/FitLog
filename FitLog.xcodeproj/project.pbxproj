@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		92613D4F30169E5C004032C5 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = C3D4E5F62F4DEC20006BE031 /* RevenueCat */; };
 		A1B2C3D12F4DEC20006BE003 /* RestTimerActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D12F4DEC20006BE001 /* RestTimerActivityAttributes.swift */; };
 		A1B2C3D12F4DEC20006BE004 /* RestTimerActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D12F4DEC20006BE001 /* RestTimerActivityAttributes.swift */; };
 		D4E5F6A72F4DEC20006BE040 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F6A62F4DEC20006BE040 /* WidgetSnapshot.swift */; };
@@ -49,11 +50,11 @@
 		9226B5B42F4DEC20006B04FE /* FitLogTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FitLogTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9226B5BE2F4DEC20006B04FE /* FitLogUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FitLogUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D12F4DEC20006BE001 /* RestTimerActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestTimerActivityAttributes.swift; sourceTree = "<group>"; };
-		D4E5F6A62F4DEC20006BE040 /* WidgetSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshot.swift; sourceTree = "<group>"; };
 		A1B2C3D12F4DEC20006BE005 /* FitLogLiveActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FitLogLiveActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		D4E5F6A52F4DEC20006BE041 /* FitLogWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FitLogWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		B2C3D4E52F4DEC20006BE020 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		B2C3D4E72F4DEC20006BE030 /* Configuration.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Configuration.storekit; sourceTree = SOURCE_ROOT; };
+		D4E5F6A52F4DEC20006BE041 /* FitLogWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FitLogWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		D4E5F6A62F4DEC20006BE040 /* WidgetSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshot.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -122,6 +123,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				92613D4F30169E5C004032C5 /* RevenueCat in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -356,10 +358,10 @@
 			);
 			mainGroup = 9226B5972F4DEC1D006B04FE;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
 			packageReferences = (
 				C3D4E5F62F4DEC20006BE030 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */,
 			);
+			preferredProjectObjectVersion = 77;
 			productRefGroup = 9226B5A12F4DEC1D006B04FE /* Products */;
 			projectDirPath = "";
 			projectRoot = "";

@@ -21,6 +21,8 @@ struct PaywallView: View {
     @Environment(\.dismiss) private var dismiss
 
     var triggerFeature: PremiumFeature?
+    /// Analytics `source` for paywall_shown / paywall_dismissed (e.g. `post_workout`, `home_card`).
+    var analyticsSource: String?
     var onDismiss: (() -> Void)?
 
     @State private var selectedPackageID: String?
@@ -34,6 +36,16 @@ struct PaywallView: View {
 #else
         false
 #endif
+    }
+
+    private var paywallAnalyticsProperties: [String: String] {
+        var props: [String: String] = [
+            "feature": triggerFeature?.rawValue ?? "unknown"
+        ]
+        if let analyticsSource, !analyticsSource.isEmpty {
+            props["source"] = analyticsSource
+        }
+        return props
     }
 
     var body: some View {
@@ -55,9 +67,7 @@ struct PaywallView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Not now") {
-                        AnalyticsService.shared.track(.paywallDismissed, properties: [
-                            "feature": triggerFeature?.rawValue ?? "unknown"
-                        ])
+                        AnalyticsService.shared.track(.paywallDismissed, properties: paywallAnalyticsProperties)
                         onDismiss?()
                         dismiss()
                     }
@@ -67,9 +77,7 @@ struct PaywallView: View {
                 purchaseBar
             }
             .task {
-                AnalyticsService.shared.track(.paywallShown, properties: [
-                    "feature": triggerFeature?.rawValue ?? "unknown"
-                ])
+                AnalyticsService.shared.track(.paywallShown, properties: paywallAnalyticsProperties)
                 await entitlementStore.loadOfferings()
             }
             .alert("Subscription", isPresented: Binding(

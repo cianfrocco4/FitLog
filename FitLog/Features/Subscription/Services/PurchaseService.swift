@@ -75,6 +75,24 @@ enum PurchaseService {
     static func isPremiumActive(in customerInfo: CustomerInfo) -> Bool {
         customerInfo.entitlements[RevenueCatConfig.premiumEntitlementID]?.isActive == true
     }
+
+    /// Maps RevenueCat entitlement fields for Subscription UI.
+    /// Canceling in App Store sets `willRenew` to false but keeps `isActive` until `expirationDate`.
+    static func premiumAccessDetails(in customerInfo: CustomerInfo) -> PremiumAccessDetails {
+        guard let entitlement = customerInfo.entitlements[RevenueCatConfig.premiumEntitlementID],
+              entitlement.isActive
+        else {
+            return .inactive
+        }
+        let isPromotional = entitlement.store == .promotional
+            || entitlement.productIdentifier.hasPrefix("rc_promo")
+        return PremiumAccessDetails(
+            isActive: true,
+            willRenew: entitlement.willRenew,
+            expirationDate: entitlement.expirationDate,
+            isPromotional: isPromotional
+        )
+    }
 #else
     static func fetchOfferings() async throws -> Never { throw PurchaseServiceError.notConfigured }
     static func purchase(package: Any) async throws -> Never { throw PurchaseServiceError.notConfigured }
@@ -86,5 +104,6 @@ enum PurchaseService {
     static func logOut() async throws -> Never { throw PurchaseServiceError.notConfigured }
     static func currentAppUserID() -> String { "unavailable" }
     static func isPremiumActive(in customerInfo: Any) -> Bool { false }
+    static func premiumAccessDetails(in customerInfo: Any) -> PremiumAccessDetails { .inactive }
 #endif
 }

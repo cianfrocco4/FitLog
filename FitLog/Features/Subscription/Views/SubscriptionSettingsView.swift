@@ -23,14 +23,17 @@ struct SubscriptionSettingsView: View {
                 HStack {
                     Label("Premium", systemImage: entitlementStore.isPremium ? "checkmark.seal.fill" : "lock.fill")
                     Spacer()
-                    Text(entitlementStore.isPremium ? "Active" : "Free")
+                    Text(premiumStatusTitle)
                         .foregroundStyle(entitlementStore.isPremium ? .green : .secondary)
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Premium status, \(premiumStatusTitle)")
 
                 if entitlementStore.isPremium {
-                    Text("Thank you for supporting Workout Log AI.")
+                    Text(premiumStatusDetail)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .accessibilityLabel(premiumStatusDetail)
                 } else {
                     Button {
                         showPaywall = true
@@ -53,11 +56,8 @@ struct SubscriptionSettingsView: View {
                 Button {
                     Task {
                         let refreshed = await entitlementStore.syncPurchases()
-                        if refreshed {
-                            statusMessage = "Premium access is active."
-                            AnalyticsService.shared.track(.restoreCompleted, properties: ["source": "settings"])
-                        } else if entitlementStore.isPremium {
-                            statusMessage = "Premium access is active."
+                        if refreshed || entitlementStore.isPremium {
+                            statusMessage = premiumRefreshMessage
                             AnalyticsService.shared.track(.restoreCompleted, properties: ["source": "settings"])
                         } else {
                             statusMessage = entitlementStore.lastErrorMessage ?? "No active premium access found."
@@ -74,6 +74,7 @@ struct SubscriptionSettingsView: View {
                     Label("Restore / Refresh access", systemImage: "arrow.clockwise")
                 }
                 .disabled(entitlementStore.isRestoring)
+                .accessibilityHint("Refreshes subscription status from the App Store and RevenueCat")
 
                 if entitlementStore.isRestoring {
                     ProgressView()
@@ -137,6 +138,48 @@ struct SubscriptionSettingsView: View {
                 copiedUserID = false
             }
         }
+    }
+
+    private var details: PremiumAccessDetails {
+        entitlementStore.premiumDetails
+    }
+
+    private var premiumStatusTitle: String {
+        guard details.isActive else { return "Free" }
+        if details.isPromotional { return "Active (comp)" }
+        if !details.willRenew { return "Active (canceled)" }
+        return "Active"
+    }
+
+    private var premiumStatusDetail: String {
+        guard details.isActive else { return "" }
+        if details.isPromotional {
+            if let expirationDate = details.expirationDate {
+                return "Complimentary access through \(expirationDate.formatted(date: .abbreviated, time: .omitted))."
+            }
+            return "Complimentary Premium access via RevenueCat."
+        }
+        if !details.willRenew {
+            if let expirationDate = details.expirationDate {
+                return "Auto-renew is off. You keep Premium until \(expirationDate.formatted(date: .abbreviated, time: .shortened))."
+            }
+            return "Auto-renew is off. You keep Premium until the current period ends."
+        }
+        if let expirationDate = details.expirationDate {
+            return "Renews \(expirationDate.formatted(date: .abbreviated, time: .shortened)). Thank you for supporting Workout Log AI."
+        }
+        return "Thank you for supporting Workout Log AI."
+    }
+
+    private var premiumRefreshMessage: String {
+        guard details.isActive else { return "Premium access is active." }
+        if !details.willRenew, !details.isPromotional {
+            if let expirationDate = details.expirationDate {
+                return "Subscription canceled. Premium stays active until \(expirationDate.formatted(date: .abbreviated, time: .shortened))."
+            }
+            return "Subscription canceled. Premium stays active until the current period ends."
+        }
+        return "Premium access is active."
     }
 
     @MainActor
