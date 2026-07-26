@@ -10,6 +10,7 @@ import SwiftUI
 struct ExerciseDetailView: View {
     @Environment(DataManager.self) var dataVM
     @EnvironmentObject var aiService: AIService
+    @Environment(EntitlementStore.self) private var entitlementStore
     @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(ExerciseFormGuideService.self) private var formGuideService
     @Environment(\.dismiss) var dismiss
@@ -161,7 +162,7 @@ struct ExerciseDetailView: View {
     }
 
     private func loadFormTips(for ex: Exercise) async {
-        guard aiService.isConfigured else {
+        guard entitlementStore.hasAccess(to: .aiFormTips), aiService.isConfigured else {
             formTipsResult = .success(ExerciseFormHeuristicTips.tips(for: ex))
             return
         }

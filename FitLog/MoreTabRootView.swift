@@ -12,6 +12,7 @@ struct MoreTabRootView: View {
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var userPreferences: UserPreferences
     @EnvironmentObject var authVM: AuthViewModel
+    @Environment(EntitlementStore.self) private var entitlementStore
 
     @State private var showEraseDataConfirm = false
 
@@ -44,6 +45,12 @@ struct MoreTabRootView: View {
                     Label("Exercise Library", systemImage: "books.vertical")
                 }
                 NavigationLink {
+                    SubscriptionSettingsView()
+                        .environmentObject(authVM)
+                } label: {
+                    Label("Subscription", systemImage: "sparkles")
+                }
+                NavigationLink {
                     DataAndIntegrationsView()
                         .environmentObject(userPreferences)
                 } label: {
@@ -53,7 +60,7 @@ struct MoreTabRootView: View {
                 Section {
                     if authVM.isLoggedIn {
                         Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
-                            authVM.logout()
+                            authVM.logout(entitlementStore: entitlementStore)
                         }
                         .accessibilityHint("Signs out of your account")
                     } else if authVM.usesLocalOnlyMode {

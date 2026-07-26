@@ -24,6 +24,7 @@ struct FitLogApp: App {
     @State private var formGuideService = ExerciseFormGuideService()
     @StateObject private var dayMonitor = CalendarDayMonitor()
     @StateObject private var userPreferences = UserPreferences()
+    @State private var entitlementStore = EntitlementStore()
 
     /// Live container backing `dataVM`; replaced after a successful disk restore from backup.
     @State private var activeModelContainer: ModelContainer
@@ -71,14 +72,20 @@ struct FitLogApp: App {
                         .environmentObject(authVM)
                         .environment(dataVM)
                         .environment(currentVM)
+                        .environment(entitlementStore)
                         .environmentObject(aiService)
                         .environment(formGuideService)
                         .environmentObject(dayMonitor)
                         .environmentObject(userPreferences)
                         .onAppear {
+                            entitlementStore.configureIfNeeded()
+                            if authVM.isLoggedIn, let userID = authVM.revenueCatAppUserID {
+                                Task { await entitlementStore.logIn(appUserID: userID) }
+                            }
                             formGuideService.userPreferences = userPreferences
                             dataVM.healthSyncStatusMessage = dataVM.healthSyncService.statusMessage
                             dataVM.publishIntentExerciseLibrary()
+                            dataVM.publishWidgetSnapshot()
                             currentVM.processPendingIntentActions()
                             if !FitLogUITestLaunch.isActive {
                                 aiService.wakeProxyHostIfNeeded()
@@ -100,6 +107,7 @@ struct FitLogApp: App {
             } else {
                 LoginView()
                     .environmentObject(authVM)
+                    .environment(entitlementStore)
             }
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
@@ -129,7 +137,7 @@ struct FitLogApp: App {
 
     /// Opens the on-disk store, attempting silent backup restore or a fresh start before surfacing recovery UI.
     static func openContainerWithRecovery(storeURL: URL) -> (container: ModelContainer, error: Error?) {
-        let schema = Schema(versionedSchema: FitLogSchemaV5.self)
+        let schema = Schema(versionedSchema: FitLogSchemaV6.self)
         let config = ModelConfiguration(url: storeURL, cloudKitDatabase: .none)
 
         do {
@@ -229,7 +237,7 @@ struct FitLogApp: App {
 
         Self.removePersistedStoreArtifacts()
 
-        let schema = Schema(versionedSchema: FitLogSchemaV5.self)
+        let schema = Schema(versionedSchema: FitLogSchemaV6.self)
         let config = ModelConfiguration(url: Self.persistedStoreURL(), cloudKitDatabase: .none)
         guard let freshContainer = try? ModelContainer(
             for: schema,
@@ -262,7 +270,7 @@ struct FitLogApp: App {
     /// Wipes the on-disk store (including WAL/SHM), opens an empty database, and rebinds app state so the user can continue without restarting.
     private func resetAndRelaunch() {
         Self.removePersistedStoreArtifacts()
-        let schema = Schema(versionedSchema: FitLogSchemaV5.self)
+        let schema = Schema(versionedSchema: FitLogSchemaV6.self)
         let config = ModelConfiguration(url: Self.persistedStoreURL(), cloudKitDatabase: .none)
         guard let freshContainer = try? ModelContainer(
             for: schema,

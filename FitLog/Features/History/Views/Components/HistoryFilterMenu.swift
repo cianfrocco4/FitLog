@@ -6,17 +6,29 @@
 import SwiftUI
 
 struct HistoryFilterMenu: View {
+    @Environment(EntitlementStore.self) private var entitlementStore
     @Bindable var viewModel: HistoryViewModel
+    @State private var showPaywall = false
 
     var body: some View {
         Menu {
             Picker("Time range", selection: $viewModel.dayRange) {
                 ForEach(HistoryDayRange.allCases) { range in
-                    Text(range.menuLabel).tag(range)
+                    if !range.requiresPremium || entitlementStore.hasAccess(to: .unlimitedHistory) {
+                        Text(range.menuLabel).tag(range)
+                    } else {
+                        Label("\(range.menuLabel) (Premium)", systemImage: "lock.fill").tag(range)
+                    }
+                }
+            }
+            .onChange(of: viewModel.dayRange) { oldRange, newRange in
+                if newRange.requiresPremium, !entitlementStore.hasAccess(to: .unlimitedHistory) {
+                    viewModel.dayRange = oldRange
+                    showPaywall = true
                 }
             }
             Toggle("Compare to prior period", isOn: $viewModel.comparePriorPeriod)
-                .disabled(viewModel.dayRange.priorWindow() == nil)
+                .disabled(viewModel.dayRange.priorWindow() == nil || !entitlementStore.hasAccess(to: .advancedAnalytics))
         } label: {
             Image(systemName: viewModel.hasActiveFilters
                 ? "line.3.horizontal.decrease.circle.fill"
@@ -26,5 +38,9 @@ struct HistoryFilterMenu: View {
         }
         .accessibilityLabel("History filters")
         .accessibilityHint("Change time range or compare to prior period")
+        .sheet(isPresented: $showPaywall) {
+            PaywallView(triggerFeature: .unlimitedHistory)
+                .environment(entitlementStore)
+        }
     }
 }

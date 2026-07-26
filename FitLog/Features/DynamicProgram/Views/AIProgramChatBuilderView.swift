@@ -29,12 +29,14 @@ struct AIProgramChatBuilderView: View {
     @Bindable var viewModel: DynamicProgramBuilderViewModel
     @EnvironmentObject private var aiService: AIService
     @Environment(DataManager.self) private var dataManager
+    @Environment(EntitlementStore.self) private var entitlementStore
 
     @State private var messages: [AIProgramChatMessage] = []
     @State private var draft = ""
     @State private var isSending = false
     @State private var errorBanner: String?
     @State private var navigateToReview = false
+    @State private var showPaywall = false
     @FocusState private var isComposerFocused: Bool
 
     private let starterPrompts = [
@@ -107,6 +109,10 @@ struct AIProgramChatBuilderView: View {
             DynamicProgramBuilderView(viewModel: viewModel)
         }
         .sensoryFeedback(.success, trigger: viewModel.generationSuccessCount)
+        .sheet(isPresented: $showPaywall) {
+            PaywallView(triggerFeature: .aiProgramGeneration)
+                .environment(entitlementStore)
+        }
     }
 
     private var notConfiguredBanner: some View {
@@ -251,6 +257,11 @@ struct AIProgramChatBuilderView: View {
         }
 
         errorBanner = nil
+        guard entitlementStore.hasAccess(to: .aiProgramGeneration) else {
+            showPaywall = true
+            return
+        }
+
         isSending = true
         let userMessage = AIProgramChatMessage(isUser: true, text: trimmed)
         messages.append(userMessage)
@@ -269,7 +280,7 @@ struct AIProgramChatBuilderView: View {
             }
         }
 
-        await viewModel.generate(aiService: aiService, dataManager: dataManager)
+        await viewModel.generate(aiService: aiService, dataManager: dataManager, entitlementStore: entitlementStore)
 
         if let err = viewModel.errorMessage, !err.isEmpty {
             errorBanner = err
@@ -288,8 +299,12 @@ struct AIProgramChatBuilderView: View {
     @MainActor
     private func regenerateLastRequest() async {
         guard viewModel.generatedProgram != nil else { return }
+        guard entitlementStore.hasAccess(to: .aiProgramGeneration) else {
+            showPaywall = true
+            return
+        }
         isSending = true
-        await viewModel.generate(aiService: aiService, dataManager: dataManager)
+        await viewModel.generate(aiService: aiService, dataManager: dataManager, entitlementStore: entitlementStore)
         if let err = viewModel.errorMessage, !err.isEmpty {
             errorBanner = err
         } else {

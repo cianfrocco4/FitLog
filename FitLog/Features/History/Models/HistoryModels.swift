@@ -12,7 +12,23 @@ enum HistoryDayRange: Hashable, Identifiable, CaseIterable {
 
     var id: Self { self }
 
-    static let defaultRange: HistoryDayRange = .d90
+    static let defaultRange: HistoryDayRange = .d14
+
+    /// Ranges available on the free tier.
+    static let freeTierCases: [HistoryDayRange] = [.d7, .d14]
+
+    /// Default range for free-tier users on first launch.
+    static let freeTierDefault: HistoryDayRange = .d14
+
+    var requiresPremium: Bool {
+        !Self.freeTierCases.contains(self)
+    }
+
+    /// Returns a range allowed for the user's subscription tier.
+    static func effectiveRange(selected: HistoryDayRange, isPremium: Bool) -> HistoryDayRange {
+        guard !isPremium, selected.requiresPremium else { return selected }
+        return freeTierDefault
+    }
 
     var menuLabel: String {
         switch self {

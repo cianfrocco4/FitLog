@@ -15,6 +15,7 @@ private struct ExerciseReviewPayload: Identifiable {
 struct NewExerciseSheet: View {
     @Environment(DataManager.self) var dataVM
     @EnvironmentObject private var aiService: AIService
+    @Environment(EntitlementStore.self) private var entitlementStore
     @Environment(\.dismiss) var dismiss
 
     /// When set (e.g. from Add Exercise to workout), called with the new exercise after save.
@@ -318,7 +319,7 @@ struct NewExerciseSheet: View {
             return
         }
 
-        if !aiService.isConfigured {
+        if !entitlementStore.hasAccess(to: .aiExerciseReview) || !aiService.isConfigured {
             finalizeSave(displayName: trimmedName, muscles: selectedMuscles, description: trimmedDisplayName(description))
             return
         }

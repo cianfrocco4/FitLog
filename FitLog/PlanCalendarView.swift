@@ -144,6 +144,7 @@ struct PlanCalendarView: View {
             }
             .onChange(of: dataVM.trainingProgram) { _, _ in
                 rebuildResolvedDayCache()
+                dataVM.publishWidgetSnapshot()
             }
             .onChange(of: dataVM.dynamicProgramState) { _, _ in
                 rebuildResolvedDayCache()

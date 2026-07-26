@@ -8,12 +8,15 @@ import Charts
 
 struct HistoryOverviewTab: View {
     @Environment(DataManager.self) private var dataVM
+    @Environment(EntitlementStore.self) private var entitlementStore
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @EnvironmentObject private var userPreferences: UserPreferences
     @Bindable var viewModel: HistoryViewModel
 
     @State private var showVolumeInfo = false
+    @State private var showPaywall = false
+    @State private var paywallTrigger: PremiumFeature = .advancedAnalytics
 
     private var volumeUnit: String {
         HistoryFormatters.volumeUnitLabel(weightUnit: userPreferences.weightDisplayUnit)
@@ -29,9 +32,21 @@ struct HistoryOverviewTab: View {
     var body: some View {
         Group {
             kpiSection
-            heatmapSection
-            trendsSection
-            muscleBalanceSection
+            if entitlementStore.hasAccess(to: .unlimitedHistory) {
+                heatmapSection
+            } else {
+                premiumHistoryUpsell
+            }
+            if entitlementStore.hasAccess(to: .advancedAnalytics) {
+                trendsSection
+                muscleBalanceSection
+            } else {
+                premiumAnalyticsUpsell
+            }
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView(triggerFeature: paywallTrigger)
+                .environment(entitlementStore)
         }
         .popover(isPresented: $showVolumeInfo) {
             Text(HistoryFormatters.volumeUnitExplanation(weightUnit: userPreferences.weightDisplayUnit))
@@ -317,6 +332,42 @@ struct HistoryOverviewTab: View {
             } header: {
                 Text("Muscle balance")
             }
+        }
+    }
+
+    private var premiumHistoryUpsell: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Full training history", systemImage: "calendar")
+                    .font(.headline)
+                Text("Unlock the 365-day training heatmap and extended date ranges with Premium.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Button("Unlock Premium") {
+                    paywallTrigger = .unlimitedHistory
+                    showPaywall = true
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private var premiumAnalyticsUpsell: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Advanced analytics", systemImage: "chart.xyaxis.line")
+                    .font(.headline)
+                Text("Unlock muscle balance, recovery trends, volume charts, and extended history ranges with Premium.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Button("Unlock Premium") {
+                    paywallTrigger = .advancedAnalytics
+                    showPaywall = true
+                }
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding(.vertical, 4)
         }
     }
 

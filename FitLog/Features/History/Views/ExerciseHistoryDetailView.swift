@@ -8,11 +8,13 @@ import Charts
 
 struct ExerciseHistoryDetailView: View {
     @Environment(DataManager.self) var dataVM
+    @Environment(EntitlementStore.self) private var entitlementStore
     @EnvironmentObject var userPreferences: UserPreferences
     let exerciseId: UUID
     let rangeSessions: [WorkoutSession]
     let allSessionsSorted: [WorkoutSession]
     @State private var dataScope: ExerciseHistoryDataScope = .selectedRange
+    @State private var showPaywall = false
 
     private var effectiveSessions: [WorkoutSession] {
         switch dataScope {
@@ -88,10 +90,20 @@ struct ExerciseHistoryDetailView: View {
             Section {
                 Picker("Scope", selection: $dataScope) {
                     ForEach(ExerciseHistoryDataScope.allCases, id: \.rawValue) { scope in
-                        Text(scope.label).tag(scope)
+                        if scope == .allTime, !entitlementStore.hasAccess(to: .unlimitedHistory) {
+                            Label("\(scope.label) (Premium)", systemImage: "lock.fill").tag(scope)
+                        } else {
+                            Text(scope.label).tag(scope)
+                        }
                     }
                 }
                 .pickerStyle(.segmented)
+                .onChange(of: dataScope) { _, newScope in
+                    if newScope == .allTime, !entitlementStore.hasAccess(to: .unlimitedHistory) {
+                        dataScope = .selectedRange
+                        showPaywall = true
+                    }
+                }
             } footer: {
                 Text(
                     dataScope == .selectedRange
@@ -253,5 +265,9 @@ struct ExerciseHistoryDetailView: View {
         }
         .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showPaywall) {
+            PaywallView(triggerFeature: .unlimitedHistory)
+                .environment(entitlementStore)
+        }
     }
 }

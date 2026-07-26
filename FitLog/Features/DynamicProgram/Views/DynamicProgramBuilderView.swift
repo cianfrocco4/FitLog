@@ -86,6 +86,7 @@ struct DynamicProgramBuilderView: View {
     var hidesBuilderModePicker: Bool = false
     @EnvironmentObject private var aiService: AIService
     @Environment(DataManager.self) private var dataManager
+    @Environment(EntitlementStore.self) private var entitlementStore
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
@@ -95,6 +96,7 @@ struct DynamicProgramBuilderView: View {
     @State private var showSavePresetAlert = false
     @State private var presetSaveName = ""
     @State private var presetSavedMessage: String?
+    @State private var showPaywall = false
 
     private var calendar: Calendar { .current }
 
@@ -188,6 +190,10 @@ struct DynamicProgramBuilderView: View {
             }
             .environment(dataManager)
             .environment(\.modelContext, modelContext)
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView(triggerFeature: .aiProgramGeneration)
+                .environment(entitlementStore)
         }
         .confirmationDialog(
             "Stop using this dynamic program?",
@@ -571,7 +577,7 @@ struct DynamicProgramBuilderView: View {
             if viewModel.builderMode == .aiGenerate, viewModel.generatedProgram == nil {
                 Section {
                     Button {
-                        Task { await viewModel.generate(aiService: aiService, dataManager: dataManager) }
+                        requestAIGeneration()
                     } label: {
                         if viewModel.isGenerating || viewModel.isConnectingToProxy {
                             HStack {
@@ -672,10 +678,24 @@ struct DynamicProgramBuilderView: View {
             if viewModel.builderMode == .manualBuild {
                 viewModel.ensureManualDraftIfNeeded()
             } else {
-                Task { await viewModel.generate(aiService: aiService, dataManager: dataManager) }
+                requestAIGeneration()
             }
         } else {
             showApplyReviewSheet = true
+        }
+    }
+
+    private func requestAIGeneration() {
+        guard entitlementStore.hasAccess(to: .aiProgramGeneration) else {
+            showPaywall = true
+            return
+        }
+        Task {
+            await viewModel.generate(
+                aiService: aiService,
+                dataManager: dataManager,
+                entitlementStore: entitlementStore
+            )
         }
     }
 
@@ -797,4 +817,5 @@ struct DynamicProgramBuilderView: View {
     }
     .environmentObject(AIService(apiKey: nil, baseURL: nil))
     .environment(data)
+    .environment(EntitlementStore())
 }

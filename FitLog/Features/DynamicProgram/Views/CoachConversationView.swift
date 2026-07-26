@@ -11,7 +11,10 @@ struct CoachConversationView: View {
     @Bindable var coachVM: CoachConversationViewModel
     @EnvironmentObject private var aiService: AIService
     @Environment(DataManager.self) private var dataManager
+    @Environment(EntitlementStore.self) private var entitlementStore
     @FocusState private var isReviewComposerFocused: Bool
+    @State private var showPaywall = false
+    @State private var paywallTrigger: PremiumFeature = .aiCoach
 
     var body: some View {
         VStack(spacing: 0) {
@@ -49,6 +52,11 @@ struct CoachConversationView: View {
                                     onAdjust: { topic, value in coachVM.applyRecommendationOverride(topic: topic, newValue: value) },
                                     onDiscuss: { coachVM.beginDiscuss(topic: $0) },
                                     onSendDiscuss: { topic in
+                                        guard entitlementStore.hasAccess(to: .aiCoach) else {
+                                            paywallTrigger = .aiCoach
+                                            showPaywall = true
+                                            return
+                                        }
                                         Task { await coachVM.submitFollowUp(for: topic, aiService: aiService) }
                                     },
                                     onApplySuggestion: { topic, change in
@@ -65,8 +73,13 @@ struct CoachConversationView: View {
                             CoachBlueprintSummary(
                                 blueprint: blueprint,
                                 onBuild: {
+                                    guard entitlementStore.hasAccess(to: .aiProgramGeneration) else {
+                                        paywallTrigger = .aiProgramGeneration
+                                        showPaywall = true
+                                        return
+                                    }
                                     Task {
-                                        await coachVM.buildProgram(aiService: aiService, dataManager: dataManager)
+                                        await coachVM.buildProgram(aiService: aiService, dataManager: dataManager, entitlementStore: entitlementStore)
                                     }
                                 },
                                 isLoading: false
@@ -128,9 +141,13 @@ struct CoachConversationView: View {
             coachVM.bootstrap(dataManager: dataManager)
         }
         .task(id: coachVM.phase) {
-            if coachVM.phase == .recommendations, coachVM.blueprint != nil {
+            if coachVM.phase == .recommendations, coachVM.blueprint != nil, entitlementStore.hasAccess(to: .aiCoach) {
                 await coachVM.enrichRecommendationsWithAI(aiService: aiService)
             }
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView(triggerFeature: paywallTrigger)
+                .environment(entitlementStore)
         }
         .sensoryFeedback(.selection, trigger: coachVM.selectionFeedbackCount)
         .sensoryFeedback(.success, trigger: coachVM.builderViewModel.generationSuccessCount)
@@ -254,4 +271,5 @@ struct CoachConversationView: View {
     NavigationStack {
         CoachConversationView(coachVM: CoachConversationViewModel(builderViewModel: DynamicProgramBuilderViewModel()))
     }
+    .environment(EntitlementStore())
 }

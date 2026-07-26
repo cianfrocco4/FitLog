@@ -9,7 +9,7 @@ import SwiftUI
 @Observable
 @MainActor
 final class HistoryViewModel {
-    var dayRange: HistoryDayRange = .d90
+    var dayRange: HistoryDayRange = .d14
     var mainTab: HistoryMainTab = .overview
     var comparePriorPeriod = false
     var exploreSearch = ""

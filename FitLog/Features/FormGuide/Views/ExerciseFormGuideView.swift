@@ -280,6 +280,7 @@ struct ExerciseFormGuideSheet: View {
 
     @Environment(ExerciseFormGuideService.self) private var formGuideService
     @EnvironmentObject private var aiService: AIService
+    @Environment(EntitlementStore.self) private var entitlementStore
     @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -568,7 +569,7 @@ struct ExerciseFormGuideSheet: View {
     }
 
     private func loadFormTips() async -> [String] {
-        guard aiService.isConfigured else {
+        guard entitlementStore.hasAccess(to: .aiFormTips), aiService.isConfigured else {
             return ExerciseFormHeuristicTips.tips(for: exercise)
         }
         do {
