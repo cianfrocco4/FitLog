@@ -181,6 +181,10 @@ final class UserPreferences: ObservableObject {
         static let formGuideGender = "fitlog.formGuideGender"
         static let formGuideAngle = "fitlog.formGuideAngle"
         static let formGuideMuscleWikiOverrides = "fitlog.formGuideMuscleWikiOverrides"
+        static let hasSeenPostWorkoutPaywall = "fitlog.hasSeenPostWorkoutPaywall"
+        static let hasTriggeredReadinessInsight = "fitlog.hasTriggeredReadinessInsight"
+        static let hasLoggedFirstWorkout = "fitlog.hasLoggedFirstWorkout"
+        static let healthKitAuthorizationAttempted = "fitlog.healthKitAuthorizationAttempted"
     }
 
     private let defaults: UserDefaults
@@ -233,6 +237,22 @@ final class UserPreferences: ObservableObject {
         didSet { defaults.set(formGuideMuscleWikiOverridesStorage, forKey: Keys.formGuideMuscleWikiOverrides) }
     }
 
+    @Published var hasSeenPostWorkoutPaywall: Bool {
+        didSet { defaults.set(hasSeenPostWorkoutPaywall, forKey: Keys.hasSeenPostWorkoutPaywall) }
+    }
+
+    @Published var hasTriggeredReadinessInsight: Bool {
+        didSet { defaults.set(hasTriggeredReadinessInsight, forKey: Keys.hasTriggeredReadinessInsight) }
+    }
+
+    @Published var hasLoggedFirstWorkout: Bool {
+        didSet { defaults.set(hasLoggedFirstWorkout, forKey: Keys.hasLoggedFirstWorkout) }
+    }
+
+    @Published var healthKitAuthorizationAttempted: Bool {
+        didSet { defaults.set(healthKitAuthorizationAttempted, forKey: Keys.healthKitAuthorizationAttempted) }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         if let raw = defaults.string(forKey: Keys.weightUnit),
@@ -267,6 +287,10 @@ final class UserPreferences: ObservableObject {
         }
         let overrideDict = defaults.dictionary(forKey: Keys.formGuideMuscleWikiOverrides) as? [String: Int] ?? [:]
         formGuideMuscleWikiOverridesStorage = overrideDict
+        _hasSeenPostWorkoutPaywall = Published(initialValue: defaults.bool(forKey: Keys.hasSeenPostWorkoutPaywall))
+        _hasTriggeredReadinessInsight = Published(initialValue: defaults.bool(forKey: Keys.hasTriggeredReadinessInsight))
+        _hasLoggedFirstWorkout = Published(initialValue: defaults.bool(forKey: Keys.hasLoggedFirstWorkout))
+        _healthKitAuthorizationAttempted = Published(initialValue: defaults.bool(forKey: Keys.healthKitAuthorizationAttempted))
     }
 
     func formGuideMuscleWikiOverride(for exerciseId: UUID) -> Int? {

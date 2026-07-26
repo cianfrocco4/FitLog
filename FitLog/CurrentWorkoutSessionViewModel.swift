@@ -144,6 +144,7 @@ final class CurrentWorkoutSessionViewModel {
 
         dataManager.appendCompletedSession(session)
         dataManager.syncSessionToHealthIfEnabled(session)
+        NotificationCenter.default.post(name: .fitlogWorkoutCompleted, object: nil)
 
         workoutTimer?.invalidate()
         workoutTimer = nil

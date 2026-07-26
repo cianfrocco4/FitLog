@@ -22,6 +22,22 @@ extension Notification.Name {
     static let fitlogOpenProgramBuilder = Notification.Name("fitlogOpenProgramBuilder")
     /// Posted when the calendar “today” moves into a new dynamic program block (multi-block programs).
     static let fitlogDynamicProgramBlockChanged = Notification.Name("fitlogDynamicProgramBlockChanged")
+    /// Posted after a workout session is saved to history (readiness/widget refresh).
+    static let fitlogWorkoutCompleted = Notification.Name("fitlogWorkoutCompleted")
+}
+
+enum FitLogDeepLink: Equatable {
+    case quickLog
+
+    init?(url: URL) {
+        guard url.scheme?.lowercased() == "fitlog" else { return nil }
+        switch url.host?.lowercased() {
+        case "quick-log":
+            self = .quickLog
+        default:
+            return nil
+        }
+    }
 }
 
 enum FitlogCoachDeepLink: Equatable {

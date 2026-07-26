@@ -53,6 +53,7 @@ final class DataManager {
     let splitPresetStore: SplitPresetStore
     let prStore: PersonalRecordStore
     let coachChatStore: CoachChatStore
+    let readinessStore: ReadinessStore
     let healthSyncService: HealthKitSyncService
     let dataTransferService: DataTransferServiceClient
     var healthSyncEnabled: Bool = false
@@ -76,6 +77,7 @@ final class DataManager {
         self.splitPresetStore = SplitPresetStore(modelContext: ctx)
         self.prStore = PersonalRecordStore(modelContext: ctx)
         self.coachChatStore = CoachChatStore(modelContext: ctx, failureReporter: failureReporter)
+        self.readinessStore = ReadinessStore(modelContext: ctx)
         self.healthSyncService = HealthKitSyncService()
         self.dataTransferService = DataTransferServiceClient(dataManagerProvider: { nil })
         self.persistenceFailureReporter = failureReporter
@@ -1403,6 +1405,33 @@ final class DataManager {
     var workoutsThisWeek: Int {
         let sevenDaysAgo = Date().addingTimeInterval(-7*24*60*60)
         return completedSessions.filter { ($0.endTime ?? Date()) > sevenDaysAgo }.count
+    }
+
+    /// Hard working sets in the last 72 hours and a typical 72h baseline for readiness scoring.
+    func trainingLoadMetrics(now: Date = Date()) -> (recentHardSets: Int, typicalHardSets72h: Double) {
+        let windowSeconds: TimeInterval = 72 * 60 * 60
+        let baselineWindowSeconds: TimeInterval = 28 * 24 * 60 * 60
+        let recentCutoff = now.addingTimeInterval(-windowSeconds)
+        let baselineCutoff = now.addingTimeInterval(-baselineWindowSeconds)
+
+        func hardSets(in session: WorkoutSession) -> Int {
+            session.exerciseLogs.flatMap(\.loggedSets).filter { set in
+                guard set.setType != .warmup else { return false }
+                return set.reps > 0
+            }.count
+        }
+
+        let recentHardSets = completedSessions
+            .filter { ($0.endTime ?? .distantPast) >= recentCutoff }
+            .reduce(0) { $0 + hardSets(in: $1) }
+
+        let baselineSessions = completedSessions.filter { ($0.endTime ?? .distantPast) >= baselineCutoff }
+        let totalBaselineHardSets = baselineSessions.reduce(0) { $0 + hardSets(in: $1) }
+        let baselineDays = max(1.0, baselineWindowSeconds / (24 * 60 * 60))
+        let dailyAverage = Double(totalBaselineHardSets) / baselineDays
+        let typicalHardSets72h = max(6, dailyAverage * 3)
+
+        return (recentHardSets, typicalHardSets72h)
     }
 
     struct WeekAtAGlance: Equatable {
