@@ -1,0 +1,218 @@
+//
+//  EntitlementStore.swift
+//  FitLog
+//
+//  Single source of truth for premium access via RevenueCat.
+//
+
+import Foundation
+import Observation
+import os
+
+#if canImport(RevenueCat)
+import RevenueCat
+#endif
+
+private let log = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.fitlog",
+    category: "EntitlementStore"
+)
+
+@Observable @MainActor
+final class EntitlementStore {
+    private(set) var isPremium = false
+    private(set) var appUserID: String?
+    private(set) var isConfigured = false
+    private(set) var isLoadingOfferings = false
+    private(set) var isPurchasing = false
+    private(set) var isRestoring = false
+    private(set) var lastErrorMessage: String?
+
+#if canImport(RevenueCat)
+    private(set) var offerings: Offerings?
+    private(set) var customerInfo: CustomerInfo?
+    private var customerInfoTask: Task<Void, Never>?
+#endif
+
+    init() {
+        if FitLogUITestLaunch.isActive {
+            isPremium = true
+            appUserID = "uitest-user"
+            isConfigured = true
+        }
+    }
+
+    func configureIfNeeded() {
+        guard !isConfigured else { return }
+#if canImport(RevenueCat)
+        guard let apiKey = RevenueCatConfig.apiKey else {
+            log.notice("RevenueCat API key missing — premium features remain locked")
+            // Do not call Purchases.shared before configure — that crashes.
+            appUserID = nil
+            return
+        }
+        Purchases.logLevel = .warn
+        Purchases.configure(withAPIKey: apiKey)
+        isConfigured = true
+        appUserID = Purchases.shared.appUserID
+        listenForCustomerInfoUpdates()
+        Task { await refreshCustomerInfo() }
+        Task { await loadOfferings() }
+#else
+        log.notice("RevenueCat SDK not linked — premium features remain locked")
+#endif
+    }
+
+    nonisolated static func grantsAccess(isPremium: Bool, to feature: PremiumFeature) -> Bool {
+        switch feature.requiredTier {
+        case .premium:
+            return isPremium
+        }
+    }
+
+    func hasAccess(to feature: PremiumFeature) -> Bool {
+        if FitLogUITestLaunch.isActive { return true }
+        return Self.grantsAccess(isPremium: isPremium, to: feature)
+    }
+
+    /// Test seam for unit tests — do not use in production UI.
+#if DEBUG
+    func setPremiumForTesting(_ premium: Bool) {
+        isPremium = premium
+    }
+#endif
+
+    /// Returns true when the user may proceed; false when paywall should be shown.
+    func requirePremium(for feature: PremiumFeature) -> Bool {
+        hasAccess(to: feature)
+    }
+
+#if canImport(RevenueCat)
+    func refreshCustomerInfo() async {
+        guard isConfigured else { return }
+        do {
+            let info = try await Purchases.shared.customerInfo()
+            apply(customerInfo: info)
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            log.error("Failed to refresh customer info: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    func loadOfferings() async {
+        guard isConfigured else { return }
+        isLoadingOfferings = true
+        defer { isLoadingOfferings = false }
+        do {
+            offerings = try await PurchaseService.fetchOfferings()
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            log.error("Failed to load offerings: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    func purchase(package: Package) async -> Bool {
+        guard isConfigured else {
+            lastErrorMessage = PurchaseServiceError.notConfigured.localizedDescription
+            return false
+        }
+        isPurchasing = true
+        defer { isPurchasing = false }
+        do {
+            AnalyticsService.shared.track(.purchaseStarted)
+            let info = try await PurchaseService.purchase(package: package)
+            apply(customerInfo: info)
+            AnalyticsService.shared.track(.purchaseCompleted)
+            return isPremium
+        } catch PurchaseServiceError.purchaseCancelled {
+            AnalyticsService.shared.track(.purchaseCancelled)
+            return false
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            AnalyticsService.shared.track(.purchaseFailed, properties: ["message": error.localizedDescription])
+            return false
+        }
+    }
+
+    func restorePurchases() async -> Bool {
+        guard isConfigured else {
+            lastErrorMessage = PurchaseServiceError.notConfigured.localizedDescription
+            return false
+        }
+        isRestoring = true
+        defer { isRestoring = false }
+        do {
+            let info = try await PurchaseService.restorePurchases()
+            apply(customerInfo: info)
+            return isPremium
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func syncPurchases() async -> Bool {
+        guard isConfigured else {
+            lastErrorMessage = PurchaseServiceError.notConfigured.localizedDescription
+            return false
+        }
+        isRestoring = true
+        defer { isRestoring = false }
+        do {
+            let info = try await PurchaseService.syncPurchases()
+            apply(customerInfo: info)
+            return isPremium
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Stable App User ID for Sign in with Apple users (enables promotional entitlements from dashboard).
+    func logIn(appUserID: String) async {
+        guard isConfigured else { return }
+        do {
+            let result = try await PurchaseService.logIn(appUserID: appUserID)
+            apply(customerInfo: result.customerInfo)
+            self.appUserID = Purchases.shared.appUserID
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            log.error("RevenueCat logIn failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    func logOut() async {
+        guard isConfigured else { return }
+        do {
+            let info = try await PurchaseService.logOut()
+            apply(customerInfo: info)
+            appUserID = Purchases.shared.appUserID
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func listenForCustomerInfoUpdates() {
+        customerInfoTask?.cancel()
+        customerInfoTask = Task { [weak self] in
+            for await info in Purchases.shared.customerInfoStream {
+                await self?.apply(customerInfo: info)
+            }
+        }
+    }
+
+    private func apply(customerInfo: CustomerInfo) {
+        self.customerInfo = customerInfo
+        isPremium = PurchaseService.isPremiumActive(in: customerInfo)
+        appUserID = Purchases.shared.appUserID
+    }
+#else
+    func refreshCustomerInfo() async {}
+    func loadOfferings() async {}
+    func purchase(package: Any) async -> Bool { false }
+    func restorePurchases() async -> Bool { false }
+    func syncPurchases() async -> Bool { false }
+    func logIn(appUserID: String) async {}
+    func logOut() async {}
+#endif
+}
