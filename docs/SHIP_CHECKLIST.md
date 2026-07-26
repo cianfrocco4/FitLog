@@ -16,7 +16,11 @@ Branch: `feature/phase-1-workout-log-ai` → merge to `main` before / with submi
 
 - [x] Feature branch contains Phase 1 freemium + Phase 2 on-device AI  
 - [x] Merged `feature/phase-1-workout-log-ai` → `main` (`fdd1a61`)  
-- [x] `main` pushed; confirm GitHub Pages redeploys `privacy-policy.html` / `support.html`  
+- [x] `main` pushed  
+- [ ] **GitHub Pages:** Repo → Settings → Pages → Deploy from branch **`main`** / folder **`/docs`**.  
+  Expected URLs (404 until Pages is enabled):  
+  `https://cianfrocco4.github.io/FitLog/privacy-policy.html`  
+  `https://cianfrocco4.github.io/FitLog/support.html`  
 
 ## 3. App Store Connect packaging
 
