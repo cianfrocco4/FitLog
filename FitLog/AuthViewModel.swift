@@ -42,8 +42,14 @@ final class AuthViewModel: ObservableObject {
         errorMessage = nil
     }
 
+    /// Stable identifier used as the RevenueCat App User ID for promotional entitlements.
+    var revenueCatAppUserID: String? {
+        let id = appleUserIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        return id.isEmpty ? nil : id
+    }
+
     /// Call after Sign in with Apple succeeds (from LoginView's onCompletion).
-    func handleAppleSignIn(credential: ASAuthorizationAppleIDCredential) {
+    func handleAppleSignIn(credential: ASAuthorizationAppleIDCredential, entitlementStore: EntitlementStore? = nil) {
         usesLocalOnlyModeStorage = false
         appleUserIdentifier = credential.user
         if let email = credential.email { userEmail = email }
@@ -53,15 +59,21 @@ final class AuthViewModel: ObservableObject {
         }
         isLoggedIn = true
         errorMessage = nil
+        if let entitlementStore {
+            Task { await entitlementStore.logIn(appUserID: credential.user) }
+        }
     }
 
-    func logout() {
+    func logout(entitlementStore: EntitlementStore? = nil) {
         appleUserIdentifier = ""
         userEmail = ""
         userName = ""
         isLoggedIn = false
         usesLocalOnlyModeStorage = false
         errorMessage = nil
+        if let entitlementStore {
+            Task { await entitlementStore.logOut() }
+        }
     }
 
     private func checkCredentialStateIfNeeded() {

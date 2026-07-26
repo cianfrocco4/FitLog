@@ -8,24 +8,24 @@ Replace placeholders (`YOUR_EMAIL`, your GitHub username) where noted. **Charact
 
 **Recommended:**
 ```
-Log lifts. Rest. Repeat.
+Train smarter. Recover better.
 ```
-*(24 characters)*
+*(30 characters)*
 
 **Alternatives (all ≤30):**
-- `Strength training, simplified` (28)
-- `Your gym session journal` (24)
-- `Workout log that stays local` (28)
+- `Strength + readiness coach` (28)
+- `Log lifts. Readiness. AI.` (26)
+- `Smart workout log & coach` (25)
 
 ---
 
 ## Keywords (max **100** characters total)
 
-Comma-separated, **no spaces** after commas. Don’t repeat words from your app **name** (“Workout Log” / “The Workout Log”)—Apple indexes the name separately.
+Comma-separated, **no spaces** after commas. Don’t repeat words from your app **name** (“Workout Log AI”)—Apple indexes the name separately.
 
 **Recommended string (99 chars):**
 ```
-gym,fitness,strength,lifting,logger,exercise,reps,timer,training,weightlifting,powerlifting,sets
+gym,fitness,strength,readiness,HRV,sleep,AI,coach,hypertrophy,training,lifting,periodization
 ```
 
 **Slightly different mix (98 chars):**
@@ -39,9 +39,8 @@ fitness,gym,strength,training,lifting,logger,exercise,reps,rest,timer,barbell,du
 
 Updates anytime without a new binary. Example:
 ```
-Plan workouts, log every set in lbs, and use the built-in rest timer—all on your phone, no subscription. Optional AI form tips when you want a quick cue.
+Train smarter with readiness scores from Apple Health, home screen widgets, and optional Premium AI coaching—logging stays free.
 ```
-*(~155 chars—trim if needed)*
 
 ---
 
@@ -50,30 +49,27 @@ Plan workouts, log every set in lbs, and use the built-in rest timer—all on yo
 Copy below into App Store Connect → **Description**.
 
 ```
-The Workout Log is built for people who want to track strength training without clutter. Plan your sessions, log weight and reps in pounds, time your rests, and review what you did last week—everything stays on your device.
+Workout Log AI helps you train with intention: log every set, see today's readiness, and upgrade to Premium for AI coaching and deeper analytics.
 
-PLAN YOUR WORKOUTS
-Create routines and add exercises from a library of 60+ common lifts—or add your own. Set target sets, rep ranges, and rest times so you’re ready when you hit the gym.
+FREE — ALWAYS
+• Log workouts with rest timer and Live Activity
+• Plan sessions from templates or build your own
+• Today's Readiness Score (training load + optional Apple Health)
+• Home screen widget with quick-log shortcut
+• Custom exercises and 14-day history
 
-LOG SETS FAST
-During a workout, a pull-up bar keeps your session one tap away. Log sets with weight and reps, mark warmups, and swipe to fix mistakes. Collapsible sections keep the floor clear when you’re moving between exercises.
+PREMIUM
+• AI Coach chat and natural-language program builder
+• Readiness trends (7–90 days)
+• Advanced analytics, unlimited history, and export
 
-REST TIMER
-Start a rest after a set and get a notification when it’s time to go again. Focus on the lift, not the clock.
-
-WEEKLY SUMMARY
-See how many sessions you finished in the last seven days on your home screen.
-
-HISTORY
-Browse completed workouts and the sets you logged—your training journal, always with you.
+READINESS
+Connect Apple Health when you're ready for sleep, HRV, and resting heart rate inputs. Scores are computed on device and are general fitness guidance—not medical advice.
 
 PRIVACY-FIRST
-Sign in with Apple. Your workouts and history are stored locally on your iPhone—no account on our servers, no forced cloud sync.
+Workouts stay on your iPhone with SwiftData. Sign in with Apple is optional. Subscriptions are managed by Apple; restore anytime in Settings.
 
-OPTIONAL AI HELP
-When enabled, get short form tips for exercises and ideas to tweak your plan. No workout data is required to use the core logger.
-
-Whether you’re on a bro split, powerlifting, or just getting consistent at the gym, The Workout Log keeps it simple.
+Whether you're chasing hypertrophy, strength, or consistency, Workout Log AI keeps logging free and puts smarter coaching one upgrade away.
 ```
 
 ---
@@ -98,13 +94,16 @@ Same as Support, your personal site, or GitHub repo.
 
 ---
 
-## What’s new (release notes) – v1.0 example
+## What’s new (release notes) – example
 
 ```
-Welcome to The Workout Log.
+Workout Log AI
 
-• Plan workouts with 60+ exercises or your own
-• Log sets (lbs), rest timer with notifications
-• Weekly summary and full workout history
-• Sign in with Apple; data stays on your device
+• Readiness score from Apple Health + training load (free)
+• Premium: AI Coach, program builder, trends, and advanced analytics
+• On-device coaching when Apple Intelligence is available (with cloud fallback)
+• Adjust today’s plan and weekly training insights (Premium)
+• Home screen readiness widget with quick-log
+• Subscriptions with free trial via App Store
+• Sign in with Apple optional; data stays on device
 ```

@@ -52,6 +52,7 @@ struct WorkoutPlanView: View {
     let currentVM: CurrentWorkoutSessionViewModel
     @Environment(DataManager.self) var dataVM
     @EnvironmentObject var aiService: AIService
+    @Environment(EntitlementStore.self) private var entitlementStore
     @Environment(\.openPullUpToExerciseLogIndex) private var openPullUpToExerciseLogIndex
     @Environment(\.undoManager) private var undoManager
     @State private var addExercisePresentation: AddExerciseSheetMode?
@@ -239,6 +240,7 @@ struct WorkoutPlanView: View {
             )
             .environment(dataVM)
             .environmentObject(aiService)
+            .environment(entitlementStore)
         }
         .sheet(isPresented: $showCardioBuilder) {
             NavigationStack {
@@ -580,9 +582,10 @@ struct WorkoutPlanView: View {
                 Button {
                     showAIExerciseSuggestSheet = true
                 } label: {
+                    let useCloudAI = entitlementStore.hasAccess(to: .aiWorkoutSuggestions) && aiService.isConfigured
                     Label(
-                        aiService.isConfigured ? "Suggest exercises (AI)…" : "Suggest exercises (offline)…",
-                        systemImage: aiService.isConfigured ? "sparkles" : "wand.and.stars"
+                        useCloudAI ? "Suggest exercises (AI)…" : "Suggest exercises…",
+                        systemImage: useCloudAI ? "sparkles" : "wand.and.stars"
                     )
                 }
             } label: {
@@ -796,7 +799,7 @@ struct WorkoutPlanView: View {
     }
 
     private func loadSuggestions() async {
-        guard aiService.isConfigured else {
+        guard entitlementStore.hasAccess(to: .aiWorkoutSuggestions), aiService.isConfigured else {
             suggestionsResult = .success(heuristicImprovementSuggestions(for: workout, dataVM: dataVM))
             return
         }
@@ -1327,6 +1330,7 @@ private struct AISuggestExercisesFillSheet: View {
     let workoutId: UUID
     let currentVM: CurrentWorkoutSessionViewModel
     @Environment(DataManager.self) var dataVM
+    @Environment(EntitlementStore.self) private var entitlementStore
     @EnvironmentObject var aiService: AIService
     @Environment(\.dismiss) private var dismiss
 
@@ -1354,9 +1358,11 @@ private struct AISuggestExercisesFillSheet: View {
                 } else {
                     List {
                         Section {
-                            Text(aiService.isConfigured
-                                 ? "Pick exercises to append to your plan. Sets and reps are starting points."
-                                 : "Based on your workout name and what’s already included. Tap to add.")
+                            Text(
+                                entitlementStore.hasAccess(to: .aiWorkoutSuggestions) && aiService.isConfigured
+                                    ? "Pick exercises to append to your plan. Sets and reps are starting points."
+                                    : "Based on your workout name and what’s already included. Tap to add."
+                            )
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -1425,7 +1431,7 @@ private struct AISuggestExercisesFillSheet: View {
             errorMessage = "Workout not found."
             return
         }
-        if aiService.isConfigured {
+        if entitlementStore.hasAccess(to: .aiWorkoutSuggestions), aiService.isConfigured {
             do {
                 let list = try await aiService.fetchExercisesToAddToWorkout(workout: w, globalExercises: dataVM.globalExercises)
                 let existing = Set(w.exercises.compactMap { $0.exerciseId })

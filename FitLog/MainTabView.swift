@@ -14,10 +14,12 @@ struct MainTabView: View {
     @EnvironmentObject var dayMonitor: CalendarDayMonitor
     @EnvironmentObject var userPreferences: UserPreferences
     @EnvironmentObject var authVM: AuthViewModel
+    @Environment(EntitlementStore.self) private var entitlementStore
     @Environment(ExerciseFormGuideService.self) private var formGuideService
     @State private var showCurrentWorkoutPullUp = false
     @State private var workoutSheetDetent: PresentationDetent = FitlogWorkoutSheetDetent.defaultOpen
     @State private var showOnboarding = false
+    @State private var showPostWorkoutPaywall = false
     @State private var rootTab: FitlogRootTab = .home
     @State private var coachDeepLink: FitlogCoachDeepLink = .idle
     @State private var workoutChromeMetrics = WorkoutChromeMetrics()
@@ -123,8 +125,19 @@ struct MainTabView: View {
         )) { summary in
             WorkoutCompletionSummaryView(summary: summary) {
                 currentVM.pendingWorkoutCompletionSummary = nil
+                maybePresentPostWorkoutPaywall()
             }
             .environmentObject(userPreferences)
+        }
+        .sheet(isPresented: $showPostWorkoutPaywall) {
+            PaywallView(
+                triggerFeature: .aiCoach,
+                analyticsSource: "post_workout",
+                onDismiss: {
+                    userPreferences.hasSeenPostWorkoutPaywall = true
+                }
+            )
+            .environment(entitlementStore)
         }
         .fullScreenCover(isPresented: $showOnboarding) {
             OnboardingFlowView(isPresented: $showOnboarding) { action in
@@ -156,6 +169,7 @@ struct MainTabView: View {
             }
             .environment(dataVM)
             .environmentObject(userPreferences)
+            .environment(entitlementStore)
             .interactiveDismissDisabled()
         }
         .onChange(of: currentVM.isInProgress) { wasActive, isActive in
@@ -195,6 +209,33 @@ struct MainTabView: View {
         } message: {
             Text(dataVM.persistenceFailureReporter.alertMessage ?? "")
         }
+        .onReceive(NotificationCenter.default.publisher(for: .fitlogWorkoutCompleted)) { _ in
+            guard !userPreferences.hasLoggedFirstWorkout else { return }
+            userPreferences.hasLoggedFirstWorkout = true
+            AnalyticsService.shared.track(.firstWorkoutLogged)
+        }
+        .onOpenURL { url in
+            guard let link = FitLogDeepLink(url: url) else { return }
+            switch link {
+            case .quickLog:
+                rootTab = .home
+                if currentVM.isInProgress {
+                    showCurrentWorkoutPullUp = true
+                } else {
+                    NotificationCenter.default.post(name: .fitlogPresentNewWorkout, object: nil)
+                }
+            }
+        }
+    }
+
+    private func maybePresentPostWorkoutPaywall() {
+        guard PremiumPromptPolicy.shouldPresentPostWorkoutPaywall(
+            isPremium: entitlementStore.isPremium,
+            hasSeen: userPreferences.hasSeenPostWorkoutPaywall,
+            completedCount: dataVM.completedSessions.count
+        ) else { return }
+        userPreferences.hasSeenPostWorkoutPaywall = true
+        showPostWorkoutPaywall = true
     }
 
     private func coachMarkBanner(message: String) -> some View {

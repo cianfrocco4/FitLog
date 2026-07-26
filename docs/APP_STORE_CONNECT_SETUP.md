@@ -7,7 +7,7 @@ Use this when creating the app record in [App Store Connect](https://appstorecon
 | Field | Value |
 |-------|--------|
 | Platform | iOS |
-| Name | The Workout Log |
+| Name | Workout Log AI |
 | Primary Language | English (U.S.) |
 | Bundle ID | `com.acianfrocco.FitLog` |
 | SKU | `fitlog-ios-1` |
@@ -24,39 +24,45 @@ Replace `cianfrocco4` with your GitHub username if different.
 
 ## Metadata (from APP_STORE_METADATA.md)
 
-**Subtitle:** Log lifts. Rest. Repeat.
+**Subtitle:** Train smarter. Recover better.
 
-**Keywords:** gym,fitness,strength,lifting,logger,exercise,reps,timer,training,weightlifting,powerlifting,sets
+**Keywords:** gym,fitness,strength,readiness,HRV,sleep,AI,coach,hypertrophy,training,lifting,periodization
 
 **Category:** Health & Fitness
 
-**What's New (v1.0):**
+**What's New (Phase 1 example):**
 ```
-Welcome to The Workout Log.
+Workout Log AI — Phase 1
 
-• Plan workouts with 60+ exercises or your own
-• Log sets (lbs), rest timer with notifications
-• Weekly summary and full workout history
-• Sign in with Apple; data stays on your device
+• Readiness score from Apple Health + training load (free)
+• Premium: AI Coach, program builder, trends, and advanced analytics
+• Home screen readiness widget with quick-log
+• Subscriptions with free trial via App Store
+• Sign in with Apple optional; data stays on device
 ```
 
 Full description: see [APP_STORE_METADATA.md](../APP_STORE_METADATA.md).
 
+## Subscriptions
+
+See [REVENUECAT_SETUP.md](REVENUECAT_SETUP.md) for product IDs, entitlement `premium`, and offering setup.
+
 ## Build assignment
 
-- Version: **1.0**
-- Build: **1** (increment for each re-upload)
-- Archive location: `build/FitLog.xcarchive` (local, gitignored)
+- Version: marketing version in Xcode
+- Build: increment `CURRENT_PROJECT_VERSION` for each re-upload
+- Archive: Release configuration with `REVENUECAT_API_KEY` set
 
 ## Checklist
 
-- [ ] App record created
+- [ ] App record created (name **Workout Log AI**)
 - [ ] Privacy & support URLs live and entered
-- [ ] Screenshots uploaded (6.7", 6.1", iPad 13") — baseline in `AppStoreScreenshots/` after running script
-- [ ] Privacy labels completed — see [APP_STORE_COMPLIANCE.md](APP_STORE_COMPLIANCE.md)
+- [ ] Screenshots uploaded (6.7", 6.1", iPad 13")
+- [ ] Privacy labels completed — [APP_STORE_COMPLIANCE.md](APP_STORE_COMPLIANCE.md)
 - [ ] Age rating completed
 - [ ] Export compliance: No non-exempt encryption
-- [ ] TestFlight internal test passed — [APP_STORE_SMOKE_TEST.md](APP_STORE_SMOKE_TEST.md)
-- [ ] Submitted for review — review notes in [APP_STORE_COMPLIANCE.md](APP_STORE_COMPLIANCE.md)
+- [ ] Subscriptions + RevenueCat Current offering verified
+- [ ] TestFlight matrix passed — [APP_STORE_SMOKE_TEST.md](APP_STORE_SMOKE_TEST.md)
+- [ ] Submitted for review — notes in [APP_STORE_COMPLIANCE.md](APP_STORE_COMPLIANCE.md)
 
 Full walkthrough: [SUBMISSION_GUIDE.md](SUBMISSION_GUIDE.md)

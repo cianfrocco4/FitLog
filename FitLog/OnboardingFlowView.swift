@@ -20,9 +20,13 @@ struct OnboardingFlowView: View {
 
     @Environment(DataManager.self) private var dataVM
     @EnvironmentObject private var userPreferences: UserPreferences
+    @Environment(EntitlementStore.self) private var entitlementStore
 
     @State private var page = 0
     @State private var sessionsPerWeek = 3
+    @State private var showPaywall = false
+
+    private var lastPageIndex: Int { 4 }
 
     var body: some View {
         NavigationStack {
@@ -34,6 +38,8 @@ struct OnboardingFlowView: View {
                     frequencyPage
                 case 2:
                     routineChoicePage
+                case 3:
+                    premiumValuePage
                 default:
                     wrapUpPage
                 }
@@ -51,11 +57,18 @@ struct OnboardingFlowView: View {
                     if page < 2 {
                         Button("Next") {
                             withAnimation {
-                                page = min(3, page + 1)
+                                page = min(lastPageIndex, page + 1)
                             }
                         }
                         .fontWeight(.semibold)
-                    } else if page == 3 {
+                    } else if page < lastPageIndex {
+                        Button("Next") {
+                            withAnimation {
+                                page = min(lastPageIndex, page + 1)
+                            }
+                        }
+                        .fontWeight(.semibold)
+                    } else if page == lastPageIndex {
                         Button("Done") {
                             finishWithAction(.none)
                         }
@@ -63,6 +76,10 @@ struct OnboardingFlowView: View {
                     }
                 }
             }
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView(triggerFeature: .aiCoach, onDismiss: nil)
+                .environment(entitlementStore)
         }
         .onAppear {
             let current = dataVM.trainingProgram.sessionsPerWeek
@@ -79,7 +96,7 @@ struct OnboardingFlowView: View {
             Text("Welcome to \(AppBrand.name)")
                 .font(.largeTitle.weight(.bold))
                 .multilineTextAlignment(.center)
-            Text("Track strength and cardio in one place — sets, intervals, weekly trends, and Apple Health export.")
+            Text("Track strength and cardio in one place — sets, intervals, readiness from Apple Health, and optional AI coaching.")
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -173,13 +190,40 @@ struct OnboardingFlowView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    private var premiumValuePage: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Train smarter with Premium")
+                .font(.title2.weight(.semibold))
+            Text("Logging stays free forever. Premium unlocks private on-device coaching (Apple Intelligence), cloud AI when needed, readiness trends, and advanced analytics.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Label("On-device AI adjust + cloud coach & program builder", systemImage: "sparkles")
+            Label("Readiness trends (7–90 days) from Apple Health", systemImage: "heart.text.square.fill")
+            Label("Advanced analytics, unlimited history, and export", systemImage: "chart.xyaxis.line")
+            Text("Not medical advice — general fitness coaching tool only.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("See Premium options") {
+                showPaywall = true
+            }
+            .buttonStyle(.borderedProminent)
+            Button("Continue with free plan") {
+                withAnimation { page = lastPageIndex }
+            }
+            .font(.subheadline)
+            Spacer()
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
     private var wrapUpPage: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("You’re set")
                 .font(.title2.weight(.semibold))
-            Label("Home shows today’s plan and your week.", systemImage: "house")
+            Label("Home shows today's plan, readiness, and your week.", systemImage: "house")
             Label("Plan is your calendar and training program.", systemImage: "calendar")
-            Label("History holds every completed session.", systemImage: "chart.bar")
+            Label("History shows the last 14 days free — unlock full history with Premium.", systemImage: "chart.bar")
             Label("Cardio templates cover steady state, intervals, and hybrid days.", systemImage: "figure.run")
                 .foregroundStyle(FitlogPalette.chartSecondary)
             Text("Tap Done to start logging, or use Skip anytime.")

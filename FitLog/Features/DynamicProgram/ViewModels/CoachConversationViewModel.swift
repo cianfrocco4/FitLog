@@ -466,13 +466,14 @@ final class CoachConversationViewModel {
         builderViewModel.persistPreferencesToStore()
     }
 
-    func buildProgram(aiService: AIService, dataManager: DataManager) async {
+    func buildProgram(aiService: AIService, dataManager: DataManager, entitlementStore: EntitlementStore) async {
+        guard entitlementStore.hasAccess(to: .aiProgramGeneration) else { return }
         phase = .generating
         applyBlueprintToBuilder()
         appendTrainerMessage("Building your program now…")
         appendTypingIndicator()
         scrollToGenerationTrigger += 1
-        await builderViewModel.generate(aiService: aiService, dataManager: dataManager)
+        await builderViewModel.generate(aiService: aiService, dataManager: dataManager, entitlementStore: entitlementStore)
         removeTypingIndicator()
         if builderViewModel.generatedProgram != nil {
             phase = .complete

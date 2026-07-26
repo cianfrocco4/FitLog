@@ -132,12 +132,12 @@ final class CoachChatViewModel {
 
     // MARK: - Send
 
-    func sendStarter(_ text: String, dataVM: DataManager, aiService: AIService) {
+    func sendStarter(_ text: String, dataVM: DataManager, aiService: AIService, entitlementStore: EntitlementStore) {
         draft = text
-        send(dataVM: dataVM, aiService: aiService)
+        send(dataVM: dataVM, aiService: aiService, entitlementStore: entitlementStore)
     }
 
-    func send(dataVM: DataManager, aiService: AIService, regenerateFrom assistantID: UUID? = nil) {
+    func send(dataVM: DataManager, aiService: AIService, entitlementStore: EntitlementStore, regenerateFrom assistantID: UUID? = nil) {
         let trimmed: String
         let skipNewUserMessage: Bool
 
@@ -165,6 +165,12 @@ final class CoachChatViewModel {
         }
         if let last = lastSendTime, Date().timeIntervalSince(last) < CoachChatLimits.sendCooldown {
             beginCooldown()
+            return
+        }
+
+        guard entitlementStore.hasAccess(to: .aiCoach) else {
+            errorBanner = "Upgrade to Premium to chat with AI Coach."
+            AnalyticsService.shared.track(.aiBlockedByPaywall, properties: ["feature": PremiumFeature.aiCoach.rawValue])
             return
         }
 
@@ -208,7 +214,7 @@ final class CoachChatViewModel {
         }
     }
 
-    func retryLastSend(dataVM: DataManager, aiService: AIService) {
+    func retryLastSend(dataVM: DataManager, aiService: AIService, entitlementStore: EntitlementStore) {
         guard let trimmed = lastFailedUserText else { return }
         if let lastUser = messages.last(where: { $0.role == .user }), lastUser.text == trimmed {
             messages.removeAll { $0.id == lastUser.id }
@@ -219,7 +225,7 @@ final class CoachChatViewModel {
         draft = trimmed
         showRetry = false
         errorBanner = nil
-        send(dataVM: dataVM, aiService: aiService)
+        send(dataVM: dataVM, aiService: aiService, entitlementStore: entitlementStore)
     }
 
     func cancelSend(dataVM: DataManager) {
@@ -378,6 +384,39 @@ final class CoachChatViewModel {
         var assistant = CoachChatMessage(role: .assistant, text: "", status: .streaming)
         var assistantCreated = false
         var accumulated = ""
+
+        // Short single-turn prompts prefer on-device Apple Intelligence when available.
+        if apiTurns.count == 1,
+           let only = apiTurns.first,
+           only.role == "user",
+           only.content.count <= 400,
+           AIRoutingService.shared.onDeviceAvailability.isAvailable {
+            do {
+                let system = "You are Workout Log AI Coach. Be concise. Not medical advice. Use the snapshot as ground truth.\n\n\(snapshot)"
+                let routed = try await AIRoutingService.shared.shortCoachReply(
+                    system: system,
+                    user: only.content,
+                    isPremium: true,
+                    preferOnDevice: true,
+                    aiService: aiService,
+                    cloudFallback: {
+                        try await aiService.coachChat(conversation: apiTurns, contextSnapshot: snapshot)
+                    }
+                )
+                assistant.text = routed.text
+                assistant.status = .sent
+                messages.append(assistant)
+                persistAssistantMessage(assistant, conversationID: conversationID, dataVM: dataVM, alreadyPersisted: false)
+                refreshConversations(dataVM: dataVM)
+                isSending = false
+                isStreaming = false
+                receiveFeedbackCount += 1
+                beginCooldown()
+                return
+            } catch {
+                // Fall through to streaming cloud path.
+            }
+        }
 
         do {
             let stream = aiService.coachChatStream(conversation: apiTurns, contextSnapshot: snapshot)

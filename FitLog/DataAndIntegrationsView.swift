@@ -11,9 +11,11 @@ import UniformTypeIdentifiers
 struct DataAndIntegrationsView: View {
     @Environment(DataManager.self) private var dataVM
     @EnvironmentObject private var userPreferences: UserPreferences
+    @Environment(EntitlementStore.self) private var entitlementStore
 
     @State private var showArchiveImporter = false
     @State private var showImportConfirm = false
+    @State private var showPaywall = false
     @State private var archiveExportURL: URL?
     @State private var csvExportURL: URL?
     @State private var alertMessage: String?
@@ -33,6 +35,9 @@ struct DataAndIntegrationsView: View {
             }
 
             Section("Health") {
+                Text("Readiness uses sleep, HRV, and resting heart rate from Apple Health. Workout sync writes completed sessions to Health.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Toggle("Sync completed workouts to Apple Health", isOn: $dm.healthSyncEnabled)
                     .onChange(of: dataVM.healthSyncEnabled) { _, enabled in
                         dataVM.setHealthSyncEnabled(enabled)
@@ -49,35 +54,43 @@ struct DataAndIntegrationsView: View {
             }
 
             Section("Export") {
-                if let archiveExportURL {
-                    ShareLink(item: archiveExportURL) {
-                        Label("Share full archive (.fitlog)", systemImage: "square.and.arrow.up")
-                    }
-                } else {
-                    Button {
-                        do {
-                            archiveExportURL = try dataVM.dataTransferService.writeArchiveExportFile()
-                        } catch {
-                            alertMessage = "Could not build archive export: \(error.localizedDescription)"
+                if entitlementStore.hasAccess(to: .dataExport) {
+                    if let archiveExportURL {
+                        ShareLink(item: archiveExportURL) {
+                            Label("Share full archive (.fitlog)", systemImage: "square.and.arrow.up")
                         }
-                    } label: {
-                        Label("Prepare full archive (.fitlog)", systemImage: "square.and.arrow.up")
+                    } else {
+                        Button {
+                            do {
+                                archiveExportURL = try dataVM.dataTransferService.writeArchiveExportFile()
+                            } catch {
+                                alertMessage = "Could not build archive export: \(error.localizedDescription)"
+                            }
+                        } label: {
+                            Label("Prepare full archive (.fitlog)", systemImage: "square.and.arrow.up")
+                        }
                     }
-                }
 
-                if let csvExportURL {
-                    ShareLink(item: csvExportURL) {
-                        Label("Share sessions CSV", systemImage: "tablecells")
+                    if let csvExportURL {
+                        ShareLink(item: csvExportURL) {
+                            Label("Share sessions CSV", systemImage: "tablecells")
+                        }
+                    } else {
+                        Button {
+                            do {
+                                csvExportURL = try dataVM.dataTransferService.writeCSVExportFile()
+                            } catch {
+                                alertMessage = "Could not build CSV export: \(error.localizedDescription)"
+                            }
+                        } label: {
+                            Label("Prepare sessions CSV", systemImage: "tablecells")
+                        }
                     }
                 } else {
                     Button {
-                        do {
-                            csvExportURL = try dataVM.dataTransferService.writeCSVExportFile()
-                        } catch {
-                            alertMessage = "Could not build CSV export: \(error.localizedDescription)"
-                        }
+                        showPaywall = true
                     } label: {
-                        Label("Prepare sessions CSV", systemImage: "tablecells")
+                        Label("Unlock export with Premium", systemImage: "lock.fill")
                     }
                 }
             }
@@ -95,6 +108,10 @@ struct DataAndIntegrationsView: View {
         }
         .navigationTitle("Data & Integrations")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showPaywall) {
+            PaywallView(triggerFeature: .dataExport)
+                .environment(entitlementStore)
+        }
         .confirmationDialog(
             "Replace all data on this device?",
             isPresented: $showImportConfirm,

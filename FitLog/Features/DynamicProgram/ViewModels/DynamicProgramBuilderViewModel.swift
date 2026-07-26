@@ -643,7 +643,11 @@ final class DynamicProgramBuilderViewModel {
         applyExperienceBasedDefaults()
     }
 
-    func generate(aiService: AIService, dataManager: DataManager) async {
+    func generate(aiService: AIService, dataManager: DataManager, entitlementStore: EntitlementStore) async {
+        guard entitlementStore.hasAccess(to: .aiProgramGeneration) else {
+            errorMessage = "Upgrade to Premium to generate programs with AI."
+            return
+        }
         errorMessage = nil
         offersLocalPresetFallback = false
         isGenerating = true

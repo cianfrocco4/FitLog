@@ -181,6 +181,12 @@ final class UserPreferences: ObservableObject {
         static let formGuideGender = "fitlog.formGuideGender"
         static let formGuideAngle = "fitlog.formGuideAngle"
         static let formGuideMuscleWikiOverrides = "fitlog.formGuideMuscleWikiOverrides"
+        static let hasSeenPostWorkoutPaywall = "fitlog.hasSeenPostWorkoutPaywall"
+        static let hasTriggeredReadinessInsight = "fitlog.hasTriggeredReadinessInsight"
+        static let hasLoggedFirstWorkout = "fitlog.hasLoggedFirstWorkout"
+        static let healthKitAuthorizationAttempted = "fitlog.healthKitAuthorizationAttempted"
+        static let dismissedHomePremiumCard = "fitlog.dismissedHomePremiumCard"
+        static let homePremiumCardSnoozeUntil = "fitlog.homePremiumCardSnoozeUntil"
     }
 
     private let defaults: UserDefaults
@@ -233,6 +239,38 @@ final class UserPreferences: ObservableObject {
         didSet { defaults.set(formGuideMuscleWikiOverridesStorage, forKey: Keys.formGuideMuscleWikiOverrides) }
     }
 
+    @Published var hasSeenPostWorkoutPaywall: Bool {
+        didSet { defaults.set(hasSeenPostWorkoutPaywall, forKey: Keys.hasSeenPostWorkoutPaywall) }
+    }
+
+    @Published var hasTriggeredReadinessInsight: Bool {
+        didSet { defaults.set(hasTriggeredReadinessInsight, forKey: Keys.hasTriggeredReadinessInsight) }
+    }
+
+    @Published var hasLoggedFirstWorkout: Bool {
+        didSet { defaults.set(hasLoggedFirstWorkout, forKey: Keys.hasLoggedFirstWorkout) }
+    }
+
+    @Published var healthKitAuthorizationAttempted: Bool {
+        didSet { defaults.set(healthKitAuthorizationAttempted, forKey: Keys.healthKitAuthorizationAttempted) }
+    }
+
+    /// User permanently dismissed the Home Premium teaser card.
+    @Published var dismissedHomePremiumCard: Bool {
+        didSet { defaults.set(dismissedHomePremiumCard, forKey: Keys.dismissedHomePremiumCard) }
+    }
+
+    /// When set in the future, Home Premium card stays hidden until this date.
+    @Published var homePremiumCardSnoozeUntil: Date? {
+        didSet {
+            if let homePremiumCardSnoozeUntil {
+                defaults.set(homePremiumCardSnoozeUntil.timeIntervalSince1970, forKey: Keys.homePremiumCardSnoozeUntil)
+            } else {
+                defaults.removeObject(forKey: Keys.homePremiumCardSnoozeUntil)
+            }
+        }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         if let raw = defaults.string(forKey: Keys.weightUnit),
@@ -267,6 +305,17 @@ final class UserPreferences: ObservableObject {
         }
         let overrideDict = defaults.dictionary(forKey: Keys.formGuideMuscleWikiOverrides) as? [String: Int] ?? [:]
         formGuideMuscleWikiOverridesStorage = overrideDict
+        _hasSeenPostWorkoutPaywall = Published(initialValue: defaults.bool(forKey: Keys.hasSeenPostWorkoutPaywall))
+        _hasTriggeredReadinessInsight = Published(initialValue: defaults.bool(forKey: Keys.hasTriggeredReadinessInsight))
+        _hasLoggedFirstWorkout = Published(initialValue: defaults.bool(forKey: Keys.hasLoggedFirstWorkout))
+        _healthKitAuthorizationAttempted = Published(initialValue: defaults.bool(forKey: Keys.healthKitAuthorizationAttempted))
+        _dismissedHomePremiumCard = Published(initialValue: defaults.bool(forKey: Keys.dismissedHomePremiumCard))
+        if defaults.object(forKey: Keys.homePremiumCardSnoozeUntil) != nil {
+            let interval = defaults.double(forKey: Keys.homePremiumCardSnoozeUntil)
+            _homePremiumCardSnoozeUntil = Published(initialValue: Date(timeIntervalSince1970: interval))
+        } else {
+            _homePremiumCardSnoozeUntil = Published(initialValue: nil)
+        }
     }
 
     func formGuideMuscleWikiOverride(for exerciseId: UUID) -> Int? {
@@ -295,6 +344,12 @@ final class UserPreferences: ObservableObject {
         coachMarkHistoryDismissed = true
         dismissedProgramAssignmentBanner = true
         dismissedCardioGetStartedBanner = true
+        dismissedHomePremiumCard = true
+        homePremiumCardSnoozeUntil = nil
         effortInputStyle = .rpe
+    }
+
+    func snoozeHomePremiumCard(from now: Date = .now) {
+        homePremiumCardSnoozeUntil = PremiumPromptPolicy.homeCardSnoozeDeadline(from: now)
     }
 }

@@ -31,12 +31,20 @@ private let log = Logger(
 
 enum FitLogMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [FitLogSchemaV1.self, FitLogSchemaV2.self, FitLogSchemaV3.self, FitLogSchemaV4.self, FitLogSchemaV5.self]
+        [FitLogSchemaV1.self, FitLogSchemaV2.self, FitLogSchemaV3.self, FitLogSchemaV4.self, FitLogSchemaV5.self, FitLogSchemaV6.self]
     }
 
     static var stages: [MigrationStage] {
-        [migrateV1ToV2, migrateV2ToV3, migrateV3ToV4, migrateV4ToV5]
+        [migrateV1ToV2, migrateV2ToV3, migrateV3ToV4, migrateV4ToV5, migrateV5ToV6]
     }
+
+    // MARK: - V5 → V6
+
+    /// Additive readiness snapshots only — lightweight migration preserves all existing user data.
+    private static let migrateV5ToV6 = MigrationStage.lightweight(
+        fromVersion: FitLogSchemaV5.self,
+        toVersion: FitLogSchemaV6.self
+    )
 
     // MARK: - V4 → V5
 

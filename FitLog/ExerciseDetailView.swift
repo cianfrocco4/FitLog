@@ -10,6 +10,7 @@ import SwiftUI
 struct ExerciseDetailView: View {
     @Environment(DataManager.self) var dataVM
     @EnvironmentObject var aiService: AIService
+    @Environment(EntitlementStore.self) private var entitlementStore
     @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(ExerciseFormGuideService.self) private var formGuideService
     @Environment(\.dismiss) var dismiss
@@ -19,6 +20,7 @@ struct ExerciseDetailView: View {
     @State private var formTipsResult: Result<[String], Error>?
     @State private var formTipsLoading = false
     @State private var showFormGuideSheet = false
+    @State private var showSubstitutionSheet = false
 
     private var exercise: Exercise? {
         dataVM.globalExercises.first { $0.id == exerciseId }
@@ -66,6 +68,15 @@ struct ExerciseDetailView: View {
                                 .buttonStyle(.bordered)
                             }
                         }
+
+                        Button {
+                            showSubstitutionSheet = true
+                        } label: {
+                            Label("Suggest substitutes", systemImage: "arrow.triangle.swap")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityHint("Shows library exercises that can replace this movement")
 
                         Divider()
 
@@ -149,6 +160,13 @@ struct ExerciseDetailView: View {
                         .environmentObject(aiService)
                         .environmentObject(userPreferences)
                 }
+                .sheet(isPresented: $showSubstitutionSheet) {
+                    ExerciseSubstitutionSheet(source: ex) { _ in
+                        // Browse-only from detail; active-session swap uses CurrentWorkoutSessionViewModel.
+                    }
+                    .environment(dataVM)
+                    .environment(entitlementStore)
+                }
             } else {
                 ContentUnavailableView(
                     "Exercise removed",
@@ -161,18 +179,17 @@ struct ExerciseDetailView: View {
     }
 
     private func loadFormTips(for ex: Exercise) async {
-        guard aiService.isConfigured else {
-            formTipsResult = .success(ExerciseFormHeuristicTips.tips(for: ex))
-            return
-        }
         formTipsLoading = true
         formTipsResult = nil
         defer { formTipsLoading = false }
-        do {
-            let tips = try await aiService.fetchFormTips(for: ex)
-            formTipsResult = .success(tips)
-        } catch {
-            formTipsResult = .failure(error)
-        }
+        let result = await AIRoutingService.shared.formCues(
+            exerciseName: ex.name,
+            isPremium: entitlementStore.hasAccess(to: .aiFormTips),
+            aiService: aiService,
+            cloudFallback: {
+                try await aiService.fetchFormTips(for: ex)
+            }
+        )
+        formTipsResult = .success(result.cues)
     }
 }

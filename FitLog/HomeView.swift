@@ -15,8 +15,16 @@ struct HomeView: View {
     @EnvironmentObject var authVM: AuthViewModel
     @EnvironmentObject var aiService: AIService
     @EnvironmentObject var userPreferences: UserPreferences
+    @Environment(EntitlementStore.self) private var entitlementStore
     @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
+
+    @State private var readinessVM = ReadinessViewModel()
+    @State private var showReadinessDetail = false
+    @State private var showPaywall = false
+    @State private var paywallTrigger: PremiumFeature = .aiCoach
+    @State private var paywallAnalyticsSource: String?
+    @State private var showDailyAdjust = false
 
     @State private var showNewWorkout = false
     @State private var newWorkoutLaunchHint: NewWorkoutLaunchHint?
@@ -92,6 +100,14 @@ struct HomeView: View {
 
     private var shouldShowCardioGetStartedCard: Bool {
         !userPreferences.dismissedCardioGetStartedBanner && !dataVM.hasLoggedCardio()
+    }
+
+    private var shouldShowHomePremiumCard: Bool {
+        PremiumPromptPolicy.shouldShowHomePremiumCard(
+            isPremium: entitlementStore.isPremium,
+            dismissed: userPreferences.dismissedHomePremiumCard,
+            snoozeUntil: userPreferences.homePremiumCardSnoozeUntil
+        )
     }
 
     private var workoutSearchTrimmed: String {
@@ -312,6 +328,151 @@ struct HomeView: View {
         }
     }
 
+    private func connectAppleHealthFromHome() {
+        Task {
+            await readinessVM.connectAppleHealth(
+                dataVM: dataVM,
+                dayKey: dayMonitor.currentDayKey,
+                userPreferences: userPreferences
+            )
+        }
+    }
+
+    private func refreshReadinessForCurrentDay() async {
+        await readinessVM.refresh(
+            dataVM: dataVM,
+            dayKey: dayMonitor.currentDayKey,
+            userPreferences: userPreferences
+        )
+        if readinessVM.todayScore != nil, readinessVM.todayScore?.score ?? 0 > 0 {
+            userPreferences.hasTriggeredReadinessInsight = true
+        }
+    }
+
+    @ViewBuilder
+    private var readinessDashboardCard: some View {
+        ReadinessCardView(
+            score: readinessVM.todayScore,
+            isLoading: readinessVM.isLoading,
+            healthConnectState: readinessVM.connectState,
+            showPremiumTrendsCTA: !entitlementStore.isPremium && readinessVM.todayScore != nil,
+            onTap: { showReadinessDetail = true },
+            onConnectHealth: connectAppleHealthFromHome,
+            onUnlockTrends: {
+                paywallTrigger = .readinessTrends
+                paywallAnalyticsSource = "home_readiness_card"
+                showPaywall = true
+            }
+        )
+        .listRowInsets(homeDashboardListInsets)
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .task(id: dayMonitor.currentDayKey) {
+            await refreshReadinessForCurrentDay()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .fitlogWorkoutCompleted)) { _ in
+            Task { await refreshReadinessForCurrentDay() }
+        }
+    }
+
+    @ViewBuilder
+    private var homePremiumTeaserCard: some View {
+        HomePremiumCardView(
+            onSeePremium: {
+                paywallTrigger = .aiCoach
+                paywallAnalyticsSource = "home_card"
+                showPaywall = true
+            },
+            onRemindLater: {
+                userPreferences.snoozeHomePremiumCard()
+            },
+            onDismiss: {
+                userPreferences.dismissedHomePremiumCard = true
+            }
+        )
+        .listRowInsets(homeDashboardListInsets)
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
+
+    @ViewBuilder
+    private var homeActiveAndReadinessSection: some View {
+        Section {
+            if currentVM.isInProgress {
+                HomeActiveWorkoutCard(
+                    onOpen: { openCurrentWorkoutSheet?() },
+                    onFinish: handleHomeFinishTap
+                )
+                .listRowInsets(homeDashboardListInsets)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
+
+            readinessDashboardCard
+
+            if shouldShowHomePremiumCard {
+                homePremiumTeaserCard
+            }
+
+            WeeklyInsightCard(
+                readinessTrendSummaries: readinessVM.todayScore.map { ["Today: \($0.score)/100 — \($0.band.displayTitle)"] } ?? []
+            )
+            .listRowInsets(homeDashboardListInsets)
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+
+            if homeFirstPaintSkeleton {
+                FitlogSkeletonCardBlock()
+                    .listRowInsets(homeDashboardListInsets)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+            } else {
+                todayDashboardBlock
+                    .listRowInsets(homeDashboardListInsets)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+
+                if let progress = cachedProgressSummary {
+                    progressSummaryCard(progress)
+                        .listRowInsets(homeDashboardListInsets)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
+
+                if shouldShowCardioGetStartedCard {
+                    cardioGetStartedCard
+                        .listRowInsets(homeDashboardListInsets)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
+
+                if let recap = cachedWeeklyRecap, recap.shouldShowRecapCard {
+                    weeklyRecapCard(recap)
+                        .listRowInsets(homeDashboardListInsets)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
+
+                if !recentQuickStartWorkouts.isEmpty {
+                    HomeRecentWorkoutsRow(
+                        workouts: recentQuickStartWorkouts,
+                        lastCompletedDates: recentWorkoutLastDoneDates,
+                        onStart: startWorkoutFromLibrary
+                    )
+                    .listRowInsets(homeDashboardListInsets)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
+            }
+        }
+    }
+
     var body: some View {
         @Bindable var dm = dataVM
         return NavigationStack {
@@ -331,67 +492,7 @@ struct HomeView: View {
                     .listRowBackground(Color.clear)
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 }
-                Section {
-                    if currentVM.isInProgress {
-                        HomeActiveWorkoutCard(
-                            onOpen: { openCurrentWorkoutSheet?() },
-                            onFinish: handleHomeFinishTap
-                        )
-                            .listRowInsets(homeDashboardListInsets)
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                    }
-
-                    if homeFirstPaintSkeleton {
-                        FitlogSkeletonCardBlock()
-                            .listRowInsets(homeDashboardListInsets)
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                    } else {
-                        todayDashboardBlock
-                            .listRowInsets(homeDashboardListInsets)
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
-
-                        if let progress = cachedProgressSummary {
-                            progressSummaryCard(progress)
-                                .listRowInsets(homeDashboardListInsets)
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(Color.clear)
-                                .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                        }
-
-                        if shouldShowCardioGetStartedCard {
-                            cardioGetStartedCard
-                                .listRowInsets(homeDashboardListInsets)
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(Color.clear)
-                                .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                        }
-
-                        if let recap = cachedWeeklyRecap, recap.shouldShowRecapCard {
-                            weeklyRecapCard(recap)
-                                .listRowInsets(homeDashboardListInsets)
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(Color.clear)
-                                .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                        }
-
-                        if !recentQuickStartWorkouts.isEmpty {
-                            HomeRecentWorkoutsRow(
-                                workouts: recentQuickStartWorkouts,
-                                lastCompletedDates: recentWorkoutLastDoneDates,
-                                onStart: startWorkoutFromLibrary
-                            )
-                            .listRowInsets(homeDashboardListInsets)
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                        }
-                    }
-                }
+                homeActiveAndReadinessSection
 
                 if shouldShowProgramAssignmentBanner {
                     Section {
@@ -621,6 +722,22 @@ struct HomeView: View {
                     .environment(currentVM)
                     .environmentObject(aiService)
             }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView(
+                    triggerFeature: paywallTrigger,
+                    analyticsSource: paywallAnalyticsSource
+                )
+                .environment(entitlementStore)
+            }
+            .sheet(isPresented: $showDailyAdjust) {
+                DailyAdjustSheet(
+                    readinessScore: readinessVM.todayScore,
+                    plannedWorkout: scheduledWorkoutForToday
+                )
+                .environment(dataVM)
+                .environmentObject(aiService)
+                .environment(entitlementStore)
+            }
             .sheet(isPresented: $showNewExercise) {
                 NewExerciseSheet()
                     .environment(dataVM)
@@ -697,6 +814,10 @@ struct HomeView: View {
             }
             .task(id: homeRefreshKey) {
                 refreshCachedHomeData()
+                dataVM.publishWidgetSnapshot()
+            }
+            .navigationDestination(isPresented: $showReadinessDetail) {
+                ReadinessDetailView(viewModel: readinessVM, dayKey: dayMonitor.currentDayKey)
             }
             .task {
                 try? await Task.sleep(nanoseconds: 280_000_000)
@@ -1062,6 +1183,14 @@ struct HomeView: View {
                         onViewWorkoutDetail: { todayPlanDetailRoute = .plannedWorkout(id) },
                         detailLabel: "View workout"
                     )
+                    Button {
+                        showDailyAdjust = true
+                    } label: {
+                        Label("Adjust today’s plan", systemImage: "slider.horizontal.3")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityHint("Opens readiness-aware coaching to adjust today’s workout")
                 } else {
                     missingItemMessage("Missing workout", detail: "Your plan references a workout that isn’t in your library. Update the split in the Plan tab.")
                 }

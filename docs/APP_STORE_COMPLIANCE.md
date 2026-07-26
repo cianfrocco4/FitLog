@@ -1,6 +1,6 @@
 # App Store Connect — Privacy, Compliance & Review Notes
 
-Use this when filling out App Store Connect questionnaires for **The Workout Log** v1.0.
+Use this when filling out App Store Connect questionnaires for **Workout Log AI**.
 
 ---
 
@@ -16,23 +16,20 @@ Use this when filling out App Store Connect questionnaires for **The Workout Log
 | Health & Fitness | Yes | Yes (on device) | No | App Functionality |
 | Photos or Videos | Yes (optional) | Yes (on device) | No | App Functionality |
 | User ID | Yes (optional, Sign in with Apple) | Yes | No | App Functionality |
-| Other Data (workout text for AI) | Yes (optional) | No | No | App Functionality |
+| Purchases | Yes | Yes | No | App Functionality |
+| Other Data (workout text for AI) | Yes (optional, Premium) | No | No | App Functionality |
 
 ### Health & Fitness — detail
-- Workout sessions, sets, reps, weight
-- Stored **on device**; not uploaded to your servers
-- Apple Health read/write **only when user enables** sync
+- Workout sessions, sets, reps, weight (on device)
+- **Readiness reads (optional):** sleep analysis, HRV (SDNN), resting heart rate — computed on device
+- Apple Health workout write **only when user enables** sync
 
-### Photos — detail
-- Progress photos user selects
-- Stored **locally** on device
-
-### User ID — detail
-- Sign in with Apple anonymous identifier
-- Optional; app works without sign-in
+### Purchases — detail
+- Auto-renewable subscriptions and optional lifetime unlock via RevenueCat / StoreKit
+- Managed by Apple; restore available in-app
 
 ### Other Data (AI features) — detail
-- Exercise names, muscle groups, program structure sent to proxy when user invokes AI Coach or form guides
+- Exercise names, muscle groups, program structure sent to proxy when Premium user invokes AI Coach or form guides
 - Not linked to Apple ID or email in proxy requests
 
 ---
@@ -75,34 +72,50 @@ In App Store Connect upload dialog: **No** for non-exempt encryption (or use exe
 ## HealthKit
 
 Declared usage strings in Info.plist:
-- **Read:** workouts, body mass, heart rate, related fitness data
-- **Write:** completed workouts, distance, active energy, heart rate
+- **Read (readiness, user-initiated):** sleep analysis, heart rate variability (SDNN), resting heart rate
+- **Write (optional sync):** completed workouts, distance, active energy, heart rate
 
-Nutrition labels should match: Health & Fitness data, user-controlled via Settings.
+Nutrition labels should document readiness reads separately from workout logging. All readiness scoring is on-device.
+
+---
+
+## Subscriptions (Guideline 3.1)
+
+- **Free tier:** logging, rest timer, today's readiness score, basic history, widgets, custom exercises
+- **Premium:** AI features, readiness trends, advanced analytics, unlimited history, export
+- In-app paywall with restore purchases, Privacy Policy, and Apple Standard EULA links
+- **Manage Subscription** in More → Subscription (active subscribers)
+- Local testing: `Configuration.storekit` wired in the FitLog scheme
 
 ---
 
 ## App Review notes (paste into ASC)
 
 ```
-The Workout Log — Review Notes (v1.0)
+Workout Log AI — Review Notes
 
 AUTHENTICATION
-Sign in with Apple is optional. On first launch, tap "Continue without signing in"
-to use the app locally without an account.
+Sign in with Apple is optional. Tap "Continue without signing in" to use the app locally.
 
 CORE FUNCTIONALITY (works offline)
 - Home → start a workout → log sets → finish workout
-- History tab shows completed sessions
-- Rest timer with local notifications (allow notifications when prompted)
+- History tab shows completed sessions (14-day range on free tier)
+- Rest timer with local notifications and Live Activity
+
+READINESS (free)
+- Today's readiness score on Home; optional Connect Apple Health CTA
+- Not medical advice — general fitness guidance only
+
+PREMIUM / SUBSCRIPTIONS
+- RevenueCat + StoreKit: monthly, annual (14-day trial), optional lifetime
+- Public SDK key is in Info.plist (REVENUECAT_API_KEY, appl_…)
+- Restore purchases on paywall and in More → Subscription
+- Comp path: More → Subscription → copy App User ID → RevenueCat promotional entitlement → Restore / Refresh
 
 OPTIONAL FEATURES
-- HealthKit: More → Data & Integrations → enable Health sync
-- AI Coach: Coach tab (requires network; uses https://the-workout-log.onrender.com)
-- Form guides: during active workout, tap exercise → form guide (network optional)
-
-LIVE ACTIVITY
-Rest timer Live Activity appears during active workouts on supported devices.
+- HealthKit workout sync: More → Data & Integrations
+- AI Coach / program builder / Daily Adjust / Week in review: Premium
+- On Apple Intelligence devices (iOS 26+), short coaching may run on-device; otherwise cloud/heuristic fallbacks. Logging never depends on AI.
 
 NO DEMO ACCOUNT REQUIRED.
 ```

@@ -3,17 +3,17 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>The Workout Log</string>
+	<string>Workout Log AI</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.acianfrocco.FitLog</string>
 	<key>NSUserNotificationsUsageDescription</key>
-	<string>The Workout Log uses notifications to remind you when rest time is over during workouts.</string>
+	<string>Workout Log AI uses notifications to remind you when rest time is over during workouts.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>The Workout Log reads workouts, body mass, heart rate, and related fitness data from Apple Health when you enable sync.</string>
+	<string>Workout Log AI reads sleep, heart rate variability, resting heart rate, workouts, and related fitness data from Apple Health to calculate your readiness score and show recovery insights.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>The Workout Log writes completed workouts, distance, active energy, and heart rate samples to Apple Health when sync is enabled.</string>
+	<string>Workout Log AI writes completed workouts, distance, active energy, and heart rate samples to Apple Health when sync is enabled.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>The Workout Log stores progress photos you choose locally on your device.</string>
+	<string>Workout Log AI stores progress photos you choose locally on your device.</string>
 	<key>CFBundleIconName</key>
 	<string>AppIcon</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
@@ -30,5 +30,18 @@
 	<string></string>
 	<key>MUSCLEWIKI_API_KEY</key>
 	<string></string>
+	<key>REVENUECAT_API_KEY</key>
+	<string>appl_fjdjXhzUhusHdzCMmvevNxpRpEB</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.acianfrocco.FitLog</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>fitlog</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

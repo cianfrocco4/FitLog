@@ -8,8 +8,9 @@
 import Foundation
 
 enum AppBrand {
-    static let name = "The Workout Log"
+    static let name = "Workout Log AI"
+    static let tagline = "Train smarter. Recover better. Progress sustainably."
 
     /// Hyphenated prefix for exported backup filenames (no spaces).
-    static let exportFilePrefix = "The-Workout-Log"
+    static let exportFilePrefix = "Workout-Log-AI"
 }

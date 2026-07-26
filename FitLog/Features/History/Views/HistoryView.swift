@@ -7,6 +7,7 @@ import SwiftUI
 
 struct HistoryView: View {
     @Environment(DataManager.self) private var dataVM
+    @Environment(EntitlementStore.self) private var entitlementStore
     @State private var viewModel = HistoryViewModel()
     @State private var isSearchPresented = false
 
@@ -51,9 +52,14 @@ struct HistoryView: View {
                 prompt: searchPrompt
             )
             .onAppear {
+                clampDayRangeForSubscriptionTier()
                 dataVM.refreshCompletedSessions()
                 viewModel.recompute(dataVM: dataVM)
                 loadTabDataIfNeeded()
+            }
+            .onChange(of: entitlementStore.isPremium) { _, _ in
+                clampDayRangeForSubscriptionTier()
+                viewModel.recompute(dataVM: dataVM)
             }
             .onChange(of: viewModel.dayRange) { _, _ in
                 viewModel.recompute(dataVM: dataVM)
@@ -70,6 +76,19 @@ struct HistoryView: View {
                 viewModel.recompute(dataVM: dataVM)
                 loadTabDataIfNeeded()
             }
+        }
+    }
+
+    private func clampDayRangeForSubscriptionTier() {
+        let clamped = HistoryDayRange.effectiveRange(
+            selected: viewModel.dayRange,
+            isPremium: entitlementStore.hasAccess(to: .unlimitedHistory)
+        )
+        if clamped != viewModel.dayRange {
+            viewModel.dayRange = clamped
+        }
+        if !entitlementStore.hasAccess(to: .advancedAnalytics) {
+            viewModel.comparePriorPeriod = false
         }
     }
 

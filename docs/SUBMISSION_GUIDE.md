@@ -1,11 +1,12 @@
-# App Store Submission Guide — The Workout Log
+# App Store Submission Guide — Workout Log AI
 
-Step-by-step guide to publish **The Workout Log** (`com.acianfrocco.FitLog`) v1.0 to the App Store.
+Step-by-step guide to publish **Workout Log AI** (`com.acianfrocco.FitLog`) to the App Store with freemium Premium subscriptions.
 
 ## Prerequisites
 
 - [ ] Apple Developer Program membership (team `N7HAUF9TT9`)
 - [ ] App record created in [App Store Connect](https://appstoreconnect.apple.com)
+- [ ] Subscription products + RevenueCat configured — see [REVENUECAT_SETUP.md](REVENUECAT_SETUP.md)
 - [ ] Privacy policy and support pages live (see [Hosting](#hosting-privacy--support-pages))
 - [ ] Release build archived and uploaded (see [Archive & upload](#archive--upload))
 
@@ -15,7 +16,7 @@ Step-by-step guide to publish **The Workout Log** (`com.acianfrocco.FitLog`) v1.
 
 1. App Store Connect → **Apps** → **+** → **New App**
 2. **Platforms:** iOS  
-3. **Name:** The Workout Log  
+3. **Name:** Workout Log AI  
 4. **Primary language:** English (U.S.)  
 5. **Bundle ID:** `com.acianfrocco.FitLog`  
 6. **SKU:** `fitlog-ios-1` (any unique string)  
@@ -25,8 +26,8 @@ Step-by-step guide to publish **The Workout Log** (`com.acianfrocco.FitLog`) v1.
 
 | Field | Value |
 |-------|--------|
-| Name | The Workout Log |
-| Subtitle | Log lifts. Rest. Repeat. |
+| Name | Workout Log AI |
+| Subtitle | Train smarter. Recover better. |
 | Category (Primary) | Health & Fitness |
 | Category (Secondary) | Optional — Lifestyle |
 | Content Rights | Does not contain third-party content requiring rights |
@@ -49,6 +50,8 @@ Copy **Description**, **Keywords**, **Promotional Text**, and **What's New** fro
 
 Enter these in App Store Connect → App Information → **Privacy Policy URL** and **Support URL**.
 
+Confirm hosted HTML matches [PRIVACY_POLICY.md](../PRIVACY_POLICY.md) (subscriptions, readiness HealthKit reads, medical disclaimer).
+
 ---
 
 ## 3. Privacy Nutrition Labels
@@ -62,19 +65,31 @@ App Store Connect → App Privacy → **Get Started**
 
 | Data type | Purpose | Notes |
 |-----------|---------|-------|
-| Health & Fitness | App Functionality | Workout logs; HealthKit only when user enables sync |
+| Health & Fitness | App Functionality | Workout logs; readiness reads (sleep, HRV, resting HR); HealthKit sync when enabled |
+| Purchases | App Functionality | Auto-renewable subscriptions / lifetime via Apple + RevenueCat |
 | User Content | App Functionality | Progress photos, notes — stored locally |
-| Identifiers | App Functionality | Sign in with Apple (optional) — anonymous ID on device |
+| Identifiers | App Functionality | Sign in with Apple (optional); RevenueCat App User ID |
+| Other Data | App Functionality | Workout text sent to AI proxy when Premium user invokes Coach / form guides |
 
 ### Data Not Linked to You
-**None** (unless you add analytics later)
+**None** required for the local Logger analytics sink (no third-party tracking SDK).
 
-### Third-party data processing
-When user uses AI Coach or form guides, exercise names and workout structure are sent to your Render proxy → OpenAI / MuscleWiki. Disclose under **Data Types** → **Other Data** or in app privacy details as processed on your behalf, not linked to identity.
+See also [APP_STORE_COMPLIANCE.md](APP_STORE_COMPLIANCE.md).
 
 ---
 
-## 4. Age rating
+## 4. Subscriptions (Guideline 3.1)
+
+Before review:
+
+1. Complete **Paid Apps Agreement**, tax, and banking in App Store Connect.
+2. Create subscription group **Workout Log AI Premium** and products — [REVENUECAT_SETUP.md](REVENUECAT_SETUP.md).
+3. Confirm `REVENUECAT_API_KEY` (public `appl_…` key) is in the **Release** archive (`Info.plist`).
+4. Paywall must offer **Restore purchases**, Privacy Policy, and Terms (Apple Standard EULA is linked in-app).
+
+---
+
+## 5. Age rating
 
 Complete the questionnaire. Typical answers for this app:
 
@@ -82,7 +97,7 @@ Complete the questionnaire. Typical answers for this app:
 - Realistic violence: None
 - Sexual content: None
 - Profanity: None
-- Medical/treatment info: None (fitness logging only)
+- Medical/treatment info: None (fitness logging / readiness only — not medical advice)
 - Unrestricted web access: **No**
 - User-generated content: **No** (or No if photos are local-only)
 
@@ -90,7 +105,7 @@ Expected rating: **4+**
 
 ---
 
-## 5. Export compliance
+## 6. Export compliance
 
 When uploading the build, answer:
 
@@ -100,7 +115,7 @@ When uploading the build, answer:
 
 ---
 
-## 6. Release secrets (before archive)
+## 7. Release secrets (before archive)
 
 ```bash
 cp Config/Secrets.release.xcconfig.example Config/Secrets.release.xcconfig
@@ -114,9 +129,11 @@ Verify proxy:
 curl https://the-workout-log.onrender.com/health
 ```
 
+Confirm App Group `group.com.acianfrocco.FitLog.shared` and HealthKit are enabled for the App ID in the Developer portal (required for readiness widgets + Health).
+
 ---
 
-## 7. Archive & upload
+## 8. Archive & upload
 
 ### Xcode
 
@@ -125,24 +142,9 @@ curl https://the-workout-log.onrender.com/health
 3. Organizer → **Distribute App** → **App Store Connect** → **Upload**
 4. Wait for processing (email when ready)
 
-### Command line (optional)
-
-```bash
-xcodebuild archive \
-  -scheme FitLog \
-  -configuration Release \
-  -destination 'generic/platform=iOS' \
-  -archivePath build/FitLog.xcarchive
-
-xcodebuild -exportArchive \
-  -archivePath build/FitLog.xcarchive \
-  -exportOptionsPlist ExportOptions.plist \
-  -exportPath build/export
-```
-
 ---
 
-## 8. Screenshots
+## 9. Screenshots
 
 Required because the app targets iPhone **and** iPad (`TARGETED_DEVICE_FAMILY = 1,2`).
 
@@ -152,50 +154,28 @@ Required because the app targets iPhone **and** iPad (`TARGETED_DEVICE_FAMILY = 
 | 6.1" iPhone | iPhone 16 | 6.1" Display |
 | 13" iPad | iPad Pro 13-inch (M4) | 13" Display |
 
-Run the helper script for a baseline home screenshot:
-
-```bash
-chmod +x scripts/capture-app-store-screenshots.sh
-./scripts/capture-app-store-screenshots.sh
-```
-
-Manually capture additional screens: active workout, rest timer, History overview, Coach.
+Capture: Home + readiness, paywall, Coach, History, home-screen widget.
 
 ---
 
-## 9. TestFlight
+## 10. TestFlight
 
-1. App Store Connect → **TestFlight** → select build **1.0 (1)**
+1. App Store Connect → **TestFlight** → select the uploaded build
 2. Add internal testers (your Apple ID)
 3. Install via TestFlight app
-4. Complete [APP_STORE_SMOKE_TEST.md](APP_STORE_SMOKE_TEST.md) on device
+4. Complete [APP_STORE_SMOKE_TEST.md](APP_STORE_SMOKE_TEST.md) on device (free / paid / comped)
 5. Fix any issues; bump `CURRENT_PROJECT_VERSION` and re-upload if needed
 
 ---
 
-## 10. Submit for review
+## 11. Submit for review
 
-1. App Store Connect → **App Store** tab → **+ Version** → `1.0`
+1. App Store Connect → **App Store** tab → version
 2. Select the uploaded build
 3. Fill screenshots, description, keywords, support URL, privacy URL
-4. **App Review Information:**
-   - Contact: Anthony Cianfrocco, acianfrocco@gmail.com
-   - Notes:
-
-```
-Sign in with Apple is optional — tap "Continue without signing in" on the login screen.
-
-AI Coach and form guide features are optional and require network access to our proxy
-(https://the-workout-log.onrender.com). Core workout logging works fully offline.
-
-HealthKit sync is optional and only activated when the user enables it in More → Data & Integrations.
-
-Demo account not required — reviewer can start a workout from Home without signing in.
-```
+4. **App Review Information** — paste notes from [APP_STORE_COMPLIANCE.md](APP_STORE_COMPLIANCE.md)
 
 5. **Submit for Review**
-
-Review typically takes 24–48 hours.
 
 ---
 
@@ -204,6 +184,7 @@ Review typically takes 24–48 hours.
 | Item | Location |
 |------|----------|
 | Metadata copy | [APP_STORE_METADATA.md](../APP_STORE_METADATA.md) |
+| RevenueCat / IAP | [REVENUECAT_SETUP.md](REVENUECAT_SETUP.md) |
 | ASC checklist | [app-store-connect-checklist.md](app-store-connect-checklist.md) |
 | Smoke test | [APP_STORE_SMOKE_TEST.md](APP_STORE_SMOKE_TEST.md) |
 | Build verification | [BUILD_CONFIG_VERIFICATION.md](BUILD_CONFIG_VERIFICATION.md) |

@@ -280,6 +280,7 @@ struct ExerciseFormGuideSheet: View {
 
     @Environment(ExerciseFormGuideService.self) private var formGuideService
     @EnvironmentObject private var aiService: AIService
+    @Environment(EntitlementStore.self) private var entitlementStore
     @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -568,14 +569,15 @@ struct ExerciseFormGuideSheet: View {
     }
 
     private func loadFormTips() async -> [String] {
-        guard aiService.isConfigured else {
-            return ExerciseFormHeuristicTips.tips(for: exercise)
-        }
-        do {
-            return try await aiService.fetchFormTips(for: exercise)
-        } catch {
-            return ExerciseFormHeuristicTips.tips(for: exercise)
-        }
+        let result = await AIRoutingService.shared.formCues(
+            exerciseName: exercise.name,
+            isPremium: entitlementStore.hasAccess(to: .aiFormTips),
+            aiService: aiService,
+            cloudFallback: {
+                try await aiService.fetchFormTips(for: exercise)
+            }
+        )
+        return result.cues
     }
 }
 

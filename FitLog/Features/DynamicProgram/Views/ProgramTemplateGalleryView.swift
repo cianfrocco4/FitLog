@@ -11,12 +11,14 @@ struct ProgramTemplateGalleryView: View {
     @Bindable var viewModel: DynamicProgramBuilderViewModel
     @EnvironmentObject private var aiService: AIService
     @Environment(DataManager.self) private var dataManager
+    @Environment(EntitlementStore.self) private var entitlementStore
 
     @State private var selectedCategory: ProgramTemplateGoalCategory?
     @State private var customizingTemplate: CuratedProgramTemplate?
     @State private var customWeeks = 8
     @State private var customSessions = 4
     @State private var navigateToReview = false
+    @State private var showPaywall = false
 
     private var filteredTemplates: [CuratedProgramTemplate] {
         ProgramTemplateLibrary.templates(for: selectedCategory)
@@ -57,6 +59,10 @@ struct ProgramTemplateGalleryView: View {
             }
         } message: {
             Text(viewModel.errorMessage ?? "Something went wrong while generating your program.")
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView(triggerFeature: .aiProgramGeneration)
+                .environment(entitlementStore)
         }
     }
 
@@ -210,12 +216,16 @@ struct ProgramTemplateGalleryView: View {
         weeks: Int? = nil,
         sessions: Int? = nil
     ) async {
+        guard entitlementStore.hasAccess(to: .aiProgramGeneration) else {
+            showPaywall = true
+            return
+        }
         viewModel.applyCuratedTemplate(
             template,
             overrideWeeks: weeks,
             overrideSessions: sessions
         )
-        await viewModel.generate(aiService: aiService, dataManager: dataManager)
+        await viewModel.generate(aiService: aiService, dataManager: dataManager, entitlementStore: entitlementStore)
         if viewModel.generatedProgram != nil {
             navigateToReview = true
         }

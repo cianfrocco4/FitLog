@@ -10,6 +10,7 @@ import AuthenticationServices
 
 struct LoginView: View {
     @EnvironmentObject var authVM: AuthViewModel
+    @Environment(EntitlementStore.self) private var entitlementStore
 
     var body: some View {
         NavigationStack {
@@ -18,10 +19,16 @@ struct LoginView: View {
                     .font(.system(size: 80))
                     .foregroundStyle(.blue)
 
-                Text("The Workout Log")
+                Text(AppBrand.name)
                     .font(.largeTitle.bold())
 
-                Text("Track workouts on your device. Sign in with Apple is optional.")
+                Text(AppBrand.tagline)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+
+                Text("Track workouts on your device. Sign in with Apple is optional but recommended for subscription restore.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -33,7 +40,7 @@ struct LoginView: View {
                     switch result {
                     case .success(let authorization):
                         if let credential = authorization.credential as? ASAuthorizationAppleIDCredential {
-                            authVM.handleAppleSignIn(credential: credential)
+                            authVM.handleAppleSignIn(credential: credential, entitlementStore: entitlementStore)
                         }
                     case .failure(let error):
                         let code = (error as? ASAuthorizationError)?.code

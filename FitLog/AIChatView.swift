@@ -12,6 +12,7 @@ struct AIChatView: View {
     @Environment(DataManager.self) private var dataVM
     @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
     @EnvironmentObject private var aiService: AIService
+    @Environment(EntitlementStore.self) private var entitlementStore
     @Environment(\.fitlogCoachDeepLink) private var coachDeepLink
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
 
@@ -21,11 +22,14 @@ struct AIChatView: View {
     @State private var programBuilderPrefill: String?
     @State private var showHistory = false
     @State private var showContextSheet = false
+    @State private var showPaywall = false
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if !aiService.isConfigured {
+                if !entitlementStore.isPremium {
+                    premiumRequiredBanner
+                } else if !aiService.isConfigured {
                     notConfiguredBanner
                 }
 
@@ -105,6 +109,10 @@ struct AIChatView: View {
             .sheet(isPresented: $showContextSheet) {
                 CoachContextSheet(summary: viewModel.contextSummary)
             }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView(triggerFeature: .aiCoach)
+                    .environment(entitlementStore)
+            }
             .onAppear {
                 viewModel.bootstrap(dataVM: dataVM)
             }
@@ -176,7 +184,7 @@ struct AIChatView: View {
                 message: msg,
                 onCopy: { UIPasteboard.general.string = msg.text },
                 onRegenerate: msg.role == .assistant ? {
-                    viewModel.send(dataVM: dataVM, aiService: aiService, regenerateFrom: msg.id)
+                    viewModel.send(dataVM: dataVM, aiService: aiService, entitlementStore: entitlementStore, regenerateFrom: msg.id)
                 } : nil,
                 onFeedback: { feedback in
                     viewModel.setFeedback(feedback, messageID: msg.id, dataVM: dataVM)
@@ -243,6 +251,26 @@ struct AIChatView: View {
 
     // MARK: - Banners & indicators
 
+    private var premiumRequiredBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Premium AI Coach", systemImage: "sparkles")
+                .font(.subheadline.weight(.semibold))
+            Text("Unlock natural-language coaching, program generation, and personalized explanations with Premium. On Apple Intelligence devices, short coaching can run privately on-device.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let availability = AIRoutingService.shared.availabilityBannerText {
+                Text(availability)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            Button("View Premium") { showPaywall = true }
+                .font(.caption.weight(.semibold))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(Color.accentColor.opacity(0.12))
+    }
+
     private var notConfiguredBanner: some View {
         VStack(alignment: .leading, spacing: 6) {
             Label("AI not configured", systemImage: "exclamationmark.triangle.fill")
@@ -264,7 +292,7 @@ struct AIChatView: View {
             Spacer()
             if viewModel.showRetry {
                 Button("Retry") {
-                    viewModel.retryLastSend(dataVM: dataVM, aiService: aiService)
+                    viewModel.retryLastSend(dataVM: dataVM, aiService: aiService, entitlementStore: entitlementStore)
                 }
                 .font(.caption.weight(.semibold))
             }
@@ -302,9 +330,10 @@ struct AIChatView: View {
             HStack(spacing: 8) {
                 ForEach(viewModel.starterPrompts, id: \.self) { title in
                     Button(title) {
-                        viewModel.sendStarter(title, dataVM: dataVM, aiService: aiService)
+                        guard requirePremiumOrPaywall(feature: .aiCoach, entitlementStore: entitlementStore, showPaywall: $showPaywall) else { return }
+                        viewModel.sendStarter(title, dataVM: dataVM, aiService: aiService, entitlementStore: entitlementStore)
                     }
-                    .disabled(!aiService.isConfigured || viewModel.isSending)
+                    .disabled(!entitlementStore.isPremium || !aiService.isConfigured || viewModel.isSending)
                     .font(.caption)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -344,12 +373,13 @@ struct AIChatView: View {
                 .accessibilityHint("Stop the current response")
             } else {
                 Button {
-                    viewModel.send(dataVM: dataVM, aiService: aiService)
+                    guard requirePremiumOrPaywall(feature: .aiCoach, entitlementStore: entitlementStore, showPaywall: $showPaywall) else { return }
+                    viewModel.send(dataVM: dataVM, aiService: aiService, entitlementStore: entitlementStore)
                 } label: {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title)
                 }
-                .disabled(!viewModel.canSend || !aiService.isConfigured)
+                .disabled(!viewModel.canSend || !entitlementStore.isPremium || !aiService.isConfigured)
                 .accessibilityLabel("Send")
                 .accessibilityHint("Send your message to the coach")
             }
