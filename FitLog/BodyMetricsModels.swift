@@ -119,4 +119,18 @@ final class BodyMetricsStore {
     func deletePhotoFile(fileName: String) {
         try? FileManager.default.removeItem(at: photoFileURL(fileName: fileName))
     }
+
+    /// Clears metrics, photo index, and all progress photo files on disk.
+    func eraseAll() {
+        saveMetrics([])
+        savePhotoRecords([])
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: photosDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        for url in files {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
 }

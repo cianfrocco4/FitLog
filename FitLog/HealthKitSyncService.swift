@@ -167,7 +167,7 @@ final class HealthKitSyncService {
         let indoor = CardioHealthKitMapping.isIndoorWorkout(session: session, exercises: exercises)
 
         let metadata: [String: Any] = [
-            HKMetadataKeyWorkoutBrandName: "The Workout Log",
+            HKMetadataKeyWorkoutBrandName: AppBrand.name,
             HKMetadataKeyIndoorWorkout: indoor,
             "fitlog_workout_name": session.workout.name,
             "fitlog_workout_session_id": session.id.uuidString,

@@ -35,17 +35,26 @@ Run on a **physical device** with a **Release** or TestFlight build before submi
 
 ### Premium / subscriptions
 - [ ] More → Subscription shows Free / Active correctly
-- [ ] Paywall loads packages (or clear “unavailable” if RC not configured)
+- [ ] Paywall loads packages (or clear user-facing “Plans unavailable” if offline / RC misconfigured — not developer “Configure RevenueCat” copy in Release)
+- [ ] Plan rows show period + trial disclosure when eligible (e.g. “14 days free, then $X/period”)
+- [ ] Eligible sandbox Apple ID: CTA **Start free trial**; exhausted-trial sandbox ID: CTA **Continue with Premium** (not trial)
 - [ ] Sandbox purchase unlocks Coach send + program generate + trends + export + extended history
 - [ ] **Restore purchases** works on paywall
 - [ ] **Manage Subscription** opens for active subscribers
 - [ ] Comp path: copy App User ID → RevenueCat promotional entitlement → Restore / Refresh
+- [ ] RevenueCat dashboard: production `appl_` key, Current offering `default`, products attached to `premium`
 
-### AI gating
+### AI gating & proxy cost controls
 - [ ] Free: Coach composer blocked; paywall on send attempt
 - [ ] Free: program generate / Quick Start shows paywall (not silent error-only)
 - [ ] Free: Suggest exercises menu does **not** say “(AI)” unless entitled
-- [ ] Paid: Coach and program generation succeed when proxy is up
+- [ ] Paid: Coach and program generation succeed when proxy is up (Release secret wired)
+- [ ] Proxy without secret → **401**; burst chat → **429** (see [SHIP_CHECKLIST.md](SHIP_CHECKLIST.md) §2b)
+- [ ] Daily AI soft-limit copy appears after heavy local use (“Daily AI limit reached…”)
+
+### Erase / privacy
+- [ ] **Erase all app data** clears workouts, Coach chats, readiness, body metrics, and progress photos
+- [ ] Confirmation copy mentions Apple Health workouts may remain in Health
 
 ### Widgets
 - [ ] Add Readiness widget to Home Screen

@@ -24,11 +24,13 @@ final class AuthViewModel: ObservableObject {
     }
 
     init() {
+#if DEBUG
         if FitLogUITestLaunch.isActive {
             // Avoid ASAuthorizationAppleIDProvider network/credential callbacks on CI simulators.
             isLoggedIn = true
             return
         }
+#endif
         if usesLocalOnlyModeStorage && appleUserIdentifier.isEmpty {
             return
         }

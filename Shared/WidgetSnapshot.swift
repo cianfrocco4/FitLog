@@ -46,6 +46,10 @@ enum WidgetSnapshotStore {
         return try? JSONDecoder().decode(Payload.self, from: data)
     }
 
+    static func clear() {
+        sharedDefaults?.removeObject(forKey: snapshotKey)
+    }
+
     private static func semanticContent(of payload: Payload) -> SemanticContent {
         SemanticContent(
             readinessScore: payload.readinessScore,

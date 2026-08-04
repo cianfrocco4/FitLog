@@ -123,6 +123,16 @@ final class CoachChatStore {
         _ = save()
     }
 
+    /// Deletes every Coach conversation and message (used by Erase all app data).
+    func deleteAllConversations() {
+        let descriptor = FetchDescriptor<SDCoachConversationV5>()
+        guard let rows = try? modelContext.fetch(descriptor) else { return }
+        for row in rows {
+            modelContext.delete(row)
+        }
+        _ = save()
+    }
+
     // MARK: - Private
 
     private func fetchConversation(id: UUID) -> SDCoachConversationV5? {

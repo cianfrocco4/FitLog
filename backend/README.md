@@ -11,9 +11,22 @@ Small backend that forwards FitLog’s **OpenAI** and **MuscleWiki form guide** 
 | `OPENAI_API_KEY`    | Yes (for chat)                   | —             | Your OpenAI API key                 |
 | `OPENAI_MODEL`      | No                               | `gpt-4o-mini` | Model ID (e.g. `gpt-5-mini`)        |
 | `MUSCLEWIKI_API_KEY`| Yes (for form guide routes)      | —             | Your MuscleWiki API key (`mw_…`)    |
-| `FITLOG_PROXY_SHARED_SECRET` | Recommended (production) | — | Shared secret the iOS app sends as `X-FitLog-Proxy-Secret` |
+| `FITLOG_PROXY_SHARED_SECRET` | **Required in production** | — | Shared secret the iOS app sends as `X-FitLog-Proxy-Secret` |
+| `REQUIRE_PROXY_SECRET` | No                            | —             | Set `1` to require secret even outside `NODE_ENV=production` |
+| `CHAT_RATE_LIMIT_PER_MIN` / `_PER_DAY` | No | `10` / `100` | Per-IP chat limits |
+| `FORM_GUIDE_RATE_LIMIT_PER_MIN` / `_PER_DAY` | No | `30` / `300` | Per-IP form-guide limits |
+| `MAX_CHAT_TOKENS` / `MAX_CHAT_MESSAGES` / `MAX_CHAT_CHARS` | No | `2048` / `24` / `40000` | Chat body caps |
+| `ALLOW_FORM_GUIDE_STREAM` | No | enabled | Set `0` to disable branded video proxy |
 
-Chat completions cap `max_tokens` at **4096** per request (program generation needs large JSON responses).
+Chat completions cap `max_tokens` at **2048** per request by default. In production (`NODE_ENV=production` or `REQUIRE_PROXY_SECRET=1`), requests fail with **503** if `FITLOG_PROXY_SHARED_SECRET` is unset.
+
+### Cost controls (launch checklist)
+
+1. Set `FITLOG_PROXY_SHARED_SECRET` on the host and in the iOS Release archive.
+2. Set OpenAI project **hard monthly budget** + email alerts (50% / 80% / 100%).
+3. Confirm MuscleWiki plan quotas / alerts.
+4. Prefer a paid always-on host so cold starts and emptied in-memory rate buckets do not look like outages.
+5. Verify: no secret → **401** (or **503** if secret required but missing); burst chat → **429**.
 
 ## Run locally
 
@@ -92,6 +105,6 @@ Returns **503** if `MUSCLEWIKI_API_KEY` is not set on the server.
 
 Set `FITLOG_FORM_GUIDE_BASE_URL` in the iOS app to this service URL (can be the same host as `FITLOG_AI_BASE_URL`).
 
-When `FITLOG_PROXY_SHARED_SECRET` is configured on the server, set the same value in the iOS app (`FITLOG_PROXY_SHARED_SECRET`). Requests without the header are rejected with **401**. Rate limits: **30** chat requests and **120** form-guide requests per IP per minute.
+When `FITLOG_PROXY_SHARED_SECRET` is configured on the server, set the same value in the iOS app (`FITLOG_PROXY_SHARED_SECRET`). Requests without the header are rejected with **401**. Default rate limits: **10** chat / **30** form-guide requests per IP per minute, plus daily caps (**100** / **300**). Oversized chat bodies return **400**.
 
 See **FORM_GUIDE_SETUP.md** in the repo root for iOS configuration.

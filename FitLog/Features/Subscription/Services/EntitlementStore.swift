@@ -45,6 +45,8 @@ final class EntitlementStore {
     private(set) var isPurchasing = false
     private(set) var isRestoring = false
     private(set) var lastErrorMessage: String?
+    /// Product ID → eligible for intro/trial. Missing key means unknown (do not claim free trial).
+    private(set) var introEligibilityByProductID: [String: Bool] = [:]
 
 #if canImport(RevenueCat)
     private(set) var offerings: Offerings?
@@ -53,11 +55,13 @@ final class EntitlementStore {
 #endif
 
     init() {
+#if DEBUG
         if FitLogUITestLaunch.isActive {
             isPremium = true
             appUserID = "uitest-user"
             isConfigured = true
         }
+#endif
     }
 
     func configureIfNeeded() {
@@ -89,7 +93,9 @@ final class EntitlementStore {
     }
 
     func hasAccess(to feature: PremiumFeature) -> Bool {
+#if DEBUG
         if FitLogUITestLaunch.isActive { return true }
+#endif
         return Self.grantsAccess(isPremium: isPremium, to: feature)
     }
 
@@ -126,10 +132,16 @@ final class EntitlementStore {
         defer { isLoadingOfferings = false }
         do {
             offerings = try await PurchaseService.fetchOfferings()
+            await refreshIntroEligibility()
         } catch {
             lastErrorMessage = error.localizedDescription
             log.error("Failed to load offerings: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// True only when StoreKit/RevenueCat reports the user is eligible for an intro/trial on this product.
+    func isIntroEligible(forProductID productID: String) -> Bool {
+        introEligibilityByProductID[productID] == true
     }
 
     func purchase(package: Package) async -> Bool {
@@ -138,13 +150,29 @@ final class EntitlementStore {
             return false
         }
         isPurchasing = true
+        lastErrorMessage = nil
         defer { isPurchasing = false }
         do {
             AnalyticsService.shared.track(.purchaseStarted)
             let info = try await PurchaseService.purchase(package: package)
             apply(customerInfo: info)
-            AnalyticsService.shared.track(.purchaseCompleted)
-            return isPremium
+            if isPremium {
+                AnalyticsService.shared.track(.purchaseCompleted)
+                return true
+            }
+            // StoreKit can succeed while the RevenueCat entitlement is not attached yet.
+            if let synced = try? await PurchaseService.syncPurchases() {
+                apply(customerInfo: synced)
+            }
+            if isPremium {
+                AnalyticsService.shared.track(.purchaseCompleted)
+                return true
+            }
+            let message = "Purchase completed but Premium is not active yet. Tap Restore purchases, or contact support with your App User ID."
+            lastErrorMessage = message
+            AnalyticsService.shared.track(.purchaseFailed, properties: ["message": "entitlement_not_active"])
+            log.error("Purchase succeeded without active premium entitlement")
+            return false
         } catch PurchaseServiceError.purchaseCancelled {
             AnalyticsService.shared.track(.purchaseCancelled)
             return false
@@ -153,6 +181,20 @@ final class EntitlementStore {
             AnalyticsService.shared.track(.purchaseFailed, properties: ["message": error.localizedDescription])
             return false
         }
+    }
+
+    private func refreshIntroEligibility() async {
+        guard let packages = offerings?.current?.availablePackages, !packages.isEmpty else {
+            introEligibilityByProductID = [:]
+            return
+        }
+        let productIDs = packages.map(\.storeProduct.productIdentifier)
+        let map = await Purchases.shared.checkTrialOrIntroDiscountEligibility(productIdentifiers: productIDs)
+        var result: [String: Bool] = [:]
+        for (id, eligibility) in map {
+            result[id] = eligibility.status == .eligible
+        }
+        introEligibilityByProductID = result
     }
 
     func restorePurchases() async -> Bool {

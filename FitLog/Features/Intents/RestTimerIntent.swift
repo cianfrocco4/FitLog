@@ -10,7 +10,7 @@ import AppIntents
 
 struct RestTimerIntent: AppIntent {
     static var title: LocalizedStringResource = "Start Rest Timer"
-    static var description = IntentDescription("Start a rest timer in The Workout Log")
+    static var description = IntentDescription("Start a rest timer in Workout Log AI")
     static var openAppWhenRun: Bool = true
 
     @Parameter(title: "Duration", description: "Rest duration in seconds", default: 90)

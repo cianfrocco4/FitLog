@@ -30,7 +30,9 @@ Step-by-step guide to publish **Workout Log AI** (`com.acianfrocco.FitLog`) to t
 | Subtitle | Train smarter. Recover better. |
 | Category (Primary) | Health & Fitness |
 | Category (Secondary) | Optional — Lifestyle |
-| Content Rights | Does not contain third-party content requiring rights |
+| Content Rights | **Yes** if MuscleWiki form media ships (confirm you have rights via API); otherwise No — see SHIP_CHECKLIST §1a |
+| Copyright | `2026 Anthony Cianfrocco` (on the version page) |
+| Price | **Free** (Premium via IAP) |
 | Age Rating | Complete questionnaire (see [Age rating](#age-rating)) |
 
 Copy **Description**, **Keywords**, **Promotional Text**, and **What's New** from [APP_STORE_METADATA.md](../APP_STORE_METADATA.md).

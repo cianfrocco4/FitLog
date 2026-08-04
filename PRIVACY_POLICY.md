@@ -69,7 +69,7 @@ If you allow notifications, we use them to remind you when a rest period ends or
 ## 5. Your Rights and Choices
 
 - Sign out or continue without signing in at any time
-- Erase all app data from the **More** tab
+- Erase all app data from the **More** tab (workouts, history, programs, Coach chats, readiness history, body metrics, and progress photos on this device). Workouts previously written to Apple Health remain in Health until you delete them there.
 - Export a backup from **Data & Integrations**
 - Delete the app to remove local data from your device
 - Disable Health sync and avoid optional AI features to keep related data off third-party services

@@ -73,7 +73,7 @@ struct MoreTabRootView: View {
                     Button("Erase all app data", systemImage: "trash", role: .destructive) {
                         showEraseDataConfirm = true
                     }
-                    .accessibilityHint("Deletes workouts, history, programs, and personal records from this device")
+                    .accessibilityHint("Deletes workouts, history, Coach chats, readiness, photos, and other local data from this device")
                 }
             }
             .navigationTitle("More")
@@ -90,7 +90,7 @@ struct MoreTabRootView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This permanently removes workouts, history, programs, and personal records from this device. Export a backup first if you need one.")
+                Text("This permanently removes workouts, history, programs, Coach chats, readiness history, body metrics, and progress photos from this device. Workouts already written to Apple Health stay in Health until you delete them there. Export a backup first if you need one.")
             }
         }
     }

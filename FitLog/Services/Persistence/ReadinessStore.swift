@@ -52,4 +52,14 @@ final class ReadinessStore {
             .compactMap { $0.toReadinessScore() }
             .sorted { $0.dayKey < $1.dayKey }
     }
+
+    /// Deletes every readiness snapshot (used by Erase all app data).
+    func deleteAllSnapshots() throws {
+        let descriptor = FetchDescriptor<SDReadinessSnapshotV6>()
+        let rows = try modelContext.fetch(descriptor)
+        for row in rows {
+            modelContext.delete(row)
+        }
+        try modelContext.save()
+    }
 }

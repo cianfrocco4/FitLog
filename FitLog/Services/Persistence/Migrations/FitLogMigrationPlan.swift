@@ -187,53 +187,44 @@ enum FitLogMigrationPlan: SchemaMigrationPlan {
         return try? JSONDecoder().decode(BackupSnapshot.self, from: data)
     }
 
-    /// Recovery order: V1→V2 snapshot, unified-slots pre-migration snapshot, then newest `backup_*.json` / `pre_v2_*.json` in Application Support/Backups.
+    /// Prefers the newest valid `BackupSnapshot` JSON in Application Support/Backups by
+    /// content-modification (fallback: creation) date. Never prefers a stale `pre_v*` migration
+    /// snapshot over a newer rotating `backup_*.json`.
     static func readBestAvailableRecoverySnapshot() -> BackupSnapshot? {
         try? FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
 
-        if let s = readLatestPreV4Backup() { return s }
-
-        if let s = readLatestPreV3Backup() { return s }
-
-        if let s = readLatestBackup() { return s }
-
-        let slotsURL = backupDir.appending(path: WorkoutUnifiedSlotsMigration.latestPreMigrationBackupFileName, directoryHint: .notDirectory)
-        if let data = try? Data(contentsOf: slotsURL),
-           let s = try? JSONDecoder().decode(BackupSnapshot.self, from: data) {
-            return s
-        }
-
         guard let urls = try? FileManager.default.contentsOfDirectory(
             at: backupDir,
-            includingPropertiesForKeys: [.creationDateKey],
+            includingPropertiesForKeys: [.contentModificationDateKey, .creationDateKey],
             options: [.skipsHiddenFiles]
         ) else { return nil }
 
-        func decodeFirstMatch(_ candidates: [URL]) -> BackupSnapshot? {
-            for url in candidates {
-                guard url.pathExtension == "json" else { continue }
-                guard let data = try? Data(contentsOf: url) else { continue }
-                if let s = try? JSONDecoder().decode(BackupSnapshot.self, from: data) {
-                    return s
-                }
+        func fileDate(_ url: URL) -> Date {
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey])
+            return values?.contentModificationDate ?? values?.creationDate ?? .distantPast
+        }
+
+        let sortedNewestFirst = urls
+            .filter { $0.pathExtension.lowercased() == "json" }
+            .sorted { fileDate($0) > fileDate($1) }
+
+        for url in sortedNewestFirst {
+            guard let data = try? Data(contentsOf: url) else { continue }
+            if let snapshot = try? JSONDecoder().decode(BackupSnapshot.self, from: data) {
+                return snapshot
             }
-            return nil
         }
+        return nil
+    }
 
-        let sortedNewestFirst = urls.sorted {
-            let da = (try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
-            let db = (try? $1.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
-            return da > db
-        }
-
-        let rotating = sortedNewestFirst.filter { $0.lastPathComponent.hasPrefix("backup_") }
-        if let s = decodeFirstMatch(rotating) { return s }
-
-        let preV2Stamped = sortedNewestFirst.filter {
-            let n = $0.lastPathComponent
-            return n.hasPrefix("pre_v2_") && n != "pre_v2_latest.json"
-        }
-        return decodeFirstMatch(preV2Stamped)
+    /// Filenames that must never be deleted by rotating backup prune.
+    static func isProtectedMigrationBackupFileName(_ fileName: String) -> Bool {
+        if fileName == preV4BackupFileName || fileName == preV3BackupFileName { return true }
+        if fileName == "pre_v2_latest.json" { return true }
+        if fileName.hasPrefix("pre_v2_") { return true }
+        if fileName == WorkoutUnifiedSlotsMigration.latestPreMigrationBackupFileName { return true }
+        if fileName == CardioSchemaMigration.latestPreMigrationBackupFileName { return true }
+        return false
     }
 
     static func latestBackupURL() -> URL? {

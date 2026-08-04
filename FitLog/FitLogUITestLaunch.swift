@@ -6,6 +6,8 @@
 //  or CI), the app skips flows that commonly stall or flake on Xcode Cloud (Sign in with Apple
 //  credential refresh, notification permission prompts, etc.). Does not affect normal installs.
 //
+//  Premium unlock / fake login for UI tests are DEBUG-only (see EntitlementStore, AuthViewModel).
+//
 
 import Foundation
 

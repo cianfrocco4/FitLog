@@ -476,9 +476,10 @@ final class AIService: ObservableObject {
 
         let content = try await performChatCompletions(
             messages: [("system", system), ("user", userPrompt)],
-            maxTokens: 3_500,
+            maxTokens: 2_048,
             jsonObject: true,
-            temperature: 0.28
+            temperature: 0.28,
+            usageKind: .programGeneration
         )
         return try parseWorkoutSplitProposal(
             jsonString: content,
@@ -1029,6 +1030,9 @@ final class AIService: ObservableObject {
     ) async throws -> Bool {
         let useProxy = proxyBaseURL != nil
         if !useProxy, (apiKey == nil || apiKey!.isEmpty) { throw AIServiceError.notConfigured }
+        guard CloudAIUsageQuota.canConsume(.coachChat) else {
+            throw AIServiceError.dailyLimitReached
+        }
 
         var request = URLRequest(url: chatCompletionsURL)
         request.httpMethod = "POST"
@@ -1077,6 +1081,9 @@ final class AIService: ObservableObject {
            let delta = Self.parseSSEDataLine(line) {
             onDelta(delta)
             receivedAny = true
+        }
+        if receivedAny {
+            CloudAIUsageQuota.consume(.coachChat)
         }
         return receivedAny
     }
@@ -1260,12 +1267,19 @@ final class AIService: ObservableObject {
     }
     
     // MARK: - API
-    private func performRequest(system: String, user: String, maxTokens: Int = 500, jsonObject: Bool = false) async throws -> String {
+    private func performRequest(
+        system: String,
+        user: String,
+        maxTokens: Int = 500,
+        jsonObject: Bool = false,
+        usageKind: CloudAIUsageKind = .coachChat
+    ) async throws -> String {
         try await performChatCompletions(
             messages: [("system", system), ("user", user)],
             maxTokens: maxTokens,
             jsonObject: jsonObject,
-            temperature: nil
+            temperature: nil,
+            usageKind: usageKind
         )
     }
 
@@ -1273,10 +1287,14 @@ final class AIService: ObservableObject {
         messages: [(role: String, content: String)],
         maxTokens: Int,
         jsonObject: Bool,
-        temperature: Double?
+        temperature: Double?,
+        usageKind: CloudAIUsageKind = .coachChat
     ) async throws -> String {
         let useProxy = proxyBaseURL != nil
         if !useProxy, (apiKey == nil || apiKey!.isEmpty) { throw AIServiceError.notConfigured }
+        guard CloudAIUsageQuota.canConsume(usageKind) else {
+            throw AIServiceError.dailyLimitReached
+        }
         var request = URLRequest(url: chatCompletionsURL)
         request.httpMethod = "POST"
         if !useProxy, let key = apiKey {
@@ -1316,6 +1334,9 @@ final class AIService: ObservableObject {
             throw error
         }
 
+        if http.statusCode == 429 {
+            throw AIServiceError.dailyLimitReached
+        }
         if http.statusCode == 502 || http.statusCode == 503 || http.statusCode == 504 {
             throw AIServiceError.proxyUnavailable
         }
@@ -1327,13 +1348,20 @@ final class AIService: ObservableObject {
             #endif
             throw AIServiceError.apiError(statusCode: http.statusCode, message: "")
         }
+        CloudAIUsageQuota.consume(usageKind)
         let raw = try extractAssistantTextFromChatCompletionsJSON(data)
         return raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Structured JSON request for Guided Coach rationale and follow-up (same transport as other AI features).
     func performProgramCoachJSONRequest(system: String, user: String, maxTokens: Int = 800) async throws -> String {
-        try await performRequest(system: system, user: user, maxTokens: maxTokens, jsonObject: true)
+        try await performRequest(
+            system: system,
+            user: user,
+            maxTokens: maxTokens,
+            jsonObject: true,
+            usageKind: .programGeneration
+        )
     }
 }
 
@@ -1346,6 +1374,7 @@ enum AIServiceError: LocalizedError {
     case apiError(statusCode: Int, message: String)
     case timeout
     case proxyUnavailable
+    case dailyLimitReached
 
     var errorDescription: String? {
         switch self {
@@ -1363,13 +1392,15 @@ enum AIServiceError: LocalizedError {
             return "The AI service took too long to respond. It may be waking up — please wait a moment and try again."
         case .proxyUnavailable:
             return "Couldn’t connect to the AI service. Check your network and try again in a moment."
+        case .dailyLimitReached:
+            return CloudAIUsageQuota.dailyLimitReachedMessage
         }
     }
 
     /// True when the user may prefer built-in presets instead of retrying AI.
     var suggestsLocalPresetFallback: Bool {
         switch self {
-        case .timeout, .proxyUnavailable, .apiError, .invalidJSONContent:
+        case .timeout, .proxyUnavailable, .apiError, .invalidJSONContent, .dailyLimitReached:
             return true
         case .notConfigured, .invalidResponse, .emptyContent:
             return false

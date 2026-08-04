@@ -214,18 +214,13 @@ enum DataTransferService {
         guard rows.count > 1 else { throw DataTransferError.emptyImport }
 
         let header = parseCSVRow(rows[0]).map { $0.lowercased() }
-        guard header.contains("date"),
-              header.contains("workout"),
-              header.contains("exercise"),
-              header.contains("weight"),
-              header.contains("reps")
+        guard let idxDate = header.firstIndex(of: "date"),
+              let idxWorkout = header.firstIndex(of: "workout"),
+              let idxExercise = header.firstIndex(of: "exercise"),
+              let idxWeight = header.firstIndex(of: "weight"),
+              let idxReps = header.firstIndex(of: "reps")
         else { throw DataTransferError.invalidCSV }
 
-        let idxDate = header.firstIndex(of: "date")!
-        let idxWorkout = header.firstIndex(of: "workout")!
-        let idxExercise = header.firstIndex(of: "exercise")!
-        let idxWeight = header.firstIndex(of: "weight")!
-        let idxReps = header.firstIndex(of: "reps")!
         let idxRest = header.firstIndex(of: "resttime")
         let idxWarm = header.firstIndex(of: "iswarmup")
 

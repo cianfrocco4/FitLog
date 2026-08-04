@@ -13,11 +13,14 @@ Use this when filling out App Store Connect questionnaires for **Workout Log AI*
 
 | Category | Collected | Linked to identity | Used for tracking | Purpose |
 |----------|-----------|-------------------|-------------------|---------|
-| Health & Fitness | Yes | Yes (on device) | No | App Functionality |
-| Photos or Videos | Yes (optional) | Yes (on device) | No | App Functionality |
-| User ID | Yes (optional, Sign in with Apple) | Yes | No | App Functionality |
-| Purchases | Yes | Yes | No | App Functionality |
-| Other Data (workout text for AI) | Yes (optional, Premium) | No | No | App Functionality |
+| Health & Fitness (Health + Fitness) | Yes | Yes | No | App Functionality |
+| Photos or Videos | Yes (optional) | Yes | No | App Functionality |
+| Other User Content (workout text for AI) | Yes (optional, Premium) | No | No | App Functionality |
+| User ID | Yes (optional SIWA; RevenueCat App User ID) | Yes | No | App Functionality |
+| Name / Email Address | Yes (optional, only if shared via SIWA) | Yes | No | App Functionality |
+| Purchases (Purchase History) | Yes | Yes | No | App Functionality |
+
+Operator click-path: [SHIP_CHECKLIST.md](SHIP_CHECKLIST.md) §3.4.
 
 ### Health & Fitness — detail
 - Workout sessions, sets, reps, weight (on device)
@@ -121,6 +124,17 @@ NO DEMO ACCOUNT REQUIRED.
 ```
 
 ---
+
+## App Store Connect packaging (before Submit)
+
+Complete in ASC (also tracked in [SHIP_CHECKLIST.md](SHIP_CHECKLIST.md) §3–4):
+
+1. App Information: Privacy Policy + Support URLs (GitHub Pages `/docs`)
+2. Privacy Nutrition Labels: **Purchases**, **Health & Fitness** (sleep, HRV, RHR), **Photos**, **User ID**, **Other** (workout text for optional AI) — match the table above; Tracking = No
+3. Screenshots: Home+readiness, paywall, Coach, History, widget
+4. Attach subscription products / IAP group to this version
+5. Paste **App Review notes** (section above)
+6. Select signed-off TestFlight build → Submit for Review
 
 ## Review contact
 

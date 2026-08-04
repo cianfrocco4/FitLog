@@ -267,6 +267,9 @@ final class ExerciseFormGuideService {
     }
 
     private func performGET(url: URL) async throws -> Data {
+        if usesProxy, !CloudAIUsageQuota.canConsume(.formGuide) {
+            throw ExerciseFormGuideError.rateLimited
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         if !usesProxy, let apiKey {
@@ -281,6 +284,9 @@ final class ExerciseFormGuideService {
         }
         switch http.statusCode {
         case 200...299:
+            if usesProxy {
+                CloudAIUsageQuota.consume(.formGuide)
+            }
             return data
         case 401, 403:
             throw ExerciseFormGuideError.notAuthorized
@@ -318,7 +324,7 @@ enum ExerciseFormGuideError: LocalizedError {
         case .noMatch:
             return "No form guide found for this exercise."
         case .rateLimited:
-            return "Form guide API limit reached. Try again later."
+            return CloudAIUsageQuota.dailyLimitReachedMessage
         case .invalidResponse:
             return "Unexpected response from form guide service."
         case .httpStatus(let code):

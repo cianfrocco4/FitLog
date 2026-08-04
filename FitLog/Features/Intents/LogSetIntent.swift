@@ -10,7 +10,7 @@ import AppIntents
 
 struct LogSetIntent: AppIntent {
     static var title: LocalizedStringResource = "Log Set"
-    static var description = IntentDescription("Log a set for the current exercise in The Workout Log")
+    static var description = IntentDescription("Log a set for the current exercise in Workout Log AI")
     static var openAppWhenRun: Bool = true
 
     @Parameter(title: "Exercise", description: "Exercise name")

@@ -399,13 +399,27 @@ final class DataManager {
             #endif
         }
 
-        let backups = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.creationDateKey]))?.sorted {
+        Self.pruneRotatingBackups(in: dir, keepingNewest: Self.maxBackups)
+    }
+
+    /// Prunes only `backup_*.json` rotating snapshots. Migration safety files (`pre_v*`, unified-slots, etc.) are never deleted.
+    nonisolated static func pruneRotatingBackups(in dir: URL, keepingNewest maxBackups: Int) {
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: [.creationDateKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        let rotating = urls
+            .filter { $0.lastPathComponent.hasPrefix("backup_") && $0.pathExtension.lowercased() == "json" }
+            .filter { !FitLogMigrationPlan.isProtectedMigrationBackupFileName($0.lastPathComponent) }
+            .sorted {
                 let da = (try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
                 let db = (try? $1.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
                 return da > db
-            } ?? []
+            }
 
-        for old in backups.dropFirst(Self.maxBackups) {
+        for old in rotating.dropFirst(maxBackups) {
             try? FileManager.default.removeItem(at: old)
         }
     }
@@ -2286,7 +2300,8 @@ final class DataManager {
         return true
     }
 
-    /// Deletes all locally stored workout data while keeping the app usable.
+    /// Deletes all locally stored user data while keeping the app usable (seeded exercise library remains).
+    /// Does not remove workouts previously written to Apple Health — users manage those in the Health app.
     func eraseAllAppData() {
         rotateBackup()
         globalExercises = []
@@ -2297,6 +2312,8 @@ final class DataManager {
         dynamicProgramState = nil
         bodyMetricEntries = []
         progressPhotoRecords = []
+        lastNotifiedDynamicProgramId = nil
+        lastNotifiedDynamicBlockId = nil
 
         _ = exerciseStore.saveExercises([])
         _ = workoutStore.saveWorkouts([])
@@ -2306,10 +2323,28 @@ final class DataManager {
         splitPresetStore.replaceAllFromBackup([])
         prStore.replaceAllFromBackup([])
         sessionStore.clearActiveSession()
+        coachChatStore.deleteAllConversations()
+        try? readinessStore.deleteAllSnapshots()
+        bodyMetricsStore.eraseAll()
+        CardioSessionTimerPersistence.clear()
+        WidgetSnapshotStore.clear()
+        Self.clearActiveWorkoutSessionUserDefaults()
 
         preloadFullExerciseLibrary()
         preloadCardioExerciseLibraryIfNeeded()
         publishIntentExerciseLibrary()
+    }
+
+    private static func clearActiveWorkoutSessionUserDefaults() {
+        let defaults = UserDefaults.standard
+        for key in [
+            "activeWorkoutSession",
+            "activeWorkoutTimerTotalPaused",
+            "activeWorkoutTimerIsPaused",
+            "activeWorkoutTimerPausedAt",
+        ] {
+            defaults.removeObject(forKey: key)
+        }
     }
 
     private func postDynamicProgramBlockTransitionIfNeeded(

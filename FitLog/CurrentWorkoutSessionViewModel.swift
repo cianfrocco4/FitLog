@@ -1132,7 +1132,7 @@ final class CurrentWorkoutSessionViewModel {
 
         let content = UNMutableNotificationContent()
         content.title = "Workout still in progress"
-        content.body = "You have an active workout in The Workout Log. End it if you're finished."
+        content.body = "You have an active workout in \(AppBrand.name). End it if you're finished."
         content.sound = .default
 
         // Fire in 10 minutes unless more activity occurs (which will reschedule).

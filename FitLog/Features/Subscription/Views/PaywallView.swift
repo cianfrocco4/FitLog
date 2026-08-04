@@ -135,11 +135,16 @@ struct PaywallView: View {
 
     private var unavailableMessage: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Purchases unavailable in this build", systemImage: "info.circle")
+            Label("Plans unavailable", systemImage: "info.circle")
                 .font(.subheadline.weight(.semibold))
-            Text("Workout logging and readiness stay free. Configure RevenueCat or use a StoreKit configuration file to test subscriptions locally.")
+            Text("Workout logging and readiness stay free. Check your connection and try again in a moment. If this continues, contact support from the Support link in App Store or Settings.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+#if DEBUG
+            Text("DEBUG: Configure RevenueCat or attach a StoreKit configuration file for local purchase testing.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+#endif
         }
         .padding()
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -173,6 +178,7 @@ struct PaywallView: View {
 #if canImport(RevenueCat)
     private func planRow(package: Package) -> some View {
         let isSelected = selectedPackageID == package.identifier
+        let priceLine = planPriceDisclosure(for: package)
         return Button {
             selectedPackageID = package.identifier
         } label: {
@@ -180,10 +186,10 @@ struct PaywallView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(package.storeProduct.localizedTitle)
                         .font(.headline)
-                    Text(package.storeProduct.localizedDescription)
+                    Text(priceLine)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                        .lineLimit(3)
                 }
                 Spacer()
                 Text(package.storeProduct.localizedPriceString)
@@ -198,8 +204,49 @@ struct PaywallView: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(package.storeProduct.localizedTitle), \(package.storeProduct.localizedPriceString)")
+        .accessibilityLabel("\(package.storeProduct.localizedTitle), \(priceLine)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func planPriceDisclosure(for package: Package) -> String {
+        let product = package.storeProduct
+        let price = product.localizedPriceString
+        let period = subscriptionPeriodLabel(product.subscriptionPeriod)
+        let recurring = period.map { "\(price)/\($0)" } ?? price
+
+        guard let intro = product.introductoryDiscount else {
+            return product.localizedDescription.isEmpty ? recurring : "\(recurring). \(product.localizedDescription)"
+        }
+
+        let eligible = entitlementStore.isIntroEligible(forProductID: product.productIdentifier)
+        let introPeriod = subscriptionPeriodLabel(intro.subscriptionPeriod) ?? "intro period"
+        if eligible, intro.paymentMode == .freeTrial {
+            return "\(introPeriod) free, then \(recurring)"
+        }
+        if eligible, intro.paymentMode == .payUpFront {
+            return "\(intro.localizedPriceString) for \(introPeriod), then \(recurring)"
+        }
+        if eligible, intro.paymentMode == .payAsYouGo {
+            return "\(intro.localizedPriceString) for \(introPeriod), then \(recurring)"
+        }
+        return recurring
+    }
+
+    private func subscriptionPeriodLabel(_ period: SubscriptionPeriod?) -> String? {
+        guard let period else { return nil }
+        let value = period.value
+        switch period.unit {
+        case .day:
+            return value == 1 ? "day" : "\(value) days"
+        case .week:
+            return value == 1 ? "week" : "\(value) weeks"
+        case .month:
+            return value == 1 ? "month" : "\(value) months"
+        case .year:
+            return value == 1 ? "year" : "\(value) years"
+        @unknown default:
+            return nil
+        }
     }
 #endif
 
@@ -207,12 +254,14 @@ struct PaywallView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Plans")
                 .font(.headline)
-            Text("Monthly $5.99 · Annual $49.99 · 14-day free trial")
+            Text("Subscription plans will appear when the App Store is available.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Text("Configure RevenueCat and App Store Connect product IDs to enable purchases.")
+#if DEBUG
+            Text("DEBUG: Configure RevenueCat / StoreKit product IDs to enable purchases.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+#endif
         }
         .padding()
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -294,7 +343,10 @@ struct PaywallView: View {
         if package.packageType == .lifetime {
             return "Unlock lifetime access"
         }
-        if package.storeProduct.introductoryDiscount != nil {
+        let product = package.storeProduct
+        if let intro = product.introductoryDiscount,
+           intro.paymentMode == .freeTrial,
+           entitlementStore.isIntroEligible(forProductID: product.productIdentifier) {
             return "Start free trial"
         }
         return "Continue with Premium"
