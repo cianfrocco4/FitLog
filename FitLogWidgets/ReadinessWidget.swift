@@ -133,7 +133,10 @@ struct ReadinessWidgetView: View {
 
     private var readinessAccessibilityLabel: String {
         guard hasReadinessSnapshot else {
-            var parts = ["Readiness unavailable", "Open Workout Log AI to update readiness"]
+            let updatePart = entry.planTitle == nil
+                ? "Open Workout Log AI to update readiness and today’s plan"
+                : "Open Workout Log AI to update readiness"
+            var parts = ["Readiness unavailable", updatePart]
             if let plan = entry.planTitle {
                 parts.append("Today's plan: \(plan)")
             }
