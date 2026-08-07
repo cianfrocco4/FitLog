@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os
 
 /// Result of the one-shot AI check when creating a custom exercise (duplicate name, muscles, optional description).
 struct NewExerciseAIReview: Equatable {
@@ -114,10 +115,9 @@ final class AIService: ObservableObject {
     private let proxyBaseURL: String?
     private let apiKey: String?
 
-    private let proxyWakeLock = NSLock()
-    private var lastProxyWakeDate: Date?
     /// Avoid hammering the proxy when switching apps repeatedly.
     private let proxyWakeCooldown: TimeInterval = 180
+    private let proxyWakeState = OSAllocatedUnfairLock(initialState: Date?.none)
 
     init(apiKey: String?, baseURL: String?, model: String? = nil) {
         let trimmedKey = apiKey?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -140,14 +140,15 @@ final class AIService: ObservableObject {
         guard let baseRaw = proxyBaseURL?.trimmingCharacters(in: .whitespacesAndNewlines), !baseRaw.isEmpty,
               let root = URL(string: baseRaw) else { return }
 
-        proxyWakeLock.lock()
         let now = Date()
-        if let last = lastProxyWakeDate, now.timeIntervalSince(last) < proxyWakeCooldown {
-            proxyWakeLock.unlock()
-            return
+        let shouldSkip = proxyWakeState.withLock { lastWake -> Bool in
+            if let last = lastWake, now.timeIntervalSince(last) < proxyWakeCooldown {
+                return true
+            }
+            lastWake = now
+            return false
         }
-        lastProxyWakeDate = now
-        proxyWakeLock.unlock()
+        if shouldSkip { return }
 
         let sess = session
         Task(priority: .utility) {
@@ -160,9 +161,7 @@ final class AIService: ObservableObject {
         guard let baseRaw = proxyBaseURL?.trimmingCharacters(in: .whitespacesAndNewlines), !baseRaw.isEmpty,
               let root = URL(string: baseRaw) else { return }
 
-        proxyWakeLock.lock()
-        lastProxyWakeDate = Date()
-        proxyWakeLock.unlock()
+        proxyWakeState.withLock { $0 = Date() }
 
         _ = await Self.pingProxyHealth(at: root, session: session, timeout: 20)
     }

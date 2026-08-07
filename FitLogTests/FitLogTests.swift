@@ -588,7 +588,7 @@ struct FitLogTests {
     @Test @MainActor func outstandingMissedMakeups_honorsLimitAndOrdering() throws {
         var cal = Calendar(identifier: .gregorian)
         cal.firstWeekday = 1
-        let (anchor, mon, wed, fri, templates, workoutIds) = Self.monWedFriFixture(calendar: cal)
+        let (anchor, _, _, fri, templates, workoutIds) = Self.monWedFriFixture(calendar: cal)
         let friWeek2 = cal.date(byAdding: .day, value: 7, to: fri)!
         let friKey1 = TrainingProgramState.dayKey(for: fri, calendar: cal)
         let friKey2 = TrainingProgramState.dayKey(for: friWeek2, calendar: cal)

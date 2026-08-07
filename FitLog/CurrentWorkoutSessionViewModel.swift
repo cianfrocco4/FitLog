@@ -932,26 +932,24 @@ final class CurrentWorkoutSessionViewModel {
         }
 
         restTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            self.remainingRestTime -= 1
-            let title = self.currentSession?.workout.name ?? "Workout"
-            if self.remainingRestTime > 0 {
-                Task { @MainActor in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.remainingRestTime -= 1
+                let title = self.currentSession?.workout.name ?? "Workout"
+                if self.remainingRestTime > 0 {
                     RestTimerLiveActivityCoordinator.shared.syncRestCountdown(
                         remainingSeconds: self.remainingRestTime,
                         workoutName: title
                     )
                 }
-            }
-            if self.remainingRestTime <= 0 {
-                self.restTimer?.invalidate()
-                self.restTimer = nil
-                self.restCountdownTotalSeconds = 0
-                Task { @MainActor in
+                if self.remainingRestTime <= 0 {
+                    self.restTimer?.invalidate()
+                    self.restTimer = nil
+                    self.restCountdownTotalSeconds = 0
                     RestTimerLiveActivityCoordinator.shared.endRestActivity()
+                    Self.playRestCompleteFeedback()
+                    self.showRestCompleteAlert = true
                 }
-                Self.playRestCompleteFeedback()
-                self.showRestCompleteAlert = true
             }
         }
     }
@@ -1523,7 +1521,7 @@ final class CurrentWorkoutSessionViewModel {
 
         guard !isWorkoutPaused,
               let session = currentSession,
-              var interval = cardioIntervalTimer,
+              let interval = cardioIntervalTimer,
               let rowId = interval.resolvedWorkoutExerciseId(in: session),
               let resolvedIndex = logIndex(forWorkoutExerciseId: rowId)
         else { return }
@@ -1578,7 +1576,7 @@ final class CurrentWorkoutSessionViewModel {
     }
 
     private func migrateLoadedCardioTimersIfNeeded() {
-        guard var session = currentSession else { return }
+        guard let session = currentSession else { return }
         if var steady = cardioSteadyTimer {
             if steady.resolveWorkoutExerciseId(in: session) {
                 cardioSteadyTimer = steady

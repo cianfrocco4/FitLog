@@ -174,70 +174,64 @@ final class HealthKitSyncService {
             "fitlog_workout_kind": session.workout.workoutKind.rawValue
         ]
 
-        let duration = max(0, end.timeIntervalSince(session.startTime))
-        let energy: HKQuantity? = {
-            guard aggregates.calories > 0,
-                  HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned) != nil
-            else { return nil }
-            return HKQuantity(unit: .kilocalorie(), doubleValue: aggregates.calories)
-        }()
-        let distance: HKQuantity? = {
-            guard aggregates.distanceMeters > 0,
-                  CardioHealthKitMapping.distanceQuantityType(for: aggregates.dominantActivityKind) != nil
-            else { return nil }
-            return HKQuantity(unit: .meter(), doubleValue: aggregates.distanceMeters)
-        }()
+        let configuration = HKWorkoutConfiguration()
+        configuration.activityType = activityType
+        configuration.locationType = indoor ? .indoor : .outdoor
 
-        let workout = HKWorkout(
-            activityType: activityType,
-            start: session.startTime,
-            end: end,
-            duration: duration,
-            totalEnergyBurned: energy,
-            totalDistance: distance,
-            metadata: metadata
-        )
+        let builder = HKWorkoutBuilder(healthStore: healthStore, configuration: configuration, device: .local())
+        do {
+            try await builder.beginCollection(at: session.startTime)
 
-        var hrSamples: [HKSample] = []
-        if let hrType = HKQuantityType.quantityType(forIdentifier: .heartRate) {
-            for log in session.exerciseLogs {
-                for set in log.loggedSets where set.countsTowardCardioTotals {
-                    guard let bpm = set.cardioMetrics?.avgHeartRate, bpm > 0 else { continue }
-                    let qty = HKQuantity(unit: HKUnit.count().unitDivided(by: .minute()), doubleValue: Double(bpm))
-                    let sample = HKQuantitySample(
-                        type: hrType,
-                        quantity: qty,
-                        start: set.timestamp,
-                        end: set.timestamp.addingTimeInterval(1)
+            var samples: [HKSample] = []
+            if aggregates.calories > 0,
+               let energyType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned) {
+                let energy = HKQuantity(unit: .kilocalorie(), doubleValue: aggregates.calories)
+                samples.append(
+                    HKQuantitySample(
+                        type: energyType,
+                        quantity: energy,
+                        start: session.startTime,
+                        end: end
                     )
-                    hrSamples.append(sample)
-                }
+                )
             }
-        }
-
-        try await withCheckedThrowingContinuation { [healthStore] (continuation: CheckedContinuation<Void, Error>) in
-            healthStore.save(workout) { success, error in
-                guard success else {
-                    let message = error?.localizedDescription ?? "Unknown error"
-                    continuation.resume(throwing: HealthKitSyncError.saveFailed(message))
-                    return
-                }
-                guard !hrSamples.isEmpty else {
-                    continuation.resume()
-                    return
-                }
-                healthStore.add(hrSamples, to: workout) { added, addError in
-                    if added {
-                        continuation.resume()
-                    } else {
-                        #if DEBUG
-                        let message = addError?.localizedDescription ?? "Unknown error"
-                        print("[HealthKit] Workout saved but heart-rate attach failed: \(message)")
-                        #endif
-                        continuation.resume()
+            if aggregates.distanceMeters > 0,
+               let distanceType = CardioHealthKitMapping.distanceQuantityType(for: aggregates.dominantActivityKind) {
+                let distance = HKQuantity(unit: .meter(), doubleValue: aggregates.distanceMeters)
+                samples.append(
+                    HKQuantitySample(
+                        type: distanceType,
+                        quantity: distance,
+                        start: session.startTime,
+                        end: end
+                    )
+                )
+            }
+            if let hrType = HKQuantityType.quantityType(forIdentifier: .heartRate) {
+                for log in session.exerciseLogs {
+                    for set in log.loggedSets where set.countsTowardCardioTotals {
+                        guard let bpm = set.cardioMetrics?.avgHeartRate, bpm > 0 else { continue }
+                        let qty = HKQuantity(unit: HKUnit.count().unitDivided(by: .minute()), doubleValue: Double(bpm))
+                        samples.append(
+                            HKQuantitySample(
+                                type: hrType,
+                                quantity: qty,
+                                start: set.timestamp,
+                                end: set.timestamp.addingTimeInterval(1)
+                            )
+                        )
                     }
                 }
             }
+            if !samples.isEmpty {
+                try await builder.addSamples(samples)
+            }
+            try await builder.addMetadata(metadata)
+            try await builder.endCollection(at: end)
+            _ = try await builder.finishWorkout()
+        } catch {
+            builder.discardWorkout()
+            throw HealthKitSyncError.saveFailed(error.localizedDescription)
         }
 #else
         throw HealthKitSyncError.unavailable

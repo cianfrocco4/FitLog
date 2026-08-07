@@ -239,21 +239,15 @@ final class HealthMetricsReader {
     }
 
     private static func isAsleep(_ value: Int) -> Bool {
-        if #available(iOS 16.0, *) {
-            return value == HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue
-                || value == HKCategoryValueSleepAnalysis.asleepCore.rawValue
-                || value == HKCategoryValueSleepAnalysis.asleepDeep.rawValue
-                || value == HKCategoryValueSleepAnalysis.asleepREM.rawValue
-        }
-        return value == HKCategoryValueSleepAnalysis.asleep.rawValue
+        value == HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue
+            || value == HKCategoryValueSleepAnalysis.asleepCore.rawValue
+            || value == HKCategoryValueSleepAnalysis.asleepDeep.rawValue
+            || value == HKCategoryValueSleepAnalysis.asleepREM.rawValue
     }
 
     private static func isRestorative(_ value: Int) -> Bool {
-        if #available(iOS 16.0, *) {
-            return value == HKCategoryValueSleepAnalysis.asleepDeep.rawValue
-                || value == HKCategoryValueSleepAnalysis.asleepREM.rawValue
-        }
-        return false
+        value == HKCategoryValueSleepAnalysis.asleepDeep.rawValue
+            || value == HKCategoryValueSleepAnalysis.asleepREM.rawValue
     }
 #endif
 }

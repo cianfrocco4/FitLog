@@ -32,19 +32,22 @@ final class RestTimerLiveActivityCoordinator {
             headline: "Rest between sets"
         )
         if let existing = activity {
-            Task {
+            Task { @MainActor in
                 await existing.update(ActivityContent(state: state, staleDate: nil))
             }
             return
         }
         let attrs = RestTimerActivityAttributes(workoutName: workoutName)
         let content = ActivityContent(state: state, staleDate: nil)
-        Task {
-            do {
-                activity = try await Activity.request(attributes: attrs, content: content, pushType: nil)
-            } catch {
-                activity = nil
-            }
+        do {
+            // Activity.request is synchronous (throws) on current SDKs.
+            activity = try Activity.request(
+                attributes: attrs,
+                content: content,
+                pushType: nil
+            )
+        } catch {
+            activity = nil
         }
         #endif
     }
@@ -53,10 +56,10 @@ final class RestTimerLiveActivityCoordinator {
         #if canImport(ActivityKit)
         guard #available(iOS 16.2, *) else { return }
         guard let act = activity else { return }
-        Task {
+        activity = nil
+        Task { @MainActor in
             await act.end(nil, dismissalPolicy: .immediate)
         }
-        activity = nil
         #endif
     }
 }

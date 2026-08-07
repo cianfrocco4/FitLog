@@ -17,8 +17,9 @@ final class DailyAdjustViewModel {
 
     private let router: AIRoutingService
 
-    init(router: AIRoutingService = .shared) {
-        self.router = router
+    init(router: AIRoutingService? = nil) {
+        // Default args are evaluated in a nonisolated context; resolve `.shared` in the @MainActor body.
+        self.router = router ?? .shared
     }
 
     var availabilityNote: String? {

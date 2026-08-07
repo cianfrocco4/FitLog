@@ -259,7 +259,7 @@ final class EntitlementStore {
         customerInfoTask?.cancel()
         customerInfoTask = Task { [weak self] in
             for await info in Purchases.shared.customerInfoStream {
-                await self?.apply(customerInfo: info)
+                self?.apply(customerInfo: info)
             }
         }
     }

@@ -77,7 +77,7 @@ final class CoachRecommendationEngineTests: XCTestCase {
     }
 
     func testUserOverrideWinsOverRecommendation() {
-        var intake = CoachIntakeSnapshot(
+        let intake = CoachIntakeSnapshot(
             primaryGoal: CoachGoalPick.buildMuscle.rawValue,
             experienceLevel: CoachExperiencePick.intermediate.rawValue,
             sessionsPerWeek: 4
@@ -95,7 +95,7 @@ final class CoachRecommendationEngineTests: XCTestCase {
     }
 
     func testConfirmationDiffReflectsBeforeAndAfter() {
-        var intake = CoachIntakeSnapshot(
+        let intake = CoachIntakeSnapshot(
             primaryGoal: CoachGoalPick.buildMuscle.rawValue,
             experienceLevel: CoachExperiencePick.intermediate.rawValue,
             sessionsPerWeek: 4

@@ -220,7 +220,7 @@ final class CoachConversationViewModel {
     private func transitionToRecommendations() {
         phase = .recommendations
         appendMessage(CoachMessage(kind: .phaseDivider("Now let me put together your plan…")))
-        var built = CoachRecommendationEngine.buildBlueprint(from: intake)
+        let built = CoachRecommendationEngine.buildBlueprint(from: intake)
         blueprint = built
         appendTrainerMessage("Based on everything you've told me, here's what I'd recommend. You can accept each part, adjust it, or ask me why.")
         appendMessage(CoachMessage(kind: .recommendationCards))
