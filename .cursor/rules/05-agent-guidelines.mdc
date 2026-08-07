@@ -6,7 +6,9 @@ alwaysApply: true
 
 ## AGENT / PLAN MODE / COMPOSER GUIDELINES
 - In Plan Mode: Output a detailed, numbered task list with files to change, data model impact (including migration), edge cases, and verification steps.
-- In Agent Mode: Execute task-by-task. After major changes, run SweetPad build and report results.
+- In Agent Mode: Execute task-by-task. After major changes, verify with a simulator build and report results.
+- Prefer **XcodeBuildMCP** (`build_sim` / `test_sim` / `build_run_sim`) over shell `xcodebuild` when the MCP server is available. Call `session_show_defaults` once per session before the first build/run/test.
+- Fall back to shell `xcodebuild` only if XcodeBuildMCP is unavailable, or for CI/scripts, or when you only need a quick compile against normal DerivedData after an MCP timeout.
 - Always respect all other rules. Never skip SwiftData migration steps.
 - Prefer minimal, correct changes. Verify with build before continuing.
 - Keep me updated on progress and ask for approval only on major architectural decisions.

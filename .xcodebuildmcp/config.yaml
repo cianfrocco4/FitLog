@@ -1,0 +1,14 @@
+schemaVersion: 1
+enabledWorkflows:
+  - simulator
+debug: false
+sentryDisabled: true
+setupPreferences:
+  platforms:
+    - iOS
+sessionDefaults:
+  projectPath: FitLog.xcodeproj
+  scheme: FitLog
+  configuration: Debug
+  simulatorName: iPhone 17 Pro
+  arch: arm64

@@ -10,21 +10,30 @@ You are working on a SwiftUI iOS app (FitLog). **Speed of iteration is critical.
 
 ## Hard Rules - Simulator Management
 
-- **Default device: iPhone 17 Pro.** The user usually has this simulator already booted. Always target it for builds and tests.
+- **Default device: iPhone 17 Pro.** Always target it for builds and tests (also seeded in `.xcodebuildmcp/config.yaml`).
 - **NEVER use iPhone 16** (or any other simulator) unless the user explicitly asks.
-- **ALWAYS prefer an already running simulator.** Do not launch or boot a new simulator unless explicitly instructed by the user.
+- **ALWAYS prefer an already running simulator** for shell/`simctl` flows. Do not launch or boot a new simulator unless explicitly instructed by the user.
 - **NEVER** automatically run `xcrun simctl boot` in any command.
 - **NEVER** add `sleep` commands before running builds or tests.
 - If you believe a fresh simulator is truly needed, ask the user first — never assume or do it automatically.
 
-### Resolving the destination (do this before every `xcodebuild`)
+### Prefer XcodeBuildMCP when available
+
+1. Call `session_show_defaults` once before the first build/run/test in a session.
+2. Defaults should already match FitLog + iPhone 17 Pro from `.xcodebuildmcp/config.yaml`. Only call `session_set_defaults` if something is missing/wrong.
+3. Use `build_sim` for compile checks, `test_sim` for tests, `build_run_sim` for install/launch.
+4. Do **not** call `boot_sim` / `open_sim` as prerequisites for `build_sim` or `build_run_sim`.
+5. Cold MCP builds use a separate DerivedData tree and may exceed the MCP client timeout even when the build succeeds. If `build_sim` times out, check whether the spawned `xcodebuild` finished (`BUILD SUCCEEDED`) before retrying or falling back.
+6. Pass `ARCHS=arm64` / `ONLY_ACTIVE_ARCH=YES` via `extraArgs` if a build unexpectedly targets `x86_64`.
+
+### Resolving the destination (shell `xcodebuild` fallback only)
 
 1. Check for a booted **iPhone 17 Pro**:
    ```bash
    xcrun simctl list devices booted | grep "iPhone 17 Pro"
    ```
 2. If found, extract its UDID and use **`-destination 'id=UDID'`** — this pins to the running simulator and avoids spinning up a different device.
-3. If iPhone 17 Pro is not booted, ask the user to launch it rather than falling back to another simulator.
+3. If iPhone 17 Pro is not booted, you may still **build** with `-destination 'platform=iOS Simulator,name=iPhone 17 Pro'` (no boot required). Ask the user to launch it before run/test flows that need a live sim.
 
 ### Post-test simulator cleanup
 
@@ -73,15 +82,20 @@ Do **not** hardcode an OS version (e.g. `OS=18.3.1`) with the device name — iP
    - Suggest adding/improving Previews when they would help.
 
 2. **Build Only** (Fastest reliable code check)
+   - Prefer XcodeBuildMCP `build_sim` (after `session_show_defaults`).
+   - Shell fallback:
    ```bash
-   cd /Users/anthony/Documents/Projects/FitLog && xcodebuild build -scheme FitLog -destination 'id=BOOTED_IPHONE_17_PRO_UDID' -quiet
+   cd /Users/anthony/Documents/Projects/FitLog && xcodebuild build -scheme FitLog -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -quiet
    ```
 
 3. **Targeted Unit Tests** (Only when relevant)
    - Only for changes that affect tested logic (e.g. `CardioMetricsCalculatorTests`, `CardioWeeklyPRCountTests`, etc.)
+   - Prefer XcodeBuildMCP `test_sim`.
+   - Shell fallback:
    ```bash
    cd /Users/anthony/Documents/Projects/FitLog && xcodebuild test -scheme FitLog -destination 'id=BOOTED_IPHONE_17_PRO_UDID' -only-testing:FitLogTests/[SpecificTestClass] -quiet
    ```
 
 4. **Full Simulator Run / Tests** (Last Resort)
+   - Prefer XcodeBuildMCP `build_run_sim` / full `test_sim`.
    - Only when Previews + build are insufficient.
