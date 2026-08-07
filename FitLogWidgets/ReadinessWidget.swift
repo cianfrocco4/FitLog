@@ -118,21 +118,22 @@ struct ReadinessWidgetView: View {
     }
 
     /// Avoid asking users to refresh a plan that is already visible from the App Group payload.
+    /// Wording stays soft: `fitlog://open` only lands on Home; readiness updates when the app becomes active.
     private var emptyStateGuidance: String {
         entry.planTitle == nil
-            ? "Refresh readiness and today’s plan"
-            : "Refresh readiness"
+            ? "Update readiness and today’s plan"
+            : "Update readiness"
     }
 
     private var emptyStateAccessibilityHint: String {
         entry.planTitle == nil
-            ? "Opens Workout Log AI to refresh readiness and today’s plan"
-            : "Opens Workout Log AI to refresh readiness"
+            ? "Opens Workout Log AI to update readiness and today’s plan"
+            : "Opens Workout Log AI to update readiness"
     }
 
     private var readinessAccessibilityLabel: String {
         guard hasReadinessSnapshot else {
-            var parts = ["Readiness unavailable", "Open Workout Log AI to refresh"]
+            var parts = ["Readiness unavailable", "Open Workout Log AI to update readiness"]
             if let plan = entry.planTitle {
                 parts.append("Today's plan: \(plan)")
             }
@@ -161,7 +162,7 @@ struct ReadinessWidget: Widget {
             ReadinessWidgetView(entry: entry)
         }
         .configurationDisplayName("Readiness")
-        .description("Today's readiness score, plan, and quick-log shortcut.")
+        .description("Today's readiness score, plan, and a shortcut into the app.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }
 }
