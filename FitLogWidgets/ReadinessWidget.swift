@@ -116,6 +116,7 @@ struct ReadinessWidgetView: View {
         .containerBackground(for: .widget) {
             Color(.systemBackground)
         }
+        .accessibilityElement(children: .combine)
         .accessibilityLabel(readinessAccessibilityLabel)
         .accessibilityHint(
             hasReadinessSnapshot
