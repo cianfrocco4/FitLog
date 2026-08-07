@@ -35,12 +35,13 @@ jobs:
 
       - name: Show toolchain
         run: |
+          set -euo pipefail
           xcodebuild -version
-          swift --version
-          xcodebuild -project FitLog.xcodeproj -scheme FitLog -showdestinations 2>/dev/null \
-            | grep 'platform:iOS Simulator' \
-            | grep 'name:iPhone' \
-            | head -30 || true
+          xcode-select -p
+          echo "--- simctl devices ---"
+          xcrun simctl list devices available | head -60 || true
+          echo "--- runtimes ---"
+          xcrun simctl list runtimes | head -40 || true
 
       - name: Resolve Swift packages
         run: |
@@ -48,54 +49,7 @@ jobs:
             -project FitLog.xcodeproj \
             -scheme FitLog
 
-      - name: Pick iPhone simulator destination
-        id: dest
-        run: |
-          set -euo pipefail
-          # Prefer destinations xcodebuild itself accepts (more reliable than simctl name parsing).
-          DESTINATIONS=$(xcodebuild -project FitLog.xcodeproj -scheme FitLog -showdestinations 2>/dev/null \
-            | grep 'platform:iOS Simulator' \
-            | grep 'name:iPhone' \
-            | grep -v 'name:Any' || true)
-
-          pick() {
-            local pattern="$1"
-            echo "$DESTINATIONS" | grep -F "$pattern" | head -1 || true
-          }
-
-          LINE=""
-          for pattern in \
-            'name:iPhone 17 Pro,' \
-            'name:iPhone 16 Pro,' \
-            'name:iPhone 17,' \
-            'name:iPhone 16,' \
-            'name:iPhone'
-          do
-            LINE=$(pick "$pattern")
-            if [ -n "$LINE" ]; then
-              break
-            fi
-          done
-
-          if [ -z "$LINE" ]; then
-            echo "No iPhone simulator destination from xcodebuild -showdestinations" >&2
-            echo "$DESTINATIONS" >&2
-            exit 1
-          fi
-
-          ID=$(echo "$LINE" | sed -E 's/.*id:([^,}]+).*/\1/' | tr -d ' ')
-          NAME=$(echo "$LINE" | sed -E 's/.*name:([^}]+).*/\1/' | sed 's/,.*//' | sed 's/[[:space:]]*$//')
-
-          if [ -z "$ID" ]; then
-            echo "Failed to parse simulator id from: $LINE" >&2
-            exit 1
-          fi
-
-          echo "id=$ID" >> "$GITHUB_OUTPUT"
-          echo "name=$NAME" >> "$GITHUB_OUTPUT"
-          echo "Using simulator: $NAME ($ID)"
-          echo "line=$LINE"
-
+      # Build does not need a concrete simulator UDID.
       - name: Build for simulator
         run: |
           set -euo pipefail
@@ -104,16 +58,75 @@ jobs:
             -project FitLog.xcodeproj \
             -scheme FitLog \
             -configuration Debug \
-            -destination "platform=iOS Simulator,id=${{ steps.dest.outputs.id }}" \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
             -skipPackagePluginValidation \
             -skipMacroValidation \
             CODE_SIGNING_ALLOWED=NO \
             | xcbeautify --renderer github-actions
 
+      # Tests need a concrete booted/available simulator. Resolve by UDID via simctl JSON.
+      - name: Pick test simulator
+        id: dest
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, os, subprocess, sys
+
+          def run(cmd):
+              return subprocess.check_output(cmd, text=True)
+
+          data = json.loads(run(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          devices = []
+          for runtime, items in data.get("devices", {}).items():
+              if "iOS" not in runtime and "iphonesimulator" not in runtime.lower():
+                  # Still include; keys look like "com.apple.CoreSimulator.SimRuntime.iOS-18-5"
+                  pass
+              for d in items:
+                  if d.get("isAvailable") is False:
+                      continue
+                  name = d.get("name") or ""
+                  if not name.startswith("iPhone"):
+                      continue
+                  devices.append((name, d["udid"], runtime))
+
+          if not devices:
+              print("No available iPhone simulators from simctl:", file=sys.stderr)
+              print(run(["xcrun", "simctl", "list", "devices", "available"]), file=sys.stderr)
+              sys.exit(1)
+
+          preferred = [
+              "iPhone 16",
+              "iPhone 16 Pro",
+              "iPhone 15",
+              "iPhone 15 Pro",
+              "iPhone 17",
+              "iPhone 17 Pro",
+              "iPhone SE",
+          ]
+
+          def rank(item):
+              name, udid, runtime = item
+              for i, pref in enumerate(preferred):
+                  if name == pref or name.startswith(pref + " "):
+                      return (i, name)
+              return (len(preferred), name)
+
+          name, udid, runtime = sorted(devices, key=rank)[0]
+          print(f"Using simulator: {name} ({udid}) runtime={runtime}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"id={udid}\n")
+              fh.write(f"name={name}\n")
+          PY
+
       - name: Run unit tests
         run: |
           set -euo pipefail
           set -o pipefail
+          # Boot helps avoid flaky "failed to find destination" / bootstrap crashes.
+          xcrun simctl boot "${{ steps.dest.outputs.id }}" 2>/dev/null || true
+          xcrun simctl bootstatus "${{ steps.dest.outputs.id }}" -b || true
+
           xcodebuild test \
             -project FitLog.xcodeproj \
             -scheme FitLog \
