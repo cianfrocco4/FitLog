@@ -60,6 +60,8 @@ final class CurrentWorkoutSessionViewModel {
     }
     
     private var restTimer: Timer?
+    /// Bumped when rest starts/cancels so in-flight MainActor timer Tasks from a prior countdown are ignored.
+    private var restEpoch: UInt64 = 0
     private var workoutTimer: Timer?
     /// Bumped each second while a cardio timer is active so views refresh elapsed/remaining labels.
     private(set) var cardioTimerTick: Int = 0
@@ -914,6 +916,8 @@ final class CurrentWorkoutSessionViewModel {
     private func startRestCountdown(seconds: Int) {
         restTimer?.invalidate()
         restTimer = nil
+        restEpoch &+= 1
+        let epoch = restEpoch
         remainingRestTime = max(0, seconds)
         restCountdownTotalSeconds = seconds
         showRestCompleteAlert = false
@@ -933,7 +937,7 @@ final class CurrentWorkoutSessionViewModel {
 
         restTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, self.restEpoch == epoch, self.restTimer != nil else { return }
                 self.remainingRestTime -= 1
                 let title = self.currentSession?.workout.name ?? "Workout"
                 if self.remainingRestTime > 0 {
@@ -943,6 +947,7 @@ final class CurrentWorkoutSessionViewModel {
                     )
                 }
                 if self.remainingRestTime <= 0 {
+                    self.restEpoch &+= 1
                     self.restTimer?.invalidate()
                     self.restTimer = nil
                     self.restCountdownTotalSeconds = 0
@@ -964,6 +969,7 @@ final class CurrentWorkoutSessionViewModel {
     }
     
     func cancelRestTimer() {
+        restEpoch &+= 1
         restTimer?.invalidate()
         restTimer = nil
         remainingRestTime = 0

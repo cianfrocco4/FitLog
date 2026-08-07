@@ -182,11 +182,13 @@ final class HealthKitSyncService {
         do {
             try await builder.beginCollection(at: session.startTime)
 
-            var samples: [HKSample] = []
+            // Core totals are required for a successful sync; heart-rate samples are best-effort
+            // so a bad HR sample cannot discard an otherwise valid finished workout.
+            var coreSamples: [HKSample] = []
             if aggregates.calories > 0,
                let energyType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned) {
                 let energy = HKQuantity(unit: .kilocalorie(), doubleValue: aggregates.calories)
-                samples.append(
+                coreSamples.append(
                     HKQuantitySample(
                         type: energyType,
                         quantity: energy,
@@ -198,7 +200,7 @@ final class HealthKitSyncService {
             if aggregates.distanceMeters > 0,
                let distanceType = CardioHealthKitMapping.distanceQuantityType(for: aggregates.dominantActivityKind) {
                 let distance = HKQuantity(unit: .meter(), doubleValue: aggregates.distanceMeters)
-                samples.append(
+                coreSamples.append(
                     HKQuantitySample(
                         type: distanceType,
                         quantity: distance,
@@ -207,12 +209,18 @@ final class HealthKitSyncService {
                     )
                 )
             }
+            if !coreSamples.isEmpty {
+                try await builder.addSamples(coreSamples)
+            }
+            try await builder.addMetadata(metadata)
+
+            var hrSamples: [HKSample] = []
             if let hrType = HKQuantityType.quantityType(forIdentifier: .heartRate) {
                 for log in session.exerciseLogs {
                     for set in log.loggedSets where set.countsTowardCardioTotals {
                         guard let bpm = set.cardioMetrics?.avgHeartRate, bpm > 0 else { continue }
                         let qty = HKQuantity(unit: HKUnit.count().unitDivided(by: .minute()), doubleValue: Double(bpm))
-                        samples.append(
+                        hrSamples.append(
                             HKQuantitySample(
                                 type: hrType,
                                 quantity: qty,
@@ -223,10 +231,16 @@ final class HealthKitSyncService {
                     }
                 }
             }
-            if !samples.isEmpty {
-                try await builder.addSamples(samples)
+            if !hrSamples.isEmpty {
+                do {
+                    try await builder.addSamples(hrSamples)
+                } catch {
+                    #if DEBUG
+                    print("[HealthKit] Workout HR samples skipped: \(error.localizedDescription)")
+                    #endif
+                }
             }
-            try await builder.addMetadata(metadata)
+
             try await builder.endCollection(at: end)
             _ = try await builder.finishWorkout()
         } catch {
