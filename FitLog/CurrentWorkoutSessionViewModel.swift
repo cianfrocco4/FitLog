@@ -62,6 +62,8 @@ final class CurrentWorkoutSessionViewModel {
     private var restTimer: Timer?
     /// Bumped when rest starts/cancels so in-flight MainActor timer Tasks from a prior countdown are ignored.
     private var restEpoch: UInt64 = 0
+    /// Wall-clock end for the active rest countdown (avoids backlog Tasks subtracting multiple seconds).
+    private var restEndsAt: Date?
     private var workoutTimer: Timer?
     /// Bumped each second while a cardio timer is active so views refresh elapsed/remaining labels.
     private(set) var cardioTimerTick: Int = 0
@@ -918,11 +920,13 @@ final class CurrentWorkoutSessionViewModel {
         restTimer = nil
         restEpoch &+= 1
         let epoch = restEpoch
-        remainingRestTime = max(0, seconds)
-        restCountdownTotalSeconds = seconds
+        let cappedSeconds = max(0, seconds)
+        remainingRestTime = cappedSeconds
+        restCountdownTotalSeconds = cappedSeconds
         showRestCompleteAlert = false
+        restEndsAt = cappedSeconds > 0 ? Date().addingTimeInterval(TimeInterval(cappedSeconds)) : nil
 
-        guard seconds > 0 else {
+        guard cappedSeconds > 0 else {
             restCountdownTotalSeconds = 0
             return
         }
@@ -938,18 +942,25 @@ final class CurrentWorkoutSessionViewModel {
         restTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.restEpoch == epoch, self.restTimer != nil else { return }
-                self.remainingRestTime -= 1
+                // Derive remaining from wall clock so queued MainActor ticks cannot skip ahead.
+                let remaining: Int
+                if let endsAt = self.restEndsAt {
+                    remaining = max(0, Int(ceil(endsAt.timeIntervalSinceNow)))
+                } else {
+                    remaining = 0
+                }
+                self.remainingRestTime = remaining
                 let title = self.currentSession?.workout.name ?? "Workout"
-                if self.remainingRestTime > 0 {
+                if remaining > 0 {
                     RestTimerLiveActivityCoordinator.shared.syncRestCountdown(
-                        remainingSeconds: self.remainingRestTime,
+                        remainingSeconds: remaining,
                         workoutName: title
                     )
-                }
-                if self.remainingRestTime <= 0 {
+                } else {
                     self.restEpoch &+= 1
                     self.restTimer?.invalidate()
                     self.restTimer = nil
+                    self.restEndsAt = nil
                     self.restCountdownTotalSeconds = 0
                     RestTimerLiveActivityCoordinator.shared.endRestActivity()
                     Self.playRestCompleteFeedback()
@@ -972,6 +983,7 @@ final class CurrentWorkoutSessionViewModel {
         restEpoch &+= 1
         restTimer?.invalidate()
         restTimer = nil
+        restEndsAt = nil
         remainingRestTime = 0
         restCountdownTotalSeconds = 0
         showRestCompleteAlert = false
@@ -984,13 +996,20 @@ final class CurrentWorkoutSessionViewModel {
     /// Nudge the active rest countdown (e.g. +15 / −15) without restarting the timer tick loop.
     func adjustRestCountdown(by delta: Int) {
         guard delta != 0 else { return }
-        guard remainingRestTime > 0 || restTimer != nil else { return }
-        let capped = min(600, max(0, remainingRestTime + delta))
+        guard remainingRestTime > 0 || restTimer != nil || restEndsAt != nil else { return }
+        let currentRemaining: Int
+        if let endsAt = restEndsAt {
+            currentRemaining = max(0, Int(ceil(endsAt.timeIntervalSinceNow)))
+        } else {
+            currentRemaining = remainingRestTime
+        }
+        let capped = min(600, max(0, currentRemaining + delta))
         if capped == 0 {
             cancelRestTimer()
             return
         }
         remainingRestTime = capped
+        restEndsAt = Date().addingTimeInterval(TimeInterval(capped))
         restCountdownTotalSeconds = max(restCountdownTotalSeconds, capped)
         clearRestCompletionNotification()
         scheduleRestNotification(seconds: capped)
@@ -1069,10 +1088,14 @@ final class CurrentWorkoutSessionViewModel {
     }
     
     func appDidEnterBackground() {
-        if remainingRestTime > 0 {
+        if restEndsAt != nil || remainingRestTime > 0 {
             wasTimerRunning = true
             backgroundDate = Date()
             restTimer?.invalidate()
+            restTimer = nil
+            if let endsAt = restEndsAt {
+                remainingRestTime = max(0, Int(ceil(endsAt.timeIntervalSinceNow)))
+            }
             clearRestCompletionNotification()
             scheduleRestNotification(seconds: remainingRestTime)
         }
@@ -1083,13 +1106,22 @@ final class CurrentWorkoutSessionViewModel {
     }
 
     func appDidBecomeActive() {
-        if wasTimerRunning, let bgDate = backgroundDate {
-            let elapsed = Date().timeIntervalSince(bgDate)
-            remainingRestTime = max(0, remainingRestTime - Int(elapsed))
-            if remainingRestTime > 0 {
-                startRestCountdown(seconds: remainingRestTime)
-                scheduleRestNotification(seconds: remainingRestTime)
+        if wasTimerRunning {
+            let remaining: Int
+            if let endsAt = restEndsAt {
+                remaining = max(0, Int(ceil(endsAt.timeIntervalSinceNow)))
+            } else if let bgDate = backgroundDate {
+                let elapsed = Date().timeIntervalSince(bgDate)
+                remaining = max(0, remainingRestTime - Int(elapsed))
             } else {
+                remaining = remainingRestTime
+            }
+            remainingRestTime = remaining
+            if remaining > 0 {
+                startRestCountdown(seconds: remaining)
+                scheduleRestNotification(seconds: remaining)
+            } else {
+                restEndsAt = nil
                 clearRestCompletionNotification()
                 Task { @MainActor in
                     RestTimerLiveActivityCoordinator.shared.endRestActivity()
