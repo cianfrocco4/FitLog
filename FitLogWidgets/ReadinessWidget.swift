@@ -48,6 +48,10 @@ struct ReadinessWidgetProvider: TimelineProvider {
 struct ReadinessWidgetView: View {
     let entry: ReadinessWidgetEntry
 
+    private var hasReadinessSnapshot: Bool {
+        entry.score != nil || entry.bandTitle != nil || entry.summary != nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -57,29 +61,44 @@ struct ReadinessWidgetView: View {
                 if let score = entry.score {
                     Text("\(score)")
                         .font(.title2.weight(.bold).monospacedDigit())
-                } else {
+                } else if hasReadinessSnapshot {
                     Text("—")
                         .font(.title2.weight(.bold))
+                        .accessibilityHidden(true)
                 }
             }
-            if let bandTitle = entry.bandTitle {
-                Text(bandTitle)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            if let plan = entry.planTitle {
-                Label(plan, systemImage: "calendar")
-                    .font(.caption2)
-                    .lineLimit(1)
-            }
-            if let summary = entry.summary {
-                Text(summary)
+            if hasReadinessSnapshot {
+                if let bandTitle = entry.bandTitle {
+                    Text(bandTitle)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                if let plan = entry.planTitle {
+                    Label(plan, systemImage: "calendar")
+                        .font(.caption2)
+                        .lineLimit(1)
+                }
+                if let summary = entry.summary {
+                    Text(summary)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            } else {
+                Text("Open Workout Log AI")
+                    .font(.caption.weight(.semibold))
+                Text("Refresh readiness and today’s plan")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
+                if let plan = entry.planTitle {
+                    Label(plan, systemImage: "calendar")
+                        .font(.caption2)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 0)
-            Label("Quick log", systemImage: "plus.circle.fill")
+            Label(hasReadinessSnapshot ? "Quick log" : "Open app", systemImage: "plus.circle.fill")
                 .font(.caption2.weight(.semibold))
         }
         .widgetURL(ReadinessWidgetDeepLink.quickLog)
@@ -87,10 +106,22 @@ struct ReadinessWidgetView: View {
             Color(.systemBackground)
         }
         .accessibilityLabel(readinessAccessibilityLabel)
-        .accessibilityHint("Opens Workout Log AI to log a set or start a workout")
+        .accessibilityHint(
+            hasReadinessSnapshot
+                ? "Opens Workout Log AI to log a set or start a workout"
+                : "Opens Workout Log AI to refresh readiness and start logging"
+        )
     }
 
     private var readinessAccessibilityLabel: String {
+        guard hasReadinessSnapshot else {
+            var parts = ["Readiness unavailable", "Open Workout Log AI to refresh"]
+            if let plan = entry.planTitle {
+                parts.append("Today's plan: \(plan)")
+            }
+            return parts.joined(separator: ", ")
+        }
+
         var parts = ["Readiness"]
         if let score = entry.score {
             parts.append("\(score) out of 100")
