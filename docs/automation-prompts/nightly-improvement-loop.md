@@ -1,42 +1,63 @@
-# FitLog Nightly Improvement Loop — prompt (hardened)
+# FitLog Nightly Improvement Loop — prompt (Pro+ two-step)
 
 Paste this into the **FitLog Nightly Improvement Loop** automation instructions (replace the old prompt).
+
+This is the **Pro+** workflow: nightly work runs on Cursor Cloud (no Xcode). It must **not** open a PR until a Mac worker has verified build + tests.
 
 ```text
 You are working in the FitLog iOS repo (Workout Log AI) on branch main.
 
-Goal: improve the product, verify with a real iOS build/test when possible, then leave a draft PR for human review.
+## Goal (Pro+ two-step)
+Step 1 (this run): analyze, implement 1–3 low-risk improvements on a feature branch, push the branch, and ask Slack for Mac verification.
+Step 2 (separate Mac run): someone (or you, if invoked with worker=fitlog-mac) builds/tests on the Mac and only then opens a DRAFT PR.
 
-## Hard verification gates (do not skip)
+You are executing STEP 1 unless you can prove xcodebuild works in THIS environment.
 
-1. At the start, run:
-   `uname -s && which xcodebuild && xcodebuild -version`
-2. If `xcodebuild` is missing (typical on Linux Cursor Cloud VMs):
-   - You MAY still analyze the codebase and propose changes.
-   - You MUST NOT claim you built or tested on iOS.
-   - Prefer opening a DRAFT PR only if changes are tiny and clearly correct, and the PR body must start with:
-     `⚠️ UNVERIFIED ON iOS — no xcodebuild in this environment. Waiting on GitHub Actions "iOS CI".`
-   - In Slack, say explicitly that build/test did not run locally and human/CI must verify.
-3. If `xcodebuild` IS available (My Machines / macOS worker):
-   - After code changes, you MUST run a simulator Debug build for scheme FitLog.
-   - Then run unit tests: `xcodebuild test -project FitLog.xcodeproj -scheme FitLog -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:FitLogTests` (or the booted iPhone 17 Pro id if available).
-   - Prefer XcodeBuildMCP `session_show_defaults` then `build_sim` / `test_sim` when those tools are available.
-   - If build or tests fail: fix or revert; do NOT open a PR with known red build/tests.
-   - Only open a DRAFT PR after build + FitLogTests succeed. Include the exact commands and pass/fail in the PR body.
+## Environment check (required first)
+Run:
+  uname -s && which xcodebuild && xcodebuild -version
 
-## Product work
+### If xcodebuild is MISSING (typical Cursor Cloud Linux)
+Hard rules:
+- Do NOT open a pull request.
+- Do NOT claim iOS build/tests passed.
+- You MAY create/push a branch with code changes.
+- After pushing, post Slack to #workoutlogai-agents with:
+  1) Short summary of findings + changes
+  2) Branch name
+  3) This exact follow-up command for a Mac worker (fill in BRANCH):
 
-1. Review recent code and product gaps. Prefer real user workflows: start workout → log sets → finish → history; readiness; freemium gates; paywall; widgets. Also consider Slack #workoutlogai-agents triage notes and App Store review backlog.
-2. Write a short findings list (bugs, UX friction, small features).
-3. Implement at most 1–3 highest-impact, low-risk items. No large refactors. No SwiftData schema changes unless clearly required and migration-safe. Respect freemium/paywall behavior.
-4. Open a DRAFT pull request to main (never merge) with summary, test plan, residual risks, and verification evidence from the gates above.
-5. Post a short Slack update with the PR link, what changed, and whether iOS build/tests actually ran.
+  @Cursor worker=fitlog-mac repo=cianfrocco4/FitLog On branch BRANCH: pull latest, run Debug simulator build for scheme FitLog, run FitLogTests only, fix any failures you can, and ONLY if build+tests pass open a DRAFT PR to main with summary/test plan. If build or tests fail, do not open a PR; report failures in Slack instead.
 
-If nothing is safely actionable, open no PR and explain why in Slack.
+### If xcodebuild IS available (My Machines / macOS)
+You may complete Step 1 + Step 2 in one run:
+1) Implement changes on a branch
+2) MUST run simulator Debug build (scheme FitLog)
+3) MUST run: xcodebuild test -project FitLog.xcodeproj -scheme FitLog -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:FitLogTests
+   (or XcodeBuildMCP build_sim / test_sim after session_show_defaults)
+4) Only if both succeed: open a DRAFT PR to main (never merge) with commands + results
+5) Slack summary with PR link
+If build/tests fail: fix or stop; no PR.
+
+## Product work (Step 1)
+1) Review recent code and product gaps. Prefer real user workflows: start workout → log sets → finish → history; readiness; freemium gates; paywall; widgets. Consider Slack triage notes and App Store review backlog.
+2) Short findings list (bugs, UX friction, small features).
+3) Implement at most 1–3 highest-impact, low-risk items. No large refactors. No SwiftData schema changes unless clearly required and migration-safe. Respect freemium/paywall.
+4) Follow the environment rules above for branch push vs PR.
+
+If nothing is safely actionable: no branch/PR; explain in Slack.
 ```
 
-## Why this is needed
+## Step 2 — how verification happens on Pro+
 
-On Cursor **Pro+**, scheduled Automations usually run on **managed Linux cloud VMs**, which do **not** have Xcode. Your `fitlog-mac` My Machines worker is great for interactive agents, but Automations often cannot select it on personal plans.
+After the nightly Slack message appears, run the suggested command in Slack (or Agents UI with **fitlog-mac** selected):
 
-So the nightly loop can edit code and open a PR without ever compiling. GitHub Actions **iOS CI** is the reliable compile/test gate for those PRs until Automations can target My Machines (Team/Enterprise self-hosted) or Cursor adds that for Pro+.
+```text
+@Cursor worker=fitlog-mac repo=cianfrocco4/FitLog On branch <BRANCH>: pull latest, run Debug simulator build for scheme FitLog, run FitLogTests only, fix any failures you can, and ONLY if build+tests pass open a DRAFT PR to main with summary/test plan. If build or tests fail, do not open a PR; report failures in Slack instead.
+```
+
+Requirements:
+- LaunchAgent worker `fitlog-mac` is running
+- Mac is awake
+
+GitHub **iOS CI** remains the merge backstop after the draft PR opens.

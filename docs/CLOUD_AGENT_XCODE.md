@@ -80,7 +80,11 @@ Mac sleep / lid close still pauses work — use a plugged-in Mac that stays awak
 | Shared Self-Hosted Pool (team Mac fleet) | Enterprise (service account) |
 | Managed Linux environment with real Xcode | Not available |
 
-**If a Nightly automation opened a PR without building:** it almost certainly ran on Linux (no `xcodebuild`). Fix: (1) paste the hardened prompt from [`docs/automation-prompts/nightly-improvement-loop.md`](automation-prompts/nightly-improvement-loop.md), (2) treat GitHub Actions **iOS CI** as the required merge gate, (3) optionally re-run verification yourself on `fitlog-mac`.
+**Pro+ two-step workflow (recommended):**
+
+1. **Nightly Automation** (Cloud Linux) — implement on a branch, **do not open a PR**, Slack a `worker=fitlog-mac` verify command. Prompt: [`automation-prompts/nightly-improvement-loop.md`](automation-prompts/nightly-improvement-loop.md).
+2. **Mac verify** — run that Slack/`@Cursor worker=fitlog-mac` command (Mac awake, LaunchAgent running). Prompt helper: [`automation-prompts/mac-verify-and-pr.md`](automation-prompts/mac-verify-and-pr.md). Opens a **draft PR only if build + FitLogTests pass**.
+3. **GitHub iOS CI** — backstop on the PR before merge.
 
 ## B. GitHub Actions iOS CI (PR merge gate)
 
