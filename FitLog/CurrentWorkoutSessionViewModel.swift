@@ -1036,15 +1036,17 @@ final class CurrentWorkoutSessionViewModel {
         guard var session = currentSession, exerciseIndex < session.exerciseLogs.count, setIndex < session.exerciseLogs[exerciseIndex].loggedSets.count else { return }
 
         session.exerciseLogs[exerciseIndex].loggedSets.remove(at: setIndex)
-        guard let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exerciseId else { return }
+        let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exerciseId
         // If no sets remain, this exercise is no longer active or completed.
-        if session.exerciseLogs[exerciseIndex].loggedSets.isEmpty {
+        if let exId, session.exerciseLogs[exerciseIndex].loggedSets.isEmpty {
             session.activeExerciseIds.removeAll { $0 == exId }
             session.completedExerciseIds.removeAll { $0 == exId }
         }
         currentSession = session
         recordWorkoutActivity()
-        dataManager.reconcilePersonalRecords(forExerciseId: exId, activeSession: session)
+        if let exId {
+            dataManager.reconcilePersonalRecords(forExerciseId: exId, activeSession: session)
+        }
         saveActiveSession()
     }
 
@@ -1163,6 +1165,7 @@ final class CurrentWorkoutSessionViewModel {
         session.activeExerciseIds.insert(exerciseId, at: 0)
         currentSession = session
         recordWorkoutActivity()
+        saveActiveSession()
     }
 
     /// Toggle this exercise in the superset list (activeExerciseIds) without changing primary.
@@ -1175,6 +1178,7 @@ final class CurrentWorkoutSessionViewModel {
         }
         currentSession = session
         recordWorkoutActivity()
+        saveActiveSession()
     }
 
     /// Explicitly mark an exercise as completed; it will be shown as completed in the UI.
@@ -1187,6 +1191,7 @@ final class CurrentWorkoutSessionViewModel {
         session.activeExerciseIds.removeAll { $0 == exerciseId }
         currentSession = session
         recordWorkoutActivity()
+        saveActiveSession()
     }
 
     /// Undo an explicit early completion so the exercise shows as in-progress again.
@@ -1195,6 +1200,7 @@ final class CurrentWorkoutSessionViewModel {
         session.completedExerciseIds.removeAll { $0 == exerciseId }
         currentSession = session
         recordWorkoutActivity()
+        saveActiveSession()
     }
 
     // MARK: - Starting a workout while another may be active
