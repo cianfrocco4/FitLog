@@ -145,6 +145,8 @@ struct HomeActiveWorkoutCard: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
+                .accessibilityLabel("Finish workout")
+                .accessibilityHint("Starts finish checks; saves to history if you confirm")
             }
             .padding(.top, 4)
         }
