@@ -922,6 +922,8 @@ struct CurrentWorkoutPullUpSheet: View {
                     }
                     .foregroundStyle(.red)
                     .fontWeight(.semibold)
+                    .accessibilityLabel("Finish workout")
+                    .accessibilityHint("Saves the workout to history after any finish checks")
                 }
             }
             .sheet(item: $logSetSheetSelection) { selection in
