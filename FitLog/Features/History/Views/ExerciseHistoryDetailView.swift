@@ -16,6 +16,20 @@ struct ExerciseHistoryDetailView: View {
     @State private var dataScope: ExerciseHistoryDataScope = .selectedRange
     @State private var showPaywall = false
 
+    /// Rejects All-time for free users without briefly mutating `dataScope` (avoids chart/session flash).
+    private var dataScopeSelection: Binding<ExerciseHistoryDataScope> {
+        Binding(
+            get: { dataScope },
+            set: { newScope in
+                if newScope == .allTime, !entitlementStore.hasAccess(to: .unlimitedHistory) {
+                    showPaywall = true
+                    return
+                }
+                dataScope = newScope
+            }
+        )
+    }
+
     private var effectiveSessions: [WorkoutSession] {
         switch dataScope {
         case .selectedRange:
@@ -88,7 +102,7 @@ struct ExerciseHistoryDetailView: View {
     var body: some View {
         List {
             Section {
-                Picker("Scope", selection: $dataScope) {
+                Picker("Scope", selection: dataScopeSelection) {
                     ForEach(ExerciseHistoryDataScope.allCases, id: \.rawValue) { scope in
                         if scope == .allTime, !entitlementStore.hasAccess(to: .unlimitedHistory) {
                             Label("\(scope.label) (Premium)", systemImage: "lock.fill").tag(scope)
@@ -98,12 +112,6 @@ struct ExerciseHistoryDetailView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .onChange(of: dataScope) { _, newScope in
-                    if newScope == .allTime, !entitlementStore.hasAccess(to: .unlimitedHistory) {
-                        dataScope = .selectedRange
-                        showPaywall = true
-                    }
-                }
             } footer: {
                 Text(
                     dataScope == .selectedRange

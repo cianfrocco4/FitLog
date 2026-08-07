@@ -10,21 +10,29 @@ struct HistoryFilterMenu: View {
     @Bindable var viewModel: HistoryViewModel
     @State private var showPaywall = false
 
+    /// Rejects Premium-only ranges for free users without briefly mutating `dayRange` (avoids KPI flash).
+    private var dayRangeSelection: Binding<HistoryDayRange> {
+        Binding(
+            get: { viewModel.dayRange },
+            set: { newRange in
+                if newRange.requiresPremium, !entitlementStore.hasAccess(to: .unlimitedHistory) {
+                    showPaywall = true
+                    return
+                }
+                viewModel.dayRange = newRange
+            }
+        )
+    }
+
     var body: some View {
         Menu {
-            Picker("Time range", selection: $viewModel.dayRange) {
+            Picker("Time range", selection: dayRangeSelection) {
                 ForEach(HistoryDayRange.allCases) { range in
                     if !range.requiresPremium || entitlementStore.hasAccess(to: .unlimitedHistory) {
                         Text(range.menuLabel).tag(range)
                     } else {
                         Label("\(range.menuLabel) (Premium)", systemImage: "lock.fill").tag(range)
                     }
-                }
-            }
-            .onChange(of: viewModel.dayRange) { oldRange, newRange in
-                if newRange.requiresPremium, !entitlementStore.hasAccess(to: .unlimitedHistory) {
-                    viewModel.dayRange = oldRange
-                    showPaywall = true
                 }
             }
             Toggle("Compare to prior period", isOn: $viewModel.comparePriorPeriod)
