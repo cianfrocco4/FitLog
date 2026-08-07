@@ -37,7 +37,10 @@ jobs:
         run: |
           xcodebuild -version
           swift --version
-          xcrun simctl list devices available | grep -E 'iPhone' | head -20
+          xcodebuild -project FitLog.xcodeproj -scheme FitLog -showdestinations 2>/dev/null \
+            | grep 'platform:iOS Simulator' \
+            | grep 'name:iPhone' \
+            | head -30 || true
 
       - name: Resolve Swift packages
         run: |
@@ -48,43 +51,60 @@ jobs:
       - name: Pick iPhone simulator destination
         id: dest
         run: |
-          # Prefer iPhone 17 Pro, then 16 Pro, then any available iPhone.
-          NAME=$(xcrun simctl list devices available \
-            | grep -E '^\s+iPhone' \
-            | sed -E 's/^\s+([^(]+).*/\1/' \
-            | sed 's/[[:space:]]*$//' \
-            | grep -E 'iPhone 17 Pro$' \
-            || true)
-          if [ -z "$NAME" ]; then
-            NAME=$(xcrun simctl list devices available \
-              | grep -E '^\s+iPhone' \
-              | sed -E 's/^\s+([^(]+).*/\1/' \
-              | sed 's/[[:space:]]*$//' \
-              | grep -E 'iPhone 16 Pro$' \
-              || true)
-          fi
-          if [ -z "$NAME" ]; then
-            NAME=$(xcrun simctl list devices available \
-              | grep -E '^\s+iPhone' \
-              | sed -E 's/^\s+([^(]+).*/\1/' \
-              | sed 's/[[:space:]]*$//' \
-              | head -1)
-          fi
-          if [ -z "$NAME" ]; then
-            echo "No iPhone simulator available" >&2
+          set -euo pipefail
+          # Prefer destinations xcodebuild itself accepts (more reliable than simctl name parsing).
+          DESTINATIONS=$(xcodebuild -project FitLog.xcodeproj -scheme FitLog -showdestinations 2>/dev/null \
+            | grep 'platform:iOS Simulator' \
+            | grep 'name:iPhone' \
+            | grep -v 'name:Any' || true)
+
+          pick() {
+            local pattern="$1"
+            echo "$DESTINATIONS" | grep -F "$pattern" | head -1 || true
+          }
+
+          LINE=""
+          for pattern in \
+            'name:iPhone 17 Pro,' \
+            'name:iPhone 16 Pro,' \
+            'name:iPhone 17,' \
+            'name:iPhone 16,' \
+            'name:iPhone'
+          do
+            LINE=$(pick "$pattern")
+            if [ -n "$LINE" ]; then
+              break
+            fi
+          done
+
+          if [ -z "$LINE" ]; then
+            echo "No iPhone simulator destination from xcodebuild -showdestinations" >&2
+            echo "$DESTINATIONS" >&2
             exit 1
           fi
+
+          ID=$(echo "$LINE" | sed -E 's/.*id:([^,}]+).*/\1/' | tr -d ' ')
+          NAME=$(echo "$LINE" | sed -E 's/.*name:([^}]+).*/\1/' | sed 's/,.*//' | sed 's/[[:space:]]*$//')
+
+          if [ -z "$ID" ]; then
+            echo "Failed to parse simulator id from: $LINE" >&2
+            exit 1
+          fi
+
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
-          echo "Using simulator: $NAME"
+          echo "Using simulator: $NAME ($ID)"
+          echo "line=$LINE"
 
       - name: Build for simulator
         run: |
+          set -euo pipefail
           set -o pipefail
           xcodebuild build \
             -project FitLog.xcodeproj \
             -scheme FitLog \
             -configuration Debug \
-            -destination "platform=iOS Simulator,name=${{ steps.dest.outputs.name }}" \
+            -destination "platform=iOS Simulator,id=${{ steps.dest.outputs.id }}" \
             -skipPackagePluginValidation \
             -skipMacroValidation \
             CODE_SIGNING_ALLOWED=NO \
@@ -92,12 +112,13 @@ jobs:
 
       - name: Run unit tests
         run: |
+          set -euo pipefail
           set -o pipefail
           xcodebuild test \
             -project FitLog.xcodeproj \
             -scheme FitLog \
             -configuration Debug \
-            -destination "platform=iOS Simulator,name=${{ steps.dest.outputs.name }}" \
+            -destination "platform=iOS Simulator,id=${{ steps.dest.outputs.id }}" \
             -only-testing:FitLogTests \
             -skipPackagePluginValidation \
             -skipMacroValidation \
