@@ -47,10 +47,17 @@ struct ReadinessWidgetProvider: TimelineProvider {
 }
 
 struct ReadinessWidgetView: View {
+    @Environment(\.widgetFamily) private var widgetFamily
+
     let entry: ReadinessWidgetEntry
 
     private var hasReadinessSnapshot: Bool {
         entry.score != nil || entry.bandTitle != nil || entry.summary != nil
+    }
+
+    /// Plan-only empty state is dense on small; keep the calendar line for medium+.
+    private var showsEmptyStatePlanLine: Bool {
+        widgetFamily != .systemSmall
     }
 
     var body: some View {
@@ -92,7 +99,7 @@ struct ReadinessWidgetView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
-                if let plan = entry.planTitle {
+                if showsEmptyStatePlanLine, let plan = entry.planTitle {
                     Label(plan, systemImage: "calendar")
                         .font(.caption2)
                         .lineLimit(1)
