@@ -46,5 +46,9 @@ enum InlineLogSetAccessibility {
         return parts.joined(separator: ", ")
     }
 
-    static let logSetHint = "Logs the entered weight and reps for this exercise"
+    static func logSetHint(bodyweightMode: Bool) -> String {
+        bodyweightMode
+            ? "Logs the entered net load and reps for this exercise"
+            : "Logs the entered weight and reps for this exercise"
+    }
 }

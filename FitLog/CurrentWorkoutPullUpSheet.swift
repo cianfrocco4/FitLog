@@ -2213,7 +2213,7 @@ struct CurrentWorkoutPullUpSheet: View {
                             unitLabel: unitLabel
                         )
                     )
-                    .accessibilityHint(InlineLogSetAccessibility.logSetHint)
+                    .accessibilityHint(InlineLogSetAccessibility.logSetHint(bodyweightMode: true))
                 }
                 HStack(alignment: .center, spacing: 6) {
                     Text("+")
@@ -2292,7 +2292,7 @@ struct CurrentWorkoutPullUpSheet: View {
                             unitLabel: unitLabel
                         )
                     )
-                    .accessibilityHint(InlineLogSetAccessibility.logSetHint)
+                    .accessibilityHint(InlineLogSetAccessibility.logSetHint(bodyweightMode: false))
                 }
             }
             // RPE / RIR quick chip row (respects effortInputStyle)

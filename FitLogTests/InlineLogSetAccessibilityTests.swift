@@ -57,7 +57,11 @@ struct InlineLogSetAccessibilityTests {
         #expect(label == "Log set, Squat")
     }
 
-    @Test func logSetHint_isActionable() {
-        #expect(InlineLogSetAccessibility.logSetHint.contains("Logs the entered"))
+    @Test func logSetHint_weightedMentionsWeight() {
+        #expect(InlineLogSetAccessibility.logSetHint(bodyweightMode: false) == "Logs the entered weight and reps for this exercise")
+    }
+
+    @Test func logSetHint_bodyweightMentionsNetLoad() {
+        #expect(InlineLogSetAccessibility.logSetHint(bodyweightMode: true) == "Logs the entered net load and reps for this exercise")
     }
 }

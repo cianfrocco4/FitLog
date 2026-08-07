@@ -8,6 +8,7 @@ import WidgetKit
 
 private enum ReadinessWidgetDeepLink {
     static let quickLog = URL(string: "fitlog://quick-log")!
+    static let openApp = URL(string: "fitlog://open")!
 }
 
 struct ReadinessWidgetEntry: TimelineEntry {
@@ -87,7 +88,7 @@ struct ReadinessWidgetView: View {
             } else {
                 Text("Open Workout Log AI")
                     .font(.caption.weight(.semibold))
-                Text("Refresh readiness and today’s plan")
+                Text(emptyStateGuidance)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -98,10 +99,13 @@ struct ReadinessWidgetView: View {
                 }
             }
             Spacer(minLength: 0)
-            Label(hasReadinessSnapshot ? "Quick log" : "Open app", systemImage: "plus.circle.fill")
-                .font(.caption2.weight(.semibold))
+            Label(
+                hasReadinessSnapshot ? "Quick log" : "Open app",
+                systemImage: hasReadinessSnapshot ? "plus.circle.fill" : "arrow.up.forward.app"
+            )
+            .font(.caption2.weight(.semibold))
         }
-        .widgetURL(ReadinessWidgetDeepLink.quickLog)
+        .widgetURL(hasReadinessSnapshot ? ReadinessWidgetDeepLink.quickLog : ReadinessWidgetDeepLink.openApp)
         .containerBackground(for: .widget) {
             Color(.systemBackground)
         }
@@ -109,8 +113,21 @@ struct ReadinessWidgetView: View {
         .accessibilityHint(
             hasReadinessSnapshot
                 ? "Opens Workout Log AI to log a set or start a workout"
-                : "Opens Workout Log AI to refresh readiness and start logging"
+                : emptyStateAccessibilityHint
         )
+    }
+
+    /// Avoid asking users to refresh a plan that is already visible from the App Group payload.
+    private var emptyStateGuidance: String {
+        entry.planTitle == nil
+            ? "Refresh readiness and today’s plan"
+            : "Refresh readiness"
+    }
+
+    private var emptyStateAccessibilityHint: String {
+        entry.planTitle == nil
+            ? "Opens Workout Log AI to refresh readiness and today’s plan"
+            : "Opens Workout Log AI to refresh readiness"
     }
 
     private var readinessAccessibilityLabel: String {
