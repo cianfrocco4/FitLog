@@ -75,9 +75,12 @@ Mac sleep / lid close still pauses work — use a plugged-in Mac that stays awak
 
 | Capability | Pro+ |
 |------------|------|
-| My Machines (personal Mac worker) | Yes |
+| My Machines (personal Mac worker) for interactive / Slack `worker=` runs | Yes |
+| **Scheduled Automations targeting My Machines** | Often **not** available on personal Pro+ — Automations usually run on Cursor Cloud (Linux). Team/Enterprise self-hosted is the supported path for automation→Mac. |
 | Shared Self-Hosted Pool (team Mac fleet) | Enterprise (service account) |
 | Managed Linux environment with real Xcode | Not available |
+
+**If a Nightly automation opened a PR without building:** it almost certainly ran on Linux (no `xcodebuild`). Fix: (1) paste the hardened prompt from [`docs/automation-prompts/nightly-improvement-loop.md`](automation-prompts/nightly-improvement-loop.md), (2) treat GitHub Actions **iOS CI** as the required merge gate, (3) optionally re-run verification yourself on `fitlog-mac`.
 
 ## B. GitHub Actions iOS CI (PR merge gate)
 
