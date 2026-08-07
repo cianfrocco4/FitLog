@@ -1,0 +1,59 @@
+# Poll App Store Connect reviews and forward new ones to the Cursor
+# "FitLog ASC Review Webhook" automation.
+#
+# Setup: see docs/ASC_REVIEW_INTAKE.md
+name: ASC Review Intake
+
+on:
+  schedule:
+    # Every 6 hours
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: asc-review-intake
+  cancel-in-progress: false
+
+jobs:
+  forward-reviews:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Restore processed-review state
+        uses: actions/cache/restore@v4
+        with:
+          path: .asc-review-intake-state.json
+          key: asc-review-intake-state-${{ github.run_id }}
+          restore-keys: |
+            asc-review-intake-state-
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Fetch ASC reviews and forward to Cursor
+        env:
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+          APP_STORE_CONNECT_APP_ID: ${{ secrets.APP_STORE_CONNECT_APP_ID }}
+          CURSOR_AUTOMATION_WEBHOOK_URL: ${{ secrets.CURSOR_AUTOMATION_WEBHOOK_URL }}
+          CURSOR_AUTOMATION_WEBHOOK_TOKEN: ${{ secrets.CURSOR_AUTOMATION_WEBHOOK_TOKEN }}
+          # Forward ratings <= 3 (bugs / friction). Change here or set env in a fork of this workflow.
+          ASC_REVIEW_MIN_RATING: "3"
+          ASC_REVIEW_STATE_PATH: .asc-review-intake-state.json
+        run: node scripts/asc-review-intake/fetch-and-forward.mjs
+
+      - name: Persist processed-review state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .asc-review-intake-state.json
+          key: asc-review-intake-state-${{ github.run_id }}

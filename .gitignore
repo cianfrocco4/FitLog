@@ -12,3 +12,7 @@ AppStoreScreenshots/
 
 # macOS
 .DS_Store
+
+# ASC → Cursor review intake (local / Actions cache mirror)
+.asc-review-intake-state.json
+AuthKey_*.p8
