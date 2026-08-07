@@ -1,0 +1,105 @@
+# Compile + unit-test FitLog on every PR / push to main.
+# This is the merge gate when Cursor automations can't use a Mac/Xcode worker.
+name: iOS CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ios-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build & Unit Tests
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install xcbeautify
+        run: brew install xcbeautify
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+          xcrun simctl list devices available | grep -E 'iPhone' | head -20
+
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project FitLog.xcodeproj \
+            -scheme FitLog
+
+      - name: Pick iPhone simulator destination
+        id: dest
+        run: |
+          # Prefer iPhone 17 Pro, then 16 Pro, then any available iPhone.
+          NAME=$(xcrun simctl list devices available \
+            | grep -E '^\s+iPhone' \
+            | sed -E 's/^\s+([^(]+).*/\1/' \
+            | sed 's/[[:space:]]*$//' \
+            | grep -E 'iPhone 17 Pro$' \
+            || true)
+          if [ -z "$NAME" ]; then
+            NAME=$(xcrun simctl list devices available \
+              | grep -E '^\s+iPhone' \
+              | sed -E 's/^\s+([^(]+).*/\1/' \
+              | sed 's/[[:space:]]*$//' \
+              | grep -E 'iPhone 16 Pro$' \
+              || true)
+          fi
+          if [ -z "$NAME" ]; then
+            NAME=$(xcrun simctl list devices available \
+              | grep -E '^\s+iPhone' \
+              | sed -E 's/^\s+([^(]+).*/\1/' \
+              | sed 's/[[:space:]]*$//' \
+              | head -1)
+          fi
+          if [ -z "$NAME" ]; then
+            echo "No iPhone simulator available" >&2
+            exit 1
+          fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "Using simulator: $NAME"
+
+      - name: Build for simulator
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project FitLog.xcodeproj \
+            -scheme FitLog \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,name=${{ steps.dest.outputs.name }}" \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
+
+      - name: Run unit tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project FitLog.xcodeproj \
+            -scheme FitLog \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,name=${{ steps.dest.outputs.name }}" \
+            -only-testing:FitLogTests \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
