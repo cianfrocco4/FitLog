@@ -33,13 +33,17 @@ enum PurchaseServiceError: LocalizedError {
 
 enum PurchaseService {
 #if canImport(RevenueCat)
+    /// True only after `Purchases.configure` — never use `RevenueCatConfig.isConfigured` alone;
+    /// an API key in Info.plist does not mean the SDK was initialized (e.g. UI/unit test host).
+    private static var isSDKReady: Bool { Purchases.isConfigured }
+
     static func fetchOfferings() async throws -> Offerings {
-        guard RevenueCatConfig.isConfigured else { throw PurchaseServiceError.notConfigured }
+        guard isSDKReady else { throw PurchaseServiceError.notConfigured }
         return try await Purchases.shared.offerings()
     }
 
     static func purchase(package: Package) async throws -> CustomerInfo {
-        guard RevenueCatConfig.isConfigured else { throw PurchaseServiceError.notConfigured }
+        guard isSDKReady else { throw PurchaseServiceError.notConfigured }
         let result = try await Purchases.shared.purchase(package: package)
         if result.userCancelled {
             throw PurchaseServiceError.purchaseCancelled
@@ -48,28 +52,29 @@ enum PurchaseService {
     }
 
     static func restorePurchases() async throws -> CustomerInfo {
-        guard RevenueCatConfig.isConfigured else { throw PurchaseServiceError.notConfigured }
+        guard isSDKReady else { throw PurchaseServiceError.notConfigured }
         return try await Purchases.shared.restorePurchases()
     }
 
     static func syncPurchases() async throws -> CustomerInfo {
-        guard RevenueCatConfig.isConfigured else { throw PurchaseServiceError.notConfigured }
+        guard isSDKReady else { throw PurchaseServiceError.notConfigured }
         return try await Purchases.shared.syncPurchases()
     }
 
     static func logIn(appUserID: String) async throws -> (customerInfo: CustomerInfo, created: Bool) {
-        guard RevenueCatConfig.isConfigured else { throw PurchaseServiceError.notConfigured }
+        guard isSDKReady else { throw PurchaseServiceError.notConfigured }
         let result = try await Purchases.shared.logIn(appUserID)
         return (result.customerInfo, result.created)
     }
 
     static func logOut() async throws -> CustomerInfo {
-        guard RevenueCatConfig.isConfigured else { throw PurchaseServiceError.notConfigured }
+        guard isSDKReady else { throw PurchaseServiceError.notConfigured }
         return try await Purchases.shared.logOut()
     }
 
     static func currentAppUserID() -> String {
-        Purchases.shared.appUserID
+        guard isSDKReady else { return "unavailable" }
+        return Purchases.shared.appUserID
     }
 
     static func isPremiumActive(in customerInfo: CustomerInfo) -> Bool {

@@ -156,7 +156,7 @@ struct SessionDetailView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(dataVM.displayName(for: log.workoutExercise))
                         if let slotLabel = HistoryView.templateSlotCaption(for: log, session: session, dataVM: dataVM) {
-                            Text("Slot: \(slotLabel)")
+                            Text("From plan: \(slotLabel)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

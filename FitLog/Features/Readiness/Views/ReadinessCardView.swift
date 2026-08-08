@@ -107,6 +107,9 @@ struct ReadinessCardView: View {
     }
 
     private var readinessAccessibilityLabel: String {
+        if isLoading {
+            return "Updating readiness"
+        }
         if let score {
             return "Readiness score \(score.score) out of 100. \(score.band.displayTitle)."
         }

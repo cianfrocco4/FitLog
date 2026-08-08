@@ -1392,7 +1392,9 @@ struct CurrentWorkoutPullUpSheet: View {
             else { return nil }
             return dataVM.displayName(for: logs[idx].workoutExercise)
         }()
-        restCompleteBannerMessage = name.map { "Rest over — Next up: \($0)" } ?? "Rest over — time for your next set."
+        let message = name.map { "Rest over — Next up: \($0)" } ?? "Rest over — time for your next set."
+        restCompleteBannerMessage = message
+        AccessibilityNotification.Announcement(message).post()
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             restCompleteBannerMessage = nil
             currentVM.showRestCompleteAlert = false
@@ -2785,21 +2787,28 @@ struct CurrentWorkoutPullUpSheet: View {
                 HStack {
                     Image(systemName: "exclamationmark.circle.fill")
                         .foregroundStyle(.orange)
-                    Text("\(unresolvedCount) slot\(unresolvedCount == 1 ? "" : "s") need\(unresolvedCount == 1 ? "s" : "") an exercise")
+                    Text(
+                        unresolvedCount == 1
+                            ? "1 exercise still needs choosing"
+                            : "\(unresolvedCount) exercises still need choosing"
+                    )
                         .font(.subheadline.weight(.medium))
                     Spacer()
-                    Button("Resolve") {
+                    Button("Choose") {
                         if let first = session.exerciseLogs.first(where: { $0.workoutExercise.isSlotPlaceholder }) {
                             resolveSlotSelection = ResolveSlotWE(workoutExerciseId: first.workoutExercise.id, templateSlotId: first.workoutExercise.templateSlotId)
                         }
                     }
                     .buttonStyle(.bordered)
                     .tint(.orange)
+                    .accessibilityLabel("Choose exercise for open row")
+                    .accessibilityHint("Opens the exercise picker for the next open exercise")
                 }
                 .padding()
                 .background(Color.orange.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .padding(.horizontal)
+                .accessibilityElement(children: .contain)
             }
         }
     }
@@ -2822,6 +2831,9 @@ struct CurrentWorkoutPullUpSheet: View {
             .padding(.horizontal)
             .padding(.top, 8)
             .transition(.move(edge: .top).combined(with: .opacity))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(msg)
+            .accessibilityAddTraits(.updatesFrequently)
         }
     }
 
@@ -3350,7 +3362,7 @@ private struct PullUpFinishGuardAlerts: ViewModifier {
                 Button("Cancel", role: .cancel) {}
                 Button("Finish anyway", role: .destructive, action: onProceedAfterUnresolved)
             } message: {
-                Text("These exercises have no sets logged: \(unresolvedExerciseNames.joined(separator: ", ")).")
+                Text("These still need attention: \(unresolvedExerciseNames.joined(separator: ", ")).")
             }
             .confirmationDialog(
                 "Finish without logging any sets?",

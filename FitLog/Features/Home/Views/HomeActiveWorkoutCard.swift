@@ -47,6 +47,22 @@ struct HomeActiveWorkoutCard: View {
         loggedSetCount == 0
     }
 
+    private var activeWorkoutOpenAccessibilityLabel: String {
+        var parts = ["Workout in progress"]
+        if let name = session?.workout.name, !name.isEmpty {
+            parts.append(name)
+        }
+        parts.append("Now \(currentExerciseName)")
+        parts.append(currentVM.workoutElapsedFormatted)
+        if currentVM.isWorkoutPaused {
+            parts.append("Paused")
+        }
+        if totalExerciseCount > 0 {
+            parts.append("\(completedExerciseCount) of \(totalExerciseCount) exercises")
+        }
+        return parts.joined(separator: ", ")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Button(action: onOpen) {
@@ -94,6 +110,7 @@ struct HomeActiveWorkoutCard: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(activeWorkoutOpenAccessibilityLabel)
             .accessibilityHint("Opens exercise logging for the current workout")
 
             if totalExerciseCount > 0 {

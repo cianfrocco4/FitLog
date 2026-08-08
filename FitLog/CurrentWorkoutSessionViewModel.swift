@@ -468,12 +468,14 @@ final class CurrentWorkoutSessionViewModel {
         currentSession?.exerciseLogs.reduce(0) { $0 + $1.loggedSets.count } ?? 0
     }
 
+    /// Names of rows that still need attention before a clean finish:
+    /// open placeholders (no exercise chosen) and resolved rows with zero logged sets.
     func resolvedExercisesWithNoSets() -> [String] {
         guard let logs = currentSession?.exerciseLogs else { return [] }
-        return logs.compactMap { log in
-            guard !log.workoutExercise.isSlotPlaceholder, log.loggedSets.isEmpty else { return nil }
-            return dataManager.displayName(for: log.workoutExercise)
-        }
+        return Self.exercisesNeedingFinishAttention(
+            exerciseLogs: logs,
+            displayName: { dataManager.displayName(for: $0) }
+        )
     }
 
     func nextFinishStep(cardioFinisherAlreadyOffered: Bool) -> FinishWorkoutStep {
@@ -496,10 +498,10 @@ final class CurrentWorkoutSessionViewModel {
         if totalSets == 0 {
             return .confirmEmptyWorkout
         }
-        let unresolved = exerciseLogs.compactMap { log -> String? in
-            guard !log.workoutExercise.isSlotPlaceholder, log.loggedSets.isEmpty else { return nil }
-            return displayName(log.workoutExercise)
-        }
+        let unresolved = exercisesNeedingFinishAttention(
+            exerciseLogs: exerciseLogs,
+            displayName: displayName
+        )
         if !unresolved.isEmpty {
             return .confirmUnresolvedExercises(unresolved)
         }
@@ -507,6 +509,20 @@ final class CurrentWorkoutSessionViewModel {
             return .offerCardioFinisher
         }
         return .ready
+    }
+
+    /// Open placeholders and concrete rows with no sets — used by finish confirmation.
+    nonisolated static func exercisesNeedingFinishAttention(
+        exerciseLogs: [ExerciseLog],
+        displayName: (WorkoutExercise) -> String
+    ) -> [String] {
+        exerciseLogs.compactMap { log in
+            if log.workoutExercise.isSlotPlaceholder {
+                return displayName(log.workoutExercise)
+            }
+            guard log.loggedSets.isEmpty else { return nil }
+            return displayName(log.workoutExercise)
+        }
     }
 
     func finishWorkoutFromUI(showCompletionSummary: Bool = true) {

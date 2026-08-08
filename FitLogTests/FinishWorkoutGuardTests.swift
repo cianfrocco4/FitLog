@@ -93,6 +93,50 @@ import Testing
         #expect(step == .confirmEmptyWorkout)
     }
 
+    @Test func nextFinishStep_confirmsOpenPlaceholdersWhenOtherSetsExist() {
+        let logged = makeConcreteLog(name: "Bench Press", sets: [
+            LoggedSet(
+                id: UUID(),
+                weight: 135,
+                reps: 8,
+                restTime: 0,
+                timestamp: Date(),
+                setType: .working
+            )
+        ])
+        let open = ExerciseLog(
+            id: UUID(),
+            workoutExercise: WorkoutExercise(
+                id: UUID(),
+                resolution: .flexible(
+                    SlotBlueprint(
+                        id: UUID(),
+                        label: "Horizontal press",
+                        targetedMuscles: [.chest]
+                    )
+                ),
+                defaultRestTime: 90,
+                recommendedSets: 3,
+                recommendedReps: "8"
+            ),
+            loggedSets: []
+        )
+
+        let step = CurrentWorkoutSessionViewModel.evaluateFinishStep(
+            exerciseLogs: [logged, open],
+            cardioFinisherAlreadyOffered: false,
+            shouldOfferCardioFinisher: true,
+            displayName: { we in
+                if case .flexible(let blueprint) = we.resolution {
+                    return blueprint.label
+                }
+                return we.snapshot?.nameAtTimeOfLog ?? "Exercise"
+            }
+        )
+
+        #expect(step == .confirmUnresolvedExercises(["Horizontal press"]))
+    }
+
     @Test func nextFinishStep_confirmsUnresolvedExercisesBeforeCardioOffer() {
         let logged = makeConcreteLog(name: "Bench Press", sets: [
             LoggedSet(

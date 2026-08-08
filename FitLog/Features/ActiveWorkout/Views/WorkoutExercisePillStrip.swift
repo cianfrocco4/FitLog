@@ -166,7 +166,7 @@ struct WorkoutExercisePillStrip: View {
         var parts: [String] = []
         if let letter { parts.append("Superset \(letter)") }
         parts.append(name)
-        if isPlaceholder { parts.append("unresolved slot") }
+        if isPlaceholder { parts.append("needs an exercise") }
         else if rec > 0 { parts.append("\(done) of \(rec) sets") }
         else if done > 0 { parts.append("\(done) sets logged") }
         return parts.joined(separator: ", ")
