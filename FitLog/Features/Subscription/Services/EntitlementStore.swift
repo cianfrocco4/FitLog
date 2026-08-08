@@ -203,13 +203,14 @@ final class EntitlementStore {
             return false
         }
         isRestoring = true
+        lastErrorMessage = nil
         defer { isRestoring = false }
         do {
             let info = try await PurchaseService.restorePurchases()
             apply(customerInfo: info)
             return isPremium
         } catch {
-            lastErrorMessage = error.localizedDescription
+            lastErrorMessage = PurchaseRestoreMessaging.userFacingFailureMessage(for: error)
             return false
         }
     }
@@ -220,13 +221,14 @@ final class EntitlementStore {
             return false
         }
         isRestoring = true
+        lastErrorMessage = nil
         defer { isRestoring = false }
         do {
             let info = try await PurchaseService.syncPurchases()
             apply(customerInfo: info)
             return isPremium
         } catch {
-            lastErrorMessage = error.localizedDescription
+            lastErrorMessage = PurchaseRestoreMessaging.userFacingFailureMessage(for: error)
             return false
         }
     }
