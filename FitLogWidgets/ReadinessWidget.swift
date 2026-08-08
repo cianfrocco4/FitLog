@@ -60,6 +60,15 @@ struct ReadinessWidgetView: View {
         widgetFamily != .systemSmall
     }
 
+    /// Medium has room for last-updated / stale guidance; small stays score-first.
+    private var showsUpdatedCaption: Bool {
+        widgetFamily != .systemSmall
+    }
+
+    private var updatedCaption: String {
+        WidgetSnapshotFreshness.updatedCaption(updatedAt: entry.date)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -91,6 +100,13 @@ struct ReadinessWidgetView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
+                }
+                if showsUpdatedCaption {
+                    Text(updatedCaption)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .accessibilityHidden(true)
                 }
             } else {
                 Text("Open Workout Log AI")
@@ -160,6 +176,9 @@ struct ReadinessWidgetView: View {
         }
         if let plan = entry.planTitle {
             parts.append("Today's plan: \(plan)")
+        }
+        if showsUpdatedCaption {
+            parts.append(WidgetSnapshotFreshness.accessibilityUpdatedSuffix(updatedAt: entry.date))
         }
         return parts.joined(separator: ", ")
     }

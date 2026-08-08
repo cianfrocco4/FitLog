@@ -66,3 +66,45 @@ enum WidgetSnapshotStore {
         var todayPlanTitle: String?
     }
 }
+
+/// Shared copy helpers for readiness widget freshness (app + widget extension).
+enum WidgetSnapshotFreshness {
+    /// Snapshots older than this are labeled as potentially outdated on medium widgets.
+    static let staleAfter: TimeInterval = 24 * 60 * 60
+
+    static func isStale(updatedAt: Date, now: Date = Date()) -> Bool {
+        now.timeIntervalSince(updatedAt) >= staleAfter
+    }
+
+    /// Caption shown under the readiness score on medium widgets.
+    static func updatedCaption(
+        updatedAt: Date,
+        now: Date = Date(),
+        relativePhrase: String? = nil
+    ) -> String {
+        let phrase = relativePhrase ?? relativeUpdatedPhrase(updatedAt: updatedAt, now: now)
+        if isStale(updatedAt: updatedAt, now: now) {
+            return "Updated \(phrase) · May be outdated"
+        }
+        return "Updated \(phrase)"
+    }
+
+    /// Spoken freshness suffix for VoiceOver.
+    static func accessibilityUpdatedSuffix(
+        updatedAt: Date,
+        now: Date = Date(),
+        relativePhrase: String? = nil
+    ) -> String {
+        let phrase = relativePhrase ?? relativeUpdatedPhrase(updatedAt: updatedAt, now: now)
+        if isStale(updatedAt: updatedAt, now: now) {
+            return "Updated \(phrase), may be outdated"
+        }
+        return "Updated \(phrase)"
+    }
+
+    static func relativeUpdatedPhrase(updatedAt: Date, now: Date = Date()) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: updatedAt, relativeTo: now)
+    }
+}
