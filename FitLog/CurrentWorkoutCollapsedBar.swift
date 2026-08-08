@@ -91,6 +91,7 @@ struct CurrentWorkoutCollapsedBar: View {
                     .clipShape(RoundedRectangle(cornerRadius: 20))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Open workout logging")
                 .accessibilityHint("Swipe up or tap to open exercise logging")
 
                 HStack(spacing: 8) {

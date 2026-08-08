@@ -135,7 +135,8 @@ struct HomeActiveWorkoutCard: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(FitlogPalette.success)
-                .accessibilityLabel("Open")
+                .accessibilityLabel("Log Sets")
+                .accessibilityHint("Opens the workout sheet to record sets")
 
                 Button(role: .destructive, action: onFinish) {
                     Label("Finish", systemImage: "checkmark.circle")

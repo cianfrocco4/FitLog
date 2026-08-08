@@ -1,5 +1,9 @@
 // Release configuration overlay for FitLog app target.
 // Optional local secrets (gitignored) inject FITLOG_PROXY_SHARED_SECRET at archive time.
+//
+// Injection path (do NOT use INFOPLIST_KEY_ for this custom key — Xcode ignores
+// user-defined INFOPLIST_KEY_* when generating/merging Info.plist):
+//   Secrets.release.xcconfig → FITLOG_PROXY_SHARED_SECRET build setting
+//   → FitLog/Info.plist value "$(FITLOG_PROXY_SHARED_SECRET)"
+//   → expanded with INFOPLIST_EXPAND_BUILD_SETTINGS=YES
 #include? "Secrets.release.xcconfig"
-
-INFOPLIST_KEY_FITLOG_PROXY_SHARED_SECRET = $(FITLOG_PROXY_SHARED_SECRET)
