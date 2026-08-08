@@ -74,7 +74,7 @@ struct ProgramBuilderEntryView: View {
             pathCard(
                 route: .guidedCoach,
                 title: "Guided Coach",
-                subtitle: "Answer a few questions. Your coach recommends a program and you stay in control.",
+                subtitle: "Answer a few questions, edit your plan, then build. AI generation requires Premium.",
                 systemImage: "figure.strengthtraining.traditional",
                 tint: FitlogPalette.chartPrimary,
                 recommended: highlightGuidedCoach

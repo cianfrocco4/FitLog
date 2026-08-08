@@ -260,7 +260,11 @@ enum DynamicProgramMapper {
         from structured: WorkoutSplitBuilderStructuredInput,
         library: [Exercise]
     ) -> WorkoutSplitProposal {
-        let preset = manualPreset(fromSplitPreference: structured.splitPreference)
+        let programming = CoachGoalProgramming.resolve(
+            from: structured.primaryGoal,
+            experienceLevel: structured.experienceLevel
+        )
+        let preset = manualPreset(fromSplitPreference: structured.splitPreference, programming: programming)
         let variationMode = SplitBuilderVariationMode(rawValue: structured.variationMode) ?? .balanced
         let days = SplitBuilderSharedFactory.presetDays(
             preset: preset,
@@ -269,24 +273,90 @@ enum DynamicProgramMapper {
             customRotationLength: structured.desiredWorkoutRotationLength,
             library: library
         )
-        let workouts = days.map { $0.toProposalDay() }
+        var workouts = days.map { $0.toProposalDay() }
+        workouts = applyGoalBiasToLocalWorkouts(workouts, programming: programming, structured: structured)
         let sessions = min(max(1, structured.sessionsPerWeek), 7)
         let preferred = structured.preferredWeekdays.filter { $0 >= 1 && $0 <= 7 }.sorted()
         return WorkoutSplitProposal(
-            rationale: "Built from \(AppBrand.name)’s built-in rotation presets (no AI). You can edit templates after saving.",
+            rationale: "Built from \(AppBrand.name)’s built-in rotation presets for \(programming.goal.rawValue.lowercased()) (no AI). You can edit templates after saving.",
             sessionsPerWeek: sessions,
             preferredWeekdays: preferred,
             workouts: workouts
         )
     }
 
-    private static func manualPreset(fromSplitPreference text: String) -> SplitBuilderManualPreset {
+    private static func manualPreset(
+        fromSplitPreference text: String,
+        programming: CoachGoalProgramming
+    ) -> SplitBuilderManualPreset {
         let t = text.lowercased()
         if t.contains("push") && t.contains("pull") { return .pushPullLegs }
         if t.contains("upper") && t.contains("lower") { return .upperLower }
         if t.contains("full") { return .fullBody }
         if t.contains("bro") || t.contains("muscle group") { return .broSplit }
-        return .pushPullLegs
+        // Goal-biased fallback when split preference is vague.
+        switch programming.goal {
+        case .buildMuscle: return .broSplit
+        case .strength, .fatLoss, .performance: return .upperLower
+        case .general: return .pushPullLegs
+        }
+    }
+
+    /// Bias offline presets with goal-appropriate rep labels and optional cardio finishers.
+    private static func applyGoalBiasToLocalWorkouts(
+        _ workouts: [WorkoutSplitProposalDay],
+        programming: CoachGoalProgramming,
+        structured: WorkoutSplitBuilderStructuredInput
+    ) -> [WorkoutSplitProposalDay] {
+        let defaultReps: String
+        switch programming.goal {
+        case .buildMuscle: defaultReps = "8-12"
+        case .strength: defaultReps = "3-6"
+        case .fatLoss: defaultReps = "10-15"
+        case .performance: defaultReps = "4-8"
+        case .general: defaultReps = "6-12"
+        }
+
+        let wantsFinisher: Bool = {
+            let pref = CardioProgramPreference.fromStored(structured.cardioPreference)
+            return pref.includesPostWorkoutFinishers || programming.goal == .fatLoss || programming.goal == .general
+        }()
+
+        return workouts.map { day in
+            var slots: [WorkoutSplitProposalSlotItem] = day.slots.map { slot in
+                let reps = slot.reps.trimmingCharacters(in: .whitespacesAndNewlines)
+                let nextReps = (reps.isEmpty || reps == "8-12" || reps == "8–12") ? defaultReps : slot.reps
+                return WorkoutSplitProposalSlotItem(
+                    label: slot.label,
+                    targetMuscleNames: slot.targetMuscleNames,
+                    sets: slot.sets,
+                    reps: nextReps,
+                    suggestedExerciseName: slot.suggestedExerciseName,
+                    suggestedExerciseOverrideId: slot.suggestedExerciseOverrideId
+                )
+            }
+            let focus = day.focus ?? ""
+            let isCardioDay = focus.lowercased().contains("cardio")
+                || day.name.lowercased().contains("cardio")
+            if wantsFinisher, !isCardioDay, slots.count < 12 {
+                let minutes = structured.cardioFinisherDurationMinutes ?? 10
+                slots.append(
+                    WorkoutSplitProposalSlotItem(
+                        label: "\(minutes)-min Zone 2 finisher",
+                        targetMuscleNames: ["Other"],
+                        sets: 1,
+                        reps: "steady",
+                        suggestedExerciseName: nil
+                    )
+                )
+            }
+            return WorkoutSplitProposalDay(
+                name: day.name,
+                focus: day.focus,
+                exercises: day.exercises,
+                slots: slots
+            )
+        }
     }
 
     /// Blank rotation templates for manual program building (no AI, no preset exercises).

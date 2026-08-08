@@ -165,25 +165,42 @@ struct CoachScheduleInput: View {
     @Binding var weekdays: Set<Int>
     let onSubmit: () -> Void
 
-    private let weekdaySymbols = Calendar.current.shortWeekdaySymbols
+    private var maxSessions: Int {
+        CoachScheduleSync.maxSessions(for: weekdays)
+    }
+
+    private var orderedWeekdays: [Int] {
+        CoachScheduleSync.orderedWeekdayNumbers()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Stepper(value: $sessions, in: 1 ... max(1, weekdays.isEmpty ? 7 : weekdays.count)) {
-                Text("Sessions per week: \(sessions)")
+            Stepper(
+                value: Binding(
+                    get: { CoachScheduleSync.clampSessions(sessions, to: weekdays) },
+                    set: { sessions = CoachScheduleSync.clampSessions($0, to: weekdays) }
+                ),
+                in: 1 ... maxSessions
+            ) {
+                Text("Sessions per week: \(CoachScheduleSync.clampSessions(sessions, to: weekdays))")
             }
+            .accessibilityLabel("Sessions per week")
+            .accessibilityValue("\(CoachScheduleSync.clampSessions(sessions, to: weekdays))")
 
             Text("Preferred days (optional)")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 7), spacing: 8) {
-                ForEach(1 ... 7, id: \.self) { day in
+                ForEach(orderedWeekdays, id: \.self) { day in
                     let selected = weekdays.contains(day)
+                    let symbol = CoachScheduleSync.shortSymbol(for: day)
                     Button {
-                        if selected { weekdays.remove(day) } else { weekdays.insert(day) }
+                        let result = CoachScheduleSync.toggleWeekday(day, sessions: sessions, weekdays: weekdays)
+                        weekdays = result.weekdays
+                        sessions = result.sessions
                     } label: {
-                        Text(String(weekdaySymbols[day - 1].prefix(1)))
+                        Text(String(symbol.prefix(1)))
                             .font(.caption.weight(.semibold))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
@@ -193,7 +210,9 @@ struct CoachScheduleInput: View {
                             )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("\(weekdaySymbols[day - 1]), \(selected ? "selected" : "not selected")")
+                    .accessibilityLabel("\(symbol), \(selected ? "selected" : "not selected")")
+                    .accessibilityHint(selected ? "Deselect training day" : "Select training day")
+                    .accessibilityAddTraits(selected ? .isSelected : [])
                 }
             }
 
@@ -206,6 +225,12 @@ struct CoachScheduleInput: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(FitlogPalette.subtleFill)
         )
+        .onAppear {
+            sessions = CoachScheduleSync.clampSessions(sessions, to: weekdays)
+        }
+        .onChange(of: weekdays) { _, newValue in
+            sessions = CoachScheduleSync.clampSessions(sessions, to: newValue)
+        }
     }
 }
 

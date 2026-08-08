@@ -101,9 +101,7 @@ struct DynamicProgramBuilderView: View {
     private var calendar: Calendar { .current }
 
     private var maxSessionsAllowed: Int {
-        let sel = Set(viewModel.request.splitInput.preferredWeekdays.filter { $0 >= 1 && $0 <= 7 })
-        if sel.isEmpty { return 7 }
-        return max(1, sel.count)
+        CoachScheduleSync.maxSessions(for: viewModel.request.splitInput.preferredWeekdays)
     }
 
     private var builderModeHelp: String {
@@ -762,10 +760,9 @@ struct DynamicProgramBuilderView: View {
     }
 
     private var weekdayPickGrid: some View {
-        let symbols = calendar.shortWeekdaySymbols
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 8) {
-            ForEach(1 ... 7, id: \.self) { weekday in
-                let sym = symbols[(weekday + calendar.firstWeekday - 2) % 7]
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 8) {
+            ForEach(CoachScheduleSync.orderedWeekdayNumbers(calendar: calendar), id: \.self) { weekday in
+                let sym = CoachScheduleSync.shortSymbol(for: weekday, calendar: calendar)
                 let on = viewModel.request.splitInput.preferredWeekdays.contains(weekday)
                 Button { toggleWeekday(weekday) } label: {
                     VStack(spacing: 4) {
@@ -782,18 +779,21 @@ struct DynamicProgramBuilderView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("\(sym) training day")
+                .accessibilityHint(on ? "Deselect training day" : "Select training day")
                 .accessibilityAddTraits(on ? .isSelected : [])
             }
         }
     }
 
     private func toggleWeekday(_ weekday: Int) {
-        var s = viewModel.request.splitInput.preferredWeekdays
-        if let idx = s.firstIndex(of: weekday) { s.remove(at: idx) } else { s.append(weekday); s.sort() }
-        viewModel.request.splitInput.preferredWeekdays = s
-        if viewModel.request.splitInput.sessionsPerWeek > maxSessionsAllowed {
-            viewModel.request.splitInput.sessionsPerWeek = maxSessionsAllowed
-        }
+        let currentWeekdays = Set(viewModel.request.splitInput.preferredWeekdays)
+        let result = CoachScheduleSync.toggleWeekday(
+            weekday,
+            sessions: viewModel.request.splitInput.sessionsPerWeek,
+            weekdays: currentWeekdays
+        )
+        viewModel.request.splitInput.preferredWeekdays = result.weekdays.sorted()
+        viewModel.request.splitInput.sessionsPerWeek = result.sessions
     }
 
     private func busyPolicyLabel(_ pol: BusyDayPolicy) -> String {

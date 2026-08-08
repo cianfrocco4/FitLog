@@ -12,12 +12,55 @@ struct CoachConversationView: View {
     @EnvironmentObject private var aiService: AIService
     @Environment(DataManager.self) private var dataManager
     @Environment(EntitlementStore.self) private var entitlementStore
-    @FocusState private var isReviewComposerFocused: Bool
     @State private var showPaywall = false
     @State private var paywallTrigger: PremiumFeature = .aiCoach
+    @State private var hoveredGoalTeaser: String?
 
     var body: some View {
+        Group {
+            if coachVM.phase == .planPreview || coachVM.phase == .generating {
+                planPreviewSurface
+            } else {
+                intakeChatSurface
+            }
+        }
+        .navigationTitle("Guided Coach")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(isPresented: $coachVM.navigateToReview) {
+            DynamicProgramBuilderView(viewModel: coachVM.builderViewModel, hidesBuilderModePicker: true)
+        }
+        .onAppear {
+            coachVM.bootstrap(dataManager: dataManager)
+        }
+        .task(id: coachVM.phase) {
+            if coachVM.phase == .planPreview, coachVM.blueprint != nil, entitlementStore.hasAccess(to: .aiCoach) {
+                await coachVM.enrichRecommendationsWithAI(aiService: aiService)
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { coachVM.activeDiscussTopic != nil },
+            set: { if !$0, let topic = coachVM.activeDiscussTopic { coachVM.endDiscuss(topic: topic) } }
+        )) {
+            if let topic = coachVM.activeDiscussTopic {
+                discussSheet(for: topic)
+            }
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView(triggerFeature: paywallTrigger)
+                .environment(entitlementStore)
+        }
+        .sensoryFeedback(.selection, trigger: coachVM.selectionFeedbackCount)
+        .sensoryFeedback(.success, trigger: coachVM.builderViewModel.generationSuccessCount)
+    }
+
+    // MARK: - Intake chat
+
+    private var intakeChatSurface: some View {
         VStack(spacing: 0) {
+            if coachVM.phase == .intake {
+                intakeProgressBar
+            }
+
             if let error = coachVM.errorMessage {
                 Text(error)
                     .font(.caption)
@@ -30,6 +73,10 @@ struct CoachConversationView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
+                        if !coachVM.answeredTopics.isEmpty {
+                            answeredChips
+                        }
+
                         ForEach(coachVM.messages) { message in
                             messageView(for: message)
                                 .id(message.id)
@@ -39,124 +86,222 @@ struct CoachConversationView: View {
                             intakeInput(for: topic)
                                 .id("intake-input")
                         }
-
-                        if coachVM.phase == .recommendations, let blueprint = coachVM.blueprint {
-                            if coachVM.messages.contains(where: { if case .recommendationCards = $0.kind { return true }; return false }) {
-                                CoachRecommendationCardsSection(
-                                    recommendations: blueprint.recommendations,
-                                    activeDiscussTopic: coachVM.activeDiscussTopic,
-                                    threadProvider: { coachVM.thread(for: $0) },
-                                    draftProvider: { coachVM.draft(for: $0) },
-                                    shouldFocusComposer: { coachVM.focusedDiscussTopic == $0 },
-                                    onAccept: { coachVM.acceptRecommendation($0) },
-                                    onAdjust: { topic, value in coachVM.applyRecommendationOverride(topic: topic, newValue: value) },
-                                    onDiscuss: { coachVM.beginDiscuss(topic: $0) },
-                                    onSendDiscuss: { topic in
-                                        guard entitlementStore.hasAccess(to: .aiCoach) else {
-                                            paywallTrigger = .aiCoach
-                                            showPaywall = true
-                                            return
-                                        }
-                                        Task { await coachVM.submitFollowUp(for: topic, aiService: aiService) }
-                                    },
-                                    onApplySuggestion: { topic, change in
-                                        coachVM.applySuggestedChange(change, in: topic)
-                                    },
-                                    onDoneDiscuss: { coachVM.endDiscuss(topic: $0) },
-                                    onAcceptAll: { coachVM.acceptAllRecommendations() }
-                                )
-                                .id("recommendation-cards")
-                            }
-                        }
-
-                        if coachVM.phase == .review, let blueprint = coachVM.blueprint {
-                            CoachBlueprintSummary(
-                                blueprint: blueprint,
-                                onBuild: {
-                                    guard entitlementStore.hasAccess(to: .aiProgramGeneration) else {
-                                        paywallTrigger = .aiProgramGeneration
-                                        showPaywall = true
-                                        return
-                                    }
-                                    Task {
-                                        await coachVM.buildProgram(aiService: aiService, dataManager: dataManager, entitlementStore: entitlementStore)
-                                    }
-                                },
-                                isLoading: false
-                            )
-                            .id("blueprint-summary")
-                        }
-
-                        if coachVM.phase == .generating, let blueprint = coachVM.blueprint {
-                            CoachProgramGenerationProgressView(
-                                statusMessage: coachVM.generationStatusLine,
-                                isConnecting: coachVM.builderViewModel.isConnectingToProxy,
-                                blockCompleted: coachVM.builderViewModel.generationBlockCompleted,
-                                blockTotal: coachVM.builderViewModel.generationBlockTotal,
-                                programTitle: blueprint.programName,
-                                daysPerWeek: blueprint.sessionsPerWeek
-                            )
-                            .id("generation-progress")
-                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
-                    .padding(.bottom, showReviewComposer ? 8 : 0)
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: coachVM.messages.count) { _, _ in
-                    scrollToBottom(proxy: proxy)
-                }
-                .onChange(of: coachVM.phase) { _, phase in
-                    scrollForPhase(phase: phase, proxy: proxy)
-                }
-                .onChange(of: coachVM.scrollToGenerationTrigger) { _, _ in
-                    scrollToGenerationProgress(proxy: proxy)
-                }
-                .onChange(of: coachVM.builderViewModel.generationStatusMessage) { _, _ in
-                    guard coachVM.phase == .generating else { return }
-                    scrollToGenerationProgress(proxy: proxy)
-                }
-                .onChange(of: coachVM.activeDiscussTopic) { _, topic in
-                    guard let topic else { return }
-                    scrollToDiscussCard(topic: topic, proxy: proxy)
-                }
-                .onChange(of: coachVM.discussScrollTrigger) { _, _ in
-                    if let topic = coachVM.activeDiscussTopic {
-                        scrollToDiscussCard(topic: topic, proxy: proxy)
+                    withAnimation(.easeOut(duration: 0.22)) {
+                        if let last = coachVM.messages.last {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        } else {
+                            proxy.scrollTo("intake-input", anchor: .bottom)
+                        }
                     }
                 }
             }
-
-            if showReviewComposer {
-                reviewComposerBar
-            }
         }
-        .navigationTitle("Guided Coach")
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(isPresented: $coachVM.navigateToReview) {
-            DynamicProgramBuilderView(viewModel: coachVM.builderViewModel, hidesBuilderModePicker: true)
-        }
-        .onAppear {
-            coachVM.bootstrap(dataManager: dataManager)
-        }
-        .task(id: coachVM.phase) {
-            if coachVM.phase == .recommendations, coachVM.blueprint != nil, entitlementStore.hasAccess(to: .aiCoach) {
-                await coachVM.enrichRecommendationsWithAI(aiService: aiService)
-            }
-        }
-        .sheet(isPresented: $showPaywall) {
-            PaywallView(triggerFeature: paywallTrigger)
-                .environment(entitlementStore)
-        }
-        .sensoryFeedback(.selection, trigger: coachVM.selectionFeedbackCount)
-        .sensoryFeedback(.success, trigger: coachVM.builderViewModel.generationSuccessCount)
     }
+
+    private var intakeProgressBar: some View {
+        HStack {
+            Text("Step \(min(coachVM.intakeStepIndex, coachVM.intakeStepTotal)) of \(coachVM.intakeStepTotal)")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Spacer()
+            ProgressView(value: Double(coachVM.intakeStepIndex), total: Double(max(1, coachVM.intakeStepTotal)))
+                .frame(width: 120)
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.bar)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Intake progress, step \(coachVM.intakeStepIndex) of \(coachVM.intakeStepTotal)")
+    }
+
+    private var answeredChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(coachVM.answeredTopics, id: \.self) { topic in
+                    if let value = coachVM.answeredValue(for: topic) {
+                        Button {
+                            coachVM.revisitIntakeTopic(topic)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(topicChipTitle(topic))
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                Text(value)
+                                    .font(.caption.weight(.medium))
+                                    .lineLimit(1)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(FitlogPalette.subtleFill)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Edit \(topicChipTitle(topic)): \(value)")
+                        .accessibilityHint("Go back and change this answer")
+                    }
+                }
+            }
+        }
+    }
+
+    private func topicChipTitle(_ topic: CoachIntakeTopic) -> String {
+        switch topic {
+        case .goal: return "Goal"
+        case .goalFollowUp: return "Focus"
+        case .experience: return "Experience"
+        case .schedule: return "Schedule"
+        case .sessionDuration: return "Session length"
+        case .equipment: return "Equipment"
+        case .constraints: return "Notes"
+        }
+    }
+
+    // MARK: - Plan preview surface
+
+    private var planPreviewSurface: some View {
+        VStack(spacing: 0) {
+            if let error = coachVM.errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    .padding(.vertical, 6)
+            }
+
+            if coachVM.phase == .generating, let blueprint = coachVM.blueprint {
+                ScrollView {
+                    CoachProgramGenerationProgressView(
+                        statusMessage: coachVM.generationStatusLine,
+                        isConnecting: coachVM.builderViewModel.isConnectingToProxy,
+                        blockCompleted: coachVM.builderViewModel.generationBlockCompleted,
+                        blockTotal: coachVM.builderViewModel.generationBlockTotal,
+                        programTitle: blueprint.programName,
+                        daysPerWeek: blueprint.sessionsPerWeek
+                    )
+                    .padding(16)
+                }
+            } else if let blueprint = coachVM.blueprint {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        DisclosureGroup(isExpanded: $coachVM.showCoachNotes) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(coachVM.messages.filter { msg in
+                                    switch msg.kind {
+                                    case .trainerText, .userReply, .phaseDivider, .changeSummary:
+                                        return true
+                                    default:
+                                        return false
+                                    }
+                                }) { message in
+                                    messageView(for: message)
+                                }
+                            }
+                            .padding(.top, 8)
+                        } label: {
+                            Text("Coach notes")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .padding(.horizontal, 4)
+
+                        CoachPlanPreviewView(
+                            blueprint: blueprint,
+                            scheduleSessions: $coachVM.scheduleSessions,
+                            weekdays: $coachVM.scheduleWeekdays,
+                            finalNotes: $coachVM.finalNotesDraft,
+                            autoUpdates: coachVM.lastAutoUpdates,
+                            isLoading: false,
+                            requiresPremium: !entitlementStore.hasAccess(to: .aiProgramGeneration),
+                            onUpdateRecommendation: { topic, value in
+                                coachVM.updateRecommendation(topic: topic, newValue: value)
+                            },
+                            onUpdateSchedule: { sessions, days in
+                                coachVM.updateSchedule(sessions: sessions, weekdays: days)
+                            },
+                            onDiscuss: { topic in
+                                coachVM.beginDiscuss(topic: topic)
+                            },
+                            onBuild: {
+                                guard entitlementStore.hasAccess(to: .aiProgramGeneration) else {
+                                    paywallTrigger = .aiProgramGeneration
+                                    showPaywall = true
+                                    return
+                                }
+                                Task {
+                                    await coachVM.buildProgram(
+                                        aiService: aiService,
+                                        dataManager: dataManager,
+                                        entitlementStore: entitlementStore
+                                    )
+                                }
+                            }
+                        )
+                    }
+                    .padding(16)
+                }
+                .scrollDismissesKeyboard(.interactively)
+            }
+        }
+    }
+
+    // MARK: - Discuss sheet
+
+    @ViewBuilder
+    private func discussSheet(for topic: CoachRecommendationTopic) -> some View {
+        NavigationStack {
+            Group {
+                if let thread = coachVM.thread(for: topic) {
+                    CoachInlineDiscussThread(
+                        topic: topic,
+                        thread: thread,
+                        draftText: coachVM.draft(for: topic),
+                        isActive: true,
+                        shouldFocusComposer: coachVM.focusedDiscussTopic == topic,
+                        onSend: {
+                            guard entitlementStore.hasAccess(to: .aiCoach) else {
+                                paywallTrigger = .aiCoach
+                                showPaywall = true
+                                return
+                            }
+                            Task { await coachVM.submitFollowUp(for: topic, aiService: aiService) }
+                        },
+                        onApplySuggestion: { change in
+                            coachVM.applySuggestedChange(change, in: topic)
+                        },
+                        onDone: { coachVM.endDiscuss(topic: topic) },
+                        onReopenDiscuss: { coachVM.beginDiscuss(topic: topic) }
+                    )
+                    .padding()
+                } else {
+                    ProgressView()
+                }
+            }
+            .navigationTitle("Discuss \(topic.title)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { coachVM.endDiscuss(topic: topic) }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    // MARK: - Shared message / intake helpers
 
     @ViewBuilder
     private func messageView(for message: CoachMessage) -> some View {
         switch message.kind {
-        case .recommendationCards, .blueprintSummary, .intakePrompt:
+        case .planPreview, .intakePrompt:
             EmptyView()
         case .changeSummary(let changes):
             VStack(alignment: .leading, spacing: 6) {
@@ -198,70 +343,21 @@ struct CoachConversationView: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(FitlogPalette.subtleFill)
             )
+        case .goal:
+            VStack(alignment: .leading, spacing: 10) {
+                CoachQuickReplyPills(options: coachVM.quickRepliesForPendingQuestion()) { value in
+                    hoveredGoalTeaser = coachVM.goalImpactTeaser(for: value)
+                    coachVM.submitQuickReply(value)
+                }
+                Text(hoveredGoalTeaser ?? "Your goal shapes program length, intensity, phases, and cardio — not just the title.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(hoveredGoalTeaser ?? "Your goal shapes program length, intensity, phases, and cardio")
+            }
         default:
             CoachQuickReplyPills(options: coachVM.quickRepliesForPendingQuestion()) { value in
                 coachVM.submitQuickReply(value)
-            }
-        }
-    }
-
-    private var showReviewComposer: Bool {
-        coachVM.phase == .review && coachVM.pendingIntakeTopic == nil
-    }
-
-    private var reviewComposerBar: some View {
-        HStack(spacing: 10) {
-            TextField("Any final notes?", text: $coachVM.draftText, axis: .vertical)
-                .lineLimit(1 ... 4)
-                .textFieldStyle(.roundedBorder)
-                .focused($isReviewComposerFocused)
-
-            Button {
-                if !coachVM.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    coachVM.appendFinalNotes(coachVM.draftText)
-                    coachVM.draftText = ""
-                }
-            } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.title2)
-            }
-            .disabled(coachVM.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .accessibilityLabel("Save final notes")
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.bar)
-    }
-
-    private func scrollToBottom(proxy: ScrollViewProxy) {
-        scrollForPhase(phase: coachVM.phase, proxy: proxy)
-    }
-
-    private func scrollForPhase(phase: CoachPhase, proxy: ScrollViewProxy) {
-        withAnimation(.easeOut(duration: 0.22)) {
-            if phase == .generating {
-                proxy.scrollTo("generation-progress", anchor: .center)
-            } else if phase == .review {
-                proxy.scrollTo("blueprint-summary", anchor: .bottom)
-            } else if phase == .recommendations, coachVM.activeDiscussTopic == nil {
-                proxy.scrollTo("recommendation-cards", anchor: .bottom)
-            } else if let last = coachVM.messages.last {
-                proxy.scrollTo(last.id, anchor: .bottom)
-            }
-        }
-    }
-
-    private func scrollToGenerationProgress(proxy: ScrollViewProxy) {
-        withAnimation(.easeOut(duration: 0.2)) {
-            proxy.scrollTo("generation-progress", anchor: .center)
-        }
-    }
-
-    private func scrollToDiscussCard(topic: CoachRecommendationTopic, proxy: ScrollViewProxy) {
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(120))
-            withAnimation(.easeOut(duration: 0.24)) {
-                proxy.scrollTo("recommendation-\(topic.rawValue)", anchor: .center)
             }
         }
     }

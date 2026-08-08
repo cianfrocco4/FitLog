@@ -9,60 +9,164 @@ import Foundation
 
 enum CoachRecommendationEngine {
 
+    struct RederiveResult: Equatable, Sendable {
+        var blueprint: CoachBlueprint
+        var autoUpdates: [CoachRecommendationChange]
+    }
+
     // MARK: - Public
 
     static func buildBlueprint(from intake: CoachIntakeSnapshot) -> CoachBlueprint {
         let sessions = resolvedSessionsPerWeek(intake: intake)
-        let split = recommendedSplit(intake: intake, sessions: sessions)
-        let totalWeeks = recommendedProgramLength(intake: intake)
-        let structure = recommendedPhaseStructure(intake: intake, totalWeeks: totalWeeks)
-        let cardio = recommendedCardio(intake: intake, sessions: sessions)
-        let intensity = recommendedIntensity(intake: intake)
-        let progression = recommendedProgression(intake: intake)
-        let deload = recommendedDeload(intake: intake)
-        let programName = recommendedProgramName(intake: intake)
-        let warnings = buildWarnings(intake: intake, sessions: sessions, split: split, cardio: cardio)
+        let weekdays = CoachScheduleSync.reconcile(
+            sessions: sessions,
+            weekdays: intake.preferredWeekdays
+        ).weekdays
+        let programming = CoachGoalProgramming.resolve(
+            from: intake.primaryGoal,
+            experienceLevel: intake.experienceLevel
+        )
+        let splitDecision = recommendedSplit(intake: intake, sessions: sessions, programming: programming)
+        let totalWeeks = recommendedProgramLength(intake: intake, programming: programming)
+        let structure = recommendedPhaseStructure(
+            intake: intake,
+            totalWeeks: totalWeeks,
+            programming: programming
+        )
+        let cardio = recommendedCardio(intake: intake, sessions: sessions, programming: programming)
+        let intensity = programming.intensityStyle
+        let progression = programming.progressionStyle
+        let deload = programming.deloadPreference
+        let programName = recommendedProgramName(intake: intake, programming: programming)
+        let recoveryNotes = recoveryContextNotes(from: intake)
+        let warnings = buildWarnings(
+            intake: intake,
+            sessions: sessions,
+            weekdays: weekdays,
+            split: splitDecision.split,
+            cardio: cardio
+        )
 
         let recommendations: [CoachRecommendation] = [
             CoachRecommendation(
                 topic: .programName,
                 recommendedValue: programName,
-                rationale: localRationale(for: .programName, intake: intake, sessions: sessions, split: split, weeks: totalWeeks, cardio: cardio, structure: structure)
+                rationale: localRationale(
+                    for: .programName,
+                    intake: intake,
+                    sessions: sessions,
+                    split: splitDecision.split,
+                    weeks: totalWeeks,
+                    cardio: cardio,
+                    structure: structure,
+                    programming: programming,
+                    usedSavedSplit: splitDecision.usedSaved
+                )
             ),
             CoachRecommendation(
                 topic: .split,
-                recommendedValue: split,
-                rationale: localRationale(for: .split, intake: intake, sessions: sessions, split: split, weeks: totalWeeks, cardio: cardio, structure: structure)
+                recommendedValue: splitDecision.split,
+                rationale: localRationale(
+                    for: .split,
+                    intake: intake,
+                    sessions: sessions,
+                    split: splitDecision.split,
+                    weeks: totalWeeks,
+                    cardio: cardio,
+                    structure: structure,
+                    programming: programming,
+                    usedSavedSplit: splitDecision.usedSaved
+                )
             ),
             CoachRecommendation(
                 topic: .programLength,
                 recommendedValue: "\(totalWeeks) weeks",
-                rationale: localRationale(for: .programLength, intake: intake, sessions: sessions, split: split, weeks: totalWeeks, cardio: cardio, structure: structure)
+                rationale: localRationale(
+                    for: .programLength,
+                    intake: intake,
+                    sessions: sessions,
+                    split: splitDecision.split,
+                    weeks: totalWeeks,
+                    cardio: cardio,
+                    structure: structure,
+                    programming: programming,
+                    usedSavedSplit: splitDecision.usedSaved
+                )
             ),
             CoachRecommendation(
                 topic: .cardio,
                 recommendedValue: cardioSummary(cardio),
-                rationale: localRationale(for: .cardio, intake: intake, sessions: sessions, split: split, weeks: totalWeeks, cardio: cardio, structure: structure)
+                rationale: localRationale(
+                    for: .cardio,
+                    intake: intake,
+                    sessions: sessions,
+                    split: splitDecision.split,
+                    weeks: totalWeeks,
+                    cardio: cardio,
+                    structure: structure,
+                    programming: programming,
+                    usedSavedSplit: splitDecision.usedSaved
+                )
             ),
             CoachRecommendation(
                 topic: .periodization,
                 recommendedValue: structure.summaryLabel,
-                rationale: localRationale(for: .periodization, intake: intake, sessions: sessions, split: split, weeks: totalWeeks, cardio: cardio, structure: structure)
+                rationale: localRationale(
+                    for: .periodization,
+                    intake: intake,
+                    sessions: sessions,
+                    split: splitDecision.split,
+                    weeks: totalWeeks,
+                    cardio: cardio,
+                    structure: structure,
+                    programming: programming,
+                    usedSavedSplit: splitDecision.usedSaved
+                )
             ),
             CoachRecommendation(
                 topic: .intensity,
                 recommendedValue: intensity,
-                rationale: localRationale(for: .intensity, intake: intake, sessions: sessions, split: split, weeks: totalWeeks, cardio: cardio, structure: structure)
+                rationale: localRationale(
+                    for: .intensity,
+                    intake: intake,
+                    sessions: sessions,
+                    split: splitDecision.split,
+                    weeks: totalWeeks,
+                    cardio: cardio,
+                    structure: structure,
+                    programming: programming,
+                    usedSavedSplit: splitDecision.usedSaved
+                )
             ),
             CoachRecommendation(
                 topic: .progression,
                 recommendedValue: progression,
-                rationale: localRationale(for: .progression, intake: intake, sessions: sessions, split: split, weeks: totalWeeks, cardio: cardio, structure: structure)
+                rationale: localRationale(
+                    for: .progression,
+                    intake: intake,
+                    sessions: sessions,
+                    split: splitDecision.split,
+                    weeks: totalWeeks,
+                    cardio: cardio,
+                    structure: structure,
+                    programming: programming,
+                    usedSavedSplit: splitDecision.usedSaved
+                )
             ),
             CoachRecommendation(
                 topic: .deload,
                 recommendedValue: deload,
-                rationale: localRationale(for: .deload, intake: intake, sessions: sessions, split: split, weeks: totalWeeks, cardio: cardio, structure: structure),
+                rationale: localRationale(
+                    for: .deload,
+                    intake: intake,
+                    sessions: sessions,
+                    split: splitDecision.split,
+                    weeks: totalWeeks,
+                    cardio: cardio,
+                    structure: structure,
+                    programming: programming,
+                    usedSavedSplit: splitDecision.usedSaved
+                ),
                 confidence: intake.experienceLevel.lowercased().contains("beginner") ? .medium : .high
             ),
         ]
@@ -70,11 +174,11 @@ enum CoachRecommendationEngine {
         return CoachBlueprint(
             programName: programName,
             sessionsPerWeek: sessions,
-            preferredWeekdays: intake.preferredWeekdays,
+            preferredWeekdays: weekdays,
             primaryGoal: intake.primaryGoal,
             equipment: intake.equipment,
             experienceLevel: intake.experienceLevel,
-            splitPreference: split,
+            splitPreference: splitDecision.split,
             totalWeeks: totalWeeks,
             isPeriodized: structure.isPeriodized,
             blockSpecs: structure.blockSpecs,
@@ -85,6 +189,10 @@ enum CoachRecommendationEngine {
             busyDayPolicy: .skip,
             limitationsNotes: intake.limitationsNotes,
             additionalNotes: intake.additionalNotes,
+            sessionDurationMinutes: intake.sessionDurationMinutes,
+            priorityMusclesOrLiftsNotes: intake.priorityMusclesOrLiftsNotes,
+            recoveryContextNotes: recoveryNotes,
+            usedSavedSplitPreference: splitDecision.usedSaved,
             recommendations: recommendations,
             warnings: warnings,
             changes: []
@@ -110,6 +218,73 @@ enum CoachRecommendationEngine {
         return change
     }
 
+    static func applyScheduleChange(
+        to blueprint: inout CoachBlueprint,
+        sessions: Int,
+        weekdays: [Int]
+    ) {
+        let reconciled = CoachScheduleSync.reconcile(sessions: sessions, weekdays: weekdays)
+        blueprint.sessionsPerWeek = reconciled.sessions
+        blueprint.preferredWeekdays = reconciled.weekdays
+    }
+
+    /// Re-derive unlocked recommendations from a fresh blueprint built from `intake`.
+    /// Locked rows (`userChangedFromRecommendation`) keep their final values.
+    static func rederive(blueprint: inout CoachBlueprint, intake: CoachIntakeSnapshot) -> [CoachRecommendationChange] {
+        let fresh = buildBlueprint(from: intake)
+        var autoUpdates: [CoachRecommendationChange] = []
+
+        for topic in CoachRecommendationTopic.allCases {
+            guard let freshRec = fresh.recommendation(for: topic),
+                  let index = blueprint.recommendations.firstIndex(where: { $0.topic == topic }) else {
+                continue
+            }
+            let existing = blueprint.recommendations[index]
+            if existing.userChangedFromRecommendation {
+                continue
+            }
+            let before = existing.finalValue
+            let after = freshRec.recommendedValue
+            blueprint.recommendations[index].recommendedValue = after
+            blueprint.recommendations[index].finalValue = after
+            blueprint.recommendations[index].rationale = freshRec.rationale
+            blueprint.recommendations[index].confidence = freshRec.confidence
+            syncBlueprintFields(from: &blueprint, topic: topic, value: after)
+            if before != after {
+                let change = CoachRecommendationChange(topic: topic, beforeValue: before, afterValue: after)
+                autoUpdates.append(change)
+            }
+        }
+
+        // Keep schedule / intake-derived fields aligned.
+        blueprint.sessionsPerWeek = fresh.sessionsPerWeek
+        blueprint.preferredWeekdays = fresh.preferredWeekdays
+        blueprint.sessionDurationMinutes = intake.sessionDurationMinutes
+        blueprint.priorityMusclesOrLiftsNotes = intake.priorityMusclesOrLiftsNotes
+        blueprint.recoveryContextNotes = recoveryContextNotes(from: intake)
+        blueprint.primaryGoal = intake.primaryGoal
+        blueprint.equipment = intake.equipment
+        blueprint.experienceLevel = intake.experienceLevel
+        blueprint.limitationsNotes = intake.limitationsNotes
+        blueprint.usedSavedSplitPreference = fresh.usedSavedSplitPreference
+
+        recomputeWarnings(blueprint: &blueprint, intake: intake)
+        return autoUpdates
+    }
+
+    static func recomputeWarnings(blueprint: inout CoachBlueprint, intake: CoachIntakeSnapshot) {
+        let local = buildWarnings(
+            intake: intake,
+            sessions: blueprint.sessionsPerWeek,
+            weekdays: blueprint.preferredWeekdays,
+            split: blueprint.splitPreference,
+            cardio: blueprint.cardioConfiguration
+        )
+        // Preserve AI-appended warnings that aren't reproduced locally.
+        let extras = blueprint.warnings.filter { !local.contains($0) }
+        blueprint.warnings = local + extras
+    }
+
     static func syncBlueprintFromRecommendations(_ blueprint: inout CoachBlueprint) {
         for rec in blueprint.recommendations {
             syncBlueprintFields(from: &blueprint, topic: rec.topic, value: rec.finalValue)
@@ -119,67 +294,97 @@ enum CoachRecommendationEngine {
     // MARK: - Sessions
 
     private static func resolvedSessionsPerWeek(intake: CoachIntakeSnapshot) -> Int {
+        let raw: Int
         if intake.sessionsPerWeek > 0 {
-            return min(7, max(1, intake.sessionsPerWeek))
+            raw = intake.sessionsPerWeek
+        } else if let inferred = intake.inferredSessionsPerWeek {
+            raw = inferred
+        } else {
+            let exp = intake.experienceLevel.lowercased()
+            if exp.contains("beginner") {
+                raw = 3
+            } else if exp.contains("advanced") {
+                raw = 5
+            } else {
+                raw = 4
+            }
         }
-        if let inferred = intake.inferredSessionsPerWeek {
-            return min(7, max(1, inferred))
-        }
-        let exp = intake.experienceLevel.lowercased()
-        if exp.contains("beginner") { return 3 }
-        if exp.contains("advanced") { return 5 }
-        return 4
+        return CoachScheduleSync.clampSessions(raw, to: intake.preferredWeekdays)
     }
 
     // MARK: - Split
 
-    private static func recommendedSplit(intake: CoachIntakeSnapshot, sessions: Int) -> String {
+    private struct SplitDecision {
+        let split: String
+        let usedSaved: Bool
+    }
+
+    private static func recommendedSplit(
+        intake: CoachIntakeSnapshot,
+        sessions: Int,
+        programming: CoachGoalProgramming
+    ) -> SplitDecision {
+        let goalSplit = goalBasedSplit(sessions: sessions, programming: programming)
+
         if let saved = intake.savedSplitPreference,
            !saved.contains("No preference"),
-           CoachSplitPick.allCases.contains(where: { $0.rawValue == saved }) {
-            return saved
+           CoachSplitPick.allCases.contains(where: { $0.rawValue == saved }),
+           isSplitCompatible(saved, sessions: sessions, programming: programming) {
+            return SplitDecision(split: saved, usedSaved: true)
         }
 
-        let goal = intake.primaryGoal.lowercased()
-        let exp = intake.experienceLevel.lowercased()
+        return SplitDecision(split: goalSplit, usedSaved: false)
+    }
 
-        if exp.contains("beginner") || sessions <= 3 {
+    private static func goalBasedSplit(sessions: Int, programming: CoachGoalProgramming) -> String {
+        if sessions <= 3 {
             return CoachSplitPick.fullBody.rawValue
         }
 
-        if goal.contains("fat loss") || goal.contains("conditioning") {
-            return sessions >= 5 ? CoachSplitPick.pushPullLegs.rawValue : CoachSplitPick.upperLower.rawValue
-        }
-
-        if goal.contains("stronger") || goal.contains("strength") {
-            return sessions >= 5 ? CoachSplitPick.pushPullLegs.rawValue : CoachSplitPick.upperLower.rawValue
-        }
-
-        if goal.contains("athletic") || goal.contains("performance") {
-            return sessions >= 5 ? CoachSplitPick.pushPullLegs.rawValue : CoachSplitPick.upperLower.rawValue
-        }
-
-        if sessions >= 5 {
-            return CoachSplitPick.pushPullLegs.rawValue
-        }
-        if sessions == 4 {
+        switch programming.goal {
+        case .buildMuscle:
+            if sessions >= 5 {
+                return CoachSplitPick.broSplit.rawValue
+            }
             return CoachSplitPick.upperLower.rawValue
+        case .strength:
+            return sessions >= 5 ? CoachSplitPick.pushPullLegs.rawValue : CoachSplitPick.upperLower.rawValue
+        case .fatLoss:
+            return sessions >= 5 ? CoachSplitPick.pushPullLegs.rawValue : CoachSplitPick.upperLower.rawValue
+        case .performance:
+            return sessions >= 5 ? CoachSplitPick.pushPullLegs.rawValue : CoachSplitPick.upperLower.rawValue
+        case .general:
+            if sessions >= 5 {
+                return CoachSplitPick.pushPullLegs.rawValue
+            }
+            if sessions == 4 {
+                return CoachSplitPick.upperLower.rawValue
+            }
+            return CoachSplitPick.fullBody.rawValue
         }
-        return CoachSplitPick.fullBody.rawValue
+    }
+
+    private static func isSplitCompatible(_ split: String, sessions: Int, programming: CoachGoalProgramming) -> Bool {
+        if split.contains("Push / Pull / Legs") && sessions < 3 {
+            return false
+        }
+        if split.contains("bro") && sessions < 4 {
+            return false
+        }
+        // Saved preference that conflicts with beginner/low-frequency full-body default is still OK
+        // if sessions allow — goalBasedSplit already encodes soft preferences.
+        _ = programming
+        return true
     }
 
     // MARK: - Program length
 
-    private static func recommendedProgramLength(intake: CoachIntakeSnapshot) -> Int {
-        let exp = intake.experienceLevel.lowercased()
-        let goal = intake.primaryGoal.lowercased()
-
-        if exp.contains("beginner") { return 8 }
-        if exp.contains("advanced") {
-            return goal.contains("athletic") || goal.contains("performance") ? 12 : 12
-        }
-        if goal.contains("fat loss") { return 8 }
-        return 8
+    private static func recommendedProgramLength(
+        intake: CoachIntakeSnapshot,
+        programming: CoachGoalProgramming
+    ) -> Int {
+        _ = intake
+        return programming.defaultWeeks
     }
 
     // MARK: - Phase structure
@@ -190,11 +395,15 @@ enum CoachRecommendationEngine {
         let summaryLabel: String
     }
 
-    private static func recommendedPhaseStructure(intake: CoachIntakeSnapshot, totalWeeks: Int) -> PhaseStructure {
+    private static func recommendedPhaseStructure(
+        intake: CoachIntakeSnapshot,
+        totalWeeks: Int,
+        programming: CoachGoalProgramming
+    ) -> PhaseStructure {
         let exp = intake.experienceLevel.lowercased()
-        let goal = intake.primaryGoal.lowercased()
+        let isBeginner = exp.contains("beginner")
 
-        if exp.contains("beginner") || goal.contains("general fitness") {
+        if isBeginner || programming.goal == .general {
             let block = DynamicBlockGenerationSpec(
                 title: "Training",
                 focus: BlockFocus(kind: .general, emphasisLabel: ""),
@@ -208,96 +417,129 @@ enum CoachRecommendationEngine {
             )
         }
 
-        if goal.contains("stronger") || goal.contains("strength") || goal.contains("muscle") {
+        switch programming.goal {
+        case .buildMuscle:
+            // Longer hypertrophy emphasis, shorter strength peak.
+            let w1 = max(1, (totalWeeks * 2) / 3)
+            let w2 = max(1, totalWeeks - w1)
+            return PhaseStructure(
+                isPeriodized: true,
+                blockSpecs: [
+                    DynamicBlockGenerationSpec(
+                        title: "Phase 1: Hypertrophy",
+                        focus: BlockFocus(kind: .hypertrophy, emphasisLabel: ""),
+                        durationWeeks: w1,
+                        progressionStrategy: .doubleProgression
+                    ),
+                    DynamicBlockGenerationSpec(
+                        title: "Phase 2: Strength support",
+                        focus: BlockFocus(kind: .strength, emphasisLabel: ""),
+                        durationWeeks: w2,
+                        progressionStrategy: .linear
+                    ),
+                ],
+                summaryLabel: "Two phases — build, then peak"
+            )
+
+        case .strength:
+            // Shorter accumulation into a longer strength block.
+            let w1 = max(1, totalWeeks / 3)
+            let w2 = max(1, totalWeeks - w1)
+            return PhaseStructure(
+                isPeriodized: true,
+                blockSpecs: [
+                    DynamicBlockGenerationSpec(
+                        title: "Phase 1: Accumulation",
+                        focus: BlockFocus(kind: .hypertrophy, emphasisLabel: ""),
+                        durationWeeks: w1,
+                        progressionStrategy: .doubleProgression
+                    ),
+                    DynamicBlockGenerationSpec(
+                        title: "Phase 2: Strength",
+                        focus: BlockFocus(kind: .strength, emphasisLabel: ""),
+                        durationWeeks: w2,
+                        progressionStrategy: .linear
+                    ),
+                ],
+                summaryLabel: "Two phases — build, then peak"
+            )
+
+        case .fatLoss:
+            let block = DynamicBlockGenerationSpec(
+                title: "Fat loss training",
+                focus: BlockFocus(kind: .general, emphasisLabel: "Density"),
+                durationWeeks: totalWeeks,
+                progressionStrategy: .doubleProgression
+            )
+            return PhaseStructure(
+                isPeriodized: false,
+                blockSpecs: [block],
+                summaryLabel: "One continuous phase — \(totalWeeks) weeks"
+            )
+
+        case .performance:
             let w1 = max(1, totalWeeks / 2)
             let w2 = max(1, totalWeeks - w1)
             return PhaseStructure(
                 isPeriodized: true,
                 blockSpecs: [
                     DynamicBlockGenerationSpec(
-                        title: "Phase 1: Build muscle",
-                        focus: BlockFocus(kind: .hypertrophy, emphasisLabel: ""),
+                        title: "Phase 1: Strength & power",
+                        focus: BlockFocus(kind: .strength, emphasisLabel: "Power"),
                         durationWeeks: w1,
-                        progressionStrategy: .doubleProgression
-                    ),
-                    DynamicBlockGenerationSpec(
-                        title: "Phase 2: Get stronger",
-                        focus: BlockFocus(kind: .strength, emphasisLabel: ""),
-                        durationWeeks: w2,
                         progressionStrategy: .linear
                     ),
+                    DynamicBlockGenerationSpec(
+                        title: "Phase 2: Conditioning emphasis",
+                        focus: BlockFocus(kind: .general, emphasisLabel: "Conditioning"),
+                        durationWeeks: w2,
+                        progressionStrategy: .doubleProgression
+                    ),
                 ],
-                summaryLabel: "Two phases — \(w1) weeks build, then \(w2) weeks strength"
+                summaryLabel: "Two phases — build, then peak"
             )
-        }
 
-        if exp.contains("advanced") && totalWeeks >= 12 {
-            let w1 = max(1, (totalWeeks * 2) / 5)
-            let w2 = max(1, (totalWeeks * 2) / 5)
-            let w3 = max(1, totalWeeks - w1 - w2)
+        case .general:
+            let block = DynamicBlockGenerationSpec(
+                title: "Training",
+                focus: BlockFocus(kind: .general, emphasisLabel: ""),
+                durationWeeks: totalWeeks,
+                progressionStrategy: .doubleProgression
+            )
             return PhaseStructure(
-                isPeriodized: true,
-                blockSpecs: [
-                    DynamicBlockGenerationSpec(
-                        title: "Phase 1: Build",
-                        focus: BlockFocus(kind: .hypertrophy, emphasisLabel: ""),
-                        durationWeeks: w1,
-                        progressionStrategy: .doubleProgression
-                    ),
-                    DynamicBlockGenerationSpec(
-                        title: "Phase 2: Peak",
-                        focus: BlockFocus(kind: .strength, emphasisLabel: ""),
-                        durationWeeks: w2,
-                        progressionStrategy: .linear
-                    ),
-                    DynamicBlockGenerationSpec(
-                        title: "Phase 3: Recover",
-                        focus: BlockFocus(kind: .deload, emphasisLabel: ""),
-                        durationWeeks: w3,
-                        progressionStrategy: .doubleProgression,
-                        volumeMultiplier: 0.7,
-                        isDeloadBlock: true
-                    ),
-                ],
-                summaryLabel: "Three phases — build, peak, then recover"
+                isPeriodized: false,
+                blockSpecs: [block],
+                summaryLabel: "One continuous phase — \(totalWeeks) weeks"
             )
         }
-
-        let block = DynamicBlockGenerationSpec(
-            title: "Training",
-            focus: BlockFocus(kind: .general, emphasisLabel: ""),
-            durationWeeks: totalWeeks,
-            progressionStrategy: .doubleProgression
-        )
-        return PhaseStructure(
-            isPeriodized: false,
-            blockSpecs: [block],
-            summaryLabel: "One continuous phase — \(totalWeeks) weeks"
-        )
     }
 
     // MARK: - Cardio
 
-    private static func recommendedCardio(intake: CoachIntakeSnapshot, sessions: Int) -> CardioProgramConfiguration {
-        let goal = intake.primaryGoal.lowercased()
+    private static func recommendedCardio(
+        intake: CoachIntakeSnapshot,
+        sessions: Int,
+        programming: CoachGoalProgramming
+    ) -> CardioProgramConfiguration {
         let hasLimitations = !intake.limitationsNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !intake.limitationsNotes.lowercased().contains("none")
 
         let cardioGoal: CardioProgramGoal
         let preference: CardioProgramPreference
 
-        if goal.contains("fat loss") || goal.contains("conditioning") {
+        switch programming.goal {
+        case .fatLoss:
             cardioGoal = .fatLoss
             preference = sessions >= 4 ? .mixed : .postWorkout
-        } else if goal.contains("athletic") || goal.contains("performance") {
+        case .performance:
             cardioGoal = .enduranceBuilding
             preference = sessions >= 5 ? .mixed : .dedicatedDays
-        } else if goal.contains("stronger") || goal.contains("muscle") {
+        case .buildMuscle, .strength:
             cardioGoal = .generalHealth
             preference = .postWorkout
-        } else {
+        case .general:
             cardioGoal = .generalHealth
-            preference = hasLimitations ? .postWorkout : .postWorkout
+            preference = .postWorkout
         }
 
         let dedicatedDays: Int
@@ -318,7 +560,7 @@ enum CoachRecommendationEngine {
             goal: cardioGoal,
             preference: preference,
             dedicatedDayCount: dedicatedDays,
-            finisherDurationMinutes: preference.includesPostWorkoutFinishers ? 10 : 10,
+            finisherDurationMinutes: 10,
             finisherZone: cardioGoal == .fatLoss ? .zone3 : .zone2,
             weeklyProgressionMinutes: weeklyProgression
         )
@@ -326,7 +568,10 @@ enum CoachRecommendationEngine {
 
     private static func cardioSummary(_ config: CardioProgramConfiguration) -> String {
         if config.preference == .none {
-            return CardioProgramPreference.none.rawValue
+            return CoachCardioPick.none.rawValue
+        }
+        if let pick = CoachCardioPick.allCases.first(where: { $0.preference == config.preference }) {
+            return pick.rawValue
         }
         var parts: [String] = [config.preference.rawValue]
         if config.preference.includesDedicatedCardioDays {
@@ -338,42 +583,32 @@ enum CoachRecommendationEngine {
         return parts.joined(separator: " · ")
     }
 
-    // MARK: - Style defaults
+    // MARK: - Naming / recovery
 
-    private static func recommendedIntensity(intake: CoachIntakeSnapshot) -> String {
-        let goal = intake.primaryGoal.lowercased()
-        if goal.contains("stronger") || goal.contains("strength") {
-            return "Heavier loads, lower reps"
+    private static func recommendedProgramName(
+        intake: CoachIntakeSnapshot,
+        programming: CoachGoalProgramming
+    ) -> String {
+        _ = intake
+        switch programming.goal {
+        case .buildMuscle: return "Muscle building program"
+        case .strength: return "Strength program"
+        case .fatLoss: return "Fat loss program"
+        case .performance: return "Performance program"
+        case .general: return "My training program"
         }
-        if goal.contains("fat loss") {
-            return "Moderate loads, controlled reps (RPE ~7–8)"
-        }
-        return "Balanced (mix of heavy and moderate)"
     }
 
-    private static func recommendedProgression(intake: CoachIntakeSnapshot) -> String {
-        let exp = intake.experienceLevel.lowercased()
-        if exp.contains("beginner") {
-            return "Linear / add weight when form is solid"
+    private static func recoveryContextNotes(from intake: CoachIntakeSnapshot) -> String {
+        var parts: [String] = []
+        if let inferred = intake.inferredSessionsPerWeek {
+            parts.append("Recent training frequency ≈ \(inferred) sessions/week.")
         }
-        return "Double progression (reps then weight)"
-    }
-
-    private static func recommendedDeload(intake: CoachIntakeSnapshot) -> String {
-        let exp = intake.experienceLevel.lowercased()
-        if exp.contains("advanced") {
-            return "Lighter week about every 4th week"
+        let limitations = intake.limitationsNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !limitations.isEmpty, !limitations.lowercased().contains("none") {
+            parts.append("Limitations: \(limitations)")
         }
-        return "Deload when I feel run-down"
-    }
-
-    private static func recommendedProgramName(intake: CoachIntakeSnapshot) -> String {
-        let goal = intake.primaryGoal
-        if goal.contains("muscle") { return "Muscle building program" }
-        if goal.contains("stronger") || goal.contains("strength") { return "Strength program" }
-        if goal.contains("fat loss") { return "Fat loss program" }
-        if goal.contains("Athletic") || goal.contains("performance") { return "Performance program" }
-        return "My training program"
+        return parts.joined(separator: " ")
     }
 
     // MARK: - Warnings
@@ -381,6 +616,7 @@ enum CoachRecommendationEngine {
     private static func buildWarnings(
         intake: CoachIntakeSnapshot,
         sessions: Int,
+        weekdays: [Int],
         split: String,
         cardio: CardioProgramConfiguration
     ) -> [String] {
@@ -404,6 +640,10 @@ enum CoachRecommendationEngine {
             warnings.append("Mixed cardio plus lifting on only \(sessions) days can feel crowded — finishers may be enough.")
         }
 
+        if !weekdays.isEmpty && sessions > weekdays.count {
+            warnings.append("Sessions per week (\(sessions)) exceeds the number of preferred days (\(weekdays.count)).")
+        }
+
         return warnings
     }
 
@@ -416,26 +656,31 @@ enum CoachRecommendationEngine {
         split: String,
         weeks: Int,
         cardio: CardioProgramConfiguration,
-        structure: PhaseStructure
+        structure: PhaseStructure,
+        programming: CoachGoalProgramming,
+        usedSavedSplit: Bool
     ) -> String {
         switch topic {
         case .programName:
             return "A clear name helps you stay oriented as blocks change over time."
         case .split:
-            return "With \(sessions) days per week and your \(intake.primaryGoal.lowercased()) goal, \(split) gives you solid frequency without spreading yourself too thin."
+            if usedSavedSplit {
+                return "Using your saved preference (\(split)) — it still fits \(sessions) days/week and your \(programming.goal.rawValue.lowercased()) goal."
+            }
+            return "With \(sessions) days per week and your \(programming.goal.rawValue.lowercased()) goal, \(split) gives you solid frequency without spreading yourself too thin."
         case .programLength:
-            return "\(weeks) weeks is enough time to see meaningful progress without dragging on so long that motivation fades."
+            return "\(weeks) weeks matches a \(programming.goal.rawValue.lowercased()) focus — enough time to progress without the plan dragging on."
         case .cardio:
             if cardio.preference == .none {
                 return "Your main focus is lifting right now, so we'll skip extra cardio and protect recovery."
             }
-            return "This keeps conditioning in the program without stealing recovery from your main lifting work."
+            return "\(programming.cardioDensity) This keeps conditioning aligned with \(programming.goal.rawValue.lowercased())."
         case .periodization:
-            return structure.summaryLabel + ". This lets you build, then shift emphasis as your body adapts."
+            return structure.summaryLabel + ". Tuned for \(programming.goal.rawValue.lowercased()) rather than a one-size-fits-all timeline."
         case .intensity:
-            return "This intensity style matches your goal and experience so sessions stay productive but manageable."
+            return "\(programming.intensityStyle) — \(programming.repBias)."
         case .progression:
-            return "You'll add reps first, then weight — a reliable way to progress without guessing."
+            return "\(programming.progressionStyle) keeps progress measurable for your experience level."
         case .deload:
             return "Planned easier weeks help you absorb hard training and come back stronger."
         }
@@ -488,13 +733,32 @@ enum CoachRecommendationEngine {
                     DynamicBlockGenerationSpec(title: "Phase 3: Recover", focus: BlockFocus(kind: .deload, emphasisLabel: ""), durationWeeks: w3, progressionStrategy: .doubleProgression, volumeMultiplier: 0.7, isDeloadBlock: true),
                 ]
             } else if value.lowercased().contains("two") {
-                blueprint.isPeriodized = true
-                let w1 = max(1, blueprint.totalWeeks / 2)
-                let w2 = max(1, blueprint.totalWeeks - w1)
-                blueprint.blockSpecs = [
-                    DynamicBlockGenerationSpec(title: "Phase 1: Build muscle", focus: BlockFocus(kind: .hypertrophy, emphasisLabel: ""), durationWeeks: w1, progressionStrategy: .doubleProgression),
-                    DynamicBlockGenerationSpec(title: "Phase 2: Get stronger", focus: BlockFocus(kind: .strength, emphasisLabel: ""), durationWeeks: w2, progressionStrategy: .linear),
-                ]
+                // Prefer goal-aware two-phase when possible.
+                let programming = CoachGoalProgramming.resolve(
+                    from: blueprint.primaryGoal,
+                    experienceLevel: blueprint.experienceLevel
+                )
+                let rebuilt = recommendedPhaseStructure(
+                    intake: CoachIntakeSnapshot(
+                        primaryGoal: blueprint.primaryGoal,
+                        experienceLevel: blueprint.experienceLevel,
+                        sessionsPerWeek: blueprint.sessionsPerWeek
+                    ),
+                    totalWeeks: blueprint.totalWeeks,
+                    programming: programming
+                )
+                if rebuilt.isPeriodized && rebuilt.blockSpecs.count == 2 {
+                    blueprint.isPeriodized = true
+                    blueprint.blockSpecs = rebuilt.blockSpecs
+                } else {
+                    blueprint.isPeriodized = true
+                    let w1 = max(1, blueprint.totalWeeks / 2)
+                    let w2 = max(1, blueprint.totalWeeks - w1)
+                    blueprint.blockSpecs = [
+                        DynamicBlockGenerationSpec(title: "Phase 1: Build muscle", focus: BlockFocus(kind: .hypertrophy, emphasisLabel: ""), durationWeeks: w1, progressionStrategy: .doubleProgression),
+                        DynamicBlockGenerationSpec(title: "Phase 2: Get stronger", focus: BlockFocus(kind: .strength, emphasisLabel: ""), durationWeeks: w2, progressionStrategy: .linear),
+                    ]
+                }
             } else {
                 blueprint.isPeriodized = false
                 blueprint.blockSpecs = [
@@ -519,7 +783,11 @@ enum CoachRecommendationEngine {
         guard !blueprint.blockSpecs.isEmpty else { return }
         if blueprint.isPeriodized {
             if blueprint.blockSpecs.count == 2 {
-                let w1 = max(1, blueprint.totalWeeks / 2)
+                // Preserve relative emphasis (e.g. 2/3 hypertrophy vs 1/3 strength) when possible.
+                let total = max(1, blueprint.blockSpecs.map(\.durationWeeks).reduce(0, +))
+                let ratio0 = Double(blueprint.blockSpecs[0].durationWeeks) / Double(total)
+                var w1 = max(1, Int((Double(blueprint.totalWeeks) * ratio0).rounded()))
+                w1 = min(w1, blueprint.totalWeeks - 1)
                 let w2 = max(1, blueprint.totalWeeks - w1)
                 blueprint.blockSpecs[0].durationWeeks = w1
                 blueprint.blockSpecs[1].durationWeeks = w2
