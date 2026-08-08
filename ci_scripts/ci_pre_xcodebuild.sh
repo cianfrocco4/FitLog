@@ -1,6 +1,6 @@
 #!/bin/sh
 # Xcode Cloud: write gitignored Release secrets from workflow Environment Variables
-# so INFOPLIST_KEY_FITLOG_PROXY_SHARED_SECRET is injected into the archive.
+# so FITLOG_PROXY_SHARED_SECRET expands into Info.plist at archive time.
 #
 # App Store Connect → your app → Xcode Cloud → workflow → Environment
 #   Name:  FITLOG_PROXY_SHARED_SECRET
@@ -15,9 +15,10 @@ REPO_ROOT="${CI_PRIMARY_REPOSITORY_PATH:-$(cd "$(dirname "$0")/.." && pwd)}"
 SECRETS_FILE="${REPO_ROOT}/Config/Secrets.release.xcconfig"
 
 if [ -z "${FITLOG_PROXY_SHARED_SECRET:-}" ]; then
-  echo "warning: FITLOG_PROXY_SHARED_SECRET is not set in Xcode Cloud Environment."
-  echo "warning: Release archives will not authenticate to the AI proxy (Premium AI → 401)."
-  exit 0
+  echo "error: FITLOG_PROXY_SHARED_SECRET is not set in Xcode Cloud Environment."
+  echo "error: Refusing to archive without proxy auth — Premium AI / form guide would 401."
+  echo "error: App Store Connect → Xcode Cloud → workflow → Environment → add FITLOG_PROXY_SHARED_SECRET (Secret ON)."
+  exit 1
 fi
 
 # xcconfig: unquoted values with special chars can break parsing; keep secret alphanumeric/hex.
@@ -26,4 +27,4 @@ cat > "${SECRETS_FILE}" <<EOF
 FITLOG_PROXY_SHARED_SECRET = ${FITLOG_PROXY_SHARED_SECRET}
 EOF
 
-echo "Wrote Config/Secrets.release.xcconfig for Release Info.plist injection (secret length=${#FITLOG_PROXY_SHARED_SECRET})."
+echo "Wrote Config/Secrets.release.xcconfig for Release Info.plist expansion (secret length=${#FITLOG_PROXY_SHARED_SECRET})."

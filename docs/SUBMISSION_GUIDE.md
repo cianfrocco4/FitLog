@@ -122,6 +122,7 @@ When uploading the build, answer:
 ```bash
 cp Config/Secrets.release.xcconfig.example Config/Secrets.release.xcconfig
 # Edit Config/Secrets.release.xcconfig — set FITLOG_PROXY_SHARED_SECRET to match Render
+# Info.plist expands $(FITLOG_PROXY_SHARED_SECRET) at archive time (not INFOPLIST_KEY_)
 # (Only required when Render /health shows authRequired: true)
 ```
 

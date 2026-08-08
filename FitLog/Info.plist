@@ -27,7 +27,7 @@
 	<key>FITLOG_FORM_GUIDE_BASE_URL</key>
 	<string>https://the-workout-log.onrender.com</string>
 	<key>FITLOG_PROXY_SHARED_SECRET</key>
-	<string></string>
+	<string>$(FITLOG_PROXY_SHARED_SECRET)</string>
 	<key>MUSCLEWIKI_API_KEY</key>
 	<string></string>
 	<key>REVENUECAT_API_KEY</key>

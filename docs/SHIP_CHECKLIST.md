@@ -134,7 +134,11 @@ If `authRequired` is `false`, the secret is missing or the deploy didn’t pick 
 
 The app sends header `X-FitLog-Proxy-Secret` at **runtime** from Info.plist (`FitLogProxyConfig`). Shipping builds must bake in the **exact** same value as Render.
 
-Xcode Cloud **Environment** vars are available only during the **build** — they are **not** present on the user’s device. You must inject the secret into Info.plist at archive time (via `Config/Secrets.release.xcconfig` → `[Config/Release.xcconfig](../Config/Release.xcconfig)` → `INFOPLIST_KEY_FITLOG_PROXY_SHARED_SECRET`).
+Xcode Cloud **Environment** vars are available only during the **build** — they are **not** present on the user’s device. You must inject the secret into Info.plist at archive time via build-setting expansion:
+
+`Config/Secrets.release.xcconfig` → `FITLOG_PROXY_SHARED_SECRET` build setting → `FitLog/Info.plist` value `$(FITLOG_PROXY_SHARED_SECRET)` (with `INFOPLIST_EXPAND_BUILD_SETTINGS=YES`).
+
+Do **not** rely on `INFOPLIST_KEY_FITLOG_PROXY_SHARED_SECRET` — Xcode ignores custom/user-defined `INFOPLIST_KEY_*` keys, so the secret never reaches the binary (TestFlight then 401s against Render).
 
 #### Local archive (Mac you control)
 
@@ -168,17 +172,17 @@ Repo already includes `[ci_scripts/ci_pre_xcodebuild.sh](../ci_scripts/ci_pre_xc
 - File must be **executable** (`chmod +x`) and committed.
 - Script behavior:
   - If `FITLOG_PROXY_SHARED_SECRET` is set → writes `Config/Secrets.release.xcconfig`
-  - If unset → prints a warning and continues (archive succeeds but Premium AI will **401**)
+  - If unset → **fails the build** (do not ship a binary that will 401)
 
 **C. Start a new Xcode Cloud build**
 
 Environment changes apply to **new** runs only. Start a build from Xcode Cloud (or push to the watched branch). In the build log, look for:
 
 ```text
-Wrote Config/Secrets.release.xcconfig for Release Info.plist injection
+Wrote Config/Secrets.release.xcconfig for Release Info.plist expansion
 ```
 
-If you only see the “not set” warning, the ASC Environment Variable name/scope is wrong.
+If the build fails with “FITLOG_PROXY_SHARED_SECRET is not set”, the ASC Environment Variable name/scope is wrong.
 
 **D. Verify the TestFlight binary (do not log the secret)**
 

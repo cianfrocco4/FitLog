@@ -24,7 +24,7 @@ plutil -p "$APP/PrivacyInfo.xcprivacy"
 | Location | Key |
 |----------|-----|
 | iOS (Release) | `Config/Secrets.release.xcconfig` → `FITLOG_PROXY_SHARED_SECRET` (gitignored) |
-| iOS (Release overlay) | `Config/Release.xcconfig` injects `INFOPLIST_KEY_FITLOG_PROXY_SHARED_SECRET` |
+| iOS (Release overlay) | `Config/Release.xcconfig` includes secrets; `Info.plist` expands `$(FITLOG_PROXY_SHARED_SECRET)` |
 | Server | `FITLOG_PROXY_SHARED_SECRET` on Render (`backend/README.md`) |
 
 Setup:
