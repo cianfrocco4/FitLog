@@ -30,6 +30,11 @@ enum HistoryDayRange: Hashable, Identifiable, CaseIterable {
         return freeTierDefault
     }
 
+    /// Whether applying `selected` is allowed for the current subscription tier (no mutation).
+    static func allowsSelection(_ selected: HistoryDayRange, isPremium: Bool) -> Bool {
+        PremiumGatedSelection.shouldApply(requiresPremium: selected.requiresPremium, hasPremiumAccess: isPremium)
+    }
+
     var menuLabel: String {
         switch self {
         case .d7: return "Last 7 days"
@@ -208,6 +213,13 @@ enum ExerciseHistoryDataScope: String, CaseIterable {
         case .selectedRange: return "Selected range"
         case .allTime: return "All time"
         }
+    }
+
+    var requiresPremium: Bool { self == .allTime }
+
+    /// Whether applying `selected` is allowed for the current subscription tier (no mutation).
+    static func allowsSelection(_ selected: ExerciseHistoryDataScope, isPremium: Bool) -> Bool {
+        PremiumGatedSelection.shouldApply(requiresPremium: selected.requiresPremium, hasPremiumAccess: isPremium)
     }
 }
 
