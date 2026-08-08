@@ -55,9 +55,6 @@ struct PaywallView: View {
                     heroSection
                     benefitsSection
                     planSection
-                    if !canPurchase {
-                        unavailableMessage
-                    }
                     legalSection
                 }
                 .padding()
@@ -168,10 +165,11 @@ struct PaywallView: View {
                 }
             }
         } else {
-            placeholderPlans
+            // Single empty state — avoid stacking placeholderPlans + unavailableMessage.
+            unavailableMessage
         }
 #else
-        placeholderPlans
+        unavailableMessage
 #endif
     }
 
@@ -249,23 +247,6 @@ struct PaywallView: View {
         }
     }
 #endif
-
-    private var placeholderPlans: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Plans")
-                .font(.headline)
-            Text("Subscription plans will appear when the App Store is available.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-#if DEBUG
-            Text("DEBUG: Configure RevenueCat / StoreKit product IDs to enable purchases.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-#endif
-        }
-        .padding()
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
 
     private var legalSection: some View {
         VStack(alignment: .leading, spacing: 8) {

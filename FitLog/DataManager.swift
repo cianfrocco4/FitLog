@@ -1711,7 +1711,7 @@ final class DataManager {
         }()
         let weId = UUID()
         let slotId = UUID()
-        var blueprint = SlotBlueprint(
+        let blueprint = SlotBlueprint(
             id: slotId,
             label: exercise.name,
             targetedMuscles: exercise.targetedMuscles.isEmpty ? [.other] : exercise.targetedMuscles,

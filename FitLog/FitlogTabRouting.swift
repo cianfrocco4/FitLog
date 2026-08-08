@@ -27,13 +27,18 @@ extension Notification.Name {
 }
 
 enum FitLogDeepLink: Equatable {
+    /// Opens Home and presents new-workout / current-workout pull-up.
     case quickLog
+    /// Opens the app to Home without starting a log flow (e.g. empty readiness widget).
+    case open
 
     init?(url: URL) {
         guard url.scheme?.lowercased() == "fitlog" else { return nil }
         switch url.host?.lowercased() {
         case "quick-log":
             self = .quickLog
+        case "open", "home":
+            self = .open
         default:
             return nil
         }

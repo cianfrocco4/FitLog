@@ -51,7 +51,7 @@ struct CuratedProgramTemplate: Identifiable, Sendable {
     let isPeriodized: Bool
 
     func buildRequest(programName: String? = nil) -> DynamicProgramGenerationRequest {
-        var input = WorkoutSplitBuilderStructuredInput(
+        let input = WorkoutSplitBuilderStructuredInput(
             primaryGoal: primaryGoal,
             equipment: "Full gym (machines + free weights)",
             splitPreference: splitPreference,

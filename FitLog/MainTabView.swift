@@ -224,6 +224,8 @@ struct MainTabView: View {
                 } else {
                     NotificationCenter.default.post(name: .fitlogPresentNewWorkout, object: nil)
                 }
+            case .open:
+                rootTab = .home
             }
         }
     }

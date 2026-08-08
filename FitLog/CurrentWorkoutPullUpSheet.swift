@@ -2204,7 +2204,16 @@ struct CurrentWorkoutPullUpSheet: View {
                     }
                     .buttonStyle(.plain)
                     .disabled((draftStore.repsByLogId[logId] ?? 0) <= 0)
-                    .accessibilityLabel("Log set")
+                    .accessibilityLabel(
+                        InlineLogSetAccessibility.logSetLabel(
+                            exerciseName: dataVM.displayName(for: log.workoutExercise),
+                            bodyweightMode: true,
+                            displayWeight: inlineNetDisplayWeight(for: logId),
+                            reps: draftStore.repsByLogId[logId] ?? 0,
+                            unitLabel: unitLabel
+                        )
+                    )
+                    .accessibilityHint(InlineLogSetAccessibility.logSetHint(bodyweightMode: true))
                 }
                 HStack(alignment: .center, spacing: 6) {
                     Text("+")
@@ -2274,7 +2283,16 @@ struct CurrentWorkoutPullUpSheet: View {
                     }
                     .buttonStyle(.plain)
                     .disabled((draftStore.repsByLogId[logId] ?? 0) <= 0)
-                    .accessibilityLabel("Log set")
+                    .accessibilityLabel(
+                        InlineLogSetAccessibility.logSetLabel(
+                            exerciseName: dataVM.displayName(for: log.workoutExercise),
+                            bodyweightMode: false,
+                            displayWeight: draftStore.weightByLogId[logId] ?? 0,
+                            reps: draftStore.repsByLogId[logId] ?? 0,
+                            unitLabel: unitLabel
+                        )
+                    )
+                    .accessibilityHint(InlineLogSetAccessibility.logSetHint(bodyweightMode: false))
                 }
             }
             // RPE / RIR quick chip row (respects effortInputStyle)

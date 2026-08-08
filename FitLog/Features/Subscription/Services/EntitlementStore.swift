@@ -257,9 +257,9 @@ final class EntitlementStore {
 
     private func listenForCustomerInfoUpdates() {
         customerInfoTask?.cancel()
-        customerInfoTask = Task { [weak self] in
+        customerInfoTask = Task { @MainActor [weak self] in
             for await info in Purchases.shared.customerInfoStream {
-                await self?.apply(customerInfo: info)
+                self?.apply(customerInfo: info)
             }
         }
     }

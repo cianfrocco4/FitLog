@@ -260,7 +260,7 @@ final class CoachChatViewModel {
         guard let conversationID = currentConversationID,
               let index = messages.firstIndex(where: { $0.id == messageID }) else { return }
         messages[index].feedback = feedback
-        dataVM.coachChatStore.setFeedback(messageID: messageID, conversationID: conversationID, feedback: feedback)
+        _ = dataVM.coachChatStore.setFeedback(messageID: messageID, conversationID: conversationID, feedback: feedback)
     }
 
     func markActionApplied(actionID: UUID, messageID: UUID) {

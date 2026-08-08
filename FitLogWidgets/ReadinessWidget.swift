@@ -8,6 +8,7 @@ import WidgetKit
 
 private enum ReadinessWidgetDeepLink {
     static let quickLog = URL(string: "fitlog://quick-log")!
+    static let openApp = URL(string: "fitlog://open")!
 }
 
 struct ReadinessWidgetEntry: TimelineEntry {
@@ -46,7 +47,18 @@ struct ReadinessWidgetProvider: TimelineProvider {
 }
 
 struct ReadinessWidgetView: View {
+    @Environment(\.widgetFamily) private var widgetFamily
+
     let entry: ReadinessWidgetEntry
+
+    private var hasReadinessSnapshot: Bool {
+        entry.score != nil || entry.bandTitle != nil || entry.summary != nil
+    }
+
+    /// Plan-only empty state is dense on small; keep the calendar line for medium+.
+    private var showsEmptyStatePlanLine: Bool {
+        widgetFamily != .systemSmall
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -57,40 +69,88 @@ struct ReadinessWidgetView: View {
                 if let score = entry.score {
                     Text("\(score)")
                         .font(.title2.weight(.bold).monospacedDigit())
-                } else {
+                } else if hasReadinessSnapshot {
                     Text("—")
                         .font(.title2.weight(.bold))
+                        .accessibilityHidden(true)
                 }
             }
-            if let bandTitle = entry.bandTitle {
-                Text(bandTitle)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            if let plan = entry.planTitle {
-                Label(plan, systemImage: "calendar")
-                    .font(.caption2)
-                    .lineLimit(1)
-            }
-            if let summary = entry.summary {
-                Text(summary)
+            if hasReadinessSnapshot {
+                if let bandTitle = entry.bandTitle {
+                    Text(bandTitle)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                if let plan = entry.planTitle {
+                    Label(plan, systemImage: "calendar")
+                        .font(.caption2)
+                        .lineLimit(1)
+                }
+                if let summary = entry.summary {
+                    Text(summary)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            } else {
+                Text("Open Workout Log AI")
+                    .font(.caption.weight(.semibold))
+                Text(emptyStateGuidance)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
+                if showsEmptyStatePlanLine, let plan = entry.planTitle {
+                    Label(plan, systemImage: "calendar")
+                        .font(.caption2)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 0)
-            Label("Quick log", systemImage: "plus.circle.fill")
-                .font(.caption2.weight(.semibold))
+            Label(
+                hasReadinessSnapshot ? "Quick log" : "Open app",
+                systemImage: hasReadinessSnapshot ? "plus.circle.fill" : "arrow.up.forward.app"
+            )
+            .font(.caption2.weight(.semibold))
         }
-        .widgetURL(ReadinessWidgetDeepLink.quickLog)
+        .widgetURL(hasReadinessSnapshot ? ReadinessWidgetDeepLink.quickLog : ReadinessWidgetDeepLink.openApp)
         .containerBackground(for: .widget) {
             Color(.systemBackground)
         }
+        .accessibilityElement(children: .combine)
         .accessibilityLabel(readinessAccessibilityLabel)
-        .accessibilityHint("Opens Workout Log AI to log a set or start a workout")
+        .accessibilityHint(
+            hasReadinessSnapshot
+                ? "Opens Workout Log AI to log a set or start a workout"
+                : emptyStateAccessibilityHint
+        )
+    }
+
+    /// Avoid asking users to refresh a plan that is already visible from the App Group payload.
+    /// Wording stays soft: `fitlog://open` only lands on Home; readiness updates when the app becomes active.
+    private var emptyStateGuidance: String {
+        entry.planTitle == nil
+            ? "Update readiness and today’s plan"
+            : "Update readiness"
+    }
+
+    private var emptyStateAccessibilityHint: String {
+        entry.planTitle == nil
+            ? "Opens Workout Log AI to update readiness and today’s plan"
+            : "Opens Workout Log AI to update readiness"
     }
 
     private var readinessAccessibilityLabel: String {
+        guard hasReadinessSnapshot else {
+            let updatePart = entry.planTitle == nil
+                ? "Open Workout Log AI to update readiness and today’s plan"
+                : "Open Workout Log AI to update readiness"
+            var parts = ["Readiness unavailable", updatePart]
+            if let plan = entry.planTitle {
+                parts.append("Today's plan: \(plan)")
+            }
+            return parts.joined(separator: ", ")
+        }
+
         var parts = ["Readiness"]
         if let score = entry.score {
             parts.append("\(score) out of 100")
@@ -113,7 +173,7 @@ struct ReadinessWidget: Widget {
             ReadinessWidgetView(entry: entry)
         }
         .configurationDisplayName("Readiness")
-        .description("Today's readiness score, plan, and quick-log shortcut.")
+        .description("Today's readiness score, plan, and a shortcut into the app.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }
 }
