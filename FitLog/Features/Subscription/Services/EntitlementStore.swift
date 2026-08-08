@@ -116,7 +116,7 @@ final class EntitlementStore {
 
 #if canImport(RevenueCat)
     func refreshCustomerInfo() async {
-        guard isConfigured else { return }
+        guard isConfigured, Purchases.isConfigured else { return }
         do {
             let info = try await Purchases.shared.customerInfo()
             apply(customerInfo: info)
@@ -184,6 +184,10 @@ final class EntitlementStore {
     }
 
     private func refreshIntroEligibility() async {
+        guard Purchases.isConfigured else {
+            introEligibilityByProductID = [:]
+            return
+        }
         guard let packages = offerings?.current?.availablePackages, !packages.isEmpty else {
             introEligibilityByProductID = [:]
             return
@@ -233,7 +237,8 @@ final class EntitlementStore {
 
     /// Stable App User ID for Sign in with Apple users (enables promotional entitlements from dashboard).
     func logIn(appUserID: String) async {
-        guard isConfigured else { return }
+        // UI/unit tests set `isConfigured` without calling `Purchases.configure`.
+        guard isConfigured, Purchases.isConfigured else { return }
         do {
             let result = try await PurchaseService.logIn(appUserID: appUserID)
             apply(customerInfo: result.customerInfo)
@@ -245,7 +250,7 @@ final class EntitlementStore {
     }
 
     func logOut() async {
-        guard isConfigured else { return }
+        guard isConfigured, Purchases.isConfigured else { return }
         do {
             let info = try await PurchaseService.logOut()
             apply(customerInfo: info)
@@ -268,7 +273,9 @@ final class EntitlementStore {
         self.customerInfo = customerInfo
         isPremium = PurchaseService.isPremiumActive(in: customerInfo)
         premiumDetails = PurchaseService.premiumAccessDetails(in: customerInfo)
-        appUserID = Purchases.shared.appUserID
+        if Purchases.isConfigured {
+            appUserID = Purchases.shared.appUserID
+        }
     }
 #else
     func refreshCustomerInfo() async {}

@@ -79,7 +79,11 @@ struct FitLogApp: App {
                         .environmentObject(userPreferences)
                         .onAppear {
                             entitlementStore.configureIfNeeded()
-                            if authVM.isLoggedIn, let userID = authVM.revenueCatAppUserID {
+                            // Skip RevenueCat identity sync under UI/unit tests — the host may
+                            // mark entitlements configured without calling Purchases.configure.
+                            if !FitLogUITestLaunch.isActive,
+                               authVM.isLoggedIn,
+                               let userID = authVM.revenueCatAppUserID {
                                 Task { await entitlementStore.logIn(appUserID: userID) }
                             }
                             formGuideService.userPreferences = userPreferences
