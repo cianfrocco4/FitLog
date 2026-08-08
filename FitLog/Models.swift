@@ -849,14 +849,14 @@ struct Workout: Identifiable, Codable, Equatable {
         exercises.contains { $0.isOpenSlot }
     }
 
-    /// Short summary for library lists, e.g. "4 slots" or "4 slots · 1 open".
+    /// Short summary for library lists, e.g. "4 exercises" or "4 exercises · 1 open".
     var listDetailSubtitle: String {
         if exercises.isEmpty { return "Empty workout" }
         let n = exercises.count
         let nOpen = exercises.filter(\.isOpenSlot).count
-        let slotWord = n == 1 ? "slot" : "slots"
-        if nOpen == 0 { return "\(n) \(slotWord)" }
-        return "\(n) \(slotWord) · \(nOpen) open"
+        let exerciseWord = n == 1 ? "exercise" : "exercises"
+        if nOpen == 0 { return "\(n) \(exerciseWord)" }
+        return "\(n) \(exerciseWord) · \(nOpen) open"
     }
 
     /// Converts a legacy slot template into a single library workout (flexible blueprints, including `defaultExerciseId` when set).

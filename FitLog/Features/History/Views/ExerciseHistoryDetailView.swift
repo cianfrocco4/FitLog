@@ -238,7 +238,7 @@ struct ExerciseHistoryDetailView: View {
                     }
                     if let slotLabel = HistoryView.templateSlotCaption(for: item.log, session: item.session, dataVM: dataVM) {
                         HStack {
-                            Text("Template slot")
+                            Text("From plan")
                             Spacer()
                             Text(slotLabel)
                                 .foregroundStyle(.secondary)
