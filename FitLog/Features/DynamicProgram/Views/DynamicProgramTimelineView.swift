@@ -145,15 +145,20 @@ private struct DynamicProgramTimelineBlockEditorSection: View {
         DisclosureGroup {
             DynamicProgramBlockTemplateEditorSection(
                 days: viewModel.bindingForBlockDays(blockIndex),
+                preferredDayIndex: blockIndex == viewModel.editableBlockIndex ? viewModel.editableDayIndex : nil,
                 onStructuralChange: {
-                    if blockIndex == viewModel.editableBlockIndex {
-                        viewModel.refreshGenerationBalanceWarnings()
-                    }
+                    viewModel.selectEditableBlock(blockIndex)
+                    viewModel.commitStructuralEdit()
                 },
                 onSlotFieldChange: {
-                    if blockIndex == viewModel.editableBlockIndex {
-                        viewModel.refreshGenerationBalanceWarnings()
-                    }
+                    viewModel.selectEditableBlock(blockIndex)
+                    viewModel.commitFieldEdit()
+                },
+                onBeforeStructuralChange: {
+                    viewModel.pushUndoSnapshot()
+                },
+                onSlotRemoved: { name in
+                    viewModel.undoBannerMessage = "Removed “\(name)” — Undo"
                 }
             )
 
@@ -164,14 +169,23 @@ private struct DynamicProgramTimelineBlockEditorSection: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     ForEach(warns) { w in
-                        Label(w.message, systemImage: w.severity == .caution ? "exclamationmark.triangle.fill" : "info.circle")
-                            .font(.caption2)
-                            .foregroundStyle(w.severity == .caution ? Color.orange : Color.secondary)
+                        BalanceSuggestionRow(warning: w) {
+                            viewModel.selectEditableBlock(blockIndex)
+                            // Host review screen handles regenerate; timeline opens/adds locally.
+                            switch w.suggestion {
+                            case .openDay(let day):
+                                viewModel.openDayFromSuggestion(dayIndex: day)
+                            case .addSlot(let day, let label, let muscles):
+                                _ = viewModel.addComplementarySlot(dayIndex: day, label: label, muscles: muscles)
+                            case .regenerateWithNote, .none:
+                                break
+                            }
+                        }
                     }
                 }
                 .padding(.top, 6)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Balance warnings for this block")
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Balance suggestions for this block")
             }
         } label: {
             Label("Edit rotation templates", systemImage: "square.and.pencil")

@@ -15,6 +15,8 @@ struct CoachConversationView: View {
     @State private var showPaywall = false
     @State private var paywallTrigger: PremiumFeature = .aiCoach
     @State private var hoveredGoalTeaser: String?
+    @FocusState private var isIntakeNotesFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
@@ -91,6 +93,7 @@ struct CoachConversationView: View {
                     .padding(.vertical, 12)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .keyboardDismissToolbar()
                 .onChange(of: coachVM.messages.count) { _, _ in
                     withAnimation(.easeOut(duration: 0.22)) {
                         if let last = coachVM.messages.last {
@@ -98,6 +101,12 @@ struct CoachConversationView: View {
                         } else {
                             proxy.scrollTo("intake-input", anchor: .bottom)
                         }
+                    }
+                }
+                .onChange(of: isIntakeNotesFocused) { _, focused in
+                    guard focused else { return }
+                    withAnimation(.easeOut(duration: 0.22)) {
+                        proxy.scrollTo("intake-input", anchor: .bottom)
                     }
                 }
             }
@@ -182,7 +191,7 @@ struct CoachConversationView: View {
                 ScrollView {
                     CoachProgramGenerationProgressView(
                         statusMessage: coachVM.generationStatusLine,
-                        isConnecting: coachVM.builderViewModel.isConnectingToProxy,
+                        stage: coachVM.builderViewModel.generationStage,
                         blockCompleted: coachVM.builderViewModel.generationBlockCompleted,
                         blockTotal: coachVM.builderViewModel.generationBlockTotal,
                         programTitle: blueprint.programName,
@@ -219,7 +228,7 @@ struct CoachConversationView: View {
                             weekdays: $coachVM.scheduleWeekdays,
                             finalNotes: $coachVM.finalNotesDraft,
                             autoUpdates: coachVM.lastAutoUpdates,
-                            isLoading: false,
+                            isLoading: coachVM.phase == .generating,
                             requiresPremium: !entitlementStore.hasAccess(to: .aiProgramGeneration),
                             onUpdateRecommendation: { topic, value in
                                 coachVM.updateRecommendation(topic: topic, newValue: value)
@@ -240,7 +249,8 @@ struct CoachConversationView: View {
                                     await coachVM.buildProgram(
                                         aiService: aiService,
                                         dataManager: dataManager,
-                                        entitlementStore: entitlementStore
+                                        entitlementStore: entitlementStore,
+                                        reduceMotion: reduceMotion
                                     )
                                 }
                             }
@@ -249,6 +259,7 @@ struct CoachConversationView: View {
                     .padding(16)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .keyboardDismissToolbar()
             }
         }
     }
@@ -329,14 +340,25 @@ struct CoachConversationView: View {
         case .constraints:
             VStack(alignment: .leading, spacing: 10) {
                 CoachQuickReplyPills(options: ["None"]) { value in
+                    isIntakeNotesFocused = false
+                    fitlogDismissKeyboard()
                     coachVM.draftText = value
                     coachVM.submitConstraintsAnswer()
                 }
                 TextField("Optional details", text: $coachVM.draftText, axis: .vertical)
                     .lineLimit(2 ... 4)
                     .textFieldStyle(.roundedBorder)
-                Button("Continue") { coachVM.submitConstraintsAnswer() }
-                    .buttonStyle(.borderedProminent)
+                    .focused($isIntakeNotesFocused)
+                    .accessibilityLabel("Optional constraint details")
+                    .accessibilityHint("Add injuries, preferences, or other notes. Tap Done to dismiss the keyboard.")
+                Button("Continue") {
+                    isIntakeNotesFocused = false
+                    fitlogDismissKeyboard()
+                    coachVM.submitConstraintsAnswer()
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityLabel("Continue")
+                .accessibilityHint("Save notes and continue to the next question")
             }
             .padding(14)
             .background(

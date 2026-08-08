@@ -43,6 +43,8 @@ extension AIService {
         }
 
         Valid topic values: programName, split, programLength, cardio, periodization, intensity, progression, deload
+        Only include warnings that are NEW and not already listed in the local warnings provided by the user payload.
+        Do not rephrase or repeat existing local warnings.
         """
 
         do {
@@ -112,7 +114,7 @@ extension AIService {
         Recommendations:
         \(recLines)
 
-        Local warnings already identified: \(blueprint.warnings.joined(separator: "; "))
+        Local warnings already identified (do not repeat or rephrase these): \(blueprint.warnings.joined(separator: "; "))
         """
     }
 

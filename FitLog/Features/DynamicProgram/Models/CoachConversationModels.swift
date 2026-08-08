@@ -119,6 +119,54 @@ enum CoachRecommendationTopic: String, CaseIterable, Codable, Sendable, Equatabl
         case .deload: return "leaf.fill"
         }
     }
+
+    /// Resolves AI-supplied topic labels (raw values, titles, and common aliases).
+    static func resolve(from raw: String) -> CoachRecommendationTopic? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let exact = CoachRecommendationTopic(rawValue: trimmed) { return exact }
+        let lowered = trimmed.lowercased()
+        if let byTitle = allCases.first(where: { $0.title.lowercased() == lowered }) {
+            return byTitle
+        }
+        let compact = lowered
+            .replacingOccurrences(of: "/", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+            .split(separator: " ")
+            .joined(separator: " ")
+        switch compact {
+        case "name", "program", "program name", "title":
+            return .programName
+        case "split style", "split preference", "training split", "workout split":
+            return .split
+        case "length", "program length", "duration", "weeks", "program duration":
+            return .programLength
+        case "cardio", "cardio plan", "conditioning", "cardio preference":
+            return .cardio
+        case "phases", "training phases", "periodized", "periodisation", "structure":
+            return .periodization
+        case "intensity", "intensity style", "effort":
+            return .intensity
+        case "progression", "progression style", "progress":
+            return .progression
+        case "deload", "deload approach", "recovery week":
+            return .deload
+        default:
+            // Longest match wins so a label like "intensity and progression" isn't decided by
+            // declaration order.
+            return allCases
+                .compactMap { topic -> (CoachRecommendationTopic, Int)? in
+                    let candidates = [topic.rawValue.lowercased(), topic.title.lowercased()]
+                    guard let match = candidates.filter({ compact.contains($0) }).max(by: { $0.count < $1.count }) else {
+                        return nil
+                    }
+                    return (topic, match.count)
+                }
+                .max { $0.1 < $1.1 }?
+                .0
+        }
+    }
 }
 
 enum CoachRecommendationConfidence: String, Sendable, Equatable, Codable {
@@ -212,7 +260,11 @@ struct CoachBlueprint: Equatable, Sendable {
     /// True when the saved split preference was used as a compatible tiebreaker.
     var usedSavedSplitPreference: Bool
     var recommendations: [CoachRecommendation]
+    /// Merged, user-visible notes: locally derived warnings first, then surviving AI extras.
     var warnings: [String]
+    /// AI-authored notes only. Kept separate so local warnings can be fully recomputed
+    /// on every edit without stale entries surviving as unattributable "extras".
+    var aiWarnings: [String] = []
     var changes: [CoachRecommendationChange]
 
     func recommendation(for topic: CoachRecommendationTopic) -> CoachRecommendation? {
@@ -384,8 +436,7 @@ struct CoachRecommendationExplanation: Codable, Equatable, Sendable {
     var tradeoffs: [String]
 
     var resolvedTopic: CoachRecommendationTopic? {
-        CoachRecommendationTopic(rawValue: topic)
-            ?? CoachRecommendationTopic.allCases.first { $0.title.lowercased() == topic.lowercased() }
+        CoachRecommendationTopic.resolve(from: topic)
     }
 }
 
@@ -400,8 +451,7 @@ struct CoachFollowUpSuggestedChange: Codable, Equatable, Sendable {
     var suggestedValue: String
 
     var resolvedTopic: CoachRecommendationTopic? {
-        CoachRecommendationTopic(rawValue: topic)
-            ?? CoachRecommendationTopic.allCases.first { $0.title.lowercased() == topic.lowercased() }
+        CoachRecommendationTopic.resolve(from: topic)
     }
 }
 

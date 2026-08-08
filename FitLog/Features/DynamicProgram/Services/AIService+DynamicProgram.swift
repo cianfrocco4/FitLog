@@ -66,7 +66,6 @@ extension AIService {
 
         let totalBlocks = request.blockSpecs.count
         for (index, spec) in request.blockSpecs.enumerated() {
-            onBlockProgress?(index + 1, totalBlocks)
             var structured = request.splitInput
             let blockLabel = ProgramBlockNaming.shortBlockLabel(spec.title.isEmpty ? spec.focus.displayTitle : spec.title)
             let blockNote = """
@@ -117,6 +116,8 @@ extension AIService {
                 )
             }
             blocks.append(prefixedBlock)
+            // Report progress when a block finishes (not when it starts).
+            onBlockProgress?(index + 1, totalBlocks)
         }
 
         let name = request.programName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "My program" : request.programName

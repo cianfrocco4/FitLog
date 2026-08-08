@@ -23,6 +23,7 @@ struct CoachPlanPreviewView: View {
     @State private var programNameDraft: String = ""
     @State private var showTrainingStyle = false
     @State private var expandedWhy: Set<CoachRecommendationTopic> = []
+    @FocusState private var isFinalNotesFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -140,11 +141,11 @@ struct CoachPlanPreviewView: View {
                 }
             }
 
-            if !blueprint.warnings.isEmpty {
+            if !dedupedWarnings.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Notes")
                         .font(.subheadline.weight(.semibold))
-                    ForEach(blueprint.warnings, id: \.self) { warning in
+                    ForEach(dedupedWarnings, id: \.self) { warning in
                         Label(warning, systemImage: "exclamationmark.triangle.fill")
                             .font(.caption)
                             .foregroundStyle(FitlogPalette.caution)
@@ -161,10 +162,16 @@ struct CoachPlanPreviewView: View {
                 TextField("Anything else before we build?", text: $finalNotes, axis: .vertical)
                     .lineLimit(2 ... 4)
                     .textFieldStyle(.roundedBorder)
+                    .focused($isFinalNotesFocused)
                     .accessibilityLabel("Final notes")
+                    .accessibilityHint("Optional notes before building. Tap Done to dismiss the keyboard.")
             }
 
-            Button(action: onBuild) {
+            Button {
+                isFinalNotesFocused = false
+                fitlogDismissKeyboard()
+                onBuild()
+            } label: {
                 if isLoading {
                     HStack {
                         ProgressView()
@@ -347,32 +354,49 @@ struct CoachPlanPreviewView: View {
 
     @ViewBuilder
     private func whySection(for topic: CoachRecommendationTopic) -> some View {
-        if let rationale = blueprint.recommendation(for: topic)?.rationale, !rationale.isEmpty {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    if expandedWhy.contains(topic) {
-                        expandedWhy.remove(topic)
-                    } else {
-                        expandedWhy.insert(topic)
-                    }
-                }
-            } label: {
-                Text(expandedWhy.contains(topic) ? "Hide why" : "Why this?")
-                    .font(.caption.weight(.semibold))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .padding(.leading, 38)
-            .accessibilityHint("Show coach rationale for \(topic.title)")
+        let rationale = trimmedRationale(for: topic)
+        if !rationale.isEmpty {
+            let isLong = rationale.count > 120 || rationale.contains("\n")
+            let isExpanded = expandedWhy.contains(topic)
 
-            if expandedWhy.contains(topic) {
-                Text(rationale)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 38)
+            // Only clamp text that also gets a Show more control, so nothing can be
+            // truncated without an affordance at large Dynamic Type sizes.
+            Text(rationale)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(isLong && !isExpanded ? 2 : nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, 38)
+                .accessibilityLabel("Why this: \(rationale)")
+
+            if isLong {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        if isExpanded {
+                            expandedWhy.remove(topic)
+                        } else {
+                            expandedWhy.insert(topic)
+                        }
+                    }
+                } label: {
+                    Text(isExpanded ? "Show less" : "Show more")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .padding(.leading, 38)
+                .accessibilityHint(isExpanded ? "Collapse coach rationale" : "Expand full coach rationale for \(topic.title)")
             }
         }
+    }
+
+    private func trimmedRationale(for topic: CoachRecommendationTopic) -> String {
+        (blueprint.recommendation(for: topic)?.rationale ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var dedupedWarnings: [String] {
+        CoachRecommendationEngine.dedupeWarnings(blueprint.warnings)
     }
 
     private func discussButton(for topic: CoachRecommendationTopic) -> some View {
