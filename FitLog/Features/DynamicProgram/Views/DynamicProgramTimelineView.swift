@@ -13,6 +13,8 @@ struct DynamicProgramTimelineView: View {
     let anchorDate: Date
     /// When set, each block can expand to edit rotation templates (shared with the preview form).
     var builderViewModel: DynamicProgramBuilderViewModel?
+    /// Called when a balance suggestion requests AI regeneration (the timeline cannot trigger generation itself).
+    var onRegenerateRequest: ((String) -> Void)?
 
     private var calendar: Calendar { .current }
 
@@ -59,7 +61,7 @@ struct DynamicProgramTimelineView: View {
             }
 
             if let vm = builderViewModel {
-                DynamicProgramTimelineBlockEditorSection(viewModel: vm, blockIndex: blockIndex)
+                DynamicProgramTimelineBlockEditorSection(viewModel: vm, blockIndex: blockIndex, onRegenerateRequest: onRegenerateRequest)
             }
         }
         .padding(12)
@@ -140,6 +142,7 @@ struct DynamicProgramTimelineView: View {
 private struct DynamicProgramTimelineBlockEditorSection: View {
     @Bindable var viewModel: DynamicProgramBuilderViewModel
     let blockIndex: Int
+    var onRegenerateRequest: ((String) -> Void)?
 
     var body: some View {
         DisclosureGroup {
@@ -177,7 +180,10 @@ private struct DynamicProgramTimelineBlockEditorSection: View {
                                 viewModel.openDayFromSuggestion(dayIndex: day)
                             case .addSlot(let day, let label, let muscles):
                                 _ = viewModel.addComplementarySlot(dayIndex: day, label: label, muscles: muscles)
-                            case .regenerateWithNote, .none:
+                            case .regenerateWithNote(let note):
+                                viewModel.appendRegenerateConstraint(note)
+                                onRegenerateRequest?(note)
+                            case .none:
                                 break
                             }
                         }

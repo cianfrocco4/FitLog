@@ -108,7 +108,10 @@ struct DynamicProgramGeneratedTemplateEditor: View {
                         ForEach(warnings) { warning in
                             BalanceSuggestionRow(
                                 warning: warning,
-                                onAction: { onBalanceAction(warning) }
+                                onAction: {
+                                    viewModel.selectEditableBlock(blockIndex)
+                                    onBalanceAction(warning)
+                                }
                             )
                         }
                     }

@@ -708,7 +708,6 @@ final class CoachConversationViewModel {
             }
             phase = .complete
             navigateToReview = true
-            builderViewModel.resetGenerationProgressUI()
         } else {
             phase = .planPreview
             errorMessage = builderViewModel.errorMessage ?? "Could not build the program."

@@ -579,6 +579,7 @@ final class DynamicProgramBuilderViewModel {
         applyErrorMessage = nil
         editableBlockIndex = 0
         rebuildEditableDaysFromProgram()
+        captureGeneratedBaseline()
         wizardStep = .reviewAndEdit
         builderMode = state.program.generatedWithAI ? .aiGenerate : .manualBuild
     }
@@ -733,7 +734,7 @@ final class DynamicProgramBuilderViewModel {
                 exerciseLibrary: library,
                 onBlockProgress: { completed, total in
                     Task { @MainActor in
-                        // `completed` counts finished phases, so the label names the next one.
+                        guard self.generationStage == .designing else { return }
                         self.generationBlockCompleted = completed
                         self.generationBlockTotal = total
                         self.generationStatusMessage = "Generating phase \(min(completed + 1, total)) of \(total)…"
@@ -1108,8 +1109,9 @@ final class DynamicProgramBuilderViewModel {
 
     /// Inserts a duplicate of the block at `index` with fresh template and slot ids.
     func duplicateProgramBlock(at index: Int) {
-        guard var prog = generatedProgram, prog.blocks.indices.contains(index) else { return }
+        guard generatedProgram != nil, generatedProgram!.blocks.indices.contains(index) else { return }
         persistPerBlockTemplatesIntoProgram()
+        guard var prog = generatedProgram else { return }
         pushUndoSnapshot()
         let b = prog.blocks[index]
         let warmup = b.warmUpTemplate.map { $0.map { $0.withNewSlotId() } }
@@ -1136,8 +1138,9 @@ final class DynamicProgramBuilderViewModel {
 
     /// Replaces the block at `index` rotation with a deep copy of the previous block’s templates.
     func copyWeeklyTemplatesFromPreviousBlock(into index: Int) {
-        guard index > 0, var prog = generatedProgram, prog.blocks.indices.contains(index) else { return }
+        guard index > 0, generatedProgram != nil, generatedProgram!.blocks.indices.contains(index) else { return }
         persistPerBlockTemplatesIntoProgram()
+        guard var prog = generatedProgram else { return }
         pushUndoSnapshot()
         let prev = prog.blocks[index - 1]
         prog.blocks[index].weeklyTemplates = DynamicProgramMapper.duplicateWeeklyTemplates(prev.weeklyTemplates)
@@ -1148,8 +1151,9 @@ final class DynamicProgramBuilderViewModel {
 
     /// Replaces the block’s rotation with a single template day built from a library workout.
     func importRotationFromWorkout(_ workout: Workout, blockIndex: Int, exerciseLibrary: [Exercise]) {
-        guard var prog = generatedProgram, prog.blocks.indices.contains(blockIndex) else { return }
+        guard generatedProgram != nil, generatedProgram!.blocks.indices.contains(blockIndex) else { return }
         persistPerBlockTemplatesIntoProgram()
+        guard var prog = generatedProgram else { return }
         pushUndoSnapshot()
         var slots: [SplitBuilderEditableSlot] = []
         slots.reserveCapacity(workout.exercises.count)
