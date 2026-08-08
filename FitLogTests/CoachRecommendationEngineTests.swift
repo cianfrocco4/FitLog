@@ -169,7 +169,7 @@ final class CoachRecommendationEngineTests: XCTestCase {
     }
 
     func testApplyScheduleChangeClampsSessions() {
-        var intake = CoachIntakeSnapshot(
+        let intake = CoachIntakeSnapshot(
             primaryGoal: CoachGoalPick.general.rawValue,
             experienceLevel: CoachExperiencePick.intermediate.rawValue,
             sessionsPerWeek: 4,
@@ -188,23 +188,19 @@ final class CoachRecommendationEngineTests: XCTestCase {
             sessionsPerWeek: 4
         )
         var blueprint = CoachRecommendationEngine.buildBlueprint(from: intake)
-        let originalLength = blueprint.totalWeeks
+        // Muscle defaults to 12 weeks — pick a different length so the change is non-nil.
+        let target = CoachProgramLengthPick.eight
+        XCTAssertNotEqual(blueprint.totalWeeks, target.rawValue)
 
         let change = CoachRecommendationEngine.applyRecommendationChange(
             to: &blueprint,
             topic: .programLength,
-            newValue: CoachProgramLengthPick.twelve.label
+            newValue: target.label
         )
 
         XCTAssertNotNil(change)
-        XCTAssertEqual(blueprint.totalWeeks, 12)
-        // Muscle already defaults to 12 — change may be nil if already matching.
-        if originalLength != 12 {
-            XCTAssertNotEqual(blueprint.totalWeeks, originalLength)
-        }
-        if let change {
-            XCTAssertTrue(change.diffDescription.contains("Program length"))
-        }
+        XCTAssertEqual(blueprint.totalWeeks, target.rawValue)
+        XCTAssertTrue(change?.diffDescription.contains("Program length") ?? false)
     }
 
     func testCardioDedicatedDaysAreInferredNotRequiredFromUser() {
