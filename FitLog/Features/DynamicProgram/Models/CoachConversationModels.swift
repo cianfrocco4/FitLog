@@ -11,8 +11,7 @@ import Foundation
 
 enum CoachPhase: String, Sendable, Equatable {
     case intake
-    case recommendations
-    case review
+    case planPreview
     case generating
     case complete
 }
@@ -21,10 +20,17 @@ enum CoachPhase: String, Sendable, Equatable {
 
 enum CoachIntakeTopic: String, CaseIterable, Sendable, Equatable {
     case goal
+    case goalFollowUp
     case experience
     case schedule
+    case sessionDuration
     case equipment
     case constraints
+
+    /// Default Guided Coach question order. `goalFollowUp` is inserted dynamically when relevant.
+    static var standardIntakeOrder: [CoachIntakeTopic] {
+        [.goal, .experience, .schedule, .sessionDuration, .equipment, .constraints]
+    }
 }
 
 enum CoachQuestionResponseKind: Sendable, Equatable {
@@ -64,10 +70,16 @@ struct CoachIntakeSnapshot: Equatable, Sendable {
     var equipment: String = "Full gym (machines + free weights)"
     var limitationsNotes: String = ""
     var additionalNotes: String = ""
+    /// Typical session length in minutes; nil = unspecified.
+    var sessionDurationMinutes: Int?
+    /// Sport / priority lifts from goal follow-up.
+    var priorityMusclesOrLiftsNotes: String = ""
     /// Optional context from workout history (sessions/week estimate).
     var inferredSessionsPerWeek: Int?
     /// Optional saved split preference from prior builder visits.
     var savedSplitPreference: String?
+    /// Explicit cardio preference from goal follow-up (overrides engine default when set).
+    var cardioFollowUpPreference: CardioProgramPreference?
 }
 
 // MARK: - Recommendations
@@ -194,6 +206,11 @@ struct CoachBlueprint: Equatable, Sendable {
     var busyDayPolicy: BusyDayPolicy
     var limitationsNotes: String
     var additionalNotes: String
+    var sessionDurationMinutes: Int?
+    var priorityMusclesOrLiftsNotes: String
+    var recoveryContextNotes: String
+    /// True when the saved split preference was used as a compatible tiebreaker.
+    var usedSavedSplitPreference: Bool
     var recommendations: [CoachRecommendation]
     var warnings: [String]
     var changes: [CoachRecommendationChange]
@@ -204,6 +221,17 @@ struct CoachBlueprint: Equatable, Sendable {
 
     /// Maps the confirmed blueprint into the existing generation request shape.
     func toGenerationRequest() -> DynamicProgramGenerationRequest {
+        let programming = CoachGoalProgramming.resolve(from: primaryGoal, experienceLevel: experienceLevel)
+        var directive = programming.programmingDirective
+        if intensityStyle != programming.intensityStyle {
+            directive += "\nUser override — intensity style: \(intensityStyle)."
+        }
+        if progressionStyle != programming.progressionStyle {
+            directive += "\nUser override — progression style: \(progressionStyle)."
+        }
+        if deloadPreference != programming.deloadPreference {
+            directive += "\nUser override — deload approach: \(deloadPreference)."
+        }
         var splitInput = WorkoutSplitBuilderStructuredInput(
             primaryGoal: primaryGoal,
             equipment: equipment,
@@ -213,16 +241,17 @@ struct CoachBlueprint: Equatable, Sendable {
             preferredWeekdays: preferredWeekdays,
             limitationsNotes: limitationsNotes,
             additionalNotes: additionalNotes,
-            sessionDurationMinutes: nil,
+            sessionDurationMinutes: sessionDurationMinutes,
             intensityStyle: intensityStyle,
             progressionStyle: progressionStyle,
-            priorityMusclesOrLiftsNotes: "",
-            recoveryContextNotes: "",
+            priorityMusclesOrLiftsNotes: priorityMusclesOrLiftsNotes,
+            recoveryContextNotes: recoveryContextNotes,
             deloadPreference: deloadPreference,
             variationMode: "Balanced variation",
             desiredWorkoutRotationLength: nil,
             variationNotes: "",
-            adjustmentInstruction: nil
+            adjustmentInstruction: nil,
+            goalProgrammingDirective: directive
         )
         splitInput.cardioPreference = cardioConfiguration.preference.rawValue
         splitInput.cardioGoal = cardioConfiguration.goal.rawValue
@@ -330,9 +359,8 @@ enum CoachMessageKind: Equatable, Sendable {
     case userReply(String)
     case phaseDivider(String)
     case intakePrompt(CoachIntakeTopic)
-    case recommendationCards
     case changeSummary([CoachRecommendationChange])
-    case blueprintSummary
+    case planPreview
     case typingIndicator
 }
 
@@ -420,7 +448,9 @@ enum CoachSplitPick: String, CaseIterable, Identifiable, Sendable {
 
 enum CoachProgramLengthPick: Int, CaseIterable, Identifiable, Sendable {
     case four = 4
+    case six = 6
     case eight = 8
+    case ten = 10
     case twelve = 12
     case sixteen = 16
     var id: Int { rawValue }
@@ -441,6 +471,41 @@ enum CoachCardioPick: String, CaseIterable, Identifiable, Sendable {
         case .dedicatedDays: return .dedicatedDays
         case .mixed: return .mixed
         }
+    }
+}
+
+enum CoachIntensityPick: String, CaseIterable, Identifiable, Sendable {
+    case hypertrophy = "Moderate-heavy hypertrophy (RPE ~7–9)"
+    case heavier = "Heavier loads, lower reps"
+    case athletic = "Athletic mix — power + strength + conditioning"
+    case moderate = "Moderate loads, controlled reps (RPE ~7–8)"
+    case balanced = "Balanced (mix of heavy and moderate)"
+    var id: String { rawValue }
+}
+
+enum CoachProgressionPick: String, CaseIterable, Identifiable, Sendable {
+    case linear = "Linear / add weight when form is solid"
+    case doubleProgression = "Double progression (reps then weight)"
+    case linearMains = "Linear on main lifts; double progression on accessories"
+    var id: String { rawValue }
+}
+
+enum CoachDeloadPick: String, CaseIterable, Identifiable, Sendable {
+    case everyFourth = "Lighter week about every 4th week"
+    case asNeeded = "Deload when I feel run-down"
+    var id: String { rawValue }
+}
+
+enum CoachSessionDurationPick: String, CaseIterable, Identifiable, Sendable {
+    case thirty = "~30 minutes per session"
+    case fortyFive = "~45 minutes per session"
+    case sixty = "~60 minutes per session"
+    case seventyFive = "~75 minutes per session"
+    case ninetyPlus = "~90+ minutes per session"
+    var id: String { rawValue }
+
+    var minutes: Int? {
+        SessionDurationBuckets.minutes(fromPickerLabel: rawValue)
     }
 }
 

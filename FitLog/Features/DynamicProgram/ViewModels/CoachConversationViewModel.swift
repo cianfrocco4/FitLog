@@ -24,18 +24,58 @@ final class CoachConversationViewModel {
     private(set) var discussScrollTrigger = 0
     private(set) var scrollToGenerationTrigger = 0
     private(set) var focusedDiscussTopic: CoachRecommendationTopic?
+    private(set) var lastAutoUpdates: [CoachRecommendationChange] = []
+    private(set) var answeredTopics: [CoachIntakeTopic] = []
     var draftText = ""
+    var finalNotesDraft = ""
     var scheduleSessions: Int = 3
     var scheduleWeekdays: Set<Int> = []
     var selectionFeedbackCount = 0
     var navigateToReview = false
+    var showCoachNotes = false
 
     let builderViewModel: DynamicProgramBuilderViewModel
-    private var intakeQueue: [CoachIntakeTopic] = CoachIntakeTopic.allCases
+    private var intakeQueue: [CoachIntakeTopic] = CoachIntakeTopic.standardIntakeOrder
     private var didBootstrap = false
+    private var answeredValues: [CoachIntakeTopic: String] = [:]
 
     init(builderViewModel: DynamicProgramBuilderViewModel) {
         self.builderViewModel = builderViewModel
+    }
+
+    // MARK: - Progress
+
+    var intakeStepIndex: Int {
+        guard let pending = pendingIntakeTopic else {
+            return max(1, answeredTopics.count)
+        }
+        var visible = CoachIntakeTopic.standardIntakeOrder
+        if answeredTopics.contains(.goalFollowUp) || pending == .goalFollowUp,
+           let goalIdx = visible.firstIndex(of: .goal) {
+            visible.insert(.goalFollowUp, at: goalIdx + 1)
+        }
+        if let idx = visible.firstIndex(of: pending) {
+            return idx + 1
+        }
+        return answeredTopics.count + 1
+    }
+
+    var intakeStepTotal: Int {
+        var total = CoachIntakeTopic.standardIntakeOrder.count
+        if answeredTopics.contains(.goalFollowUp) || pendingIntakeTopic == .goalFollowUp || shouldOfferGoalFollowUp {
+            total += 1
+        }
+        return total
+    }
+
+    private var shouldOfferGoalFollowUp: Bool {
+        let programming = CoachGoalProgramming.resolve(from: intake.primaryGoal, experienceLevel: intake.experienceLevel)
+        switch programming.goal {
+        case .performance, .strength, .fatLoss:
+            return true
+        case .buildMuscle, .general:
+            return false
+        }
     }
 
     // MARK: - Bootstrap
@@ -53,6 +93,12 @@ final class CoachConversationViewModel {
         if let w = saved.selectedWeekdayNumbers { intake.preferredWeekdays = w }
         if let g = saved.splitPreferenceRaw { intake.savedSplitPreference = g }
         if let t = saved.limitationsNotes { intake.limitationsNotes = t }
+        if let durationRaw = saved.sessionDurationRaw {
+            intake.sessionDurationMinutes = SessionDurationBuckets.minutes(fromPickerLabel: durationRaw)
+        }
+        if let priority = saved.priorityMusclesOrLiftsNotes {
+            intake.priorityMusclesOrLiftsNotes = String(priority.prefix(400))
+        }
 
         let completed = dataManager.completedSessions.filter(\.isCompleted)
         if !completed.isEmpty {
@@ -64,8 +110,13 @@ final class CoachConversationViewModel {
             }
         }
 
-        scheduleSessions = intake.sessionsPerWeek > 0 ? intake.sessionsPerWeek : (intake.inferredSessionsPerWeek ?? 3)
         scheduleWeekdays = Set(intake.preferredWeekdays.filter { $0 >= 1 && $0 <= 7 })
+        let rawSessions = intake.sessionsPerWeek > 0 ? intake.sessionsPerWeek : (intake.inferredSessionsPerWeek ?? 3)
+        let reconciled = CoachScheduleSync.reconcile(sessions: rawSessions, weekdays: Array(scheduleWeekdays))
+        scheduleSessions = reconciled.sessions
+        scheduleWeekdays = Set(reconciled.weekdays)
+        intake.sessionsPerWeek = reconciled.sessions
+        intake.preferredWeekdays = reconciled.weekdays
 
         appendTrainerMessage(openingMessage())
         askNextIntakeQuestion()
@@ -86,7 +137,7 @@ final class CoachConversationViewModel {
 
     private func askNextIntakeQuestion() {
         guard let topic = intakeQueue.first else {
-            transitionToRecommendations()
+            transitionToPlanPreview()
             return
         }
         pendingIntakeTopic = topic
@@ -101,25 +152,26 @@ final class CoachConversationViewModel {
         appendUserMessage(value)
         selectionFeedbackCount += 1
         acknowledgeIntake(topic: topic, value: value)
-        intakeQueue.removeAll { $0 == topic }
-        pendingIntakeTopic = nil
-        askNextIntakeQuestion()
+        markAnswered(topic: topic, value: value)
+        advancePast(topic)
     }
 
     func submitScheduleAnswer() {
         guard pendingIntakeTopic == .schedule else { return }
-        intake.sessionsPerWeek = min(7, max(1, scheduleSessions))
-        intake.preferredWeekdays = scheduleWeekdays.sorted()
-        let daySummary = scheduleWeekdays.isEmpty
-            ? "\(scheduleSessions) days per week"
-            : "\(scheduleSessions) days on selected weekdays"
+        let reconciled = CoachScheduleSync.reconcile(sessions: scheduleSessions, weekdays: Array(scheduleWeekdays))
+        scheduleSessions = reconciled.sessions
+        scheduleWeekdays = Set(reconciled.weekdays)
+        intake.sessionsPerWeek = reconciled.sessions
+        intake.preferredWeekdays = reconciled.weekdays
+        let daySummary = reconciled.weekdays.isEmpty
+            ? "\(reconciled.sessions) days per week"
+            : "\(reconciled.sessions) sessions on \(reconciled.weekdays.count) preferred day\(reconciled.weekdays.count == 1 ? "" : "s")"
         applyIntakeAnswer(topic: .schedule, value: daySummary)
         appendUserMessage(daySummary)
         selectionFeedbackCount += 1
         acknowledgeIntake(topic: .schedule, value: daySummary)
-        intakeQueue.removeAll { $0 == .schedule }
-        pendingIntakeTopic = nil
-        askNextIntakeQuestion()
+        markAnswered(topic: .schedule, value: daySummary)
+        advancePast(.schedule)
     }
 
     func submitConstraintsAnswer() {
@@ -136,34 +188,120 @@ final class CoachConversationViewModel {
         } else {
             acknowledgeIntake(topic: .constraints, value: value)
         }
-        intakeQueue.removeAll { $0 == .constraints }
+        markAnswered(topic: .constraints, value: value)
+        advancePast(.constraints)
+    }
+
+    func revisitIntakeTopic(_ topic: CoachIntakeTopic) {
+        guard phase == .intake else { return }
+        if let idx = answeredTopics.firstIndex(of: topic) {
+            let dropped = answeredTopics[idx...]
+            if dropped.contains(.goalFollowUp) {
+                intake.priorityMusclesOrLiftsNotes = ""
+                intake.additionalNotes = ""
+                intake.cardioFollowUpPreference = nil
+            }
+            for t in dropped {
+                answeredValues[t] = nil
+            }
+            answeredTopics.removeSubrange(idx...)
+        }
+        intakeQueue = remainingQueue(startingAt: topic)
         pendingIntakeTopic = nil
         askNextIntakeQuestion()
+    }
+
+    private func remainingQueue(startingAt topic: CoachIntakeTopic) -> [CoachIntakeTopic] {
+        var order = CoachIntakeTopic.standardIntakeOrder
+        if shouldOfferGoalFollowUp, let goalIdx = order.firstIndex(of: .goal) {
+            order.insert(.goalFollowUp, at: goalIdx + 1)
+        }
+        guard let start = order.firstIndex(of: topic) else { return order }
+        return Array(order[start...])
+    }
+
+    private func advancePast(_ topic: CoachIntakeTopic) {
+        intakeQueue.removeAll { $0 == topic }
+        if topic == .goal, shouldOfferGoalFollowUp, !intakeQueue.contains(.goalFollowUp), !answeredTopics.contains(.goalFollowUp) {
+            intakeQueue.insert(.goalFollowUp, at: 0)
+        }
+        pendingIntakeTopic = nil
+        askNextIntakeQuestion()
+    }
+
+    private func markAnswered(topic: CoachIntakeTopic, value: String) {
+        answeredValues[topic] = value
+        answeredTopics.removeAll { $0 == topic }
+        answeredTopics.append(topic)
+    }
+
+    func answeredValue(for topic: CoachIntakeTopic) -> String? {
+        answeredValues[topic]
     }
 
     private func applyIntakeAnswer(topic: CoachIntakeTopic, value: String) {
         switch topic {
         case .goal:
             intake.primaryGoal = value
+        case .goalFollowUp:
+            applyGoalFollowUp(value)
         case .experience:
             intake.experienceLevel = value
         case .schedule:
-            break // handled in submitScheduleAnswer
+            break
+        case .sessionDuration:
+            intake.sessionDurationMinutes = SessionDurationBuckets.minutes(fromPickerLabel: value)
         case .equipment:
             intake.equipment = value
         case .constraints:
-            break // handled in submitConstraintsAnswer
+            break
         }
+    }
+
+    private func applyGoalFollowUp(_ value: String) {
+        let programming = CoachGoalProgramming.resolve(from: intake.primaryGoal, experienceLevel: intake.experienceLevel)
+        let lower = value.lowercased()
+        if lower.contains("skip") {
+            return
+        }
+        if programming.goal == .fatLoss {
+            let note: String
+            if lower.contains("mixed") {
+                note = "Prefer mixed cardio (dedicated days + finishers)."
+                intake.cardioFollowUpPreference = .mixed
+            } else if lower.contains("dedicated") {
+                note = "Prefer dedicated cardio days alongside lifting."
+                intake.cardioFollowUpPreference = .dedicatedDays
+            } else if lower.contains("finisher") || lower.contains("light") {
+                note = "Prefer light post-lift finishers only."
+                intake.cardioFollowUpPreference = .postWorkout
+            } else {
+                note = value
+            }
+            intake.priorityMusclesOrLiftsNotes = note
+            if intake.additionalNotes.isEmpty {
+                intake.additionalNotes = note
+            } else if !intake.additionalNotes.contains(note) {
+                intake.additionalNotes += "\n\(note)"
+            }
+            return
+        }
+        intake.priorityMusclesOrLiftsNotes = String(value.prefix(400))
     }
 
     private func acknowledgeIntake(topic: CoachIntakeTopic, value: String) {
         switch topic {
         case .goal:
-            appendTrainerMessage("Got it — \(value.lowercased()) is a clear direction. Let's shape the program around that.")
+            let teaser = CoachGoalProgramming.resolve(from: value, experienceLevel: intake.experienceLevel).impactTeaser
+            appendTrainerMessage("Got it — \(value.lowercased()) is a clear direction. \(teaser)")
+        case .goalFollowUp:
+            appendTrainerMessage("Noted — I'll prioritize that when I build your sessions.")
         case .experience:
             appendTrainerMessage("\(value) — perfect. I'll match the complexity to where you're at.")
         case .schedule:
             appendTrainerMessage("\(value.capitalized) — that gives us a solid foundation to work with.")
+        case .sessionDuration:
+            appendTrainerMessage("\(value) — I'll size volume so sessions fit.")
         case .equipment:
             appendTrainerMessage("\(value) — I'll pick exercises that fit what you have.")
         case .constraints:
@@ -180,6 +318,8 @@ final class CoachConversationViewModel {
                 responseKind: .quickReplies,
                 quickReplies: CoachGoalPick.allCases.map(\.rawValue)
             )
+        case .goalFollowUp:
+            return goalFollowUpQuestion()
         case .experience:
             return CoachQuestion(
                 topic: topic,
@@ -192,6 +332,13 @@ final class CoachConversationViewModel {
                 topic: topic,
                 prompt: "How many days a week can you realistically train? Pick preferred days if you have them.",
                 responseKind: .schedule
+            )
+        case .sessionDuration:
+            return CoachQuestion(
+                topic: topic,
+                prompt: "How long is a typical training session?",
+                responseKind: .quickReplies,
+                quickReplies: CoachSessionDurationPick.allCases.map(\.rawValue)
             )
         case .equipment:
             return CoachQuestion(
@@ -210,27 +357,94 @@ final class CoachConversationViewModel {
         }
     }
 
+    private func goalFollowUpQuestion() -> CoachQuestion {
+        let programming = CoachGoalProgramming.resolve(from: intake.primaryGoal, experienceLevel: intake.experienceLevel)
+        switch programming.goal {
+        case .performance:
+            return CoachQuestion(
+                topic: .goalFollowUp,
+                prompt: "Any sport or priority lifts I should emphasize?",
+                responseKind: .quickReplies,
+                quickReplies: [
+                    "General athleticism",
+                    "Sprinting / field sports",
+                    "Olympic lifting focus",
+                    "Skip — no specific focus",
+                ]
+            )
+        case .strength:
+            return CoachQuestion(
+                topic: .goalFollowUp,
+                prompt: "Any priority lifts to emphasize?",
+                responseKind: .quickReplies,
+                quickReplies: [
+                    "Squat focus",
+                    "Bench focus",
+                    "Deadlift focus",
+                    "All big three",
+                    "Skip — no specific focus",
+                ]
+            )
+        case .fatLoss:
+            return CoachQuestion(
+                topic: .goalFollowUp,
+                prompt: "How much cardio do you want alongside lifting?",
+                responseKind: .quickReplies,
+                quickReplies: [
+                    "Light finishers only",
+                    "A couple dedicated cardio days",
+                    "Mixed — finishers + dedicated days",
+                    "Skip — use your best judgment",
+                ]
+            )
+        default:
+            return CoachQuestion(
+                topic: .goalFollowUp,
+                prompt: "Anything else to prioritize?",
+                responseKind: .quickReplies,
+                quickReplies: ["Skip — no specific focus"]
+            )
+        }
+    }
+
     func quickRepliesForPendingQuestion() -> [String] {
         guard let topic = pendingIntakeTopic else { return [] }
         return intakeQuestion(for: topic).quickReplies
     }
 
-    // MARK: - Recommendations
+    func goalImpactTeaser(for goalRaw: String) -> String {
+        CoachGoalProgramming.resolve(from: goalRaw, experienceLevel: intake.experienceLevel).impactTeaser
+    }
 
-    private func transitionToRecommendations() {
-        phase = .recommendations
-        appendMessage(CoachMessage(kind: .phaseDivider("Now let me put together your plan…")))
+    // MARK: - Plan preview
+
+    private func transitionToPlanPreview() {
+        phase = .planPreview
+        appendMessage(CoachMessage(kind: .phaseDivider("Your editable program plan")))
         let built = CoachRecommendationEngine.buildBlueprint(from: intake)
         blueprint = built
-        appendTrainerMessage("Based on everything you've told me, here's what I'd recommend. You can accept each part, adjust it, or ask me why.")
-        appendMessage(CoachMessage(kind: .recommendationCards))
+        scheduleSessions = built.sessionsPerWeek
+        scheduleWeekdays = Set(built.preferredWeekdays)
+        appendTrainerMessage(planPreviewSummaryMessage(for: built))
+        appendMessage(CoachMessage(kind: .planPreview))
         for warning in built.warnings {
             appendTrainerMessage("Heads up: \(warning)")
         }
     }
 
+    private func planPreviewSummaryMessage(for built: CoachBlueprint) -> String {
+        let duration = SessionDurationBuckets.pickerLabel(fromMinutes: built.sessionDurationMinutes)
+        let durationBit = built.sessionDurationMinutes == nil ? "" : ", \(duration.replacingOccurrences(of: "~", with: "").replacingOccurrences(of: " per session", with: ""))"
+        return "Because you chose \(built.primaryGoal.lowercased()), \(built.sessionsPerWeek) days/week, \(built.equipment.lowercased())\(durationBit) → \(built.splitPreference) with \(cardioShort(built)). Edit anything below, then build when you're ready."
+    }
+
+    private func cardioShort(_ built: CoachBlueprint) -> String {
+        if built.cardioConfiguration.preference == .none { return "strength-only focus" }
+        return built.cardioConfiguration.preference.rawValue.lowercased()
+    }
+
     func enrichRecommendationsWithAI(aiService: AIService) async {
-        guard var built = blueprint else { return }
+        guard var built = blueprint, phase == .planPreview else { return }
         isThinking = true
         appendTypingIndicator()
         defer {
@@ -251,61 +465,53 @@ final class CoachConversationViewModel {
             }
             for warning in explanation.warnings where !built.warnings.contains(warning) {
                 built.warnings.append(warning)
-                appendTrainerMessage("Heads up: \(warning)")
             }
             blueprint = built
-            refreshRecommendationMessages()
         }
     }
 
-    private func refreshRecommendationMessages() {
-        messages.removeAll { msg in
-            if case .recommendationCards = msg.kind { return true }
-            return false
-        }
-        if let idx = messages.lastIndex(where: { if case .phaseDivider = $0.kind { return true }; return false }) {
-            messages.insert(CoachMessage(kind: .recommendationCards), at: idx + 1)
-        } else {
-            appendMessage(CoachMessage(kind: .recommendationCards))
-        }
-    }
-
-    func acceptRecommendation(_ topic: CoachRecommendationTopic) {
-        guard var built = blueprint,
-              let index = built.recommendations.firstIndex(where: { $0.topic == topic }) else { return }
-        built.recommendations[index].isAccepted = true
-        blueprint = built
-        selectionFeedbackCount += 1
-        if allRecommendationsAccepted {
-            transitionToReview()
-        }
-    }
-
-    func acceptAllRecommendations() {
+    func updateRecommendation(topic: CoachRecommendationTopic, newValue: String) {
         guard var built = blueprint else { return }
-        for index in built.recommendations.indices {
-            built.recommendations[index].isAccepted = true
-        }
-        blueprint = built
-        selectionFeedbackCount += 1
-        transitionToReview()
-    }
-
-    func applyRecommendationOverride(topic: CoachRecommendationTopic, newValue: String, acceptAfterApply: Bool = true) {
-        guard var built = blueprint else { return }
-        if let change = CoachRecommendationEngine.applyRecommendationChange(to: &built, topic: topic, newValue: newValue) {
+        if CoachRecommendationEngine.applyRecommendationChange(to: &built, topic: topic, newValue: newValue) != nil {
+            CoachRecommendationEngine.recomputeWarnings(blueprint: &built, intake: intake)
             blueprint = built
-            appendMessage(CoachMessage(kind: .changeSummary([change])))
-            appendTrainerMessage("Updated — \(change.diffDescription).")
-        }
-        if acceptAfterApply {
-            acceptRecommendation(topic)
+            selectionFeedbackCount += 1
+            lastAutoUpdates = []
+            // Changes are visible on the Plan Preview surface; skip chat spam.
+        } else {
+            CoachRecommendationEngine.recomputeWarnings(blueprint: &built, intake: intake)
+            blueprint = built
         }
     }
 
-    var allRecommendationsAccepted: Bool {
-        guard let built = blueprint else { return false }
-        return built.recommendations.allSatisfy(\.isAccepted)
+    func updateProgramName(_ name: String) {
+        let trimmed = String(name.prefix(80))
+        guard !trimmed.isEmpty else { return }
+        updateRecommendation(topic: .programName, newValue: trimmed)
+    }
+
+    func updateSchedule(sessions: Int, weekdays: Set<Int>) {
+        guard var built = blueprint else { return }
+        CoachRecommendationEngine.applyScheduleChange(
+            to: &built,
+            sessions: sessions,
+            weekdays: Array(weekdays)
+        )
+        scheduleSessions = built.sessionsPerWeek
+        scheduleWeekdays = Set(built.preferredWeekdays)
+        intake.sessionsPerWeek = built.sessionsPerWeek
+        intake.preferredWeekdays = built.preferredWeekdays
+        blueprint = built
+
+        let updates = CoachRecommendationEngine.rederive(blueprint: &built, intake: intake)
+        blueprint = built
+        lastAutoUpdates = updates
+        selectionFeedbackCount += 1
+        if !updates.isEmpty {
+            appendMessage(CoachMessage(kind: .changeSummary(updates)))
+            let summary = updates.map { "\($0.topic.title) → \($0.afterValue)" }.joined(separator: "; ")
+            appendTrainerMessage("Updated for your new schedule: \(summary).")
+        }
     }
 
     // MARK: - Discuss (per-topic threads)
@@ -319,10 +525,6 @@ final class CoachConversationViewModel {
             get: { self.discussDrafts[topic] ?? "" },
             set: { self.discussDrafts[topic] = $0 }
         )
-    }
-
-    func isDiscussing(_ topic: CoachRecommendationTopic) -> Bool {
-        activeDiscussTopic == topic
     }
 
     func beginDiscuss(topic: CoachRecommendationTopic) {
@@ -387,7 +589,7 @@ final class CoachConversationViewModel {
 
     func applySuggestedChange(_ change: CoachFollowUpSuggestedChange, in topic: CoachRecommendationTopic) {
         guard change.resolvedTopic == topic else { return }
-        applyRecommendationOverride(topic: topic, newValue: change.suggestedValue, acceptAfterApply: false)
+        updateRecommendation(topic: topic, newValue: change.suggestedValue)
 
         var thread = discussThreads[topic] ?? CoachDiscussThread(topic: topic)
         thread.pendingSuggestions.removeAll { $0.topic == change.topic }
@@ -438,19 +640,10 @@ final class CoachConversationViewModel {
         if lower.contains("ppl") || lower.contains("push") {
             return "Push/Pull/Legs works great when you can train often enough to hit each pattern twice per week. With fewer days, Upper/Lower or Full Body usually fits better."
         }
-        return "Good question. You can adjust any recommendation above — your final choices are what we'll build from."
+        return "Good question. You can edit any field in the plan preview — your final choices are what we'll build from."
     }
 
-    // MARK: - Review & generate
-
-    private func transitionToReview() {
-        activeDiscussTopic = nil
-        focusedDiscussTopic = nil
-        phase = .review
-        appendMessage(CoachMessage(kind: .phaseDivider("Here's your program blueprint")))
-        appendTrainerMessage("Here's what I recommend. You can change anything before I build it — you're in control.")
-        appendMessage(CoachMessage(kind: .blueprintSummary))
-    }
+    // MARK: - Generate
 
     func applyBlueprintToBuilder() {
         guard let built = blueprint else { return }
@@ -468,7 +661,13 @@ final class CoachConversationViewModel {
 
     func buildProgram(aiService: AIService, dataManager: DataManager, entitlementStore: EntitlementStore) async {
         guard entitlementStore.hasAccess(to: .aiProgramGeneration) else { return }
+        // Flush any unsubmitted final notes before generating.
+        if !finalNotesDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            appendFinalNotes(finalNotesDraft)
+            finalNotesDraft = ""
+        }
         phase = .generating
+        errorMessage = nil
         applyBlueprintToBuilder()
         appendTrainerMessage("Building your program now…")
         appendTypingIndicator()
@@ -479,7 +678,7 @@ final class CoachConversationViewModel {
             phase = .complete
             navigateToReview = true
         } else {
-            phase = .review
+            phase = .planPreview
             errorMessage = builderViewModel.errorMessage ?? "Could not build the program."
             appendTrainerMessage(errorMessage ?? "Something went wrong. You can try again or use built-in presets from the editor.")
         }
@@ -490,7 +689,12 @@ final class CoachConversationViewModel {
     }
 
     func appendFinalNotes(_ notes: String) {
-        intake.additionalNotes = String(notes.prefix(400))
+        let trimmed = String(notes.trimmingCharacters(in: .whitespacesAndNewlines).prefix(400))
+        intake.additionalNotes = trimmed
+        if var built = blueprint {
+            built.additionalNotes = trimmed
+            blueprint = built
+        }
     }
 
     private func appendTrainerMessage(_ text: String) {

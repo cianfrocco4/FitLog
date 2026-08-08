@@ -100,6 +100,8 @@ struct WorkoutSplitBuilderStructuredInput: Equatable {
     var variationNotes: String = ""
     /// When regenerating, extra line(s) for the model (e.g. “shorter sessions”).
     var adjustmentInstruction: String?
+    /// Goal-specific programming recipe (separate from adjustmentInstruction / block notes).
+    var goalProgrammingDirective: String = ""
 }
 
 final class AIService: ObservableObject {
@@ -370,7 +372,8 @@ final class AIService: ObservableObject {
             variationMode: structured.variationMode,
             desiredWorkoutRotationLength: desiredRotationLength,
             variationNotes: String(structured.variationNotes.prefix(400)),
-            adjustmentInstruction: structured.adjustmentInstruction.map { String($0.prefix(500)) }
+            adjustmentInstruction: structured.adjustmentInstruction.map { String($0.prefix(500)) },
+            goalProgrammingDirective: String(structured.goalProgrammingDirective.prefix(700))
         )
         let payloadData = try JSONEncoder().encode(payload)
         let structuredJSON = String(data: payloadData, encoding: .utf8) ?? "{}"
@@ -407,6 +410,7 @@ final class AIService: ObservableObject {
             - Respect equipment: never imply machines or barbells the user cannot access (see JSON equipment).
             - If sessionDurationMinutes is set, bias toward fewer slots and/or fewer sets so sessions are realistic.
             - Match intensityStyle (e.g. heavy vs moderate) and progressionStyle in rep ranges and set counts.
+            - When goalProgrammingDirective is non-empty, treat it as authoritative programming intent for primaryGoal (rep ranges, rest bias, cardio density, accessory density). Do not dilute it into a generic balanced plan.
             - Include leg work when sessions/week >= 2 unless the user is upper-body only by explicit goal.
             - Scale total hard sets to experience: beginners lower, advanced can be higher but not extreme.
             - If deloadPreference mentions a cadence, mention it briefly in rationale (the app may schedule separately).
@@ -450,6 +454,10 @@ final class AIService: ObservableObject {
             desiredRotationLength: desiredRotationLength,
             variationMode: structured.variationMode
         )
+        let goalAddendum = Self.splitBuilderPrimaryGoalAddendum(
+            primaryGoal: structured.primaryGoal,
+            goalProgrammingDirective: structured.goalProgrammingDirective
+        )
 
         let userPrompt = """
         Structured user profile — JSON object (authoritative; design the split to match every field that is non-empty):
@@ -460,6 +468,8 @@ final class AIService: ObservableObject {
         Target sessions per week (hard cap \(maxSessions)): \(maxSessions)
         Desired workout rotation length (can be greater than sessions/week): \(desiredRotationLength)
         If possible, return exactly \(desiredRotationLength) workout objects in workouts unless safety, equipment, or session-length constraints make that inappropriate.
+
+        \(goalAddendum)
 
         \(balanceAddendum)
 
@@ -559,6 +569,23 @@ final class AIService: ObservableObject {
         let desiredWorkoutRotationLength: Int
         let variationNotes: String
         let adjustmentInstruction: String?
+        let goalProgrammingDirective: String
+    }
+
+    /// User-message emphasis for primary-goal programming (no-op when directive empty).
+    private static func splitBuilderPrimaryGoalAddendum(
+        primaryGoal: String,
+        goalProgrammingDirective: String
+    ) -> String {
+        let trimmed = goalProgrammingDirective.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        return """
+        PRIMARY GOAL PROGRAMMING (authoritative — apply in every workout):
+        User primaryGoal: “\(primaryGoal)”
+        \(trimmed)
+        Reflect this in slot labels, rep ranges, set counts, rest implications, accessory density, and cardio choices. \
+        Do not collapse into a generic “balanced fitness” plan unless primaryGoal explicitly asks for general fitness.
+        """
     }
 
     private func weekdaySymbol(_ weekday: Int) -> String {

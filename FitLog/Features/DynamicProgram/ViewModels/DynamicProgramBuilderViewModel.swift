@@ -46,7 +46,9 @@ final class DynamicProgramBuilderViewModel {
     /// Preset total length options for the program wizard.
     enum TotalWeeksTemplate: Int, CaseIterable, Identifiable, Sendable {
         case four = 4
+        case six = 6
         case eight = 8
+        case ten = 10
         case twelve = 12
         case sixteen = 16
         case custom = 0
@@ -56,7 +58,9 @@ final class DynamicProgramBuilderViewModel {
         var label: String {
             switch self {
             case .four: return "4 weeks"
+            case .six: return "6 weeks"
             case .eight: return "8 weeks"
+            case .ten: return "10 weeks"
             case .twelve: return "12 weeks"
             case .sixteen: return "16 weeks"
             case .custom: return "Custom"
@@ -165,11 +169,10 @@ final class DynamicProgramBuilderViewModel {
     /// Resolved total weeks from the length picker.
     var resolvedTotalProgramWeeks: Int {
         switch totalWeeksTemplate {
-        case .four: return 4
-        case .eight: return 8
-        case .twelve: return 12
-        case .sixteen: return 16
-        case .custom: return min(52, max(1, customTotalProgramWeeks))
+        case .custom:
+            return min(52, max(1, customTotalProgramWeeks))
+        case .four, .six, .eight, .ten, .twelve, .sixteen:
+            return totalWeeksTemplate.rawValue
         }
     }
 
