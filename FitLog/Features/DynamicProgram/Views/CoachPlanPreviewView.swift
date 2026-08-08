@@ -229,7 +229,10 @@ struct CoachPlanPreviewView: View {
                 .onSubmit { commitName() }
                 .onChange(of: programNameDraft) { _, newValue in
                     let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmed.isEmpty, trimmed != blueprint.programName {
+                    if trimmed.isEmpty {
+                        let fallback = blueprint.recommendation(for: .programName)?.recommendedValue ?? blueprint.programName
+                        onUpdateRecommendation(.programName, fallback)
+                    } else if trimmed != blueprint.programName {
                         onUpdateRecommendation(.programName, trimmed)
                     }
                 }

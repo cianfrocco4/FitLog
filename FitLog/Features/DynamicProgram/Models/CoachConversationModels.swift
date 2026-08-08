@@ -78,6 +78,8 @@ struct CoachIntakeSnapshot: Equatable, Sendable {
     var inferredSessionsPerWeek: Int?
     /// Optional saved split preference from prior builder visits.
     var savedSplitPreference: String?
+    /// Explicit cardio preference from goal follow-up (overrides engine default when set).
+    var cardioFollowUpPreference: CardioProgramPreference?
 }
 
 // MARK: - Recommendations
@@ -220,6 +222,16 @@ struct CoachBlueprint: Equatable, Sendable {
     /// Maps the confirmed blueprint into the existing generation request shape.
     func toGenerationRequest() -> DynamicProgramGenerationRequest {
         let programming = CoachGoalProgramming.resolve(from: primaryGoal, experienceLevel: experienceLevel)
+        var directive = programming.programmingDirective
+        if intensityStyle != programming.intensityStyle {
+            directive += "\nUser override — intensity style: \(intensityStyle)."
+        }
+        if progressionStyle != programming.progressionStyle {
+            directive += "\nUser override — progression style: \(progressionStyle)."
+        }
+        if deloadPreference != programming.deloadPreference {
+            directive += "\nUser override — deload approach: \(deloadPreference)."
+        }
         var splitInput = WorkoutSplitBuilderStructuredInput(
             primaryGoal: primaryGoal,
             equipment: equipment,
@@ -239,7 +251,7 @@ struct CoachBlueprint: Equatable, Sendable {
             desiredWorkoutRotationLength: nil,
             variationNotes: "",
             adjustmentInstruction: nil,
-            goalProgrammingDirective: programming.programmingDirective
+            goalProgrammingDirective: directive
         )
         splitInput.cardioPreference = cardioConfiguration.preference.rawValue
         splitInput.cardioGoal = cardioConfiguration.goal.rawValue

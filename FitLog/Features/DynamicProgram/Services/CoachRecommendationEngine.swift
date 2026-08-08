@@ -266,7 +266,11 @@ enum CoachRecommendationEngine {
         blueprint.equipment = intake.equipment
         blueprint.experienceLevel = intake.experienceLevel
         blueprint.limitationsNotes = intake.limitationsNotes
-        blueprint.usedSavedSplitPreference = fresh.usedSavedSplitPreference
+        if let splitRec = blueprint.recommendation(for: .split), splitRec.userChangedFromRecommendation {
+            blueprint.usedSavedSplitPreference = false
+        } else {
+            blueprint.usedSavedSplitPreference = fresh.usedSavedSplitPreference
+        }
 
         recomputeWarnings(blueprint: &blueprint, intake: intake)
         return autoUpdates
@@ -530,7 +534,11 @@ enum CoachRecommendationEngine {
         switch programming.goal {
         case .fatLoss:
             cardioGoal = .fatLoss
-            preference = sessions >= 4 ? .mixed : .postWorkout
+            if let followUp = intake.cardioFollowUpPreference {
+                preference = followUp
+            } else {
+                preference = sessions >= 4 ? .mixed : .postWorkout
+            }
         case .performance:
             cardioGoal = .enduranceBuilding
             preference = sessions >= 5 ? .mixed : .dedicatedDays
@@ -694,6 +702,7 @@ enum CoachRecommendationEngine {
             blueprint.programName = value
         case .split:
             blueprint.splitPreference = value
+            blueprint.usedSavedSplitPreference = false
         case .programLength:
             if let pick = CoachProgramLengthPick.allCases.first(where: { $0.label == value || value.contains("\($0.rawValue)") }) {
                 blueprint.totalWeeks = pick.rawValue

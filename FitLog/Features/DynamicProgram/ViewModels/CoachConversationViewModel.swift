@@ -49,7 +49,11 @@ final class CoachConversationViewModel {
         guard let pending = pendingIntakeTopic else {
             return max(1, answeredTopics.count)
         }
-        let visible = CoachIntakeTopic.standardIntakeOrder + (answeredTopics.contains(.goalFollowUp) || pending == .goalFollowUp ? [.goalFollowUp] : [])
+        var visible = CoachIntakeTopic.standardIntakeOrder
+        if answeredTopics.contains(.goalFollowUp) || pending == .goalFollowUp,
+           let goalIdx = visible.firstIndex(of: .goal) {
+            visible.insert(.goalFollowUp, at: goalIdx + 1)
+        }
         if let idx = visible.firstIndex(of: pending) {
             return idx + 1
         }
@@ -190,9 +194,13 @@ final class CoachConversationViewModel {
 
     func revisitIntakeTopic(_ topic: CoachIntakeTopic) {
         guard phase == .intake else { return }
-        // Drop later answers so the queue restarts from this topic.
         if let idx = answeredTopics.firstIndex(of: topic) {
             let dropped = answeredTopics[idx...]
+            if dropped.contains(.goalFollowUp) {
+                intake.priorityMusclesOrLiftsNotes = ""
+                intake.additionalNotes = ""
+                intake.cardioFollowUpPreference = nil
+            }
             for t in dropped {
                 answeredValues[t] = nil
             }
@@ -257,15 +265,16 @@ final class CoachConversationViewModel {
             return
         }
         if programming.goal == .fatLoss {
-            // Encode cardio appetite into additional notes + priority so generation sees it.
-            // Engine cardio still comes from goal; this nudges the AI via notes.
             let note: String
             if lower.contains("mixed") {
                 note = "Prefer mixed cardio (dedicated days + finishers)."
+                intake.cardioFollowUpPreference = .mixed
             } else if lower.contains("dedicated") {
                 note = "Prefer dedicated cardio days alongside lifting."
+                intake.cardioFollowUpPreference = .dedicatedDays
             } else if lower.contains("finisher") || lower.contains("light") {
                 note = "Prefer light post-lift finishers only."
+                intake.cardioFollowUpPreference = .postWorkout
             } else {
                 note = value
             }
