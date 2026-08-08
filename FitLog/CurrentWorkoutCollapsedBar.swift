@@ -91,7 +91,14 @@ struct CurrentWorkoutCollapsedBar: View {
                     .clipShape(RoundedRectangle(cornerRadius: 20))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Open workout logging")
+                .accessibilityLabel(
+                    CollapsedWorkoutBarAccessibility.openLoggingLabel(
+                        workoutName: currentVM.currentSession?.workout.name,
+                        exerciseName: primaryExerciseLine.isEmpty ? nil : primaryExerciseLine,
+                        setProgress: primarySetProgressLine,
+                        remainingRestSeconds: currentVM.remainingRestTime
+                    )
+                )
                 .accessibilityHint("Swipe up or tap to open exercise logging")
 
                 HStack(spacing: 8) {
