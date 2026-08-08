@@ -45,4 +45,21 @@ struct PremiumGatingSmokeTests {
         #expect(!HistoryDayRange.d7.requiresPremium)
         #expect(!HistoryDayRange.d14.requiresPremium)
     }
+
+    @Test func freeUser_proposedPremiumRanges_areRejectedWithoutMutationSemantics() {
+        #expect(HistoryDayRange.allowsSelection(.d7, isPremium: false))
+        #expect(HistoryDayRange.allowsSelection(.d14, isPremium: false))
+        #expect(!HistoryDayRange.allowsSelection(.d30, isPremium: false))
+        #expect(!HistoryDayRange.allowsSelection(.d90, isPremium: false))
+        #expect(!HistoryDayRange.allowsSelection(.ytd, isPremium: false))
+        #expect(HistoryDayRange.allowsSelection(.d90, isPremium: true))
+
+        #expect(ExerciseHistoryDataScope.allowsSelection(.selectedRange, isPremium: false))
+        #expect(!ExerciseHistoryDataScope.allowsSelection(.allTime, isPremium: false))
+        #expect(ExerciseHistoryDataScope.allowsSelection(.allTime, isPremium: true))
+
+        #expect(PremiumGatedSelection.shouldApply(requiresPremium: true, hasPremiumAccess: false) == false)
+        #expect(PremiumGatedSelection.shouldApply(requiresPremium: true, hasPremiumAccess: true))
+        #expect(PremiumGatedSelection.shouldApply(requiresPremium: false, hasPremiumAccess: false))
+    }
 }

@@ -15,18 +15,18 @@ struct ExerciseHistoryDetailView: View {
     let allSessionsSorted: [WorkoutSession]
     @State private var dataScope: ExerciseHistoryDataScope = .selectedRange
     @State private var showPaywall = false
+    /// Bumps when a Premium-only scope is rejected so the segmented picker resyncs visually.
+    @State private var dataScopePickerEpoch = 0
 
     /// Rejects All-time for free users without briefly mutating `dataScope` (avoids chart/session flash).
     private var dataScopeSelection: Binding<ExerciseHistoryDataScope> {
-        Binding(
+        PremiumGatedSelection.binding(
             get: { dataScope },
-            set: { newScope in
-                if newScope == .allTime, !entitlementStore.hasAccess(to: .unlimitedHistory) {
-                    showPaywall = true
-                    return
-                }
-                dataScope = newScope
-            }
+            set: { dataScope = $0 },
+            requiresPremium: { $0.requiresPremium },
+            hasPremiumAccess: { entitlementStore.hasAccess(to: .unlimitedHistory) },
+            onDenied: { showPaywall = true },
+            resyncToken: $dataScopePickerEpoch
         )
     }
 
@@ -104,7 +104,7 @@ struct ExerciseHistoryDetailView: View {
             Section {
                 Picker("Scope", selection: dataScopeSelection) {
                     ForEach(ExerciseHistoryDataScope.allCases, id: \.rawValue) { scope in
-                        if scope == .allTime, !entitlementStore.hasAccess(to: .unlimitedHistory) {
+                        if scope.requiresPremium, !entitlementStore.hasAccess(to: .unlimitedHistory) {
                             Label("\(scope.label) (Premium)", systemImage: "lock.fill").tag(scope)
                         } else {
                             Text(scope.label).tag(scope)
@@ -112,6 +112,7 @@ struct ExerciseHistoryDetailView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .id(dataScopePickerEpoch)
             } footer: {
                 Text(
                     dataScope == .selectedRange

@@ -12,15 +12,12 @@ struct HistoryFilterMenu: View {
 
     /// Rejects Premium-only ranges for free users without briefly mutating `dayRange` (avoids KPI flash).
     private var dayRangeSelection: Binding<HistoryDayRange> {
-        Binding(
+        PremiumGatedSelection.binding(
             get: { viewModel.dayRange },
-            set: { newRange in
-                if newRange.requiresPremium, !entitlementStore.hasAccess(to: .unlimitedHistory) {
-                    showPaywall = true
-                    return
-                }
-                viewModel.dayRange = newRange
-            }
+            set: { viewModel.dayRange = $0 },
+            requiresPremium: { $0.requiresPremium },
+            hasPremiumAccess: { entitlementStore.hasAccess(to: .unlimitedHistory) },
+            onDenied: { showPaywall = true }
         )
     }
 
