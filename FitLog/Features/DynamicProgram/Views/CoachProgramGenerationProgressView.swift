@@ -9,7 +9,7 @@ import SwiftUI
 
 struct CoachProgramGenerationProgressView: View {
     let statusMessage: String
-    let isConnecting: Bool
+    let stage: DynamicProgramBuilderViewModel.GenerationStage
     let blockCompleted: Int
     let blockTotal: Int
     let programTitle: String
@@ -26,10 +26,16 @@ struct CoachProgramGenerationProgressView: View {
         return Double(blockCompleted) / Double(blockTotal)
     }
 
+    /// Step index for Connecting / Designing / Finalizing bubbles.
     private var activeStepIndex: Int {
-        if isConnecting { return 0 }
-        if blockCompleted < blockTotal { return 1 }
-        return 2
+        switch stage {
+        case .idle, .connecting:
+            return 0
+        case .designing:
+            return 1
+        case .finalizing, .ready:
+            return 2
+        }
     }
 
     var body: some View {
@@ -51,8 +57,9 @@ struct CoachProgramGenerationProgressView: View {
             RoundedRectangle(cornerRadius: 20)
                 .strokeBorder(FitlogPalette.chartPrimary.opacity(pulsePhase ? 0.45 : 0.2), lineWidth: 1.5)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilitySummary)
+        // `.contain` keeps each step readable so VoiceOver can convey stage progress.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(headerTitle)
         .onAppear {
             withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
                 pulsePhase = true
@@ -72,7 +79,7 @@ struct CoachProgramGenerationProgressView: View {
                     .foregroundStyle(FitlogPalette.chartPrimary)
             }
             VStack(alignment: .leading, spacing: 4) {
-                Text("Building your program")
+                Text(headerTitle)
                     .font(.title3.weight(.semibold))
                 Text(programTitle)
                     .font(.subheadline)
@@ -85,8 +92,13 @@ struct CoachProgramGenerationProgressView: View {
 
     private var statusSection: some View {
         HStack(spacing: 12) {
-            ProgressView()
-                .controlSize(.regular)
+            if stage != .ready {
+                ProgressView()
+                    .controlSize(.regular)
+            } else {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(FitlogPalette.success)
+            }
             Text(statusMessage)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.primary)
@@ -96,6 +108,9 @@ struct CoachProgramGenerationProgressView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(statusMessage)
+        .accessibilityAddTraits(.updatesFrequently)
     }
 
     private var blockProgressSection: some View {
@@ -129,8 +144,8 @@ struct CoachProgramGenerationProgressView: View {
                 index: 1
             )
             generationStep(
-                title: "Finalizing",
-                detail: "Preparing your review",
+                title: stage == .ready ? "Ready" : "Finalizing",
+                detail: stage == .ready ? "Opening your review" : "Preparing your review",
                 index: 2
             )
         }
@@ -157,13 +172,13 @@ struct CoachProgramGenerationProgressView: View {
     }
 
     private func generationStep(title: String, detail: String, index: Int) -> some View {
-        let isActive = activeStepIndex == index
-        let isComplete = activeStepIndex > index
+        let isActive = activeStepIndex == index && stage != .ready
+        let isComplete = activeStepIndex > index || stage == .ready
 
         return HStack(spacing: 12) {
             ZStack {
                 Circle()
-                    .strokeBorder(isActive ? FitlogPalette.chartPrimary : Color.secondary.opacity(0.25), lineWidth: 2)
+                    .strokeBorder(isActive || isComplete ? FitlogPalette.chartPrimary : Color.secondary.opacity(0.25), lineWidth: 2)
                     .frame(width: 24, height: 24)
                 if isComplete {
                     Image(systemName: "checkmark")
@@ -178,7 +193,7 @@ struct CoachProgramGenerationProgressView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.subheadline.weight(isActive ? .semibold : .regular))
-                    .foregroundStyle(isActive ? .primary : .secondary)
+                    .foregroundStyle(isActive || isComplete ? .primary : .secondary)
                 Text(detail)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
@@ -193,12 +208,8 @@ struct CoachProgramGenerationProgressView: View {
         "\(daysPerWeek) training day\(daysPerWeek == 1 ? "" : "s") per week"
     }
 
-    private var accessibilitySummary: String {
-        var parts = ["Building your program", programTitle, statusMessage]
-        if showsBlockProgress {
-            parts.append("Phase \(blockCompleted) of \(blockTotal)")
-        }
-        return parts.joined(separator: ". ")
+    private var headerTitle: String {
+        stage == .ready ? "Program ready" : "Building your program"
     }
 }
 
@@ -206,7 +217,7 @@ struct CoachProgramGenerationProgressView: View {
     ScrollView {
         CoachProgramGenerationProgressView(
             statusMessage: "Connecting to AI…",
-            isConnecting: true,
+            stage: .connecting,
             blockCompleted: 0,
             blockTotal: 3,
             programTitle: "12-Week Strength Block",
@@ -220,7 +231,7 @@ struct CoachProgramGenerationProgressView: View {
     ScrollView {
         CoachProgramGenerationProgressView(
             statusMessage: "Generating phase 2 of 3…",
-            isConnecting: false,
+            stage: .designing,
             blockCompleted: 2,
             blockTotal: 3,
             programTitle: "Hypertrophy Mesocycle",
@@ -229,4 +240,18 @@ struct CoachProgramGenerationProgressView: View {
         .padding()
     }
     .preferredColorScheme(.dark)
+}
+
+#Preview("Ready") {
+    ScrollView {
+        CoachProgramGenerationProgressView(
+            statusMessage: "Ready to review",
+            stage: .ready,
+            blockCompleted: 1,
+            blockTotal: 1,
+            programTitle: "Muscle Builder",
+            daysPerWeek: 4
+        )
+        .padding()
+    }
 }

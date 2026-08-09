@@ -263,4 +263,60 @@ final class CoachRecommendationEngineTests: XCTestCase {
         XCTAssertTrue(blueprint.usedSavedSplitPreference)
         XCTAssertEqual(blueprint.splitPreference, CoachSplitPick.upperLower.rawValue)
     }
+
+    func testNormalizedWarningDedupeCollapsesNearDuplicates() {
+        let merged = CoachRecommendationEngine.mergeWarnings(
+            local: ["Keep at least one rest day between hard sessions."],
+            extras: [
+                "Keep at least one rest day between hard sessions!",
+                "  Keep at least one rest day between hard sessions.  ",
+                "Brand new caution about equipment access.",
+            ]
+        )
+        XCTAssertEqual(merged.count, 2)
+        XCTAssertEqual(merged[0], "Keep at least one rest day between hard sessions.")
+        XCTAssertEqual(merged[1], "Brand new caution about equipment access.")
+    }
+
+    func testRecomputeDropsStaleLocalWarningButKeepsAINote() {
+        var intake = CoachIntakeSnapshot(
+            primaryGoal: CoachGoalPick.general.rawValue,
+            experienceLevel: CoachExperiencePick.beginner.rawValue,
+            sessionsPerWeek: 5,
+            preferredWeekdays: [1, 2, 3, 4, 5]
+        )
+        var blueprint = CoachRecommendationEngine.buildBlueprint(from: intake)
+        blueprint.aiWarnings = ["Watch your shoulder on overhead pressing."]
+        CoachRecommendationEngine.recomputeWarnings(blueprint: &blueprint, intake: intake)
+        XCTAssertTrue(
+            blueprint.warnings.contains { $0.lowercased().contains("a lot for a beginner") },
+            "Expected the beginner volume warning to seed the test"
+        )
+
+        // Scaling back to 3 days means the beginner volume warning no longer applies.
+        intake.sessionsPerWeek = 3
+        blueprint.sessionsPerWeek = 3
+        CoachRecommendationEngine.recomputeWarnings(blueprint: &blueprint, intake: intake)
+
+        XCTAssertFalse(
+            blueprint.warnings.contains { $0.lowercased().contains("a lot for a beginner") },
+            "Obsolete local warnings must not survive a recompute"
+        )
+        XCTAssertTrue(blueprint.warnings.contains("Watch your shoulder on overhead pressing."))
+    }
+
+    func testTopicResolvePrefersLongestMatch() {
+        XCTAssertEqual(CoachRecommendationTopic.resolve(from: "notes on program length"), .programLength)
+        XCTAssertEqual(CoachRecommendationTopic.resolve(from: "thoughts on the training split"), .split)
+    }
+
+    func testTopicResolveAcceptsCardioPlanAlias() {
+        XCTAssertEqual(CoachRecommendationTopic.resolve(from: "Cardio plan"), .cardio)
+        XCTAssertEqual(CoachRecommendationTopic.resolve(from: "cardio"), .cardio)
+        XCTAssertEqual(CoachRecommendationTopic.resolve(from: "Training phases"), .periodization)
+        XCTAssertEqual(
+            CoachRecommendationExplanation(topic: "Cardio plan", rationale: "Why", tradeoffs: []).resolvedTopic,
+            .cardio
+        )
+    }
 }

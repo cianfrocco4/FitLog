@@ -126,4 +126,46 @@ final class ProgramBuilderValidationTests: XCTestCase {
         )
         XCTAssertTrue(r.canSaveToPlan)
     }
+
+    func testBalanceWarningIdsRemainDistinctAcrossDays() {
+        let a = SplitProposalProgramWarning(
+            severity: .note,
+            message: "Thin day",
+            dayIndex: 0,
+            suggestion: .openDay(0)
+        )
+        let b = SplitProposalProgramWarning(
+            severity: .note,
+            message: "Thin day",
+            dayIndex: 1,
+            suggestion: .openDay(1)
+        )
+        XCTAssertNotEqual(a.id, b.id)
+
+        let days = [
+            SplitProposalProgramAnalyzer.DayInput(
+                name: "Push",
+                focus: "",
+                slots: [
+                    .init(label: "Bench", targetMuscleNames: [MuscleGroup.chest.rawValue], sets: 4),
+                    .init(label: "OHP", targetMuscleNames: [MuscleGroup.frontDelts.rawValue], sets: 3),
+                    .init(label: "Fly", targetMuscleNames: [MuscleGroup.chest.rawValue], sets: 3),
+                ]
+            ),
+            SplitProposalProgramAnalyzer.DayInput(
+                name: "Pull",
+                focus: "",
+                slots: [
+                    .init(label: "Row", targetMuscleNames: [MuscleGroup.lats.rawValue], sets: 1),
+                ]
+            ),
+        ]
+        let stats = SplitProposalProgramAnalyzer.stats(for: days)
+        let warnings = SplitProposalProgramAnalyzer.warnings(
+            stats: stats,
+            days: days,
+            context: .init(sessionDurationMinutes: 60)
+        )
+        XCTAssertTrue(warnings.contains(where: { $0.dayIndex != nil || $0.suggestion != nil }))
+    }
 }

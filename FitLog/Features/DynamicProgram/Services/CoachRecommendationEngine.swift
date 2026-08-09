@@ -284,9 +284,49 @@ enum CoachRecommendationEngine {
             split: blueprint.splitPreference,
             cardio: blueprint.cardioConfiguration
         )
-        // Preserve AI-appended warnings that aren't reproduced locally.
-        let extras = blueprint.warnings.filter { !local.contains($0) }
-        blueprint.warnings = local + extras
+        // Local warnings are authoritative and fully recomputed; only AI notes are carried over,
+        // so a warning that no longer applies cannot survive as an untracked extra.
+        blueprint.warnings = mergeWarnings(local: local, extras: blueprint.aiWarnings)
+    }
+
+    /// Lowercased, whitespace-collapsed, trailing-punctuation-stripped key for warning dedupe.
+    static func normalizedWarningKey(_ warning: String) -> String {
+        let trimmed = warning.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let collapsed = trimmed
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        return collapsed.trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!? "))
+    }
+
+    /// Stable order: keep first occurrence of each normalized key.
+    static func dedupeWarnings(_ warnings: [String]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for warning in warnings {
+            let trimmed = warning.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let key = normalizedWarningKey(trimmed)
+            guard !key.isEmpty, !seen.contains(key) else { continue }
+            seen.insert(key)
+            result.append(trimmed)
+        }
+        return result
+    }
+
+    /// Merges local warnings with extras, dropping near-duplicates of local entries.
+    static func mergeWarnings(local: [String], extras: [String]) -> [String] {
+        let base = dedupeWarnings(local)
+        var seen = Set(base.map(normalizedWarningKey))
+        var merged = base
+        for extra in extras {
+            let trimmed = extra.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let key = normalizedWarningKey(trimmed)
+            guard !key.isEmpty, !seen.contains(key) else { continue }
+            seen.insert(key)
+            merged.append(trimmed)
+        }
+        return merged
     }
 
     static func syncBlueprintFromRecommendations(_ blueprint: inout CoachBlueprint) {

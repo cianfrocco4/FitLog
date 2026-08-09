@@ -25,13 +25,34 @@ struct SplitProposalProgramStats: Equatable {
 }
 
 struct SplitProposalProgramWarning: Equatable, Identifiable {
-    var id: String { message }
     let severity: Severity
     let message: String
+    /// Day index within the analyzed block when the warning is day-specific.
+    var dayIndex: Int? = nil
+    /// Optional actionable suggestion for the review UI.
+    var suggestion: Suggestion? = nil
+
+    var id: String {
+        let dayKey = dayIndex.map(String.init) ?? "all"
+        let suggestionKey: String
+        switch suggestion {
+        case .openDay(let d): suggestionKey = "open:\(d)"
+        case .addSlot(let d, let label, _): suggestionKey = "add:\(d):\(label)"
+        case .regenerateWithNote(let note): suggestionKey = "regen:\(note.prefix(40))"
+        case .none: suggestionKey = "none"
+        }
+        return "\(severity.rawValue)|\(dayKey)|\(suggestionKey)|\(message)"
+    }
 
     enum Severity: String {
         case caution
         case note
+    }
+
+    enum Suggestion: Equatable, Sendable {
+        case openDay(Int)
+        case addSlot(dayIndex: Int, label: String, muscles: [String])
+        case regenerateWithNote(String)
     }
 }
 
@@ -134,47 +155,85 @@ enum SplitProposalProgramAnalyzer {
 
         let dayTallies = pushPullDominantDayTallies(days: days)
         if dayTallies.pushDominantDays > dayTallies.pullDominantDays {
+            let targetDay = indexOfMostPushDominantDay(days: days) ?? 0
             out.append(SplitProposalProgramWarning(
                 severity: .caution,
-                message: "More push-focused training days (\(dayTallies.pushDominantDays)) than pull-focused days (\(dayTallies.pullDominantDays)). That biases shoulders and posture over time — add pull-focused templates, balance upper days, or regenerate (applies to any split: PPL, upper/lower, bro-style, etc.)."
+                message: "More push-focused training days (\(dayTallies.pushDominantDays)) than pull-focused days (\(dayTallies.pullDominantDays)). That biases shoulders and posture over time — add pull-focused templates, balance upper days, or regenerate (applies to any split: PPL, upper/lower, bro-style, etc.).",
+                dayIndex: targetDay,
+                suggestion: .addSlot(
+                    dayIndex: targetDay,
+                    label: "Pull accessory",
+                    muscles: [MuscleGroup.lats.rawValue, MuscleGroup.rearDelts.rawValue]
+                )
             ))
         }
 
         if stats.legOrientedSets > 12,
            stats.quadKneeOrientedSets > max(12, stats.hipPosteriorLegSets * 2 + 6) {
+            let legDay = indexOfDayMatching(days: days, tokens: ["leg", "lower", "squat", "quad"]) ?? 0
             out.append(SplitProposalProgramWarning(
                 severity: .caution,
-                message: "Leg volume looks heavily knee/quad-dominant vs hip hinge and hamstrings/glutes. Add RDLs, hinges, leg curls, or similar for balance (any leg split)."
+                message: "Leg volume looks heavily knee/quad-dominant vs hip hinge and hamstrings/glutes. Add RDLs, hinges, leg curls, or similar for balance (any leg split).",
+                dayIndex: legDay,
+                suggestion: .addSlot(
+                    dayIndex: legDay,
+                    label: "Hip hinge",
+                    muscles: [MuscleGroup.hamstrings.rawValue, MuscleGroup.glutes.rawValue]
+                )
             ))
         }
 
         if stats.legOrientedSets == 0 {
+            let day = days.indices.last ?? 0
             out.append(SplitProposalProgramWarning(
                 severity: .caution,
-                message: "No clear leg-focused volume (quads, hamstrings, glutes, calves). Consider adding lower-body work unless this block is intentional."
+                message: "No clear leg-focused volume (quads, hamstrings, glutes, calves). Consider adding lower-body work unless this block is intentional.",
+                dayIndex: days.isEmpty ? nil : day,
+                suggestion: days.isEmpty ? .regenerateWithNote("Add lower-body volume across the week.") : .addSlot(
+                    dayIndex: day,
+                    label: "Lower body",
+                    muscles: [MuscleGroup.quads.rawValue, MuscleGroup.glutes.rawValue]
+                )
             ))
         }
 
         if stats.pullOrientedSets == 0 && stats.pushOrientedSets > 0 {
+            let targetDay = indexOfMostPushDominantDay(days: days) ?? 0
             out.append(SplitProposalProgramWarning(
                 severity: .caution,
-                message: "Pushing volume is present but pulling looks missing. Balance rows, rear delts, and biceps for shoulder and posture health."
+                message: "Pushing volume is present but pulling looks missing. Balance rows, rear delts, and biceps for shoulder and posture health.",
+                dayIndex: targetDay,
+                suggestion: .addSlot(
+                    dayIndex: targetDay,
+                    label: "Row / pull",
+                    muscles: [MuscleGroup.lats.rawValue, MuscleGroup.midBack.rawValue]
+                )
             ))
         }
 
         if stats.pushOrientedSets == 0 && stats.pullOrientedSets > 0 {
+            let targetDay = indexOfDayMatching(days: days, tokens: ["pull", "back", "upper"]) ?? 0
             out.append(SplitProposalProgramWarning(
                 severity: .note,
-                message: "Little or no chest/front-delts/triceps emphasis detected. Confirm that matches your goals."
+                message: "Little or no chest/front-delts/triceps emphasis detected. Confirm that matches your goals.",
+                dayIndex: days.isEmpty ? nil : targetDay,
+                suggestion: days.isEmpty ? nil : .openDay(targetDay)
             ))
         }
 
         if stats.pushOrientedSets > 0, stats.pullOrientedSets > 0 {
             let ratio = Double(stats.pushOrientedSets) / Double(max(1, stats.pullOrientedSets))
             if ratio > 2.2 {
+                let targetDay = indexOfMostPushDominantDay(days: days) ?? 0
                 out.append(SplitProposalProgramWarning(
                     severity: .caution,
-                    message: "Pushing volume is much higher than pulling. Consider more rows, pulldowns, or rear-delt work."
+                    message: "Pushing volume is much higher than pulling. Consider more rows, pulldowns, or rear-delt work.",
+                    dayIndex: targetDay,
+                    suggestion: .addSlot(
+                        dayIndex: targetDay,
+                        label: "Pull accessory",
+                        muscles: [MuscleGroup.lats.rawValue, MuscleGroup.rearDelts.rawValue]
+                    )
                 ))
             }
         }
@@ -206,13 +265,15 @@ enum SplitProposalProgramAnalyzer {
         }
 
         if let minutes = context.sessionDurationMinutes, minutes <= 45 {
-            let crowded = days.first { d in
+            if let crowdedIndex = days.firstIndex(where: { d in
                 d.slots.count >= 6 || d.slots.reduce(0) { $0 + max(0, $1.sets) } > 20
-            }
-            if let d = crowded {
+            }) {
+                let d = days[crowdedIndex]
                 out.append(SplitProposalProgramWarning(
                     severity: .caution,
-                    message: "“\(d.name)” may be too crowded for ~\(minutes) minutes. Trim slots or lower sets so the plan is realistic."
+                    message: "“\(d.name)” may be too crowded for ~\(minutes) minutes. Trim slots or lower sets so the plan is realistic.",
+                    dayIndex: crowdedIndex,
+                    suggestion: .openDay(crowdedIndex)
                 ))
             }
         }
@@ -240,14 +301,16 @@ enum SplitProposalProgramAnalyzer {
             ))
         }
 
-        let thinDay = days.first { d in
+        if let thinIndex = days.firstIndex(where: { d in
             let n = d.slots.count
             return n > 0 && n < 3
-        }
-        if let d = thinDay {
+        }) {
+            let d = days[thinIndex]
             out.append(SplitProposalProgramWarning(
                 severity: .note,
-                message: "“\(d.name)” has fewer than 3 slots — OK for time-crunched days; ensure other days carry priority work."
+                message: "“\(d.name)” has fewer than 3 slots — OK for time-crunched days; ensure other days carry priority work.",
+                dayIndex: thinIndex,
+                suggestion: .openDay(thinIndex)
             ))
         }
 
@@ -332,6 +395,41 @@ enum SplitProposalProgramAnalyzer {
                 return "\(label)|\(muscles)|\(slot.sets)"
             }
             .joined(separator: ";")
+    }
+
+    private static func indexOfDayMatching(days: [DayInput], tokens: [String]) -> Int? {
+        days.firstIndex { day in
+            let haystack = (day.name + " " + day.focus).lowercased()
+            return tokens.contains { haystack.contains($0) }
+        }
+    }
+
+    private static func indexOfMostPushDominantDay(days: [DayInput]) -> Int? {
+        var bestIndex: Int?
+        var bestGap = Int.min
+        for (index, day) in days.enumerated() {
+            var dayPush = 0
+            var dayPull = 0
+            for slot in day.slots {
+                let s = min(max(slot.sets, 0), 99)
+                let groups = ExerciseNameResolution.resolveMuscleGroups(from: slot.targetMuscleNames)
+                let pushHits = groups.filter { bucketPush.contains($0) }.count
+                let pullHits = groups.filter { bucketPull.contains($0) }.count
+                let legHits = groups.filter { bucketLegs.contains($0) }.count
+                if legHits > max(pushHits, pullHits) { continue }
+                if pushHits > pullHits {
+                    dayPush += s
+                } else if pullHits > pushHits {
+                    dayPull += s
+                }
+            }
+            let gap = dayPush - dayPull
+            if gap > bestGap {
+                bestGap = gap
+                bestIndex = index
+            }
+        }
+        return bestIndex
     }
 
     /// Per training day: compare slot volume whose muscles skew push vs pull (legs/core days often neutral).

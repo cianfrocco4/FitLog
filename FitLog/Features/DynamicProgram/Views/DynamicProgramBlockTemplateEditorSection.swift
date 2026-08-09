@@ -10,12 +10,18 @@ import SwiftUI
 
 struct DynamicProgramBlockTemplateEditorSection: View {
     @Binding var days: [SplitBuilderEditableDay]
-    /// When true, uses day pager + inline expandable slots instead of DisclosureGroups.
+    /// When true, uses day pager + tap-to-open slot editor instead of DisclosureGroups.
     var enableManualSlotChrome: Bool = false
+    /// Preferred day index when opening the pager (from balance suggestions).
+    var preferredDayIndex: Int? = nil
     /// Called after structural edits (move / add / remove day or slot).
     let onStructuralChange: () -> Void
     /// Called after slot field edits (sets, label, reps).
     let onSlotFieldChange: () -> Void
+    /// Called before a structural mutation so the host can snapshot undo state.
+    var onBeforeStructuralChange: (() -> Void)? = nil
+    /// Called after a confirmed slot removal.
+    var onSlotRemoved: ((String) -> Void)? = nil
 
     @Environment(DataManager.self) private var dataManager
     @EnvironmentObject private var aiService: AIService
@@ -35,8 +41,11 @@ struct DynamicProgramBlockTemplateEditorSection: View {
                 DayPagerEditorView(
                     days: $days,
                     enableManualSlotChrome: true,
+                    preferredDayIndex: preferredDayIndex,
                     onStructuralChange: onStructuralChange,
-                    onSlotFieldChange: onSlotFieldChange
+                    onSlotFieldChange: onSlotFieldChange,
+                    onBeforeStructuralChange: onBeforeStructuralChange,
+                    onSlotRemoved: onSlotRemoved
                 )
             } else {
                 legacyDisclosureEditor
@@ -60,11 +69,13 @@ struct DynamicProgramBlockTemplateEditorSection: View {
                 }
             }
             .onMove { from, to in
+                onBeforeStructuralChange?()
                 days.move(fromOffsets: from, toOffset: to)
                 onStructuralChange()
             }
 
             Button {
+                onBeforeStructuralChange?()
                 days.append(
                     SplitBuilderEditableDay(
                         name: "Day \(days.count + 1)",
@@ -155,6 +166,7 @@ struct DynamicProgramBlockTemplateEditorSection: View {
             templateSlotRow(day: day, slotId: slot.id)
         }
         .onMove { from, to in
+            onBeforeStructuralChange?()
             var d = day.wrappedValue
             d.slots.move(fromOffsets: from, toOffset: to)
             day.wrappedValue = d
@@ -173,62 +185,53 @@ struct DynamicProgramBlockTemplateEditorSection: View {
         }
         .font(.subheadline)
         .accessibilityHint("Adds a strength or cardio exercise slot to this day")
-
-        if !day.wrappedValue.slots.isEmpty {
-            Button(role: .destructive) {
-                var d = day.wrappedValue
-                d.slots.removeLast()
-                day.wrappedValue = d
-                onStructuralChange()
-            } label: {
-                Label("Remove last slot", systemImage: "minus.circle")
-            }
-            .font(.subheadline)
-            .accessibilityHint("Removes the last slot from this day")
-        }
     }
 
     private func appendStrengthSlot(to day: Binding<SplitBuilderEditableDay>) {
+        onBeforeStructuralChange?()
         var d = day.wrappedValue
-        d.slots.append(
-            SplitBuilderEditableSlot(
-                label: "New slot",
-                targetMuscleNames: [MuscleGroup.other.rawValue],
-                sets: 3,
-                reps: "8-12"
-            )
+        let slot = SplitBuilderEditableSlot(
+            label: "New slot",
+            targetMuscleNames: [MuscleGroup.other.rawValue],
+            sets: 3,
+            reps: "8-12"
         )
+        d.slots.append(slot)
         day.wrappedValue = d
         onStructuralChange()
+        slotDetailTarget = LegacySlotEditorTarget(dayId: d.id, slotId: slot.id)
     }
 
     private func appendCardioSlot(to day: Binding<SplitBuilderEditableDay>) {
+        onBeforeStructuralChange?()
         var d = day.wrappedValue
-        d.slots.append(
-            CardioProgramTemplates.defaultCardioSlot(library: dataManager.globalExercises)
-        )
+        let slot = CardioProgramTemplates.defaultCardioSlot(library: dataManager.globalExercises)
+        d.slots.append(slot)
         day.wrappedValue = d
         onStructuralChange()
+        slotDetailTarget = LegacySlotEditorTarget(dayId: d.id, slotId: slot.id)
     }
 
     @ViewBuilder
     private func templateSlotRow(day: Binding<SplitBuilderEditableDay>, slotId: UUID) -> some View {
-        let slotBinding = Binding<SplitBuilderEditableSlot>(
-            get: {
-                day.wrappedValue.slots.first(where: { $0.id == slotId })
-                    ?? SplitBuilderEditableSlot(label: "", targetMuscleNames: [MuscleGroup.other.rawValue], sets: 3, reps: "8-12")
-            },
-            set: { newSlot in
-                guard let idx = day.wrappedValue.slots.firstIndex(where: { $0.id == slotId }) else { return }
-                day.wrappedValue.slots[idx] = newSlot
-                onSlotFieldChange()
-            }
-        )
+        if day.wrappedValue.slots.contains(where: { $0.id == slotId }) {
+            let slotBinding = Binding<SplitBuilderEditableSlot>(
+                get: {
+                    day.wrappedValue.slots.first(where: { $0.id == slotId })!
+                },
+                set: { newSlot in
+                    guard newSlot.id == slotId,
+                          let idx = day.wrappedValue.slots.firstIndex(where: { $0.id == slotId }) else { return }
+                    day.wrappedValue.slots[idx] = newSlot
+                    onSlotFieldChange()
+                }
+            )
 
-        if slotBinding.wrappedValue.modality == .cardio {
-            cardioTemplateSlotRow(day: day, slotId: slotId, slotBinding: slotBinding)
-        } else {
-            strengthTemplateSlotRow(day: day, slotId: slotId, slotBinding: slotBinding)
+            if slotBinding.wrappedValue.modality == .cardio {
+                cardioTemplateSlotRow(day: day, slotId: slotId, slotBinding: slotBinding)
+            } else {
+                strengthTemplateSlotRow(day: day, slotId: slotId, slotBinding: slotBinding)
+            }
         }
     }
 
@@ -308,16 +311,21 @@ struct DynamicProgramBlockTemplateEditorSection: View {
         .padding(.vertical, 4)
     }
 
+    /// Resolves day and slot indices on every access — a captured index would go stale when
+    /// days are reordered, removed, or restored by undo while the editor sheet is open.
     private func bindingForSlot(dayId: UUID, slotId: UUID) -> Binding<SplitBuilderEditableSlot>? {
-        guard let dIdx = days.firstIndex(where: { $0.id == dayId }),
-              days[dIdx].slots.contains(where: { $0.id == slotId }) else { return nil }
+        guard let known = days.first(where: { $0.id == dayId })?.slots.first(where: { $0.id == slotId }) else {
+            return nil
+        }
         return Binding(
             get: {
-                days[dIdx].slots.first(where: { $0.id == slotId })
-                    ?? SplitBuilderEditableSlot(label: "", targetMuscleNames: [MuscleGroup.other.rawValue], sets: 3, reps: "8-12")
+                days.first(where: { $0.id == dayId })?
+                    .slots.first(where: { $0.id == slotId }) ?? known
             },
             set: { newSlot in
-                guard let sIdx = days[dIdx].slots.firstIndex(where: { $0.id == slotId }) else { return }
+                guard newSlot.id == slotId,
+                      let dIdx = days.firstIndex(where: { $0.id == dayId }),
+                      let sIdx = days[dIdx].slots.firstIndex(where: { $0.id == slotId }) else { return }
                 days[dIdx].slots[sIdx] = newSlot
                 onSlotFieldChange()
             }

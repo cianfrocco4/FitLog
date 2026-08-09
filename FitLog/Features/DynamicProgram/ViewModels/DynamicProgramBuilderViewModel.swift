@@ -99,6 +99,25 @@ final class DynamicProgramBuilderViewModel {
         }
     }
 
+    /// Coarse generation pipeline for Guided Coach progress UI (not inferred from block counters).
+    enum GenerationStage: Int, Equatable, Sendable {
+        case idle = 0
+        case connecting = 1
+        case designing = 2
+        case finalizing = 3
+        case ready = 4
+
+        var statusLine: String {
+            switch self {
+            case .idle: return "Building your program…"
+            case .connecting: return "Connecting to AI…"
+            case .designing: return "Designing workouts…"
+            case .finalizing: return "Finalizing your program…"
+            case .ready: return "Ready to review"
+            }
+        }
+    }
+
     var request: DynamicProgramGenerationRequest
     var wizardStep: WizardStep = .essentials
     /// Progressive disclosure for advanced wizard fields on Structure step.
@@ -115,6 +134,8 @@ final class DynamicProgramBuilderViewModel {
     var isGenerating = false
     /// True while awaiting proxy `/health` before the first completion.
     var isConnectingToProxy = false
+    /// Explicit pipeline stage for progress UI (persists until next run / navigation reset).
+    var generationStage: GenerationStage = .idle
     /// Human-readable generation substate (connecting, per-block progress).
     var generationStatusMessage: String?
     /// Current block index completed during multi-phase generation (0 when not started).
@@ -141,8 +162,23 @@ final class DynamicProgramBuilderViewModel {
     var perBlockEditableDays: [[SplitBuilderEditableDay]] = []
     /// Which program block the main “Templates” form section is editing (0-based).
     var editableBlockIndex: Int = 0
+    /// Selected day within the editable block (for Overview → Edit navigation).
+    var editableDayIndex: Int = 0
     /// Balance / coverage hints for the **currently selected** editable block.
     var generationBalanceWarnings: [SplitProposalProgramWarning] = []
+
+    /// Snapshot of the program right after successful generation (for Reset to generated).
+    private(set) var generatedBaseline: DynamicProgram?
+    private(set) var baselineEditableDays: [[SplitBuilderEditableDay]] = []
+    /// Bounded undo stack of `(program, perBlockEditableDays)` before structural mutations.
+    private var undoStack: [(program: DynamicProgram, days: [[SplitBuilderEditableDay]])] = []
+    private let maxUndoStackDepth = 20
+    /// Transient banner after destructive edits (e.g. "Slot removed — Undo").
+    var undoBannerMessage: String?
+    /// Day to focus the next time a different block is selected (cross-block suggestion jumps).
+    private var pendingEditDayIndex: Int?
+    /// Debounce task for balance warning refresh.
+    @ObservationIgnored private var balanceRefreshTask: Task<Void, Never>?
 
     /// Plain-language program layout (drives `request.blockSpecs` + `isPeriodized`).
     var programStructurePreset: ProgramStructurePreset = .singlePhase
@@ -543,6 +579,7 @@ final class DynamicProgramBuilderViewModel {
         applyErrorMessage = nil
         editableBlockIndex = 0
         rebuildEditableDaysFromProgram()
+        captureGeneratedBaseline()
         wizardStep = .reviewAndEdit
         builderMode = state.program.generatedWithAI ? .aiGenerate : .manualBuild
     }
@@ -647,6 +684,7 @@ final class DynamicProgramBuilderViewModel {
     }
 
     func generate(aiService: AIService, dataManager: DataManager, entitlementStore: EntitlementStore) async {
+        guard !isGenerating else { return }
         guard entitlementStore.hasAccess(to: .aiProgramGeneration) else {
             errorMessage = "Upgrade to Premium to generate programs with AI."
             return
@@ -657,17 +695,16 @@ final class DynamicProgramBuilderViewModel {
         lastGenerationUsedLocalPresets = false
         generationBlockCompleted = 0
         generationBlockTotal = 1
+        setGenerationStage(.idle)
         defer {
             isGenerating = false
             isConnectingToProxy = false
-            generationStatusMessage = nil
-            generationBlockCompleted = 0
-            generationBlockTotal = 1
+            // Keep stage/counters visible until the host navigates or the next run starts.
         }
 
         if aiService.isConfigured {
             isConnectingToProxy = true
-            generationStatusMessage = "Connecting to AI…"
+            setGenerationStage(.connecting)
             await aiService.ensureProxyAwake()
             isConnectingToProxy = false
         } else {
@@ -683,11 +720,10 @@ final class DynamicProgramBuilderViewModel {
         let library = dataManager.globalExercises
         let blockCount = request.isPeriodized && request.blockSpecs.count > 1 ? request.blockSpecs.count : 1
         generationBlockTotal = blockCount
-
+        generationBlockCompleted = 0
+        setGenerationStage(.designing)
         if blockCount > 1 {
             generationStatusMessage = "Generating phase 1 of \(blockCount)…"
-        } else {
-            generationStatusMessage = "Generating program…"
         }
 
         do {
@@ -698,22 +734,31 @@ final class DynamicProgramBuilderViewModel {
                 exerciseLibrary: library,
                 onBlockProgress: { completed, total in
                     Task { @MainActor in
+                        guard self.generationStage == .designing else { return }
                         self.generationBlockCompleted = completed
                         self.generationBlockTotal = total
-                        self.generationStatusMessage = "Generating phase \(completed) of \(total)…"
+                        self.generationStatusMessage = "Generating phase \(min(completed + 1, total)) of \(total)…"
                     }
                 }
             )
+            generationBlockCompleted = blockCount
             generatedProgram = program
             applyErrorMessage = nil
             generationSuccessCount += 1
             lastGenerationUsedLocalPresets = !aiService.isConfigured
             editableBlockIndex = 0
+            setGenerationStage(.finalizing)
             rebuildEditableDaysFromProgram()
+            captureGeneratedBaseline()
+            setGenerationStage(.ready)
         } catch {
             generatedProgram = nil
             perBlockEditableDays = []
             generationBalanceWarnings = []
+            clearGeneratedBaseline()
+            setGenerationStage(.idle)
+            generationBlockCompleted = 0
+            generationBlockTotal = 1
             if let aiError = error as? AIServiceError {
                 errorMessage = aiError.errorDescription
                 offersLocalPresetFallback = aiError.suggestsLocalPresetFallback && aiService.isConfigured
@@ -726,16 +771,17 @@ final class DynamicProgramBuilderViewModel {
 
     /// Builds a program from FitLog’s built-in rotation presets (no network).
     func generateFromLocalPresets(dataManager: DataManager) async {
+        guard !isGenerating else { return }
         errorMessage = nil
         offersLocalPresetFallback = false
         isGenerating = true
         lastGenerationUsedLocalPresets = false
+        generationBlockCompleted = 0
+        generationBlockTotal = 1
+        setGenerationStage(.designing)
         defer {
             isGenerating = false
-            generationStatusMessage = nil
         }
-
-        generationStatusMessage = "Building from presets…"
 
         if request.blockSpecs.count == 1 {
             request.blockSpecs[0].progressionStrategy = request.splitInput.resolvedProgressionStrategy()
@@ -751,12 +797,35 @@ final class DynamicProgramBuilderViewModel {
             program = DynamicProgramMapper.singleBlock(from: proposal, request: request, library: library)
         }
         program.generatedWithAI = false
+        generationBlockCompleted = 1
         generatedProgram = program
         applyErrorMessage = nil
         generationSuccessCount += 1
         lastGenerationUsedLocalPresets = true
         editableBlockIndex = 0
+        setGenerationStage(.finalizing)
         rebuildEditableDaysFromProgram()
+        captureGeneratedBaseline()
+        setGenerationStage(.ready)
+    }
+
+    func setGenerationStage(_ stage: GenerationStage) {
+        generationStage = stage
+        switch stage {
+        case .idle:
+            generationStatusMessage = nil
+        case .connecting, .designing, .finalizing, .ready:
+            generationStatusMessage = stage.statusLine
+        }
+    }
+
+    /// Clears progress UI state after the host navigates away from the generating screen.
+    func resetGenerationProgressUI() {
+        generationStage = .idle
+        generationStatusMessage = nil
+        generationBlockCompleted = 0
+        generationBlockTotal = 1
+        isConnectingToProxy = false
     }
 
     func rebuildEditableDaysFromProgram() {
@@ -775,6 +844,7 @@ final class DynamicProgramBuilderViewModel {
     }
 
     /// Two-way binding for a block’s editable template days (timeline + form share this).
+    /// Field edits update `perBlockEditableDays` only; persist/analyze on commit points.
     func bindingForBlockDays(_ blockIndex: Int) -> Binding<[SplitBuilderEditableDay]> {
         Binding(
             get: {
@@ -784,14 +854,11 @@ final class DynamicProgramBuilderViewModel {
             set: { newVal in
                 guard self.perBlockEditableDays.indices.contains(blockIndex) else { return }
                 self.perBlockEditableDays[blockIndex] = newVal
-                self.persistPerBlockTemplatesIntoProgram()
-                if blockIndex == self.editableBlockIndex {
-                    self.refreshGenerationBalanceWarnings()
-                }
             }
         )
     }
 
+    /// Persist editable days into `generatedProgram` (call on sheet dismiss, structural change, block switch, save).
     func persistPerBlockTemplatesIntoProgram() {
         guard var prog = generatedProgram else { return }
         for i in prog.blocks.indices {
@@ -803,6 +870,30 @@ final class DynamicProgramBuilderViewModel {
         generatedProgram = prog
     }
 
+    /// Structural edit commit: persist + refresh balance warnings immediately.
+    func commitStructuralEdit(banner: String? = nil) {
+        persistPerBlockTemplatesIntoProgram()
+        refreshGenerationBalanceWarnings()
+        if let banner {
+            undoBannerMessage = banner
+        }
+    }
+
+    /// Field edit commit: persist + debounced balance refresh.
+    func commitFieldEdit() {
+        persistPerBlockTemplatesIntoProgram()
+        scheduleDebouncedBalanceRefresh()
+    }
+
+    private func scheduleDebouncedBalanceRefresh() {
+        balanceRefreshTask?.cancel()
+        balanceRefreshTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            refreshGenerationBalanceWarnings()
+        }
+    }
+
     /// Flattened templates for apply confirmation / conflict diff (all blocks in order).
     func flattenedEditableDaysForConfirmation() -> [SplitBuilderEditableDay] {
         perBlockEditableDays.flatMap(\.self)
@@ -811,11 +902,127 @@ final class DynamicProgramBuilderViewModel {
     func selectEditableBlock(_ index: Int) {
         persistPerBlockTemplatesIntoProgram()
         editableBlockIndex = min(max(0, index), max(0, (generatedProgram?.blocks.count ?? 1) - 1))
+        if let pending = pendingEditDayIndex,
+           perBlockEditableDays.indices.contains(editableBlockIndex),
+           perBlockEditableDays[editableBlockIndex].indices.contains(pending) {
+            editableDayIndex = pending
+        } else {
+            editableDayIndex = 0
+        }
+        pendingEditDayIndex = nil
         refreshGenerationBalanceWarnings()
+    }
+
+    func selectEditableDay(_ dayIndex: Int) {
+        guard perBlockEditableDays.indices.contains(editableBlockIndex),
+              perBlockEditableDays[editableBlockIndex].indices.contains(dayIndex) else { return }
+        editableDayIndex = dayIndex
     }
 
     func refreshGenerationBalanceWarnings() {
         generationBalanceWarnings = balanceWarningsForBlock(at: editableBlockIndex)
+    }
+
+    // MARK: - Baseline / Undo
+
+    var canUndo: Bool { !undoStack.isEmpty }
+    var canResetToGenerated: Bool { generatedBaseline != nil }
+
+    func captureGeneratedBaseline() {
+        guard let prog = generatedProgram else {
+            clearGeneratedBaseline()
+            return
+        }
+        generatedBaseline = prog
+        baselineEditableDays = perBlockEditableDays
+        undoStack.removeAll()
+        undoBannerMessage = nil
+    }
+
+    func clearGeneratedBaseline() {
+        generatedBaseline = nil
+        baselineEditableDays = []
+        undoStack.removeAll()
+        undoBannerMessage = nil
+    }
+
+    /// Push current state before a structural mutation.
+    func pushUndoSnapshot() {
+        guard let prog = generatedProgram else { return }
+        undoStack.append((program: prog, days: perBlockEditableDays))
+        if undoStack.count > maxUndoStackDepth {
+            undoStack.removeFirst(undoStack.count - maxUndoStackDepth)
+        }
+    }
+
+    @discardableResult
+    func undoLastEdit() -> Bool {
+        guard let snapshot = undoStack.popLast() else { return false }
+        generatedProgram = snapshot.program
+        perBlockEditableDays = snapshot.days
+        editableBlockIndex = min(editableBlockIndex, max(0, perBlockEditableDays.count - 1))
+        editableDayIndex = 0
+        refreshGenerationBalanceWarnings()
+        undoBannerMessage = nil
+        return true
+    }
+
+    @discardableResult
+    func resetToGenerated() -> Bool {
+        guard let baseline = generatedBaseline else { return false }
+        pushUndoSnapshot()
+        generatedProgram = baseline
+        perBlockEditableDays = baselineEditableDays
+        editableBlockIndex = 0
+        editableDayIndex = 0
+        refreshGenerationBalanceWarnings()
+        undoBannerMessage = "Reset to generated program"
+        return true
+    }
+
+    func dismissUndoBanner() {
+        undoBannerMessage = nil
+    }
+
+    /// Inserts a complementary empty strength slot on a day (for actionable balance suggestions).
+    @discardableResult
+    func addComplementarySlot(dayIndex: Int, label: String, muscles: [String]) -> UUID? {
+        guard perBlockEditableDays.indices.contains(editableBlockIndex),
+              perBlockEditableDays[editableBlockIndex].indices.contains(dayIndex) else { return nil }
+        pushUndoSnapshot()
+        let slot = SplitBuilderEditableSlot(
+            label: label,
+            targetMuscleNames: muscles.isEmpty ? [MuscleGroup.other.rawValue] : muscles,
+            sets: 3,
+            reps: "8-12"
+        )
+        perBlockEditableDays[editableBlockIndex][dayIndex].slots.append(slot)
+        editableDayIndex = dayIndex
+        commitStructuralEdit(banner: "Added “\(label)” — Undo")
+        return slot.id
+    }
+
+    /// Focuses a day for the edit surface. Defers to `pendingEditDayIndex` only when the day
+    /// isn't reachable yet, so a stale index can't hijack a later block switch.
+    func openDayFromSuggestion(dayIndex: Int) {
+        guard perBlockEditableDays.indices.contains(editableBlockIndex),
+              perBlockEditableDays[editableBlockIndex].indices.contains(dayIndex) else {
+            pendingEditDayIndex = dayIndex
+            return
+        }
+        pendingEditDayIndex = nil
+        editableDayIndex = dayIndex
+    }
+
+    func appendRegenerateConstraint(_ note: String) {
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if let existing = request.splitInput.adjustmentInstruction?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !existing.isEmpty {
+            request.splitInput.adjustmentInstruction = existing + "\n\n" + trimmed
+        } else {
+            request.splitInput.adjustmentInstruction = trimmed
+        }
     }
 
     func balanceWarningsForBlock(at blockIndex: Int) -> [SplitProposalProgramWarning] {
@@ -897,12 +1104,15 @@ final class DynamicProgramBuilderViewModel {
         errorMessage = nil
         editableBlockIndex = 0
         rebuildEditableDaysFromProgram()
+        captureGeneratedBaseline()
     }
 
     /// Inserts a duplicate of the block at `index` with fresh template and slot ids.
     func duplicateProgramBlock(at index: Int) {
-        guard var prog = generatedProgram, prog.blocks.indices.contains(index) else { return }
+        guard generatedProgram != nil, generatedProgram!.blocks.indices.contains(index) else { return }
         persistPerBlockTemplatesIntoProgram()
+        guard var prog = generatedProgram else { return }
+        pushUndoSnapshot()
         let b = prog.blocks[index]
         let warmup = b.warmUpTemplate.map { $0.map { $0.withNewSlotId() } }
         let cooldown = b.cooldownTemplate.map { $0.map { $0.withNewSlotId() } }
@@ -928,8 +1138,10 @@ final class DynamicProgramBuilderViewModel {
 
     /// Replaces the block at `index` rotation with a deep copy of the previous block’s templates.
     func copyWeeklyTemplatesFromPreviousBlock(into index: Int) {
-        guard index > 0, var prog = generatedProgram, prog.blocks.indices.contains(index) else { return }
+        guard index > 0, generatedProgram != nil, generatedProgram!.blocks.indices.contains(index) else { return }
         persistPerBlockTemplatesIntoProgram()
+        guard var prog = generatedProgram else { return }
+        pushUndoSnapshot()
         let prev = prog.blocks[index - 1]
         prog.blocks[index].weeklyTemplates = DynamicProgramMapper.duplicateWeeklyTemplates(prev.weeklyTemplates)
         generatedProgram = prog
@@ -939,8 +1151,10 @@ final class DynamicProgramBuilderViewModel {
 
     /// Replaces the block’s rotation with a single template day built from a library workout.
     func importRotationFromWorkout(_ workout: Workout, blockIndex: Int, exerciseLibrary: [Exercise]) {
-        guard var prog = generatedProgram, prog.blocks.indices.contains(blockIndex) else { return }
+        guard generatedProgram != nil, generatedProgram!.blocks.indices.contains(blockIndex) else { return }
         persistPerBlockTemplatesIntoProgram()
+        guard var prog = generatedProgram else { return }
+        pushUndoSnapshot()
         var slots: [SplitBuilderEditableSlot] = []
         slots.reserveCapacity(workout.exercises.count)
         for row in workout.exercises {

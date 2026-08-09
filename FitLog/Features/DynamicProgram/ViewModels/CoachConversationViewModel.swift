@@ -22,7 +22,6 @@ final class CoachConversationViewModel {
     private(set) var discussThreads: [CoachRecommendationTopic: CoachDiscussThread] = [:]
     private(set) var discussDrafts: [CoachRecommendationTopic: String] = [:]
     private(set) var discussScrollTrigger = 0
-    private(set) var scrollToGenerationTrigger = 0
     private(set) var focusedDiscussTopic: CoachRecommendationTopic?
     private(set) var lastAutoUpdates: [CoachRecommendationChange] = []
     private(set) var answeredTopics: [CoachIntakeTopic] = []
@@ -427,9 +426,7 @@ final class CoachConversationViewModel {
         scheduleWeekdays = Set(built.preferredWeekdays)
         appendTrainerMessage(planPreviewSummaryMessage(for: built))
         appendMessage(CoachMessage(kind: .planPreview))
-        for warning in built.warnings {
-            appendTrainerMessage("Heads up: \(warning)")
-        }
+        // Warnings live on the Plan Preview Notes card — avoid duplicate "Heads up" chat bubbles.
     }
 
     private func planPreviewSummaryMessage(for built: CoachBlueprint) -> String {
@@ -444,7 +441,7 @@ final class CoachConversationViewModel {
     }
 
     func enrichRecommendationsWithAI(aiService: AIService) async {
-        guard var built = blueprint, phase == .planPreview else { return }
+        guard let requested = blueprint, phase == .planPreview else { return }
         isThinking = true
         appendTypingIndicator()
         defer {
@@ -452,22 +449,46 @@ final class CoachConversationViewModel {
             isThinking = false
         }
 
-        if let explanation = await aiService.explainCoachRecommendations(blueprint: built, intake: intake) {
-            if !explanation.summary.isEmpty {
-                appendTrainerMessage(explanation.summary)
-            }
-            for item in explanation.recommendations {
-                guard let topic = item.resolvedTopic,
-                      let index = built.recommendations.firstIndex(where: { $0.topic == topic }) else { continue }
-                if !item.rationale.isEmpty {
-                    built.recommendations[index].rationale = item.rationale
-                }
-            }
-            for warning in explanation.warnings where !built.warnings.contains(warning) {
-                built.warnings.append(warning)
-            }
-            blueprint = built
+        guard let explanation = await aiService.explainCoachRecommendations(blueprint: requested, intake: intake) else {
+            return
         }
+        // The plan preview stays editable during the round trip, so apply the explanation as a
+        // delta onto current state instead of writing back the snapshot we sent.
+        guard var current = blueprint, phase == .planPreview else { return }
+
+        let aiSummary = explanation.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !aiSummary.isEmpty, !summariesAreNearDuplicates(planPreviewSummaryMessage(for: current), aiSummary) {
+            appendTrainerMessage(aiSummary)
+        }
+        var handledTopics = Set<CoachRecommendationTopic>()
+        for item in explanation.recommendations {
+            guard let topic = item.resolvedTopic, !handledTopics.contains(topic),
+                  let index = current.recommendations.firstIndex(where: { $0.topic == topic }) else { continue }
+            let aiRationale = item.rationale.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !aiRationale.isEmpty else { continue }
+            let local = current.recommendations[index].rationale.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Never replace a usable local rationale with a weaker/whitespace AI string.
+            if local.isEmpty || aiRationale.count >= min(40, max(1, local.count / 2)) {
+                current.recommendations[index].rationale = aiRationale
+                handledTopics.insert(topic)
+            }
+        }
+        current.aiWarnings = CoachRecommendationEngine.dedupeWarnings(current.aiWarnings + explanation.warnings)
+        CoachRecommendationEngine.recomputeWarnings(blueprint: &current, intake: intake)
+        blueprint = current
+    }
+
+    /// Substring containment only counts as duplication when the two summaries are of
+    /// comparable length — otherwise a short AI opener could suppress itself.
+    private func summariesAreNearDuplicates(_ lhs: String, _ rhs: String) -> Bool {
+        let a = CoachRecommendationEngine.normalizedWarningKey(lhs)
+        let b = CoachRecommendationEngine.normalizedWarningKey(rhs)
+        guard !a.isEmpty, !b.isEmpty else { return false }
+        if a == b { return true }
+        guard a.contains(b) || b.contains(a) else { return false }
+        let shorter = min(a.count, b.count)
+        let longer = max(a.count, b.count)
+        return Double(shorter) >= Double(longer) * 0.8
     }
 
     func updateRecommendation(topic: CoachRecommendationTopic, newValue: String) {
@@ -492,6 +513,8 @@ final class CoachConversationViewModel {
 
     func updateSchedule(sessions: Int, weekdays: Set<Int>) {
         guard var built = blueprint else { return }
+        // AI notes described the previous schedule, so they'd contradict the new one.
+        built.aiWarnings = []
         CoachRecommendationEngine.applyScheduleChange(
             to: &built,
             sessions: sessions,
@@ -659,7 +682,12 @@ final class CoachConversationViewModel {
         builderViewModel.persistPreferencesToStore()
     }
 
-    func buildProgram(aiService: AIService, dataManager: DataManager, entitlementStore: EntitlementStore) async {
+    func buildProgram(
+        aiService: AIService,
+        dataManager: DataManager,
+        entitlementStore: EntitlementStore,
+        reduceMotion: Bool = false
+    ) async {
         guard entitlementStore.hasAccess(to: .aiProgramGeneration) else { return }
         // Flush any unsubmitted final notes before generating.
         if !finalNotesDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -671,21 +699,25 @@ final class CoachConversationViewModel {
         applyBlueprintToBuilder()
         appendTrainerMessage("Building your program now…")
         appendTypingIndicator()
-        scrollToGenerationTrigger += 1
         await builderViewModel.generate(aiService: aiService, dataManager: dataManager, entitlementStore: entitlementStore)
         removeTypingIndicator()
         if builderViewModel.generatedProgram != nil {
+            // Brief Finalizing/Ready dwell so progress bubbles are visible before navigate.
+            if !reduceMotion {
+                try? await Task.sleep(nanoseconds: 450_000_000)
+            }
             phase = .complete
             navigateToReview = true
         } else {
             phase = .planPreview
             errorMessage = builderViewModel.errorMessage ?? "Could not build the program."
             appendTrainerMessage(errorMessage ?? "Something went wrong. You can try again or use built-in presets from the editor.")
+            builderViewModel.resetGenerationProgressUI()
         }
     }
 
     var generationStatusLine: String {
-        builderViewModel.generationStatusMessage ?? "Building your program…"
+        builderViewModel.generationStatusMessage ?? builderViewModel.generationStage.statusLine
     }
 
     func appendFinalNotes(_ notes: String) {
