@@ -290,7 +290,7 @@ struct PaywallView: View {
                 .disabled(entitlementStore.isPurchasing)
             }
 #endif
-            Button("Restore purchases") {
+            Button {
                 Task {
                     let restored = await entitlementStore.restorePurchases()
                     if restored {
@@ -304,9 +304,20 @@ struct PaywallView: View {
                         AnalyticsService.shared.track(.restoreFailed, properties: ["source": "paywall", "reason": "no_active_subscription"])
                     }
                 }
+            } label: {
+                if entitlementStore.isRestoring {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Restoring…")
+                    }
+                    .font(.footnote)
+                } else {
+                    Text("Restore purchases")
+                        .font(.footnote)
+                }
             }
-            .font(.footnote)
             .disabled(entitlementStore.isRestoring)
+            .accessibilityLabel(entitlementStore.isRestoring ? "Restoring purchases" : "Restore purchases")
         }
         .padding()
         .background(.bar)

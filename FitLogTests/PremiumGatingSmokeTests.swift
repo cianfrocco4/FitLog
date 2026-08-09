@@ -62,4 +62,11 @@ struct PremiumGatingSmokeTests {
         #expect(PremiumGatedSelection.shouldApply(requiresPremium: true, hasPremiumAccess: true))
         #expect(PremiumGatedSelection.shouldApply(requiresPremium: false, hasPremiumAccess: false))
     }
+
+    @Test func freeUser_comparePriorPeriod_requiresAdvancedAnalytics() {
+        #expect(!EntitlementStore.grantsAccess(isPremium: false, to: .advancedAnalytics))
+        #expect(EntitlementStore.grantsAccess(isPremium: true, to: .advancedAnalytics))
+        // History Compare uses advancedAnalytics (not unlimitedHistory) for the paywall trigger.
+        #expect(PremiumFeature.advancedAnalytics.displayTitle == "Advanced Analytics")
+    }
 }
