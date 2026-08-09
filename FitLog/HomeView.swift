@@ -57,6 +57,8 @@ struct HomeView: View {
     @State private var showHomeFinishUnresolvedConfirm = false
     @State private var showHomeCardioFinisherOffer = false
     @State private var homeUnresolvedExerciseNames: [String] = []
+    @State private var showHomeFinisherQuickAdd = false
+    @State private var homeFinisherQuickAddLogCountBefore: Int?
 
     private var homeRefreshKey: String {
         let cycleSig = dataVM.trainingProgram.cycleEntries.map(\.cacheKey).joined(separator: ",")
@@ -791,13 +793,52 @@ struct HomeView: View {
                 isPresented: $showHomeCardioFinisherOffer,
                 titleVisibility: .visible
             ) {
+                Button("Quick 10 min") {
+                    if let template = CardioQuickAddTemplate.all.first,
+                       let exercise = template.resolveExercise(in: dataVM.globalExercises),
+                       currentVM.appendCardioExerciseToSession(exercise: exercise, prescription: template.prescription) {
+                        homeCardioFinisherOffered = true
+                        openCurrentWorkoutSheet?()
+                    } else {
+                        showCardioResolveFailureAlert = true
+                    }
+                }
+                .accessibilityLabel("Quick 10 minute cardio finisher")
+                .accessibilityHint("Adds a 10 minute zone 2 cardio exercise to this workout.")
+                Button("Choose exercise…") {
+                    homeFinisherQuickAddLogCountBefore = currentVM.currentSession?.exerciseLogs.count
+                    showHomeFinisherQuickAdd = true
+                }
+                .accessibilityLabel("Choose cardio exercise")
+                .accessibilityHint("Opens the exercise picker to add a cardio finisher.")
                 Button("Skip") {
                     homeCardioFinisherOffered = true
                     currentVM.finishWorkoutFromUI(showCompletionSummary: true)
                 }
+                .accessibilityLabel("Skip cardio finisher")
+                .accessibilityHint("Finishes the workout without adding cardio.")
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Optional quick cardio before you wrap up.")
+                Text("Optional cardio after your main work. You can log it now or skip and finish.")
+            }
+            .sheet(isPresented: $showHomeFinisherQuickAdd) {
+                if let session = currentVM.currentSession {
+                    SessionQuickAddExerciseSheet(
+                        workout: session.workout,
+                        currentVM: currentVM,
+                        dataVM: dataVM
+                    )
+                    .environmentObject(aiService)
+                }
+            }
+            .onChange(of: showHomeFinisherQuickAdd) { _, isPresented in
+                guard !isPresented, let before = homeFinisherQuickAddLogCountBefore else { return }
+                homeFinisherQuickAddLogCountBefore = nil
+                let after = currentVM.currentSession?.exerciseLogs.count ?? 0
+                if after > before {
+                    homeCardioFinisherOffered = true
+                    openCurrentWorkoutSheet?()
+                }
             }
             .navigationDestination(item: $todayPlanDetailRoute) { route in
                 switch route {

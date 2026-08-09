@@ -74,6 +74,9 @@ struct WorkoutPlanView: View {
     @State private var showPlanFinishUnresolvedConfirm = false
     @State private var showPlanCardioFinisherOffer = false
     @State private var planUnresolvedExerciseNames: [String] = []
+    @State private var showPlanCardioResolveFailureAlert = false
+    @State private var showPlanFinisherQuickAdd = false
+    @State private var planFinisherQuickAddLogCountBefore: Int?
 
     private struct CardioPrescriptionEditItem: Identifiable {
         let id: UUID
@@ -274,7 +277,7 @@ struct WorkoutPlanView: View {
             titleVisibility: .visible
         ) {
             Button("Finish anyway", role: .destructive) {
-                currentVM.finishWorkoutFromUI(showCompletionSummary: false)
+                currentVM.finishWorkoutFromUI(showCompletionSummary: true)
                 planCardioFinisherOffered = false
             }
             Button("Cancel", role: .cancel) {}
@@ -296,13 +299,64 @@ struct WorkoutPlanView: View {
             isPresented: $showPlanCardioFinisherOffer,
             titleVisibility: .visible
         ) {
+            Button("Quick 10 min") {
+                if let template = CardioQuickAddTemplate.all.first,
+                   let exercise = template.resolveExercise(in: dataVM.globalExercises),
+                   currentVM.appendCardioExerciseToSession(exercise: exercise, prescription: template.prescription) {
+                    planCardioFinisherOffered = true
+                    if let idx = currentVM.currentSession?.exerciseLogs.indices.last {
+                        openPullUpToExerciseLogIndex?(idx)
+                    }
+                } else {
+                    showPlanCardioResolveFailureAlert = true
+                }
+            }
+            .accessibilityLabel("Quick 10 minute cardio finisher")
+            .accessibilityHint("Adds a 10 minute zone 2 cardio exercise to this workout.")
+            Button("Choose exercise…") {
+                planFinisherQuickAddLogCountBefore = currentVM.currentSession?.exerciseLogs.count
+                showPlanFinisherQuickAdd = true
+            }
+            .accessibilityLabel("Choose cardio exercise")
+            .accessibilityHint("Opens the exercise picker to add a cardio finisher.")
             Button("Skip") {
                 planCardioFinisherOffered = true
-                currentVM.finishWorkoutFromUI(showCompletionSummary: false)
+                currentVM.finishWorkoutFromUI(showCompletionSummary: true)
             }
+            .accessibilityLabel("Skip cardio finisher")
+            .accessibilityHint("Finishes the workout without adding cardio.")
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Optional quick cardio before you wrap up.")
+            Text("Optional cardio after your main work. You can log it now or skip and finish.")
+        }
+        .alert(
+            "No cardio exercises",
+            isPresented: $showPlanCardioResolveFailureAlert
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Add a cardio exercise to your library first, then try again.")
+        }
+        .sheet(isPresented: $showPlanFinisherQuickAdd) {
+            if let session = currentVM.currentSession {
+                SessionQuickAddExerciseSheet(
+                    workout: session.workout,
+                    currentVM: currentVM,
+                    dataVM: dataVM
+                )
+                .environmentObject(aiService)
+            }
+        }
+        .onChange(of: showPlanFinisherQuickAdd) { _, isPresented in
+            guard !isPresented, let before = planFinisherQuickAddLogCountBefore else { return }
+            planFinisherQuickAddLogCountBefore = nil
+            let after = currentVM.currentSession?.exerciseLogs.count ?? 0
+            if after > before {
+                planCardioFinisherOffered = true
+                if let idx = currentVM.currentSession?.exerciseLogs.indices.last {
+                    openPullUpToExerciseLogIndex?(idx)
+                }
+            }
         }
     }
 
@@ -316,7 +370,7 @@ struct WorkoutPlanView: View {
         case .offerCardioFinisher:
             showPlanCardioFinisherOffer = true
         case .ready:
-            currentVM.finishWorkoutFromUI(showCompletionSummary: false)
+            currentVM.finishWorkoutFromUI(showCompletionSummary: true)
             planCardioFinisherOffered = false
         }
     }
@@ -326,7 +380,7 @@ struct WorkoutPlanView: View {
         case .offerCardioFinisher:
             showPlanCardioFinisherOffer = true
         default:
-            currentVM.finishWorkoutFromUI(showCompletionSummary: false)
+            currentVM.finishWorkoutFromUI(showCompletionSummary: true)
             planCardioFinisherOffered = false
         }
     }
