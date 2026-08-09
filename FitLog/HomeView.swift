@@ -17,6 +17,7 @@ struct HomeView: View {
     @EnvironmentObject var userPreferences: UserPreferences
     @Environment(EntitlementStore.self) private var entitlementStore
     @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
+    @Environment(\.openPullUpToExerciseLogIndex) private var openPullUpToExerciseLogIndex
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
 
     @State private var readinessVM = ReadinessViewModel()
@@ -798,7 +799,11 @@ struct HomeView: View {
                        let exercise = template.resolveExercise(in: dataVM.globalExercises),
                        currentVM.appendCardioExerciseToSession(exercise: exercise, prescription: template.prescription) {
                         homeCardioFinisherOffered = true
-                        openCurrentWorkoutSheet?()
+                        if let idx = currentVM.currentSession?.exerciseLogs.indices.last {
+                            openPullUpToExerciseLogIndex?(idx)
+                        } else {
+                            openCurrentWorkoutSheet?()
+                        }
                     } else {
                         showCardioResolveFailureAlert = true
                     }
@@ -837,7 +842,11 @@ struct HomeView: View {
                 let after = currentVM.currentSession?.exerciseLogs.count ?? 0
                 if after > before {
                     homeCardioFinisherOffered = true
-                    openCurrentWorkoutSheet?()
+                    if let idx = currentVM.currentSession?.exerciseLogs.indices.last {
+                        openPullUpToExerciseLogIndex?(idx)
+                    } else {
+                        openCurrentWorkoutSheet?()
+                    }
                 }
             }
             .navigationDestination(item: $todayPlanDetailRoute) { route in
