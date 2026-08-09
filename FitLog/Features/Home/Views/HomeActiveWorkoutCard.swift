@@ -19,16 +19,18 @@ struct HomeActiveWorkoutCard: View {
     private var session: WorkoutSession? { currentVM.currentSession }
 
     private var completedExerciseCount: Int {
-        session?.completedExerciseIds.count ?? 0
+        HomeActiveWorkoutProgress.completedExerciseCount(in: session?.exerciseLogs ?? [])
     }
 
     private var totalExerciseCount: Int {
-        session?.exerciseLogs.count ?? 0
+        HomeActiveWorkoutProgress.countableExerciseCount(in: session?.exerciseLogs ?? [])
     }
 
     private var progressFraction: Double {
-        guard totalExerciseCount > 0 else { return 0 }
-        return Double(completedExerciseCount) / Double(totalExerciseCount)
+        HomeActiveWorkoutProgress.progressFraction(
+            completed: completedExerciseCount,
+            total: totalExerciseCount
+        )
     }
 
     private var currentExerciseName: String {

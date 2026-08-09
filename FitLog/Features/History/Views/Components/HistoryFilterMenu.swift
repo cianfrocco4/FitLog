@@ -9,6 +9,7 @@ struct HistoryFilterMenu: View {
     @Environment(EntitlementStore.self) private var entitlementStore
     @Bindable var viewModel: HistoryViewModel
     @State private var showPaywall = false
+    @State private var paywallTrigger: PremiumFeature = .unlimitedHistory
 
     /// Rejects Premium-only ranges for free users without briefly mutating `dayRange` (avoids KPI flash).
     private var dayRangeSelection: Binding<HistoryDayRange> {
@@ -17,8 +18,35 @@ struct HistoryFilterMenu: View {
             set: { viewModel.dayRange = $0 },
             requiresPremium: { $0.requiresPremium },
             hasPremiumAccess: { entitlementStore.hasAccess(to: .unlimitedHistory) },
-            onDenied: { showPaywall = true }
+            onDenied: {
+                paywallTrigger = .unlimitedHistory
+                showPaywall = true
+            }
         )
+    }
+
+    /// Free users tapping Compare open the paywall instead of a silently disabled toggle.
+    private var comparePriorPeriodSelection: Binding<Bool> {
+        Binding(
+            get: { viewModel.comparePriorPeriod },
+            set: { newValue in
+                guard newValue else {
+                    viewModel.comparePriorPeriod = false
+                    return
+                }
+                guard viewModel.dayRange.priorWindow() != nil else { return }
+                guard entitlementStore.hasAccess(to: .advancedAnalytics) else {
+                    paywallTrigger = .advancedAnalytics
+                    showPaywall = true
+                    return
+                }
+                viewModel.comparePriorPeriod = true
+            }
+        )
+    }
+
+    private var canComparePriorPeriod: Bool {
+        viewModel.dayRange.priorWindow() != nil
     }
 
     var body: some View {
@@ -32,8 +60,19 @@ struct HistoryFilterMenu: View {
                     }
                 }
             }
-            Toggle("Compare to prior period", isOn: $viewModel.comparePriorPeriod)
-                .disabled(viewModel.dayRange.priorWindow() == nil || !entitlementStore.hasAccess(to: .advancedAnalytics))
+            if entitlementStore.hasAccess(to: .advancedAnalytics) {
+                Toggle("Compare to prior period", isOn: comparePriorPeriodSelection)
+                    .disabled(!canComparePriorPeriod)
+            } else {
+                Button {
+                    guard canComparePriorPeriod else { return }
+                    paywallTrigger = .advancedAnalytics
+                    showPaywall = true
+                } label: {
+                    Label("Compare to prior period (Premium)", systemImage: "lock.fill")
+                }
+                .disabled(!canComparePriorPeriod)
+            }
         } label: {
             Image(systemName: viewModel.hasActiveFilters
                 ? "line.3.horizontal.decrease.circle.fill"
@@ -44,7 +83,7 @@ struct HistoryFilterMenu: View {
         .accessibilityLabel("History filters")
         .accessibilityHint("Change time range or compare to prior period")
         .sheet(isPresented: $showPaywall) {
-            PaywallView(triggerFeature: .unlimitedHistory)
+            PaywallView(triggerFeature: paywallTrigger)
                 .environment(entitlementStore)
         }
     }
