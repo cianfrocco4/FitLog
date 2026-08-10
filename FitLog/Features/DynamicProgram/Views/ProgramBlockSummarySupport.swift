@@ -26,14 +26,17 @@ enum ProgramBlockSummarySupport {
         let dayNames = templates.map(\.dayName).filter { !$0.isEmpty }
         let dayNamesLine = dayNames.isEmpty ? "No days" : dayNames.joined(separator: " · ")
 
-        let exerciseNames = slots.prefix(12).map { slot -> String in
+        let exerciseNames = slots.map { slot -> String in
             if let n = slot.suggestedExerciseName?.trimmingCharacters(in: .whitespacesAndNewlines), !n.isEmpty {
                 return n
             }
             let lab = slot.label.trimmingCharacters(in: .whitespacesAndNewlines)
             return lab.isEmpty ? "Slot" : lab
         }
-        let topExercisePreview = exerciseNames.prefix(4).joined(separator: ", ")
+        // Card stays scannable; the full per-day list is available by expanding the block.
+        let previewLimit = 6
+        let topExercisePreview = exerciseNames.prefix(previewLimit).joined(separator: ", ")
+            + (exerciseNames.count > previewLimit ? "…" : "")
 
         let config = CardioProgramConfiguration(
             goal: block.cardioGoal ?? .generalHealth,

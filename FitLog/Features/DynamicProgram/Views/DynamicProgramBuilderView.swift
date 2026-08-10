@@ -130,36 +130,35 @@ struct DynamicProgramBuilderView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            VStack(spacing: 0) {
-                if hidesBuilderModePicker {
-                    // Guided Coach lands directly on review — skip Essentials/Structure chrome.
-                    reviewAndEditStep
-                } else {
-                    wizardStepIndicator
-                        .padding(.horizontal)
-                        .padding(.top, 8)
+        VStack(spacing: 0) {
+            if hidesBuilderModePicker {
+                // Guided Coach lands directly on review — skip Essentials/Structure chrome.
+                reviewAndEditStep
+            } else {
+                wizardStepIndicator
+                    .padding(.horizontal)
+                    .padding(.top, 8)
 
-                    TabView(selection: $viewModel.wizardStep) {
-                        essentialsStep.tag(DynamicProgramBuilderViewModel.WizardStep.essentials)
-                        structureStep.tag(DynamicProgramBuilderViewModel.WizardStep.structure)
-                        reviewAndEditStep.tag(DynamicProgramBuilderViewModel.WizardStep.reviewAndEdit)
-                    }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
-                    .animation(.easeInOut(duration: 0.22), value: viewModel.wizardStep)
-
-                    if viewModel.wizardStep != .reviewAndEdit {
-                        livePreviewChip
-                            .padding(.horizontal)
-                            .padding(.bottom, 4)
-                    }
-
-                    wizardChromeBar
-                        .padding(.horizontal)
-                        .padding(.bottom, viewModel.wizardStep == .reviewAndEdit ? 72 : 8)
+                TabView(selection: $viewModel.wizardStep) {
+                    essentialsStep.tag(DynamicProgramBuilderViewModel.WizardStep.essentials)
+                    structureStep.tag(DynamicProgramBuilderViewModel.WizardStep.structure)
+                    reviewAndEditStep.tag(DynamicProgramBuilderViewModel.WizardStep.reviewAndEdit)
                 }
-            }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .animation(.easeInOut(duration: 0.22), value: viewModel.wizardStep)
 
+                if viewModel.wizardStep != .reviewAndEdit {
+                    livePreviewChip
+                        .padding(.horizontal)
+                        .padding(.bottom, 4)
+                }
+
+                wizardChromeBar
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             if viewModel.wizardStep == .reviewAndEdit {
                 ProgramBuilderFloatingActionBar(
                     summaryLine: viewModel.liveSummaryLine,
@@ -194,11 +193,12 @@ struct DynamicProgramBuilderView: View {
                         }
                         .accessibilityLabel("Reset to generated program")
                     }
-                    Button("Save preset") {
+                    Button("Save as Preset") {
                         presetSaveName = viewModel.request.programName
                         showSavePresetAlert = true
                     }
                     .accessibilityLabel("Save rotation as preset")
+                    .accessibilityHint("Saves the rotation for reuse. Does not add this program to your Plan.")
                 }
             }
             if !hidesBuilderModePicker {
@@ -206,7 +206,7 @@ struct DynamicProgramBuilderView: View {
                     Button {
                         showSavedPresetBrowser = true
                     } label: {
-                        Label("Saved preset", systemImage: "square.stack.3d.up")
+                        Label("Load preset", systemImage: "square.stack.3d.up")
                     }
                     .accessibilityLabel("Load saved preset")
                 }
@@ -306,7 +306,7 @@ struct DynamicProgramBuilderView: View {
         } message: {
             Text(viewModel.applySavedDetail)
         }
-        .alert("Save preset", isPresented: $showSavePresetAlert) {
+        .alert("Save as Preset", isPresented: $showSavePresetAlert) {
             TextField("Preset name", text: $presetSaveName)
             Button("Cancel", role: .cancel) {}
             Button("Save") {
@@ -319,6 +319,8 @@ struct DynamicProgramBuilderView: View {
                 )
                 presetSavedMessage = ok ? "Preset saved." : "Could not save preset. Add at least one training day first."
             }
+        } message: {
+            Text("Saves this weekly rotation so you can reuse it in a future program. Your Plan is unchanged until you tap Save to Plan.")
         }
         .alert(
             "Preset",
@@ -750,11 +752,20 @@ struct DynamicProgramBuilderView: View {
 
                 if reviewSurface == .overview {
                     Section("Checks") {
-                        ProgramValidationBanner(result: viewModel.programValidationResult)
-                        if !viewModel.generationBalanceWarnings.isEmpty {
-                            ForEach(viewModel.generationBalanceWarnings) { warning in
-                                BalanceSuggestionRow(warning: warning) {
-                                    handleBalanceSuggestion(warning)
+                        let validation = viewModel.programValidationResult
+                        let hasIssues = !validation.blockingIssues.isEmpty || !validation.warningIssues.isEmpty
+                        // Skip the "all checks passed" banner when suggestions are the only content.
+                        if hasIssues || viewModel.programReviewSuggestions.isEmpty {
+                            ProgramValidationBanner(result: validation)
+                        }
+                        if !viewModel.programReviewSuggestions.isEmpty {
+                            Label("Suggestions", systemImage: "lightbulb.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.orange)
+                                .accessibilityAddTraits(.isHeader)
+                            ForEach(viewModel.programReviewSuggestions) { suggestion in
+                                ProgramReviewSuggestionRow(suggestion: suggestion) {
+                                    handleReviewSuggestion(suggestion)
                                 }
                             }
                         }
@@ -787,12 +798,14 @@ struct DynamicProgramBuilderView: View {
                             viewModel.selectEditableBlock(blockIndex)
                             if let dayIndex {
                                 viewModel.selectEditableDay(dayIndex)
+                                showDayEditorSheet = true
+                            } else {
+                                // Explicit "Edit this block" — switch to the Edit surface.
+                                reviewSurface = .edit
                             }
-                            reviewSurface = .edit
-                            showDayEditorSheet = true
                         },
                         onBalanceAction: { warning in
-                            handleBalanceSuggestion(warning)
+                            handleBalanceSuggestion(warning, stayOnOverview: true)
                         }
                     )
 
@@ -800,6 +813,15 @@ struct DynamicProgramBuilderView: View {
                         DatePicker("Program starts", selection: $viewModel.programAnchorDate, displayedComponents: [.date])
                     }
                 } else {
+                    Section {
+                        Button {
+                            reviewSurface = .overview
+                        } label: {
+                            Label("Back to overview", systemImage: "arrow.uturn.backward")
+                        }
+                        .accessibilityHint("Returns to the Overview tab without discarding edits")
+                    }
+
                     if viewModel.builderMode == .manualBuild {
                         ManualBlockEditorView(viewModel: viewModel)
                     }
@@ -815,7 +837,7 @@ struct DynamicProgramBuilderView: View {
                             showDayEditorSheet = true
                         },
                         onBalanceAction: { warning in
-                            handleBalanceSuggestion(warning)
+                            handleBalanceSuggestion(warning, stayOnOverview: false)
                         }
                     )
 
@@ -845,24 +867,43 @@ struct DynamicProgramBuilderView: View {
         return name.isEmpty ? "Edit day" : name
     }
 
-    private func handleBalanceSuggestion(_ warning: SplitProposalProgramWarning) {
-        switch warning.suggestion {
+    private func handleReviewSuggestion(_ suggestion: ProgramReviewSuggestion) {
+        if let blockIndex = suggestion.blockIndex {
+            viewModel.selectEditableBlock(blockIndex)
+        }
+        applySuggestionAction(suggestion.action, dayIndexFallback: nil, stayOnOverview: true)
+    }
+
+    private func handleBalanceSuggestion(_ warning: SplitProposalProgramWarning, stayOnOverview: Bool) {
+        applySuggestionAction(warning.suggestion, dayIndexFallback: warning.dayIndex, stayOnOverview: stayOnOverview)
+    }
+
+    private func applySuggestionAction(
+        _ suggestion: SplitProposalProgramWarning.Suggestion?,
+        dayIndexFallback: Int?,
+        stayOnOverview: Bool
+    ) {
+        switch suggestion {
         case .openDay(let dayIndex):
             viewModel.openDayFromSuggestion(dayIndex: dayIndex)
-            reviewSurface = .edit
+            if !stayOnOverview { reviewSurface = .edit }
             showDayEditorSheet = true
         case .addSlot(let dayIndex, let label, let muscles):
             viewModel.openDayFromSuggestion(dayIndex: dayIndex)
             _ = viewModel.addComplementarySlot(dayIndex: dayIndex, label: label, muscles: muscles)
-            reviewSurface = .edit
+            if !stayOnOverview { reviewSurface = .edit }
             showDayEditorSheet = true
         case .regenerateWithNote(let note):
             viewModel.appendRegenerateConstraint(note)
             requestAIGeneration()
+        case .addDeloadPhase:
+            _ = viewModel.applyAddDeloadPhase()
+        case .raiseWeeklyVolume(let target):
+            _ = viewModel.applyRaiseWeeklyVolume(targetHardSets: target)
         case .none:
-            if let dayIndex = warning.dayIndex {
+            if let dayIndex = dayIndexFallback {
                 viewModel.openDayFromSuggestion(dayIndex: dayIndex)
-                reviewSurface = .edit
+                if !stayOnOverview { reviewSurface = .edit }
                 showDayEditorSheet = true
             }
         }

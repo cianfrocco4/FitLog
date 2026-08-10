@@ -168,4 +168,67 @@ final class ProgramBuilderValidationTests: XCTestCase {
         )
         XCTAssertTrue(warnings.contains(where: { $0.dayIndex != nil || $0.suggestion != nil }))
     }
+
+    func testBalanceWarningsAreNotDuplicatedInValidationWarningIssues() {
+        let slot = SplitBuilderEditableSlot(
+            label: "Squat",
+            targetMuscleNames: [MuscleGroup.quads.rawValue],
+            sets: 3,
+            reps: "8",
+            suggestedExerciseName: "Squat",
+            suggestedExerciseOverrideId: UUID()
+        )
+        let day = SplitBuilderEditableDay(name: "Leg", focus: "", slots: [slot])
+        let program = DynamicProgram(
+            name: "Strength meso",
+            blocks: [
+                ProgramBlock(
+                    name: "B1",
+                    focus: BlockFocus(kind: .strength, emphasisLabel: ""),
+                    durationWeeks: 4,
+                    weeklyTemplates: [BlockWeeklyTemplate(dayName: "Leg", focus: "", slots: [slot])],
+                    progressionStrategy: .linear
+                ),
+            ],
+            defaultSessionsPerWeek: 3,
+            preferredWeekdays: [2, 4, 6],
+            busyDayPolicy: .compress
+        )
+        let balance = SplitProposalProgramWarning(
+            severity: .note,
+            message: "Weekly set count is on the low side (3). Fine for maintenance or busy weeks — bump volume if you’re prioritizing growth.",
+            suggestion: .raiseWeeklyVolume(targetHardSets: 45)
+        )
+        let r = ProgramValidationResult.evaluate(
+            programName: "Strength meso",
+            program: program,
+            perBlockEditableDays: [[day]],
+            balanceWarnings: [balance]
+        )
+        XCTAssertFalse(r.warningIssues.contains(where: { $0.contains("Weekly set count") }))
+        XCTAssertFalse(r.warningIssues.contains(where: { $0.contains("deload") }))
+    }
+
+    func testLowVolumeWarningCarriesRaiseVolumeSuggestion() {
+        let days = [
+            SplitProposalProgramAnalyzer.DayInput(
+                name: "Full",
+                focus: "",
+                slots: [
+                    .init(label: "Squat", targetMuscleNames: [MuscleGroup.quads.rawValue], sets: 3),
+                    .init(label: "Bench", targetMuscleNames: [MuscleGroup.chest.rawValue], sets: 3),
+                    .init(label: "Row", targetMuscleNames: [MuscleGroup.lats.rawValue], sets: 3),
+                ]
+            ),
+        ]
+        let stats = SplitProposalProgramAnalyzer.stats(for: days)
+        XCTAssertLessThan(stats.totalHardSetsPerWeek, 45)
+        let warnings = SplitProposalProgramAnalyzer.warnings(stats: stats, days: days, context: .init())
+        let lowVolume = warnings.first(where: { $0.message.contains("low side") })
+        XCTAssertNotNil(lowVolume)
+        guard case .raiseWeeklyVolume(let target)? = lowVolume?.suggestion else {
+            return XCTFail("Expected raiseWeeklyVolume suggestion")
+        }
+        XCTAssertEqual(target, 45)
+    }
 }

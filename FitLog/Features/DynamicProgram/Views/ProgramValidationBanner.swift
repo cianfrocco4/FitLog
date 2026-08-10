@@ -44,10 +44,8 @@ struct ProgramValidationResult: Equatable, Sendable {
             blocking.append("Program length is invalid.")
         }
 
-        let hasDeload = program.blocks.contains { $0.isDeloadBlock || $0.focus.kind == .deload }
-        if totalWeeks >= 8, !hasDeload {
-            warnings.append("Programs 8+ weeks often benefit from a planned deload phase.")
-        }
+        // The deload check and `balanceWarnings` are rendered as actionable ProgramReviewSuggestion
+        // rows instead, so they are intentionally left out of warningIssues (avoids double-rendering).
 
         for (blockIndex, block) in program.blocks.enumerated() {
             let days: [SplitBuilderEditableDay] = {
@@ -83,10 +81,6 @@ struct ProgramValidationResult: Equatable, Sendable {
             }
         }
 
-        for w in balanceWarnings {
-            warnings.append(w.message)
-        }
-
         return ProgramValidationResult(
             blockingIssues: blocking,
             warningIssues: Array(Set(warnings)).sorted()
@@ -117,9 +111,9 @@ struct ProgramValidationBanner: View {
                     }
                 }
                 if !result.warningIssues.isEmpty {
-                    Label("Suggestions", systemImage: "lightbulb.fill")
+                    Label("Notes", systemImage: "info.circle.fill")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.secondary)
                     ForEach(Array(result.warningIssues.prefix(12).enumerated()), id: \.offset) { _, line in
                         Text("• \(line)")
                             .font(.footnote)
@@ -149,9 +143,49 @@ struct ProgramValidationBanner: View {
             parts.append("Blocking: " + result.blockingIssues.joined(separator: "; "))
         }
         if !result.warningIssues.isEmpty {
-            parts.append("Warnings: " + result.warningIssues.joined(separator: "; "))
+            parts.append("Notes: " + result.warningIssues.joined(separator: "; "))
         }
         return parts.joined(separator: ". ")
+    }
+}
+
+/// Actionable suggestion row for the Checks section.
+struct ProgramReviewSuggestionRow: View {
+    let suggestion: ProgramReviewSuggestion
+    let onApply: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: suggestion.severity == .caution ? "exclamationmark.triangle.fill" : "lightbulb.fill")
+                    .font(.caption)
+                    .foregroundStyle(suggestion.severity == .caution ? Color.orange : Color.accentColor)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(suggestion.message)
+                        .font(.caption)
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.leading)
+                    if let fix = suggestion.fixSummary {
+                        Text(fix)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            if let title = ProgramReviewSuggestion.actionTitle(for: suggestion.action) {
+                Button(title, action: onApply)
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel(title)
+                    .accessibilityHint(suggestion.fixSummary ?? "Applies the suggested fix")
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(suggestion.message)
     }
 }
 
@@ -159,8 +193,23 @@ struct ProgramValidationBanner: View {
     ProgramValidationBanner(
         result: ProgramValidationResult(
             blockingIssues: ["Add a program name."],
-            warningIssues: ["Consider a deload week."]
+            warningIssues: ["Empty day needs slots."]
         )
+    )
+    .padding()
+}
+
+#Preview("Suggestion row") {
+    ProgramReviewSuggestionRow(
+        suggestion: ProgramReviewSuggestion(
+            id: "deload",
+            message: "Programs 8+ weeks often benefit from a planned deload phase.",
+            fixSummary: ProgramReviewSuggestion.fixSummary(for: .addDeloadPhase),
+            action: .addDeloadPhase,
+            blockIndex: nil,
+            severity: .note
+        ),
+        onApply: {}
     )
     .padding()
 }

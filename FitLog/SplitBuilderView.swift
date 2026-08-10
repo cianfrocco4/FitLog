@@ -21,6 +21,11 @@ struct SplitBuilderView: View {
     @State private var viewModel = DynamicProgramBuilderViewModel()
     @State private var didMergeCoachPrefill = false
     @State private var didHydrateFromSavedState = false
+    @State private var confirmDiscardUnsavedProgram = false
+
+    private var hasUnsavedProgram: Bool {
+        viewModel.generatedProgram != nil && viewModel.applySuccessCount == 0
+    }
 
     var body: some View {
         NavigationStack {
@@ -37,9 +42,32 @@ struct SplitBuilderView: View {
             .environment(\.fitlogRootTabSelection, rootTabSelection)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
-                        .accessibilityHint("Closes the program builder")
+                    Button("Close") {
+                        if hasUnsavedProgram {
+                            confirmDiscardUnsavedProgram = true
+                        } else {
+                            dismiss()
+                        }
+                    }
+                    .accessibilityHint(
+                        hasUnsavedProgram
+                            ? "Asks before discarding the unsaved program"
+                            : "Closes the program builder"
+                    )
                 }
+            }
+            .interactiveDismissDisabled(hasUnsavedProgram)
+            .confirmationDialog(
+                "Discard this program?",
+                isPresented: $confirmDiscardUnsavedProgram,
+                titleVisibility: .visible
+            ) {
+                Button("Discard program", role: .destructive) {
+                    dismiss()
+                }
+                Button("Keep editing", role: .cancel) {}
+            } message: {
+                Text("You have a generated program that has not been saved to Plan. Closing now discards it.")
             }
             .onAppear {
                 if !didHydrateFromSavedState, let snapshot = hydrateFromState {
