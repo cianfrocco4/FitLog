@@ -190,8 +190,9 @@ final class DynamicProgramBuilderViewModel {
     /// Snapshot of the program right after successful generation (for Reset to generated).
     private(set) var generatedBaseline: DynamicProgram?
     private(set) var baselineEditableDays: [[SplitBuilderEditableDay]] = []
-    /// Bounded undo stack of `(program, perBlockEditableDays)` before structural mutations.
-    private var undoStack: [(program: DynamicProgram, days: [[SplitBuilderEditableDay]])] = []
+    /// Bounded undo stack of `(program, perBlockEditableDays, programRevision)` before structural mutations.
+    /// `programRevision` is the revision that matched the snapshotted content (before the edit).
+    private var undoStack: [(program: DynamicProgram, days: [[SplitBuilderEditableDay]], programRevision: Int)] = []
     private let maxUndoStackDepth = 20
     /// Transient banner after destructive edits (e.g. "Slot removed — Undo").
     var undoBannerMessage: String?
@@ -975,8 +976,9 @@ final class DynamicProgramBuilderViewModel {
     /// Push current state before a structural mutation.
     func pushUndoSnapshot() {
         guard let prog = generatedProgram else { return }
+        let revisionAtSnapshot = programRevision
         markProgramChanged()
-        undoStack.append((program: prog, days: perBlockEditableDays))
+        undoStack.append((program: prog, days: perBlockEditableDays, programRevision: revisionAtSnapshot))
         if undoStack.count > maxUndoStackDepth {
             undoStack.removeFirst(undoStack.count - maxUndoStackDepth)
         }
@@ -985,9 +987,9 @@ final class DynamicProgramBuilderViewModel {
     @discardableResult
     func undoLastEdit() -> Bool {
         guard let snapshot = undoStack.popLast() else { return false }
-        markProgramChanged()
         generatedProgram = snapshot.program
         perBlockEditableDays = snapshot.days
+        programRevision = snapshot.programRevision
         editableBlockIndex = min(editableBlockIndex, max(0, perBlockEditableDays.count - 1))
         editableDayIndex = 0
         refreshGenerationBalanceWarnings()
