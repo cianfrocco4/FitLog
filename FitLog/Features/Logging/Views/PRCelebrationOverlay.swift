@@ -29,6 +29,9 @@ struct PRCelebrationOverlay: View {
         .onAppear {
             withAnimation(.spring(response: 0.45, dampingFraction: 0.72)) { isVisible = true }
             confettiTrigger += 1
+            AccessibilityNotification.Announcement(
+                PersonalRecordAnnouncement.message(title: event.title, detail: event.detail)
+            ).post()
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
                 dismissOverlay()
             }
