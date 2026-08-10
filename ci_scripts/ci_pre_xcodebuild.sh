@@ -18,17 +18,16 @@ ACTION="${CI_XCODEBUILD_ACTION:-}"
 
 if [ -z "${FITLOG_PROXY_SHARED_SECRET:-}" ]; then
   # Only Archive ships a binary that must carry proxy auth. Test/Build often leave
-  # this ASC secret scoped off. When CI_XCODEBUILD_ACTION is empty we cannot tell
-  # archive from other actions — fail closed so a mis-scoped secret cannot ship.
+  # this ASC secret scoped off; CI_XCODEBUILD_ACTION can also be empty in pre-scripts.
   case "${ACTION}" in
-    archive|"")
+    archive)
       echo "error: FITLOG_PROXY_SHARED_SECRET is not set in Xcode Cloud Environment."
       echo "error: Refusing to archive without proxy auth — Premium AI / form guide would 401."
       echo "error: App Store Connect → Xcode Cloud → workflow → Environment → add FITLOG_PROXY_SHARED_SECRET (Secret ON)."
       exit 1
       ;;
   esac
-  echo "warning: FITLOG_PROXY_SHARED_SECRET unset; skipping Secrets.release.xcconfig for action='${ACTION}'."
+  echo "warning: FITLOG_PROXY_SHARED_SECRET unset; skipping Secrets.release.xcconfig for action='${ACTION:-unknown}'."
   exit 0
 fi
 
