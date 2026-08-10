@@ -15,6 +15,14 @@ REPO_ROOT="${CI_PRIMARY_REPOSITORY_PATH:-$(cd "$(dirname "$0")/.." && pwd)}"
 SECRETS_FILE="${REPO_ROOT}/Config/Secrets.release.xcconfig"
 
 if [ -z "${FITLOG_PROXY_SHARED_SECRET:-}" ]; then
+  # Test / build-for-testing do not expand Release Info.plist; skip instead of failing the suite.
+  # Archive/build still require the secret so TestFlight never ships without proxy auth.
+  case "${CI_XCODEBUILD_ACTION:-}" in
+    test|build-for-testing|test-without-building)
+      echo "warning: FITLOG_PROXY_SHARED_SECRET unset; skipping Secrets.release.xcconfig for ${CI_XCODEBUILD_ACTION}."
+      exit 0
+      ;;
+  esac
   echo "error: FITLOG_PROXY_SHARED_SECRET is not set in Xcode Cloud Environment."
   echo "error: Refusing to archive without proxy auth — Premium AI / form guide would 401."
   echo "error: App Store Connect → Xcode Cloud → workflow → Environment → add FITLOG_PROXY_SHARED_SECRET (Secret ON)."
