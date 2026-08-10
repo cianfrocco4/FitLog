@@ -39,6 +39,8 @@ struct SplitProposalProgramWarning: Equatable, Identifiable {
         case .openDay(let d): suggestionKey = "open:\(d)"
         case .addSlot(let d, let label, _): suggestionKey = "add:\(d):\(label)"
         case .regenerateWithNote(let note): suggestionKey = "regen:\(note.prefix(40))"
+        case .addDeloadPhase: suggestionKey = "deload"
+        case .raiseWeeklyVolume(let target): suggestionKey = "volume:\(target)"
         case .none: suggestionKey = "none"
         }
         return "\(severity.rawValue)|\(dayKey)|\(suggestionKey)|\(message)"
@@ -53,6 +55,8 @@ struct SplitProposalProgramWarning: Equatable, Identifiable {
         case openDay(Int)
         case addSlot(dayIndex: Int, label: String, muscles: [String])
         case regenerateWithNote(String)
+        case addDeloadPhase
+        case raiseWeeklyVolume(targetHardSets: Int)
     }
 }
 
@@ -297,7 +301,8 @@ enum SplitProposalProgramAnalyzer {
         if stats.totalHardSetsPerWeek > 0, stats.totalHardSetsPerWeek < 45 {
             out.append(SplitProposalProgramWarning(
                 severity: .note,
-                message: "Weekly set count is on the low side (\(stats.totalHardSetsPerWeek)). Fine for maintenance or busy weeks — bump volume if you’re prioritizing growth."
+                message: "Weekly set count is on the low side (\(stats.totalHardSetsPerWeek)). Fine for maintenance or busy weeks — bump volume if you’re prioritizing growth.",
+                suggestion: .raiseWeeklyVolume(targetHardSets: 45)
             ))
         }
 

@@ -158,6 +158,24 @@ final class DynamicProgramBuilderViewModel {
     /// Incremented when a program is saved to the plan.
     var applySuccessCount = 0
 
+    /// Bumped by every generation, structural mutation, and field commit.
+    private var programRevision = 0
+    /// Revision the Plan currently reflects; `nil` until the program is hydrated from or saved to Plan.
+    private var savedProgramRevision: Int?
+
+    /// True when the on-screen program differs from what the Plan holds, so closing would lose work.
+    var hasUnsavedProgramChanges: Bool {
+        generatedProgram != nil && savedProgramRevision != programRevision
+    }
+
+    private func markProgramChanged() {
+        programRevision &+= 1
+    }
+
+    private func markProgramSaved() {
+        savedProgramRevision = programRevision
+    }
+
     /// Editable weekly templates for **each** program block (source of truth for preview + timeline editing).
     var perBlockEditableDays: [[SplitBuilderEditableDay]] = []
     /// Which program block the main “Templates” form section is editing (0-based).
@@ -166,12 +184,15 @@ final class DynamicProgramBuilderViewModel {
     var editableDayIndex: Int = 0
     /// Balance / coverage hints for the **currently selected** editable block.
     var generationBalanceWarnings: [SplitProposalProgramWarning] = []
+    /// Actionable Checks suggestions across the whole program (deload + every block's balance notes).
+    private(set) var programReviewSuggestions: [ProgramReviewSuggestion] = []
 
     /// Snapshot of the program right after successful generation (for Reset to generated).
     private(set) var generatedBaseline: DynamicProgram?
     private(set) var baselineEditableDays: [[SplitBuilderEditableDay]] = []
-    /// Bounded undo stack of `(program, perBlockEditableDays)` before structural mutations.
-    private var undoStack: [(program: DynamicProgram, days: [[SplitBuilderEditableDay]])] = []
+    /// Bounded undo stack of `(program, perBlockEditableDays, programRevision)` before structural mutations.
+    /// `programRevision` is the revision that matched the snapshotted content (before the edit).
+    private var undoStack: [(program: DynamicProgram, days: [[SplitBuilderEditableDay]], programRevision: Int)] = []
     private let maxUndoStackDepth = 20
     /// Transient banner after destructive edits (e.g. "Slot removed — Undo").
     var undoBannerMessage: String?
@@ -582,6 +603,7 @@ final class DynamicProgramBuilderViewModel {
         captureGeneratedBaseline()
         wizardStep = .reviewAndEdit
         builderMode = state.program.generatedWithAI ? .aiGenerate : .manualBuild
+        markProgramSaved()
     }
 
     func applyCuratedTemplate(
@@ -755,6 +777,7 @@ final class DynamicProgramBuilderViewModel {
             generatedProgram = nil
             perBlockEditableDays = []
             generationBalanceWarnings = []
+            programReviewSuggestions = []
             clearGeneratedBaseline()
             setGenerationStage(.idle)
             generationBlockCompleted = 0
@@ -832,6 +855,7 @@ final class DynamicProgramBuilderViewModel {
         guard let prog = generatedProgram else {
             perBlockEditableDays = []
             generationBalanceWarnings = []
+            programReviewSuggestions = []
             return
         }
         editableBlockIndex = min(max(0, editableBlockIndex), prog.blocks.count - 1)
@@ -882,6 +906,7 @@ final class DynamicProgramBuilderViewModel {
     /// Field edit commit: persist + debounced balance refresh.
     func commitFieldEdit() {
         persistPerBlockTemplatesIntoProgram()
+        markProgramChanged()
         scheduleDebouncedBalanceRefresh()
     }
 
@@ -921,6 +946,7 @@ final class DynamicProgramBuilderViewModel {
 
     func refreshGenerationBalanceWarnings() {
         generationBalanceWarnings = balanceWarningsForBlock(at: editableBlockIndex)
+        programReviewSuggestions = computeProgramReviewSuggestions()
     }
 
     // MARK: - Baseline / Undo
@@ -929,6 +955,7 @@ final class DynamicProgramBuilderViewModel {
     var canResetToGenerated: Bool { generatedBaseline != nil }
 
     func captureGeneratedBaseline() {
+        markProgramChanged()
         guard let prog = generatedProgram else {
             clearGeneratedBaseline()
             return
@@ -949,7 +976,9 @@ final class DynamicProgramBuilderViewModel {
     /// Push current state before a structural mutation.
     func pushUndoSnapshot() {
         guard let prog = generatedProgram else { return }
-        undoStack.append((program: prog, days: perBlockEditableDays))
+        let revisionAtSnapshot = programRevision
+        markProgramChanged()
+        undoStack.append((program: prog, days: perBlockEditableDays, programRevision: revisionAtSnapshot))
         if undoStack.count > maxUndoStackDepth {
             undoStack.removeFirst(undoStack.count - maxUndoStackDepth)
         }
@@ -960,6 +989,7 @@ final class DynamicProgramBuilderViewModel {
         guard let snapshot = undoStack.popLast() else { return false }
         generatedProgram = snapshot.program
         perBlockEditableDays = snapshot.days
+        programRevision = snapshot.programRevision
         editableBlockIndex = min(editableBlockIndex, max(0, perBlockEditableDays.count - 1))
         editableDayIndex = 0
         refreshGenerationBalanceWarnings()
@@ -1058,6 +1088,135 @@ final class DynamicProgramBuilderViewModel {
         return SplitProposalProgramAnalyzer.warnings(stats: stats, days: days, context: ctx)
     }
 
+    /// Balance warnings across every block (for Overview Checks).
+    func balanceWarningsForAllBlocks() -> [(blockIndex: Int, warning: SplitProposalProgramWarning)] {
+        guard let prog = generatedProgram else { return [] }
+        var result: [(blockIndex: Int, warning: SplitProposalProgramWarning)] = []
+        for index in prog.blocks.indices {
+            for warning in balanceWarningsForBlock(at: index) {
+                result.append((blockIndex: index, warning: warning))
+            }
+        }
+        return result
+    }
+
+    /// Unified Checks suggestions: program-wide deload + per-block balance notes.
+    /// Recomputed at commit points (see `refreshGenerationBalanceWarnings`) rather than per body
+    /// evaluation, because analyzing every block is too expensive to run on each keystroke.
+    private func computeProgramReviewSuggestions() -> [ProgramReviewSuggestion] {
+        guard let prog = generatedProgram else { return [] }
+        var items: [ProgramReviewSuggestion] = []
+
+        let totalWeeks = prog.blocks.reduce(0) { $0 + max(1, $1.durationWeeks) }
+        let hasDeload = prog.blocks.contains { $0.isDeloadBlock || $0.focus.kind == .deload }
+        if totalWeeks >= 8, !hasDeload {
+            items.append(
+                ProgramReviewSuggestion(
+                    id: "program|deload",
+                    message: "Programs 8+ weeks often benefit from a planned deload phase.",
+                    fixSummary: ProgramReviewSuggestion.fixSummary(for: .addDeloadPhase),
+                    action: .addDeloadPhase,
+                    blockIndex: nil,
+                    severity: .note
+                )
+            )
+        }
+
+        let multiBlock = prog.blocks.count > 1
+        let allWarnings = balanceWarningsForAllBlocks()
+        let caution = allWarnings.filter { $0.warning.severity == .caution }
+        let notes = allWarnings.filter { $0.warning.severity == .note }
+        for entry in caution + notes {
+            let prefix = multiBlock ? prog.blocks[entry.blockIndex].name : nil
+            items.append(
+                ProgramReviewSuggestion(
+                    warning: entry.warning,
+                    blockIndex: entry.blockIndex,
+                    blockNamePrefix: prefix
+                )
+            )
+        }
+        return items
+    }
+
+    /// Appends a 1-week deload phase, shrinking the last block when it has ≥2 weeks.
+    @discardableResult
+    func applyAddDeloadPhase() -> Bool {
+        persistPerBlockTemplatesIntoProgram()
+        guard var prog = generatedProgram, let last = prog.blocks.last else { return false }
+        if last.isDeloadBlock || last.focus.kind == .deload { return false }
+
+        pushUndoSnapshot()
+        var workingLast = last
+        if workingLast.durationWeeks >= 2 {
+            workingLast.durationWeeks -= 1
+            prog.blocks[prog.blocks.count - 1] = workingLast
+        }
+
+        let deload = ProgramBlock(
+            name: "Deload",
+            focus: BlockFocus(kind: .deload, emphasisLabel: ""),
+            durationWeeks: 1,
+            weeklyTemplates: DynamicProgramMapper.duplicateWeeklyTemplates(workingLast.weeklyTemplates),
+            progressionStrategy: .doubleProgression,
+            isDeloadBlock: true,
+            volumeMultiplier: 0.7,
+            notes: "Lighter recovery week — keep form crisp and leave reps in reserve."
+        )
+        prog.blocks.append(deload)
+        generatedProgram = prog
+        rebuildEditableDaysFromProgram()
+        selectEditableBlock(prog.blocks.count - 1)
+        undoBannerMessage = "Added deload phase — Undo"
+        return true
+    }
+
+    /// Raises weekly hard-set volume on a block by incrementing the lowest-set strength slots first.
+    @discardableResult
+    func applyRaiseWeeklyVolume(targetHardSets: Int, blockIndex: Int? = nil) -> Bool {
+        let index = blockIndex ?? editableBlockIndex
+        guard perBlockEditableDays.indices.contains(index) else { return false }
+
+        func hardSets(in days: [SplitBuilderEditableDay]) -> Int {
+            days.reduce(0) { partial, day in
+                partial + day.slots.reduce(0) { sum, slot in
+                    guard slot.modality != .cardio else { return sum }
+                    return sum + max(0, slot.sets)
+                }
+            }
+        }
+
+        var days = perBlockEditableDays[index]
+        var current = hardSets(in: days)
+        guard current > 0, current < targetHardSets else { return false }
+
+        let setCap = 5
+        var addedSets = 0
+        while current < targetHardSets {
+            var pick: (day: Int, slot: Int, sets: Int)?
+            for (dayIndex, day) in days.enumerated() {
+                for (slotIndex, slot) in day.slots.enumerated() {
+                    guard slot.modality != .cardio, slot.sets < setCap else { continue }
+                    if pick == nil || slot.sets < pick!.sets {
+                        pick = (dayIndex, slotIndex, slot.sets)
+                    }
+                }
+            }
+            // Every strength slot is already at the cap — raising volume needs more exercises.
+            guard let pick else { break }
+            days[pick.day].slots[pick.slot].sets += 1
+            current += 1
+            addedSets += 1
+        }
+        guard addedSets > 0 else { return false }
+
+        pushUndoSnapshot()
+        perBlockEditableDays[index] = days
+        editableBlockIndex = index
+        commitStructuralEdit(banner: "Raised weekly volume — Undo")
+        return true
+    }
+
     /// Validation for save / apply (blocking vs warnings).
     var programValidationResult: ProgramValidationResult {
         ProgramValidationResult.evaluate(
@@ -1088,6 +1247,7 @@ final class DynamicProgramBuilderViewModel {
         }
         programAnchorDate = anchor
         applySuccessCount += 1
+        markProgramSaved()
         applySavedDetail = "Templates were added to your workout list and your Plan rotation matches the current program block."
         showApplySavedAlert = true
     }

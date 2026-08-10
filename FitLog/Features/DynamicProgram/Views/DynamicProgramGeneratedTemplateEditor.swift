@@ -14,6 +14,7 @@ struct DynamicProgramGeneratedTemplateEditor: View {
     let onRequestEdit: (Int, Int?) -> Void
     let onBalanceAction: (SplitProposalProgramWarning) -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var expandedBlockIds: Set<UUID> = []
 
     var body: some View {
@@ -27,7 +28,7 @@ struct DynamicProgramGeneratedTemplateEditor: View {
                     Text("Program blocks")
                 } footer: {
                     Text(overviewOnly
-                        ? "Tap a day to edit exercises. Balance suggestions can open a day, add a slot, or regenerate with a constraint."
+                        ? "Show workouts to review days. Tap a day to edit exercises without leaving Overview. Balance suggestions can apply a fix, open a day, or regenerate."
                         : "Expand a block to review days, then edit templates below. Changes are included when you save to Plan.")
                         .font(.caption)
                 }
@@ -91,13 +92,23 @@ struct DynamicProgramGeneratedTemplateEditor: View {
                     }
                 },
                 onToggleExpanded: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    if reduceMotion {
                         toggleExpanded(block.id)
+                    } else {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            toggleExpanded(block.id)
+                        }
                     }
                 }
             )
 
             if isExpanded {
+                Text("Workouts in this block")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .accessibilityAddTraits(.isHeader)
+
                 blockDaySummaryRows(blockIndex: blockIndex)
 
                 if !warnings.isEmpty {
@@ -155,7 +166,7 @@ struct DynamicProgramGeneratedTemplateEditor: View {
                             Text(dayExercisePreview(day))
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
-                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                         .padding(10)
                         .background(
@@ -172,7 +183,7 @@ struct DynamicProgramGeneratedTemplateEditor: View {
     }
 
     private func dayExercisePreview(_ day: SplitBuilderEditableDay) -> String {
-        let names = day.slots.prefix(4).map { slot -> String in
+        let names = day.slots.map { slot -> String in
             if let n = slot.suggestedExerciseName?.trimmingCharacters(in: .whitespacesAndNewlines), !n.isEmpty {
                 return n
             }
@@ -231,15 +242,6 @@ struct BalanceSuggestionRow: View {
     }
 
     private var actionTitle: String? {
-        switch warning.suggestion {
-        case .openDay:
-            return "Open day"
-        case .addSlot(_, let label, _):
-            return "Add \(label)"
-        case .regenerateWithNote:
-            return "Regenerate with this note"
-        case .none:
-            return nil
-        }
+        ProgramReviewSuggestion.actionTitle(for: warning.suggestion)
     }
 }

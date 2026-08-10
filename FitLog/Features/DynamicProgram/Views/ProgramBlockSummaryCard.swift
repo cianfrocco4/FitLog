@@ -19,44 +19,36 @@ struct ProgramBlockSummaryCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Button(action: onToggleExpanded) {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 8) {
-                            Text(block.name)
-                                .font(.headline)
-                                .foregroundStyle(.primary)
-                            if isSelected {
-                                Text("Editing")
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(Color.accentColor)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 3)
-                                    .background(Capsule().fill(Color.accentColor.opacity(0.14)))
-                            }
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(block.name)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                        if isSelected {
+                            Text("Editing")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(Color.accentColor)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Capsule().fill(Color.accentColor.opacity(0.14)))
                         }
-                        Text(block.focus.displayTitle)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        Text(summaryLine)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
                     }
-                    Spacer(minLength: 0)
-                    VStack(alignment: .trailing, spacing: 6) {
-                        Text("\(block.durationWeeks) wk")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Image(systemName: isExpanded ? "chevron.up.circle.fill" : "chevron.down.circle")
-                            .font(.title3)
-                            .foregroundStyle(Color.accentColor.opacity(0.85))
-                    }
+                    Text(block.focus.displayTitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Text(summaryLine)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                Spacer(minLength: 0)
+                Text("\(block.durationWeeks) wk")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(block.name), \(block.durationWeeks) weeks")
-            .accessibilityHint(isExpanded ? "Collapse block details" : "Expand block details")
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(block.name), \(block.durationWeeks) weeks, \(block.focus.displayTitle)")
 
             if !warnings.isEmpty {
                 HStack(spacing: 6) {
@@ -74,7 +66,7 @@ struct ProgramBlockSummaryCard: View {
                 Text(stats.topExercisePreview)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
-                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if !isSelected {
@@ -82,6 +74,22 @@ struct ProgramBlockSummaryCard: View {
                     .font(.caption.weight(.semibold))
                     .accessibilityHint("Selects this block for template editing")
             }
+
+            Button(action: onToggleExpanded) {
+                HStack(spacing: 6) {
+                    Text(isExpanded ? "Hide workouts" : "Show workouts (\(stats.dayCount))")
+                        .font(.caption.weight(.semibold))
+                    Image(systemName: "chevron.down")
+                        .font(.caption2.weight(.semibold))
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                }
+                .foregroundStyle(Color.accentColor)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isExpanded ? "Hide workouts" : "Show workouts")
+            .accessibilityHint(isExpanded ? "Collapses the workout list for this block" : "Expands the workout list for this block")
+            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
         }
         .padding(12)
         .background(

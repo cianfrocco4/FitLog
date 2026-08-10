@@ -3,6 +3,8 @@
 //  FitLog
 //
 //  Multi-week calendar grid with block-colored training days and optional volume strip.
+//  Laid out as program-week rows (not calendar months) so column alignment stays tied to the
+//  program start weekday; each row caption carries the month via "MMM d" ranges.
 //
 
 import SwiftUI
@@ -25,22 +27,28 @@ struct ProgramCalendarPreviewView: View {
         }
     }
 
+    private var totalProgramWeeks: Int {
+        max(1, Int(ceil(Double(totalProgramDays) / 7.0)))
+    }
+
     private var engine: PeriodizationEngine { PeriodizationEngine(calendar: calendar) }
 
     var body: some View {
         let state = previewState
+        let start = calendar.startOfDay(for: anchorDate)
         VStack(alignment: .leading, spacing: 8) {
             Text("Calendar")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
-                ForEach(0 ..< totalProgramDays, id: \.self) { offset in
-                    let day = calendar.date(byAdding: .day, value: offset, to: calendar.startOfDay(for: anchorDate)) ?? anchorDate
-                    cell(for: day, offset: offset, state: state)
+            weekdayHeader
+
+            LazyVStack(alignment: .leading, spacing: 8) {
+                ForEach(0 ..< totalProgramWeeks, id: \.self) { weekIndex in
+                    weekRow(weekIndex: weekIndex, start: start, state: state)
                 }
             }
-            .accessibilityElement(children: .ignore)
+            .accessibilityElement(children: .contain)
             .accessibilityLabel("Program calendar, \(totalProgramDays) days from start")
 
             if !weeklySetTotalsByBlock.isEmpty {
@@ -50,11 +58,62 @@ struct ProgramCalendarPreviewView: View {
         .padding(.vertical, 4)
     }
 
+    private var weekdayHeader: some View {
+        let symbols = calendar.veryShortWeekdaySymbols
+        let startWeekday = calendar.component(.weekday, from: anchorDate)
+        // Program week columns follow program start, not Sunday-first calendar weeks.
+        let ordered = (0 ..< 7).map { offset in
+            let idx = (startWeekday - 1 + offset) % 7
+            return symbols[idx]
+        }
+        return HStack(spacing: 4) {
+            ForEach(Array(ordered.enumerated()), id: \.offset) { _, symbol in
+                Text(symbol)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
     @ViewBuilder
-    private func cell(for date: Date, offset: Int, state: DynamicProgramState) -> some View {
+    private func weekRow(weekIndex: Int, start: Date, state: DynamicProgramState) -> some View {
+        let weekStartOffset = weekIndex * 7
+        let weekStart = calendar.date(byAdding: .day, value: weekStartOffset, to: start) ?? start
+        let weekEnd = calendar.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
+        let caption = "Week \(weekIndex + 1) · \(Self.monthDayFormatter.string(from: weekStart)) – \(Self.monthDayFormatter.string(from: weekEnd))"
+
+        VStack(alignment: .leading, spacing: 4) {
+            Text(caption)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityAddTraits(.isHeader)
+
+            HStack(spacing: 4) {
+                ForEach(0 ..< 7, id: \.self) { dayOffset in
+                    let offset = weekStartOffset + dayOffset
+                    if offset < totalProgramDays {
+                        let day = calendar.date(byAdding: .day, value: offset, to: start) ?? start
+                        cell(for: day, offset: offset, state: state, isWeekStart: dayOffset == 0)
+                    } else {
+                        Color.clear
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(caption)
+    }
+
+    @ViewBuilder
+    private func cell(for date: Date, offset: Int, state: DynamicProgramState, isWeekStart: Bool) -> some View {
         let placement = engine.blockPlacement(on: date, state: state)
         let resolved = engine.resolvedTemplateDay(on: date, state: state)
         let dayNum = calendar.component(.day, from: date)
+        let isMonthStart = dayNum == 1
+        let showMonth = isWeekStart || isMonthStart
 
         let title: String = {
             switch resolved {
@@ -80,9 +139,11 @@ struct ProgramCalendarPreviewView: View {
         }()
 
         VStack(spacing: 2) {
-            Text("\(dayNum)")
+            Text(showMonth ? Self.monthDayFormatter.string(from: date) : "\(dayNum)")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(isTraining ? .primary : .secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
             if isTraining {
                 Text(title)
                     .font(.system(size: 7))
@@ -149,6 +210,12 @@ struct ProgramCalendarPreviewView: View {
     private static let dayFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .medium
+        return f
+    }()
+
+    private static let monthDayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
         return f
     }()
 

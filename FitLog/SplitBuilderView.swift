@@ -21,6 +21,7 @@ struct SplitBuilderView: View {
     @State private var viewModel = DynamicProgramBuilderViewModel()
     @State private var didMergeCoachPrefill = false
     @State private var didHydrateFromSavedState = false
+    @State private var confirmDiscardUnsavedProgram = false
 
     var body: some View {
         NavigationStack {
@@ -37,9 +38,32 @@ struct SplitBuilderView: View {
             .environment(\.fitlogRootTabSelection, rootTabSelection)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
-                        .accessibilityHint("Closes the program builder")
+                    Button("Close") {
+                        if viewModel.hasUnsavedProgramChanges {
+                            confirmDiscardUnsavedProgram = true
+                        } else {
+                            dismiss()
+                        }
+                    }
+                    .accessibilityHint(
+                        viewModel.hasUnsavedProgramChanges
+                            ? "Asks before discarding unsaved program changes"
+                            : "Closes the program builder"
+                    )
                 }
+            }
+            .interactiveDismissDisabled(viewModel.hasUnsavedProgramChanges)
+            .confirmationDialog(
+                "Discard unsaved changes?",
+                isPresented: $confirmDiscardUnsavedProgram,
+                titleVisibility: .visible
+            ) {
+                Button("Discard changes", role: .destructive) {
+                    dismiss()
+                }
+                Button("Keep editing", role: .cancel) {}
+            } message: {
+                Text("This program has changes that are not in your Plan. Closing now discards them.")
             }
             .onAppear {
                 if !didHydrateFromSavedState, let snapshot = hydrateFromState {
