@@ -153,9 +153,13 @@ struct ActiveProgramDetailView: View {
                 Text("Progress")
             }
 
+            goalsSection(state: state)
+
             Section {
+                // Match Goals: show synthesized phase goals for legacy programs that lack them.
+                let displayProgram = dataVM.dynamicProgramStateWithGoalsIfNeeded()?.program ?? program
                 DynamicProgramTimelineView(
-                    program: program,
+                    program: displayProgram,
                     anchorDate: state.anchorDate,
                     builderViewModel: nil
                 )
@@ -250,6 +254,86 @@ struct ActiveProgramDetailView: View {
                 }
                 .accessibilityHint("Stops using this dynamic program on your calendar")
             }
+        }
+    }
+
+    @ViewBuilder
+    private func goalsSection(state: DynamicProgramState) -> some View {
+        let phase = dataVM.currentPhaseGoalProgress(calendar: calendar)
+        let thisWeek = dataVM.programGoalScorecard(calendar: calendar)
+        Section {
+            if let phase, let goal = phase.phaseGoal {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(goal.title)
+                        .font(.subheadline.weight(.semibold))
+                    Text(goal.summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(phase.completionLabel)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(
+                    "\(goal.title). \(goal.summary). \(phase.completionLabel)"
+                )
+
+                if let thisWeek, thisWeek.status != .notScheduled {
+                    Label(thisWeek.statusSentence, systemImage: "target")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("This week: \(thisWeek.statusSentence)")
+                }
+
+                ForEach(phase.weekScorecards) { card in
+                    HStack(alignment: .top, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            if let weekInBlock = card.weekInBlock {
+                                Text("Week \(weekInBlock + 1)")
+                                    .font(.caption.weight(.semibold))
+                            } else {
+                                Text(card.isoWeekKey)
+                                    .font(.caption.weight(.semibold))
+                            }
+                            Text(card.statusSentence)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
+                        Text(card.status.plainLanguageLabel)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(goalStatusColor(card.status))
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(
+                        "\(card.weekInBlock.map { "Week \($0 + 1)" } ?? card.isoWeekKey), \(card.status.plainLanguageLabel). \(card.statusSentence)"
+                    )
+                }
+            } else if let thisWeek {
+                Text(thisWeek.statusSentence)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Goals appear once this program has phase targets.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Goals")
+        } footer: {
+            Text("Weekly goals come from each phase. Busy days lower the target so you aren’t penalized.")
+                .font(.caption)
+        }
+    }
+
+    private func goalStatusColor(_ status: WeekGoalStatus) -> Color {
+        switch status {
+        case .met, .onTrack: return .accentColor
+        case .atRisk: return .orange
+        case .missed: return .secondary
+        case .upcoming, .notScheduled: return .secondary
         }
     }
 

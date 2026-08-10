@@ -857,15 +857,19 @@ final class DataManager {
         let cal = Calendar.current
         let anchorStart = cal.startOfDay(for: anchorDate)
         let workoutsBeforeApply = userWorkouts
-        let map = materializeDynamicProgramWorkouts(for: program)
-        let templateIds = program.blocks.flatMap(\.weeklyTemplates).map(\.id)
+        // Ensure phase goals are present for older builders / templates that skipped normalization.
+        let programWithGoals = program.blocks.contains(where: { $0.phaseGoal == nil })
+            ? ProgramPhaseGoalFactory.attachingAutoGoals(to: program)
+            : program
+        let map = materializeDynamicProgramWorkouts(for: programWithGoals)
+        let templateIds = programWithGoals.blocks.flatMap(\.weeklyTemplates).map(\.id)
         guard !templateIds.isEmpty, templateIds.allSatisfy({ map[$0] != nil }) else {
             userWorkouts = workoutsBeforeApply
             _ = saveWorkouts()
             return false
         }
         let state = DynamicProgramState(
-            program: program,
+            program: programWithGoals,
             anchorDate: anchorStart,
             materializedTemplateWorkoutIds: map
         )
@@ -968,6 +972,55 @@ final class DataManager {
             walk = nx
         }
         return (completed, max(1, planned))
+    }
+
+    /// Calendar-week process-goal scorecard for the active dynamic program.
+    func programGoalScorecard(
+        forWeekContaining date: Date = Date(),
+        calendar: Calendar = .current
+    ) -> WeekGoalScorecard? {
+        guard let state = dynamicProgramStateWithGoalsIfNeeded() else { return nil }
+        return ProgramGoalProgressEngine(calendar: calendar).scorecard(
+            forWeekContaining: date,
+            state: state,
+            completedSessions: completedSessions
+        )
+    }
+
+    /// Phase rollup for the block owning today (or a specific block).
+    func currentPhaseGoalProgress(calendar: Calendar = .current) -> PhaseGoalProgress? {
+        guard let state = dynamicProgramStateWithGoalsIfNeeded() else { return nil }
+        let engine = PeriodizationEngine(calendar: calendar)
+        let today = calendar.startOfDay(for: Date())
+        guard let placement = engine.blockPlacement(on: today, state: state) else { return nil }
+        return ProgramGoalProgressEngine(calendar: calendar).phaseProgress(
+            for: placement.block.id,
+            state: state,
+            completedSessions: completedSessions
+        )
+    }
+
+    /// Planned sessions this calendar week for the active dynamic program (busy-adjusted).
+    func dynamicProgramPlannedSessionsThisWeek(
+        referenceDate: Date = Date(),
+        calendar: Calendar = .current
+    ) -> Int? {
+        guard let card = programGoalScorecard(forWeekContaining: referenceDate, calendar: calendar) else {
+            return nil
+        }
+        guard let sessions = card.metrics.first(where: { $0.kind == .sessionsPerWeek }) else { return nil }
+        let planned = Int(sessions.planned.rounded())
+        return planned > 0 ? planned : nil
+    }
+
+    /// Ensures legacy programs without `phaseGoal` still score with synthesized targets (read-path only).
+    /// Does not persist — callers that display the program graph should use this for UI consistency.
+    func dynamicProgramStateWithGoalsIfNeeded() -> DynamicProgramState? {
+        guard var state = dynamicProgramState else { return nil }
+        if state.program.blocks.contains(where: { $0.phaseGoal == nil }) {
+            state.program = ProgramPhaseGoalFactory.attachingAutoGoals(to: state.program)
+        }
+        return state
     }
 
     /// Most recent completed session whose end (or start) falls on this local calendar day.
@@ -1485,10 +1538,20 @@ final class DataManager {
         } else {
             completed = 0
         }
-        let goal: Int? = trainingProgram.cycleEntries.isEmpty
-            ? nil
-            : min(max(1, trainingProgram.sessionsPerWeek), 7)
+        let goal: Int? = resolvedWeeklySessionGoal(referenceDate: referenceDate, calendar: calendar)
         return WeekAtAGlance(isoWeekKey: weekKey, days: days, completedCount: completed, weeklyGoal: goal)
+    }
+
+    /// Session goal for the week strip / recap.
+    /// Prefer the active dynamic program’s busy-adjusted planned sessions; fall back to the legacy cycle.
+    private func resolvedWeeklySessionGoal(referenceDate: Date, calendar: Calendar) -> Int? {
+        if let planned = dynamicProgramPlannedSessionsThisWeek(referenceDate: referenceDate, calendar: calendar) {
+            return planned
+        }
+        if !trainingProgram.cycleEntries.isEmpty {
+            return min(max(1, trainingProgram.sessionsPerWeek), 7)
+        }
+        return nil
     }
 
     /// Most recent completion date for sessions tied to a library workout id.
@@ -1576,9 +1639,7 @@ final class DataManager {
         let thisAgg = aggregateVolumeAndSets(thisWeekSessions)
         let priorAgg = aggregateVolumeAndSets(priorWeekSessions)
 
-        let goal: Int? = trainingProgram.cycleEntries.isEmpty
-            ? nil
-            : min(max(1, trainingProgram.sessionsPerWeek), 7)
+        let goal = resolvedWeeklySessionGoal(referenceDate: referenceDate, calendar: calendar)
 
         return WeeklyRecapSummary(
             isoWeekKey: weekKey,

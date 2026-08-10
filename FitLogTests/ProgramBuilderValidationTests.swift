@@ -231,4 +231,35 @@ final class ProgramBuilderValidationTests: XCTestCase {
         }
         XCTAssertEqual(target, 45)
     }
+
+    func testBlockSummaryStrengthSetsExcludeWarmUps() {
+        let block = ProgramBlock(
+            name: "B1",
+            focus: BlockFocus(kind: .hypertrophy, emphasisLabel: ""),
+            durationWeeks: 4,
+            weeklyTemplates: [
+                BlockWeeklyTemplate(
+                    dayName: "Push",
+                    focus: "",
+                    slots: [
+                        SplitBuilderEditableSlot(
+                            label: "Warm",
+                            targetMuscleNames: [],
+                            sets: 2,
+                            reps: "10",
+                            isWarmUp: true
+                        ),
+                        SplitBuilderEditableSlot(
+                            label: "Bench",
+                            targetMuscleNames: [MuscleGroup.chest.rawValue],
+                            sets: 4,
+                            reps: "8"
+                        ),
+                    ]
+                ),
+            ]
+        )
+        let stats = ProgramBlockSummarySupport.stats(for: block)
+        XCTAssertEqual(stats.strengthSetCount, 4)
+    }
 }

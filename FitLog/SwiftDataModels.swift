@@ -30,11 +30,15 @@ struct VersionedPayload<T: Codable>: Codable {
 ///       (manual builder fields); decode uses `decodeIfPresent` for backward compatibility.
 ///   6 – Cardio overlay: `Exercise.modality`, `CardioMetrics` on `LoggedSet`, `Workout.workoutKind`,
 ///       `CardioPrescription` on workout rows / slot blueprints.
+///   7 – `ProgramBlock.phaseGoal` (optional `ProgramPhaseGoal` process targets); decode uses
+///       `decodeIfPresent` for backward compatibility. SwiftData schema stays at V6 — goals live
+///       inside the `SDDynamicProgramV2.stateData` JSON blob.
 ///
 /// **AI split builder wizard defaults** use a separate, versioned UserDefaults envelope
 /// (`SplitBuilderPreferencesStore`) — not `VersionedPayload` / SwiftData — so workout and program
-/// data are unaffected if wizard prefs are reset or migrated independently.
-let currentSchemaVersion = 6
+/// data are unaffected if wizard prefs are reset or migrated independently. That store keeps its
+/// own private schema counter and must not be bumped in sympathy with this constant.
+let currentSchemaVersion = 7
 
 /// Encode a value wrapped in a VersionedPayload.
 func versionedEncode<T: Codable>(_ value: T) -> Data {
@@ -47,7 +51,7 @@ func versionedEncode<T: Codable>(_ value: T) -> Data {
 func versionedDecode<T: Codable>(_ type: T.Type, from data: Data) -> T? {
     guard !data.isEmpty else { return nil }
     if let versioned = try? JSONDecoder().decode(VersionedPayload<T>.self, from: data) {
-        // Schema 6 adds optional cardio fields; older payloads decode via `decodeIfPresent` on domain types.
+        // Schema 6+ adds optional fields; older payloads decode via `decodeIfPresent` on domain types.
         return versioned.data
     }
     // Pre-versioning legacy data — decode directly

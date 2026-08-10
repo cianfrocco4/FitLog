@@ -21,7 +21,8 @@ enum ProgramBlockSummarySupport {
     static func stats(for block: ProgramBlock, warnings: [SplitProposalProgramWarning] = []) -> BlockStats {
         let templates = block.weeklyTemplates
         let slots = templates.flatMap(\.slots)
-        let strengthSets = slots.filter { $0.modality != .cardio }.reduce(0) { $0 + $1.sets }
+        // Exclude warm-ups so review stats match program goal hard-set counts.
+        let strengthSets = ProgramVolumeMath.plannedHardSets(in: slots, volumeMultiplier: 1.0)
         let cardioSlots = slots.filter { $0.modality == .cardio }.count
         let dayNames = templates.map(\.dayName).filter { !$0.isEmpty }
         let dayNamesLine = dayNames.isEmpty ? "No days" : dayNames.joined(separator: " · ")

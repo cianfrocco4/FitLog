@@ -52,10 +52,37 @@ struct DynamicProgramTimelineView: View {
             }
             .accessibilityElement(children: .combine)
 
-            Text("Weeks 1–\(block.durationWeeks) · \(block.focus.displayTitle)")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.primary)
-                .accessibilityLabel("Focus for weeks 1 through \(block.durationWeeks): \(block.focus.displayTitle)")
+            if let goal = block.phaseGoal {
+                Text(goal.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .accessibilityAddTraits(.isHeader)
+                Text(goal.summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !goal.chipLabels.isEmpty {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 6) {
+                            ForEach(goal.chipLabels, id: \.self) { chip in
+                                goalChip(chip)
+                            }
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(goal.chipLabels, id: \.self) { chip in
+                                goalChip(chip)
+                            }
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Weekly targets: \(goal.chipLabels.joined(separator: ", "))")
+                }
+            } else {
+                Text("Weeks 1–\(block.durationWeeks) · \(block.focus.displayTitle)")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .accessibilityLabel("Focus for weeks 1 through \(block.durationWeeks): \(block.focus.displayTitle)")
+            }
 
             if let notes = block.notes?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty {
                 Text(notes)
@@ -132,25 +159,37 @@ struct DynamicProgramTimelineView: View {
 
     private func weekRangeRow(blockIndex: Int, block: ProgramBlock, weekIndex: Int) -> some View {
         let weekLabel = weekCalendarLabel(blockIndex: blockIndex, weekIndex1Based: weekIndex)
-        return HStack(spacing: 8) {
-            Text("Week \(weekIndex)")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 52, alignment: .leading)
-            if let weekLabel {
-                Text(weekLabel)
-                    .font(.caption)
-                    .foregroundStyle(.primary)
+        let isDeload = block.isDeloadBlock
+            || block.focus.kind == .deload
+            || block.deloadWeekNumber == weekIndex
+        let chips = weekTargetChips(for: block, isDeloadWeek: isDeload)
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text("Week \(weekIndex)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 52, alignment: .leading)
+                if let weekLabel {
+                    Text(weekLabel)
+                        .font(.caption)
+                        .foregroundStyle(.primary)
+                }
+                Spacer(minLength: 0)
+                if isDeload {
+                    Text("Lighter")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.accentColor.opacity(0.14)))
+                        .accessibilityLabel("Lighter deload week")
+                }
             }
-            Spacer(minLength: 0)
-            if block.isDeloadBlock || block.focus.kind == .deload {
-                Text("Deload")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(Color.accentColor)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Color.accentColor.opacity(0.14)))
-                    .accessibilityLabel("Deload week")
+            if !chips.isEmpty {
+                Text(chips.joined(separator: " · "))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(2)
             }
         }
         .padding(.vertical, 4)
@@ -162,8 +201,36 @@ struct DynamicProgramTimelineView: View {
         )
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            "Week \(weekIndex)\(weekLabel.map { ", \($0)" } ?? "")\(block.isDeloadBlock || block.focus.kind == .deload ? ", deload week" : "")"
+            "Week \(weekIndex)\(weekLabel.map { ", \($0)" } ?? "")\(isDeload ? ", lighter week" : "")\(chips.isEmpty ? "" : ", \(chips.joined(separator: ", "))")"
         )
+    }
+
+    private func weekTargetChips(for block: ProgramBlock, isDeloadWeek: Bool) -> [String] {
+        guard let goal = block.phaseGoal else { return [] }
+        let scale = isDeloadWeek && !(block.isDeloadBlock || block.focus.kind == .deload)
+            ? ProgramVolumeMath.effectiveVolumeMultiplier(for: block, weekInBlock: (block.deloadWeekNumber ?? 1) - 1)
+            : 1.0
+        return goal.targets.compactMap { target in
+            switch target.kind {
+            case .sessionsPerWeek:
+                return target.chipLabel
+            case .weeklyHardSets:
+                let scaled = Int((target.value * scale).rounded())
+                return "~\(scaled) hard sets"
+            case .weeklyCardioMinutes:
+                let scaled = Int((target.value * scale).rounded())
+                return "\(scaled) min cardio"
+            }
+        }
+    }
+
+    private func goalChip(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(Color(.tertiarySystemFill)))
     }
 
     private func weekCalendarLabel(blockIndex: Int, weekIndex1Based: Int) -> String? {

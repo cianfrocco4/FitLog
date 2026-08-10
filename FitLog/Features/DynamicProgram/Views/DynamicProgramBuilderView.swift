@@ -826,6 +826,8 @@ struct DynamicProgramBuilderView: View {
                         ManualBlockEditorView(viewModel: viewModel)
                     }
 
+                    ProgramPhaseGoalEditorSection(viewModel: viewModel)
+
                     DynamicProgramGeneratedTemplateEditor(
                         viewModel: viewModel,
                         overviewOnly: false,

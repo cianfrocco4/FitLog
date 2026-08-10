@@ -600,6 +600,7 @@ final class DynamicProgramBuilderViewModel {
         applyErrorMessage = nil
         editableBlockIndex = 0
         rebuildEditableDaysFromProgram()
+        normalizePhaseGoals()
         captureGeneratedBaseline()
         wizardStep = .reviewAndEdit
         builderMode = state.program.generatedWithAI ? .aiGenerate : .manualBuild
@@ -771,6 +772,7 @@ final class DynamicProgramBuilderViewModel {
             editableBlockIndex = 0
             setGenerationStage(.finalizing)
             rebuildEditableDaysFromProgram()
+            normalizePhaseGoals()
             captureGeneratedBaseline()
             setGenerationStage(.ready)
         } catch {
@@ -828,6 +830,7 @@ final class DynamicProgramBuilderViewModel {
         editableBlockIndex = 0
         setGenerationStage(.finalizing)
         rebuildEditableDaysFromProgram()
+        normalizePhaseGoals()
         captureGeneratedBaseline()
         setGenerationStage(.ready)
     }
@@ -884,6 +887,104 @@ final class DynamicProgramBuilderViewModel {
 
     /// Persist editable days into `generatedProgram` (call on sheet dismiss, structural change, block switch, save).
     func persistPerBlockTemplatesIntoProgram() {
+        guard var prog = generatedProgram else { return }
+        for i in prog.blocks.indices {
+            guard perBlockEditableDays.indices.contains(i) else { continue }
+            prog.blocks[i].weeklyTemplates = perBlockEditableDays[i].map { d in
+                BlockWeeklyTemplate(id: d.id, dayName: d.name, focus: d.focus, slots: d.slots, dayNotes: d.dayNotes)
+            }
+        }
+        generatedProgram = prog
+        normalizePhaseGoals()
+    }
+
+    /// Single funnel that attaches/refreshes auto phase goals (preserves `.userSet` targets).
+    func normalizePhaseGoals() {
+        guard let prog = generatedProgram else { return }
+        let pick = CoachGoalProgramming.resolve(
+            from: request.splitInput.primaryGoal,
+            experienceLevel: request.splitInput.experienceLevel
+        ).goal
+        generatedProgram = ProgramPhaseGoalFactory.attachingAutoGoals(to: prog, primaryGoal: pick)
+    }
+
+    /// Updates a phase goal target number and marks it `.userSet` (undoable).
+    func updatePhaseGoalTarget(
+        blockIndex: Int,
+        kind: ProgramGoalMetricKind,
+        value: Double
+    ) {
+        guard generatedProgram != nil, generatedProgram!.blocks.indices.contains(blockIndex) else { return }
+        // Sync templates without normalizing yet so the undo snapshot matches on-screen state.
+        syncTemplatesIntoProgramWithoutNormalizing()
+        guard var prog = generatedProgram else { return }
+        pushUndoSnapshot()
+        var goal = prog.blocks[blockIndex].phaseGoal
+            ?? ProgramPhaseGoalFactory.make(
+                for: prog.blocks[blockIndex],
+                sessionsPerWeek: prog.defaultSessionsPerWeek,
+                primaryGoal: CoachGoalProgramming.resolve(
+                    from: request.splitInput.primaryGoal,
+                    experienceLevel: request.splitInput.experienceLevel
+                ).goal
+            )
+        if let idx = goal.targets.firstIndex(where: { $0.kind == kind }) {
+            goal.targets[idx].value = value
+            goal.targets[idx].source = .userSet
+        } else {
+            goal.targets.append(
+                ProgramGoalTarget(kind: kind, value: value, isPrimary: kind == .sessionsPerWeek, source: .userSet)
+            )
+        }
+        prog.blocks[blockIndex].phaseGoal = goal
+        generatedProgram = prog
+        undoBannerMessage = "Goal updated — Undo"
+        refreshGenerationBalanceWarnings()
+    }
+
+    /// Clears `.userSet` flags so the next normalize recomputes suggested targets.
+    func resetPhaseGoalTargetsToSuggested(blockIndex: Int) {
+        guard generatedProgram != nil, generatedProgram!.blocks.indices.contains(blockIndex) else { return }
+        syncTemplatesIntoProgramWithoutNormalizing()
+        guard var prog = generatedProgram else { return }
+        pushUndoSnapshot()
+        if var goal = prog.blocks[blockIndex].phaseGoal {
+            goal.targets = goal.targets.map { t in
+                var copy = t
+                copy.source = .auto
+                return copy
+            }
+            goal.copyIsUserSet = false
+            prog.blocks[blockIndex].phaseGoal = goal
+        } else {
+            prog.blocks[blockIndex].phaseGoal = nil
+        }
+        generatedProgram = prog
+        normalizePhaseGoals()
+        undoBannerMessage = "Goals reset — Undo"
+        refreshGenerationBalanceWarnings()
+    }
+
+    func updatePhaseGoalCopy(blockIndex: Int, title: String, summary: String) {
+        guard generatedProgram != nil, generatedProgram!.blocks.indices.contains(blockIndex) else { return }
+        syncTemplatesIntoProgramWithoutNormalizing()
+        guard var prog = generatedProgram else { return }
+        pushUndoSnapshot()
+        var goal = prog.blocks[blockIndex].phaseGoal
+            ?? ProgramPhaseGoalFactory.make(
+                for: prog.blocks[blockIndex],
+                sessionsPerWeek: prog.defaultSessionsPerWeek
+            )
+        goal.title = title
+        goal.summary = summary
+        goal.copyIsUserSet = true
+        prog.blocks[blockIndex].phaseGoal = goal
+        generatedProgram = prog
+        undoBannerMessage = "Goal text updated — Undo"
+    }
+
+    /// Writes editable days into the program without re-running goal normalization.
+    private func syncTemplatesIntoProgramWithoutNormalizing() {
         guard var prog = generatedProgram else { return }
         for i in prog.blocks.indices {
             guard perBlockEditableDays.indices.contains(i) else { continue }
