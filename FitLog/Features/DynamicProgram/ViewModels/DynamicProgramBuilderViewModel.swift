@@ -1165,7 +1165,7 @@ final class DynamicProgramBuilderViewModel {
         var current = hardSets(in: days)
         guard current > 0, current < targetHardSets else { return false }
 
-        pushUndoSnapshot()
+        let startingHardSets = current
         let setCap = 5
         while current < targetHardSets {
             var candidates: [(day: Int, slot: Int, sets: Int)] = []
@@ -1180,6 +1180,9 @@ final class DynamicProgramBuilderViewModel {
             current += 1
         }
 
+        guard current > startingHardSets else { return false }
+
+        pushUndoSnapshot()
         perBlockEditableDays[index] = days
         editableBlockIndex = index
         commitStructuralEdit(banner: "Raised weekly volume — Undo")
