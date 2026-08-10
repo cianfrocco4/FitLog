@@ -228,6 +228,35 @@ final class DynamicProgramBuilderUndoTests: XCTestCase {
         XCTAssertTrue(vm.hasUnsavedProgramChanges)
     }
 
+    func testUndoingBackToSavedContentClearsUnsavedState() {
+        let vm = DynamicProgramBuilderViewModel()
+        let (program, _) = makeProgram(dayName: "Push", slotLabel: "Bench")
+        vm.hydrate(from: DynamicProgramState(program: program, anchorDate: Date()))
+
+        _ = vm.addComplementarySlot(dayIndex: 0, label: "Fly", muscles: ["Chest"])
+        XCTAssertTrue(vm.hasUnsavedProgramChanges)
+
+        // Undoing every edit puts the program back in step with Plan, so closing is safe again.
+        XCTAssertTrue(vm.undoLastEdit())
+        XCTAssertFalse(vm.hasUnsavedProgramChanges)
+    }
+
+    func testUndoLeavesUncommittedFieldEditsMarkedUnsaved() {
+        let vm = DynamicProgramBuilderViewModel()
+        let (program, _) = makeProgram(dayName: "Push", slotLabel: "Bench")
+        vm.hydrate(from: DynamicProgramState(program: program, anchorDate: Date()))
+
+        var days = vm.bindingForBlockDays(0).wrappedValue
+        days[0].slots[0].label = "Incline Bench"
+        vm.bindingForBlockDays(0).wrappedValue = days
+        vm.commitFieldEdit()
+
+        _ = vm.addComplementarySlot(dayIndex: 0, label: "Fly", muscles: ["Chest"])
+        // Undo only rewinds the slot addition; the earlier rename is still not in Plan.
+        XCTAssertTrue(vm.undoLastEdit())
+        XCTAssertTrue(vm.hasUnsavedProgramChanges)
+    }
+
     func testFreshlyGeneratedProgramCountsAsUnsaved() {
         let vm = DynamicProgramBuilderViewModel()
         let (program, _) = makeProgram(dayName: "Pull", slotLabel: "Row")
