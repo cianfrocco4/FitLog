@@ -23,10 +23,6 @@ struct SplitBuilderView: View {
     @State private var didHydrateFromSavedState = false
     @State private var confirmDiscardUnsavedProgram = false
 
-    private var hasUnsavedProgram: Bool {
-        viewModel.generatedProgram != nil && viewModel.applySuccessCount == 0
-    }
-
     var body: some View {
         NavigationStack {
             Group {
@@ -43,31 +39,31 @@ struct SplitBuilderView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") {
-                        if hasUnsavedProgram {
+                        if viewModel.hasUnsavedProgramChanges {
                             confirmDiscardUnsavedProgram = true
                         } else {
                             dismiss()
                         }
                     }
                     .accessibilityHint(
-                        hasUnsavedProgram
-                            ? "Asks before discarding the unsaved program"
+                        viewModel.hasUnsavedProgramChanges
+                            ? "Asks before discarding unsaved program changes"
                             : "Closes the program builder"
                     )
                 }
             }
-            .interactiveDismissDisabled(hasUnsavedProgram)
+            .interactiveDismissDisabled(viewModel.hasUnsavedProgramChanges)
             .confirmationDialog(
-                "Discard this program?",
+                "Discard unsaved changes?",
                 isPresented: $confirmDiscardUnsavedProgram,
                 titleVisibility: .visible
             ) {
-                Button("Discard program", role: .destructive) {
+                Button("Discard changes", role: .destructive) {
                     dismiss()
                 }
                 Button("Keep editing", role: .cancel) {}
             } message: {
-                Text("You have a generated program that has not been saved to Plan. Closing now discards it.")
+                Text("This program has changes that are not in your Plan. Closing now discards them.")
             }
             .onAppear {
                 if !didHydrateFromSavedState, let snapshot = hydrateFromState {

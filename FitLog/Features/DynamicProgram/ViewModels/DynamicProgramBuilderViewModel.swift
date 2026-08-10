@@ -158,6 +158,24 @@ final class DynamicProgramBuilderViewModel {
     /// Incremented when a program is saved to the plan.
     var applySuccessCount = 0
 
+    /// Bumped by every generation, structural mutation, and field commit.
+    private var programRevision = 0
+    /// Revision the Plan currently reflects; `nil` until the program is hydrated from or saved to Plan.
+    private var savedProgramRevision: Int?
+
+    /// True when the on-screen program differs from what the Plan holds, so closing would lose work.
+    var hasUnsavedProgramChanges: Bool {
+        generatedProgram != nil && savedProgramRevision != programRevision
+    }
+
+    private func markProgramChanged() {
+        programRevision &+= 1
+    }
+
+    private func markProgramSaved() {
+        savedProgramRevision = programRevision
+    }
+
     /// Editable weekly templates for **each** program block (source of truth for preview + timeline editing).
     var perBlockEditableDays: [[SplitBuilderEditableDay]] = []
     /// Which program block the main “Templates” form section is editing (0-based).
@@ -584,6 +602,7 @@ final class DynamicProgramBuilderViewModel {
         captureGeneratedBaseline()
         wizardStep = .reviewAndEdit
         builderMode = state.program.generatedWithAI ? .aiGenerate : .manualBuild
+        markProgramSaved()
     }
 
     func applyCuratedTemplate(
@@ -886,6 +905,7 @@ final class DynamicProgramBuilderViewModel {
     /// Field edit commit: persist + debounced balance refresh.
     func commitFieldEdit() {
         persistPerBlockTemplatesIntoProgram()
+        markProgramChanged()
         scheduleDebouncedBalanceRefresh()
     }
 
@@ -934,6 +954,7 @@ final class DynamicProgramBuilderViewModel {
     var canResetToGenerated: Bool { generatedBaseline != nil }
 
     func captureGeneratedBaseline() {
+        markProgramChanged()
         guard let prog = generatedProgram else {
             clearGeneratedBaseline()
             return
@@ -954,6 +975,7 @@ final class DynamicProgramBuilderViewModel {
     /// Push current state before a structural mutation.
     func pushUndoSnapshot() {
         guard let prog = generatedProgram else { return }
+        markProgramChanged()
         undoStack.append((program: prog, days: perBlockEditableDays))
         if undoStack.count > maxUndoStackDepth {
             undoStack.removeFirst(undoStack.count - maxUndoStackDepth)
@@ -963,6 +985,7 @@ final class DynamicProgramBuilderViewModel {
     @discardableResult
     func undoLastEdit() -> Bool {
         guard let snapshot = undoStack.popLast() else { return false }
+        markProgramChanged()
         generatedProgram = snapshot.program
         perBlockEditableDays = snapshot.days
         editableBlockIndex = min(editableBlockIndex, max(0, perBlockEditableDays.count - 1))
@@ -1165,22 +1188,25 @@ final class DynamicProgramBuilderViewModel {
         var current = hardSets(in: days)
         guard current > 0, current < targetHardSets else { return false }
 
-        let startingHardSets = current
         let setCap = 5
+        var addedSets = 0
         while current < targetHardSets {
-            var candidates: [(day: Int, slot: Int, sets: Int)] = []
+            var pick: (day: Int, slot: Int, sets: Int)?
             for (dayIndex, day) in days.enumerated() {
                 for (slotIndex, slot) in day.slots.enumerated() {
                     guard slot.modality != .cardio, slot.sets < setCap else { continue }
-                    candidates.append((dayIndex, slotIndex, slot.sets))
+                    if pick == nil || slot.sets < pick!.sets {
+                        pick = (dayIndex, slotIndex, slot.sets)
+                    }
                 }
             }
-            guard let pick = candidates.min(by: { $0.sets < $1.sets }) else { break }
+            // Every strength slot is already at the cap — raising volume needs more exercises.
+            guard let pick else { break }
             days[pick.day].slots[pick.slot].sets += 1
             current += 1
+            addedSets += 1
         }
-
-        guard current > startingHardSets else { return false }
+        guard addedSets > 0 else { return false }
 
         pushUndoSnapshot()
         perBlockEditableDays[index] = days
@@ -1219,6 +1245,7 @@ final class DynamicProgramBuilderViewModel {
         }
         programAnchorDate = anchor
         applySuccessCount += 1
+        markProgramSaved()
         applySavedDetail = "Templates were added to your workout list and your Plan rotation matches the current program block."
         showApplySavedAlert = true
     }

@@ -192,5 +192,49 @@ final class DynamicProgramBuilderUndoTests: XCTestCase {
         let capped = vm.perBlockEditableDays[0][0].slots.map(\.sets)
         XCTAssertEqual(capped.reduce(0, +), 60)
         XCTAssertTrue(capped.allSatisfy { $0 == 5 })
+
+        // Every slot is at the cap, so there is nothing left to raise.
+        let undoDepthBefore = vm.canUndo
+        XCTAssertFalse(vm.applyRaiseWeeklyVolume(targetHardSets: 100, blockIndex: 0))
+        XCTAssertEqual(vm.perBlockEditableDays[0][0].slots.map(\.sets).reduce(0, +), 60)
+        XCTAssertEqual(vm.canUndo, undoDepthBefore)
+    }
+
+    func testUnsavedChangesTrackEditsRatherThanFirstSave() {
+        let vm = DynamicProgramBuilderViewModel()
+        let (program, _) = makeProgram(dayName: "Push", slotLabel: "Bench")
+
+        XCTAssertFalse(vm.hasUnsavedProgramChanges, "No program means nothing to lose.")
+
+        // A program loaded from Plan matches what is already saved.
+        vm.hydrate(from: DynamicProgramState(program: program, anchorDate: Date()))
+        XCTAssertFalse(vm.hasUnsavedProgramChanges)
+
+        // Editing it does not, which is what the close guard needs to catch.
+        var days = vm.bindingForBlockDays(0).wrappedValue
+        days[0].slots[0].label = "Incline Bench"
+        vm.bindingForBlockDays(0).wrappedValue = days
+        vm.commitFieldEdit()
+        XCTAssertTrue(vm.hasUnsavedProgramChanges)
+    }
+
+    func testStructuralEditOnSavedProgramCountsAsUnsaved() {
+        let vm = DynamicProgramBuilderViewModel()
+        let (program, _) = makeProgram(dayName: "Push", slotLabel: "Bench")
+        vm.hydrate(from: DynamicProgramState(program: program, anchorDate: Date()))
+        XCTAssertFalse(vm.hasUnsavedProgramChanges)
+
+        _ = vm.addComplementarySlot(dayIndex: 0, label: "Fly", muscles: ["Chest"])
+        XCTAssertTrue(vm.hasUnsavedProgramChanges)
+    }
+
+    func testFreshlyGeneratedProgramCountsAsUnsaved() {
+        let vm = DynamicProgramBuilderViewModel()
+        let (program, _) = makeProgram(dayName: "Pull", slotLabel: "Row")
+        vm.generatedProgram = program
+        vm.rebuildEditableDaysFromProgram()
+        vm.captureGeneratedBaseline()
+
+        XCTAssertTrue(vm.hasUnsavedProgramChanges)
     }
 }
