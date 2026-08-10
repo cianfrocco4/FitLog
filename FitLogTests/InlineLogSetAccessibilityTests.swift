@@ -64,4 +64,45 @@ struct InlineLogSetAccessibilityTests {
     @Test func logSetHint_bodyweightMentionsNetLoad() {
         #expect(InlineLogSetAccessibility.logSetHint(bodyweightMode: true) == "Logs the entered net load and reps for this exercise")
     }
+
+    @Test func logSetDisabledHint_promptsForReps() {
+        #expect(InlineLogSetAccessibility.logSetDisabledHint == "Enter reps greater than zero to log this set")
+    }
+
+    @Test func loggedSetAnnouncement_includesExerciseWeightAndReps() {
+        let message = InlineLogSetAccessibility.loggedSetAnnouncement(
+            exerciseName: "Bench Press",
+            bodyweightMode: false,
+            displayWeight: 135,
+            reps: 8,
+            unitLabel: "lb",
+            formatWeight: { "\(Int($0))" }
+        )
+        #expect(message == "Logged set, Bench Press, 135 lb, 8 reps")
+    }
+
+    @Test func loggedSetAnnouncement_dropSegmentUsesDropVerb() {
+        let message = InlineLogSetAccessibility.loggedSetAnnouncement(
+            exerciseName: "Curl",
+            bodyweightMode: false,
+            displayWeight: 40,
+            reps: 12,
+            unitLabel: "lb",
+            isDropSegment: true,
+            formatWeight: { "\(Int($0))" }
+        )
+        #expect(message == "Logged drop, Curl, 40 lb, 12 reps")
+    }
+
+    @Test func loggedSetAnnouncement_bodyweightMode_includesNetLoad() {
+        let message = InlineLogSetAccessibility.loggedSetAnnouncement(
+            exerciseName: "Pull-Up",
+            bodyweightMode: true,
+            displayWeight: 25,
+            reps: 6,
+            unitLabel: "lb",
+            formatWeight: { "\(Int($0))" }
+        )
+        #expect(message == "Logged set, Pull-Up, +25 lb net, 6 reps")
+    }
 }

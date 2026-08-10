@@ -51,4 +51,48 @@ enum InlineLogSetAccessibility {
             ? "Logs the entered net load and reps for this exercise"
             : "Logs the entered weight and reps for this exercise"
     }
+
+    /// Spoken when the inline checkmark is disabled because reps are missing.
+    static var logSetDisabledHint: String {
+        "Enter reps greater than zero to log this set"
+    }
+
+    /// Past-tense confirmation announced after a successful inline quick-log.
+    static func loggedSetAnnouncement(
+        exerciseName: String,
+        bodyweightMode: Bool,
+        displayWeight: Double,
+        reps: Int,
+        unitLabel: String,
+        isDropSegment: Bool = false,
+        formatWeight: (Double) -> String = WeightStoreConversion.formatDisplay
+    ) -> String {
+        let trimmedName = exerciseName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let namePart = trimmedName.isEmpty ? nil : trimmedName
+
+        var parts = [isDropSegment ? "Logged drop" : "Logged set"]
+        if let namePart {
+            parts.append(namePart)
+        }
+
+        if bodyweightMode {
+            if displayWeight != 0 {
+                let signed: String
+                if displayWeight > 0 {
+                    signed = "+\(formatWeight(displayWeight))"
+                } else {
+                    signed = "−\(formatWeight(-displayWeight))"
+                }
+                parts.append("\(signed) \(unitLabel) net")
+            }
+        } else if displayWeight > 0 {
+            parts.append("\(formatWeight(displayWeight)) \(unitLabel)")
+        }
+
+        if reps > 0 {
+            parts.append("\(reps) \(reps == 1 ? "rep" : "reps")")
+        }
+
+        return parts.joined(separator: ", ")
+    }
 }
