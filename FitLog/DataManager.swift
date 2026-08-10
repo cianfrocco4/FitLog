@@ -1529,8 +1529,15 @@ final class DataManager {
             }
             return (date: dayStart, weekday: wd, hasWorkout: hasWorkout)
         }
+        let goal: Int? = resolvedWeeklySessionGoal(referenceDate: referenceDate, calendar: calendar)
+        // When scoring against a dynamic-program weekly goal, credit only sessions on planned
+        // training/flex days (same rule as ProgramGoalProgressEngine). Otherwise keep the raw
+        // week count for the activity strip / greeting.
         let completed: Int
-        if let weekInterval {
+        if goal != nil,
+           let credited = dynamicProgramCompletedSessionsThisWeek(referenceDate: referenceDate, calendar: calendar) {
+            completed = credited
+        } else if let weekInterval {
             completed = completedSessions.filter { session in
                 guard let end = session.endTime else { return false }
                 return end >= weekInterval.start && end < weekInterval.end
@@ -1538,20 +1545,35 @@ final class DataManager {
         } else {
             completed = 0
         }
-        let goal: Int? = resolvedWeeklySessionGoal(referenceDate: referenceDate, calendar: calendar)
         return WeekAtAGlance(isoWeekKey: weekKey, days: days, completedCount: completed, weeklyGoal: goal)
     }
 
     /// Session goal for the week strip / recap.
-    /// Prefer the active dynamic program’s busy-adjusted planned sessions; fall back to the legacy cycle.
+    /// Prefer the active dynamic program’s busy-adjusted planned sessions; fall back to the legacy cycle
+    /// only when no dynamic program is active. A fully busy week (0 planned) must not resurrect the
+    /// nominal `sessionsPerWeek` target.
     private func resolvedWeeklySessionGoal(referenceDate: Date, calendar: Calendar) -> Int? {
-        if let planned = dynamicProgramPlannedSessionsThisWeek(referenceDate: referenceDate, calendar: calendar) {
-            return planned
+        if let card = programGoalScorecard(forWeekContaining: referenceDate, calendar: calendar) {
+            guard let sessions = card.metrics.first(where: { $0.kind == .sessionsPerWeek }) else { return nil }
+            let planned = Int(sessions.planned.rounded())
+            return planned > 0 ? planned : nil
         }
         if !trainingProgram.cycleEntries.isEmpty {
             return min(max(1, trainingProgram.sessionsPerWeek), 7)
         }
         return nil
+    }
+
+    /// Completed sessions credited toward this week’s dynamic-program session goal, if any.
+    private func dynamicProgramCompletedSessionsThisWeek(
+        referenceDate: Date,
+        calendar: Calendar
+    ) -> Int? {
+        guard let card = programGoalScorecard(forWeekContaining: referenceDate, calendar: calendar),
+              let sessions = card.metrics.first(where: { $0.kind == .sessionsPerWeek }) else {
+            return nil
+        }
+        return Int(sessions.actual.rounded())
     }
 
     /// Most recent completion date for sessions tied to a library workout id.
@@ -1590,11 +1612,9 @@ final class DataManager {
         let volumePriorWeekLbRep: Double
         let setsThisWeek: Int
         let weeklyGoal: Int?
-
-        var metWeeklyGoal: Bool {
-            guard let g = weeklyGoal else { return false }
-            return sessionsThisWeek >= g
-        }
+        /// Whether sessions credited toward the weekly goal reached the target.
+        /// Uses dynamic-program training/flex-day counting when that goal is active.
+        let metWeeklyGoal: Bool
 
         /// Show the celebration / summary card when the user actually trained this week.
         var shouldShowRecapCard: Bool { sessionsThisWeek > 0 }
@@ -1640,6 +1660,13 @@ final class DataManager {
         let priorAgg = aggregateVolumeAndSets(priorWeekSessions)
 
         let goal = resolvedWeeklySessionGoal(referenceDate: referenceDate, calendar: calendar)
+        // Align "Goal met" with ProgramGoalProgressEngine: when a weekly goal is in play,
+        // only count completions on resolved training/flex days.
+        let sessionsTowardGoal = dynamicProgramCompletedSessionsThisWeek(
+            referenceDate: referenceDate,
+            calendar: calendar
+        ) ?? thisWeekSessions.count
+        let metGoal = goal.map { sessionsTowardGoal >= $0 } ?? false
 
         return WeeklyRecapSummary(
             isoWeekKey: weekKey,
@@ -1648,7 +1675,8 @@ final class DataManager {
             volumeThisWeekLbRep: thisAgg.volume,
             volumePriorWeekLbRep: priorAgg.volume,
             setsThisWeek: thisAgg.sets,
-            weeklyGoal: goal
+            weeklyGoal: goal,
+            metWeeklyGoal: metGoal
         )
     }
 
