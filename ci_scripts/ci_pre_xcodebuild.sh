@@ -19,6 +19,10 @@ REPO_ROOT="${CI_PRIMARY_REPOSITORY_PATH:-}"
 if [ -z "${REPO_ROOT}" ]; then
   REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 fi
+if [ -z "${REPO_ROOT}" ]; then
+  echo "error: could not resolve repository root (CI_PRIMARY_REPOSITORY_PATH unset and fallback cd failed)"
+  exit 1
+fi
 SECRETS_FILE="${REPO_ROOT}/Config/Secrets.release.xcconfig"
 ACTION="${CI_XCODEBUILD_ACTION:-}"
 SECRET_PRESENT=0
