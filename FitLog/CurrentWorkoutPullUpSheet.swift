@@ -2570,6 +2570,12 @@ struct CurrentWorkoutPullUpSheet: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(inlineDropReps <= 0)
+                .accessibilityLabel(InlineLogSetAccessibility.confirmDropSegmentLabel)
+                .accessibilityHint(
+                    inlineDropReps <= 0
+                        ? InlineLogSetAccessibility.confirmDisabledHint
+                        : InlineLogSetAccessibility.confirmDropSegmentHint
+                )
                 Button("Cancel") {
                     inlineDropDraft = nil
                 }
@@ -2688,6 +2694,14 @@ struct CurrentWorkoutPullUpSheet: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(editReps <= 0)
+                    .accessibilityLabel(
+                        InlineLogSetAccessibility.confirmEditSetLabel(setNumber: chronologicalSetNumber)
+                    )
+                    .accessibilityHint(
+                        editReps <= 0
+                            ? InlineLogSetAccessibility.confirmDisabledHint
+                            : InlineLogSetAccessibility.confirmEditSetHint
+                    )
                     Button("Cancel") {
                         fitlogDismissKeyboard()
                         numericFieldFocus = nil

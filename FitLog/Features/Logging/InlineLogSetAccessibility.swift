@@ -57,6 +57,27 @@ enum InlineLogSetAccessibility {
         "Enter reps greater than zero to log this set"
     }
 
+    /// Shared disabled hint for inline edit-set / drop confirm checkmarks.
+    static var confirmDisabledHint: String {
+        "Enter reps greater than zero to save"
+    }
+
+    static func confirmEditSetLabel(setNumber: Int) -> String {
+        "Save edited set \(setNumber)"
+    }
+
+    static var confirmEditSetHint: String {
+        "Saves changes to this set"
+    }
+
+    static var confirmDropSegmentLabel: String {
+        "Save drop segment"
+    }
+
+    static var confirmDropSegmentHint: String {
+        "Saves this drop segment"
+    }
+
     /// Past-tense confirmation announced after a successful inline quick-log.
     static func loggedSetAnnouncement(
         exerciseName: String,

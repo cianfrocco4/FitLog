@@ -160,7 +160,7 @@ struct WorkoutPlanView: View {
                 EditButton()
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button(isThisLibrarySessionActive ? "Stop" : "Start") {
+                Button(isThisLibrarySessionActive ? "Finish" : "Start") {
                     if isThisLibrarySessionActive {
                         handlePlanStopTap()
                     } else {
@@ -176,7 +176,12 @@ struct WorkoutPlanView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(isThisLibrarySessionActive ? .red : .green)
                 .disabled(!isThisLibrarySessionActive && workout.exercises.isEmpty)
-                .accessibilityLabel(isThisLibrarySessionActive ? "Stop workout" : "Start workout")
+                .accessibilityLabel(isThisLibrarySessionActive ? "Finish workout" : "Start workout")
+                .accessibilityHint(
+                    isThisLibrarySessionActive
+                        ? "Starts finish checks; saves to history if you confirm"
+                        : "Starts this workout as your active session"
+                )
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {

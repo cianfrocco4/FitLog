@@ -583,7 +583,16 @@ struct WorkoutCompletionSummaryView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done", action: onDone)
                         .fontWeight(.semibold)
+                        .accessibilityHint("Dismisses the workout summary")
                 }
+            }
+            .onAppear {
+                AccessibilityNotification.Announcement(
+                    WorkoutCompletionAnnouncement.message(
+                        summary: summary,
+                        displayUnit: userPreferences.weightDisplayUnit
+                    )
+                ).post()
             }
             #if canImport(UIKit)
             .sheet(isPresented: $showImageShareSheet) {

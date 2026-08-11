@@ -82,6 +82,10 @@ struct LogSetView: View {
         )
     }
 
+    private var saveDisabledCaption: String? {
+        LogSetSaveAccessibility.visibleDisabledCaption(reps: reps, isSaving: isSaving)
+    }
+
     private var displayWeightRange: ClosedRange<Double> {
         WeightStoreConversion.displayRange(unit: displayUnit)
     }
@@ -317,6 +321,12 @@ struct LogSetView: View {
                             in: 0...50,
                             step: 1
                         )
+                    }
+
+                    if let saveDisabledCaption {
+                        Text(saveDisabledCaption)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
                     }
 
                     if let pos = supersetPosition {
