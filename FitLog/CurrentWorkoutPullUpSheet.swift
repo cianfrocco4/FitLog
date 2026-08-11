@@ -1701,12 +1701,13 @@ struct CurrentWorkoutPullUpSheet: View {
         let exerciseName = dataVM.displayName(for: exerciseLog.workoutExercise)
         if chosenType == .dropSet, !exerciseLog.loggedSets.isEmpty {
             let lastIndex = exerciseLog.loggedSets.count - 1
-            currentVM.appendDropSegment(
+            let didAppend = currentVM.appendDropSegment(
                 exerciseIndex: exerciseIndex,
                 setIndex: lastIndex,
                 weight: stored,
                 reps: r
             )
+            guard didAppend else { return }
             syncInlineDraftAfterLog(for: logId, exerciseIndex: exerciseIndex)
             triggerHighlightForLastSet(exerciseIndex: exerciseIndex)
             inlineLogSuccessTick += 1
@@ -1724,7 +1725,7 @@ struct CurrentWorkoutPullUpSheet: View {
 
         let resolvedSetType: ExerciseSetType = chosenType == .dropSet ? .working : chosenType
 
-        currentVM.logSet(
+        let didLog = currentVM.logSet(
             exerciseIndex: exerciseIndex,
             weight: stored,
             reps: r,
@@ -1734,6 +1735,7 @@ struct CurrentWorkoutPullUpSheet: View {
             dropSegments: [],
             rpe: rpeVal
         )
+        guard didLog else { return }
         syncInlineDraftAfterLog(for: logId, exerciseIndex: exerciseIndex)
         triggerHighlightForLastSet(exerciseIndex: exerciseIndex)
         inlineLogSuccessTick += 1
@@ -2592,12 +2594,13 @@ struct CurrentWorkoutPullUpSheet: View {
             displayValue: inlineDropWeightDisplay,
             unit: unit
         )
-        currentVM.appendDropSegment(
+        let didAppend = currentVM.appendDropSegment(
             exerciseIndex: exerciseIndex,
             setIndex: draft.setIndex,
             weight: stored,
             reps: inlineDropReps
         )
+        guard didAppend else { return }
         inlineDropDraft = nil
         triggerHighlightForLastSet(exerciseIndex: exerciseIndex)
     }

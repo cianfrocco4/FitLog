@@ -797,6 +797,7 @@ final class CurrentWorkoutSessionViewModel {
         )
     }
     
+    @discardableResult
     func logSet(
         exerciseIndex: Int,
         weight: Double,
@@ -806,9 +807,9 @@ final class CurrentWorkoutSessionViewModel {
         configuration: [String: String] = [:],
         dropSegments: [DropSetSegment] = [],
         rpe: Double? = nil
-    ) {
-        guard var session = currentSession, exerciseIndex < session.exerciseLogs.count else { return }
-        guard let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exerciseId else { return }
+    ) -> Bool {
+        guard var session = currentSession, exerciseIndex < session.exerciseLogs.count else { return false }
+        guard let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exerciseId else { return false }
 
         let resolvedSetType: ExerciseSetType = {
             if !dropSegments.isEmpty { return .dropSet }
@@ -875,15 +876,17 @@ final class CurrentWorkoutSessionViewModel {
             clearRestCompletionNotification()
         }
         saveActiveSession()
+        return true
     }
 
     /// Appends a lighter drop segment to an existing logged set (inline drop-set flow).
-    func appendDropSegment(exerciseIndex: Int, setIndex: Int, weight: Double, reps: Int) {
+    @discardableResult
+    func appendDropSegment(exerciseIndex: Int, setIndex: Int, weight: Double, reps: Int) -> Bool {
         guard var session = currentSession,
               exerciseIndex < session.exerciseLogs.count,
               setIndex < session.exerciseLogs[exerciseIndex].loggedSets.count,
               reps > 0
-        else { return }
+        else { return false }
         session.exerciseLogs[exerciseIndex].loggedSets[setIndex].dropSegments.append(
             DropSetSegment(weight: weight, reps: reps)
         )
@@ -894,6 +897,7 @@ final class CurrentWorkoutSessionViewModel {
             dataManager.reconcilePersonalRecords(forExerciseId: exId, activeSession: session)
         }
         saveActiveSession()
+        return true
     }
 
     /// Updates weight/reps (and optional type) on an existing logged set (inline edit). Does not re-run PR detection or rest timer.
