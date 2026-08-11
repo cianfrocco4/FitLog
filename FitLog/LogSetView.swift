@@ -57,8 +57,30 @@ struct LogSetView: View {
     @State private var bodyweightMode = false
     @State private var bwAddedDisplay: Double = 0
     @State private var bwAssistedDisplay: Double = 0
+    /// Guards against double-tapping Save before the sheet dismisses.
+    @State private var isSaving = false
 
     private var displayUnit: WeightDisplayUnit { userPreferences.weightDisplayUnit }
+
+    private var canSaveSet: Bool {
+        LogSetSaveAccessibility.canSave(
+            reps: reps,
+            bodyweightMode: bodyweightMode,
+            dropSetEnabled: dropSetEnabled,
+            hasValidDropSegments: dropSetEntryIsValid,
+            isSaving: isSaving
+        )
+    }
+
+    private var saveAccessibilityHint: String {
+        LogSetSaveAccessibility.saveHint(
+            reps: reps,
+            bodyweightMode: bodyweightMode,
+            dropSetEnabled: dropSetEnabled,
+            hasValidDropSegments: dropSetEntryIsValid,
+            isSaving: isSaving
+        )
+    }
 
     private var displayWeightRange: ClosedRange<Double> {
         WeightStoreConversion.displayRange(unit: displayUnit)
@@ -499,6 +521,8 @@ struct LogSetView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
+                        guard canSaveSet else { return }
+                        isSaving = true
                         let effectiveRest = (isSupersetContext && !effectiveRestAfterSet) ? 0 : restTime
                         let displayForStore = bodyweightMode ? displayNetLoad : weight
                         let storedWeight = WeightStoreConversion.storedPounds(
@@ -521,7 +545,8 @@ struct LogSetView: View {
                         }
                     }
                     .fontWeight(.semibold)
-                    .disabled(reps <= 0 || (!bodyweightMode && !dropSetEntryIsValid))
+                    .disabled(!canSaveSet)
+                    .accessibilityHint(saveAccessibilityHint)
                 }
             }
             .keyboardDismissToolbar()

@@ -1696,24 +1696,36 @@ struct CurrentWorkoutPullUpSheet: View {
         )
         let rpeVal: Double? = draftStore.rpeByLogId[logId]
         let chosenType = draftStore.setTypeByLogId[logId] ?? .working
+        let bodyweightMode = draftStore.bodyweightModeLogIds.contains(logId)
+        let unitLabel = unit.shortLabel
+        let exerciseName = dataVM.displayName(for: exerciseLog.workoutExercise)
         if chosenType == .dropSet, !exerciseLog.loggedSets.isEmpty {
             let lastIndex = exerciseLog.loggedSets.count - 1
-            currentVM.appendDropSegment(
+            let didAppend = currentVM.appendDropSegment(
                 exerciseIndex: exerciseIndex,
                 setIndex: lastIndex,
                 weight: stored,
                 reps: r
             )
+            guard didAppend else { return }
             syncInlineDraftAfterLog(for: logId, exerciseIndex: exerciseIndex)
             triggerHighlightForLastSet(exerciseIndex: exerciseIndex)
             inlineLogSuccessTick += 1
+            announceInlineLogSuccess(
+                exerciseName: exerciseName,
+                bodyweightMode: bodyweightMode,
+                displayWeight: wDisplay,
+                reps: r,
+                unitLabel: unitLabel,
+                isDropSegment: true
+            )
             draftStore.setTypeByLogId[logId] = .working
             return
         }
 
         let resolvedSetType: ExerciseSetType = chosenType == .dropSet ? .working : chosenType
 
-        currentVM.logSet(
+        let didLog = currentVM.logSet(
             exerciseIndex: exerciseIndex,
             weight: stored,
             reps: r,
@@ -1723,15 +1735,43 @@ struct CurrentWorkoutPullUpSheet: View {
             dropSegments: [],
             rpe: rpeVal
         )
+        guard didLog else { return }
         syncInlineDraftAfterLog(for: logId, exerciseIndex: exerciseIndex)
         triggerHighlightForLastSet(exerciseIndex: exerciseIndex)
         inlineLogSuccessTick += 1
+        announceInlineLogSuccess(
+            exerciseName: exerciseName,
+            bodyweightMode: bodyweightMode,
+            displayWeight: wDisplay,
+            reps: r,
+            unitLabel: unitLabel,
+            isDropSegment: false
+        )
         // Show "Add drop" affordance for ~5 seconds (Task 14)
         dropPromptLogId = logId
         dropPromptExerciseIndex = exerciseIndex
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
             if dropPromptLogId == logId { dropPromptLogId = nil; dropPromptExerciseIndex = nil }
         }
+    }
+
+    private func announceInlineLogSuccess(
+        exerciseName: String,
+        bodyweightMode: Bool,
+        displayWeight: Double,
+        reps: Int,
+        unitLabel: String,
+        isDropSegment: Bool
+    ) {
+        let message = InlineLogSetAccessibility.loggedSetAnnouncement(
+            exerciseName: exerciseName,
+            bodyweightMode: bodyweightMode,
+            displayWeight: displayWeight,
+            reps: reps,
+            unitLabel: unitLabel,
+            isDropSegment: isDropSegment
+        )
+        AccessibilityNotification.Announcement(message).post()
     }
 
     private func syncInlineDraftAfterLog(for logId: UUID, exerciseIndex: Int) {
@@ -2217,7 +2257,11 @@ struct CurrentWorkoutPullUpSheet: View {
                             unitLabel: unitLabel
                         )
                     )
-                    .accessibilityHint(InlineLogSetAccessibility.logSetHint(bodyweightMode: true))
+                    .accessibilityHint(
+                        (draftStore.repsByLogId[logId] ?? 0) <= 0
+                            ? InlineLogSetAccessibility.logSetDisabledHint
+                            : InlineLogSetAccessibility.logSetHint(bodyweightMode: true)
+                    )
                 }
                 HStack(alignment: .center, spacing: 6) {
                     Text("+")
@@ -2296,7 +2340,11 @@ struct CurrentWorkoutPullUpSheet: View {
                             unitLabel: unitLabel
                         )
                     )
-                    .accessibilityHint(InlineLogSetAccessibility.logSetHint(bodyweightMode: false))
+                    .accessibilityHint(
+                        (draftStore.repsByLogId[logId] ?? 0) <= 0
+                            ? InlineLogSetAccessibility.logSetDisabledHint
+                            : InlineLogSetAccessibility.logSetHint(bodyweightMode: false)
+                    )
                 }
             }
             // RPE / RIR quick chip row (respects effortInputStyle)
@@ -2546,12 +2594,13 @@ struct CurrentWorkoutPullUpSheet: View {
             displayValue: inlineDropWeightDisplay,
             unit: unit
         )
-        currentVM.appendDropSegment(
+        let didAppend = currentVM.appendDropSegment(
             exerciseIndex: exerciseIndex,
             setIndex: draft.setIndex,
             weight: stored,
             reps: inlineDropReps
         )
+        guard didAppend else { return }
         inlineDropDraft = nil
         triggerHighlightForLastSet(exerciseIndex: exerciseIndex)
     }
