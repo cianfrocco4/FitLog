@@ -266,4 +266,35 @@ final class DynamicProgramBuilderUndoTests: XCTestCase {
 
         XCTAssertTrue(vm.hasUnsavedProgramChanges)
     }
+
+    func testGoalEditMarksUnsavedAndUndoRestores() {
+        let vm = DynamicProgramBuilderViewModel()
+        let (program, _) = makeProgram(dayName: "Push", slotLabel: "Bench")
+        vm.hydrate(from: DynamicProgramState(program: program, anchorDate: Date()))
+        XCTAssertFalse(vm.hasUnsavedProgramChanges)
+        XCTAssertNotNil(vm.generatedProgram?.blocks.first?.phaseGoal)
+
+        let before = vm.generatedProgram?.blocks[0].phaseGoal?.targets
+            .first(where: { $0.kind == .weeklyHardSets })?.value
+        vm.updatePhaseGoalTarget(blockIndex: 0, kind: .weeklyHardSets, value: 42)
+        XCTAssertTrue(vm.hasUnsavedProgramChanges)
+        XCTAssertEqual(
+            vm.generatedProgram?.blocks[0].phaseGoal?.targets
+                .first(where: { $0.kind == .weeklyHardSets })?.value,
+            42
+        )
+        XCTAssertEqual(
+            vm.generatedProgram?.blocks[0].phaseGoal?.targets
+                .first(where: { $0.kind == .weeklyHardSets })?.source,
+            .userSet
+        )
+
+        XCTAssertTrue(vm.undoLastEdit())
+        XCTAssertEqual(
+            vm.generatedProgram?.blocks[0].phaseGoal?.targets
+                .first(where: { $0.kind == .weeklyHardSets })?.value,
+            before
+        )
+        XCTAssertFalse(vm.hasUnsavedProgramChanges)
+    }
 }

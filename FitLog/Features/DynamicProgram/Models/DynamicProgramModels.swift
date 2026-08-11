@@ -135,12 +135,15 @@ struct ProgramBlock: Identifiable, Codable, Equatable, Sendable {
     var cardioFinisherDurationMinutes: Int?
     var cardioFinisherZone: CardioIntensityZone?
     var cardioWeeklyProgressionMinutes: Int?
+    /// Measurable process goals for this phase (optional; synthesized at read/normalize time when nil).
+    var phaseGoal: ProgramPhaseGoal?
 
     enum CodingKeys: String, CodingKey {
         case id, name, focus, durationWeeks, weeklyTemplates, progressionStrategy, isDeloadBlock, volumeMultiplier
         case deloadWeekNumber, notes, warmUpTemplate, cooldownTemplate
         case cardioGoal, cardioPreference, cardioDedicatedDayCount, cardioFinisherDurationMinutes
         case cardioFinisherZone, cardioWeeklyProgressionMinutes
+        case phaseGoal
     }
 
     init(
@@ -161,7 +164,8 @@ struct ProgramBlock: Identifiable, Codable, Equatable, Sendable {
         cardioDedicatedDayCount: Int? = nil,
         cardioFinisherDurationMinutes: Int? = nil,
         cardioFinisherZone: CardioIntensityZone? = nil,
-        cardioWeeklyProgressionMinutes: Int? = nil
+        cardioWeeklyProgressionMinutes: Int? = nil,
+        phaseGoal: ProgramPhaseGoal? = nil
     ) {
         self.id = id
         self.name = name
@@ -181,6 +185,7 @@ struct ProgramBlock: Identifiable, Codable, Equatable, Sendable {
         self.cardioFinisherDurationMinutes = cardioFinisherDurationMinutes
         self.cardioFinisherZone = cardioFinisherZone
         self.cardioWeeklyProgressionMinutes = cardioWeeklyProgressionMinutes
+        self.phaseGoal = phaseGoal
     }
 
     init(from decoder: Decoder) throws {
@@ -203,6 +208,7 @@ struct ProgramBlock: Identifiable, Codable, Equatable, Sendable {
         cardioFinisherDurationMinutes = try c.decodeIfPresent(Int.self, forKey: .cardioFinisherDurationMinutes)
         cardioFinisherZone = try c.decodeIfPresent(CardioIntensityZone.self, forKey: .cardioFinisherZone)
         cardioWeeklyProgressionMinutes = try c.decodeIfPresent(Int.self, forKey: .cardioWeeklyProgressionMinutes)
+        phaseGoal = try c.decodeIfPresent(ProgramPhaseGoal.self, forKey: .phaseGoal)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -225,6 +231,7 @@ struct ProgramBlock: Identifiable, Codable, Equatable, Sendable {
         try c.encodeIfPresent(cardioFinisherDurationMinutes, forKey: .cardioFinisherDurationMinutes)
         try c.encodeIfPresent(cardioFinisherZone, forKey: .cardioFinisherZone)
         try c.encodeIfPresent(cardioWeeklyProgressionMinutes, forKey: .cardioWeeklyProgressionMinutes)
+        try c.encodeIfPresent(phaseGoal, forKey: .phaseGoal)
     }
 
     /// Resolves effective cardio settings for template generation (block overrides program defaults).

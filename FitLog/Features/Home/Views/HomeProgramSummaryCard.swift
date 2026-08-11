@@ -129,6 +129,16 @@ struct HomeProgramSummaryCard: View {
             .buttonStyle(.plain)
             .accessibilityHint("Opens your active program details")
 
+            if let scorecard = dataVM.programGoalScorecard(calendar: cal),
+               scorecard.status != .notScheduled {
+                Button(action: onOpenDetail) {
+                    thisWeekGoalRow(scorecard)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens program goals")
+                .sensoryFeedback(.success, trigger: scorecard.status == .met)
+            }
+
             VStack(alignment: .leading, spacing: 6) {
                 Text("This week")
                     .font(.caption.weight(.semibold))
@@ -214,6 +224,78 @@ struct HomeProgramSummaryCard: View {
         } else {
             rowContent
         }
+    }
+
+    @ViewBuilder
+    private func thisWeekGoalRow(_ scorecard: WeekGoalScorecard) -> some View {
+        let sessions = scorecard.metrics.first(where: { $0.kind == .sessionsPerWeek })
+        let hardSets = scorecard.metrics.first(where: { $0.kind == .weeklyHardSets })
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 12) {
+                goalStatusBadge(scorecard.status)
+                VStack(alignment: .leading, spacing: 2) {
+                    if let sessions, sessions.planned > 0 {
+                        Text("\(Int(sessions.actual.rounded())) of \(Int(sessions.planned.rounded())) sessions")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                    } else {
+                        Text("This week’s goals")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    Text(scorecard.statusSentence)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                if let hardSets, hardSets.planned > 0 {
+                    Text("\(Int((hardSets.fraction * 100).rounded()))%")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Hard sets \(Int((hardSets.fraction * 100).rounded())) percent of target")
+                }
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    goalStatusBadge(scorecard.status)
+                    Spacer(minLength: 0)
+                    if let hardSets, hardSets.planned > 0 {
+                        Text("\(Int((hardSets.fraction * 100).rounded()))% volume")
+                            .font(.caption.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if let sessions, sessions.planned > 0 {
+                    Text("\(Int(sessions.actual.rounded())) of \(Int(sessions.planned.rounded())) sessions")
+                        .font(.subheadline.weight(.semibold))
+                }
+                Text(scorecard.statusSentence)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.accentColor.opacity(0.08))
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("This week’s goals, \(scorecard.status.plainLanguageLabel). \(scorecard.statusSentence)")
+    }
+
+    private func goalStatusBadge(_ status: WeekGoalStatus) -> some View {
+        Text(status.plainLanguageLabel)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(status == .met || status == .onTrack ? Color.accentColor : Color.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                Capsule().fill(Color.accentColor.opacity(status == .atRisk || status == .missed ? 0.08 : 0.14))
+            )
     }
 
     private func blockWeekLine(placement: (index: Int, block: ProgramBlock, weekInBlock: Int), blockCount: Int) -> String {

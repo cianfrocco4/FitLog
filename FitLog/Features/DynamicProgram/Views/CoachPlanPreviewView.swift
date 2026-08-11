@@ -457,19 +457,55 @@ struct CoachPlanPreviewView: View {
                             Text(block.focus.displayTitle)
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
+                            Text(phaseAimLine(for: block))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(3)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                         .padding(10)
-                        .frame(width: 120, alignment: .leading)
+                        .frame(width: 148, alignment: .leading)
                         .background(
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
                                 .fill(Color.accentColor.opacity(index == 0 ? 0.12 : 0.06))
                         )
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel(
+                            "\(block.title), \(block.durationWeeks) weeks. What you'll aim for: \(phaseAimLine(for: block))"
+                        )
                     }
                 }
             }
+            Text("What you’ll aim for")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityAddTraits(.isHeader)
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(blueprint.blockSpecs.indices, id: \.self) { index in
+                    let block = blueprint.blockSpecs[index]
+                    Text("\(block.title): \(phaseAimLine(for: block))")
+                        .font(.caption)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Program timeline")
+    }
+
+    private func phaseAimLine(for block: DynamicBlockGenerationSpec) -> String {
+        let primary = CoachGoalProgramming.resolve(
+            from: blueprint.primaryGoal,
+            experienceLevel: blueprint.experienceLevel
+        ).goal
+        return ProgramPhaseGoalFactory.previewLine(
+            focus: block.focus,
+            durationWeeks: block.durationWeeks,
+            sessionsPerWeek: scheduleSessions,
+            primaryGoal: primary,
+            isDeload: block.isDeloadBlock || block.focus.kind == .deload
+        )
     }
 
     private func commitName() {

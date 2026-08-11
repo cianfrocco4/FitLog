@@ -49,6 +49,82 @@ final class DynamicProgramCodableMigrationTests: XCTestCase {
         XCTAssertNil(block.notes)
         XCTAssertNil(block.warmUpTemplate)
         XCTAssertNil(block.cooldownTemplate)
+        XCTAssertNil(block.phaseGoal)
+    }
+
+    func testPhaseGoalSurvivesVersionedRoundTrip() throws {
+        let goal = ProgramPhaseGoal(
+            title: "Build muscle",
+            summary: "Train 4×/week with about 16 hard sets.",
+            targets: [
+                ProgramGoalTarget(kind: .sessionsPerWeek, value: 4, isPrimary: true, source: .auto),
+                ProgramGoalTarget(kind: .weeklyHardSets, value: 16, tolerance: 2, source: .userSet),
+            ],
+            copyIsUserSet: true
+        )
+        let block = ProgramBlock(
+            name: "Hypertrophy",
+            focus: BlockFocus(kind: .hypertrophy, emphasisLabel: ""),
+            durationWeeks: 4,
+            weeklyTemplates: [
+                BlockWeeklyTemplate(dayName: "Push", focus: "Chest", slots: [])
+            ],
+            phaseGoal: goal
+        )
+        let program = DynamicProgram(
+            name: "Goals",
+            blocks: [block],
+            defaultSessionsPerWeek: 4
+        )
+        let state = DynamicProgramState(program: program, anchorDate: Date(timeIntervalSince1970: 1_700_000_000))
+        let blob = versionedEncode(state)
+        let payload = try JSONDecoder().decode(VersionedPayload<DynamicProgramState>.self, from: blob)
+        XCTAssertEqual(payload.schemaVersion, currentSchemaVersion)
+        XCTAssertEqual(currentSchemaVersion, 7)
+        let roundTrip = try XCTUnwrap(versionedDecode(DynamicProgramState.self, from: blob))
+        let restored = try XCTUnwrap(roundTrip.program.blocks.first?.phaseGoal)
+        XCTAssertEqual(restored.title, "Build muscle")
+        XCTAssertEqual(restored.targets.first(where: { $0.kind == .weeklyHardSets })?.value, 16)
+        XCTAssertEqual(restored.targets.first(where: { $0.kind == .weeklyHardSets })?.source, .userSet)
+        XCTAssertTrue(restored.copyIsUserSet)
+    }
+
+    func testBackupSnapshotPreservesPhaseGoals() throws {
+        let goal = ProgramPhaseGoal(
+            title: "Get stronger",
+            summary: "Hit planned sessions.",
+            targets: [ProgramGoalTarget(kind: .sessionsPerWeek, value: 3, isPrimary: true)]
+        )
+        let program = DynamicProgram(
+            name: "Backup Goals",
+            blocks: [
+                ProgramBlock(
+                    name: "Strength",
+                    focus: BlockFocus(kind: .strength, emphasisLabel: ""),
+                    durationWeeks: 4,
+                    weeklyTemplates: [BlockWeeklyTemplate(dayName: "A", focus: "", slots: [])],
+                    phaseGoal: goal
+                ),
+            ],
+            defaultSessionsPerWeek: 3
+        )
+        let dynamic = DynamicProgramState(program: program, anchorDate: Date(timeIntervalSince1970: 1_700_000_000))
+        let snapshot = BackupSnapshot(
+            schemaVersion: currentSchemaVersion,
+            exercises: [],
+            workouts: [],
+            sessions: [],
+            program: TrainingProgramState.empty(anchorDayKey: "2026-03-02"),
+            displayNames: [:],
+            dynamicProgram: dynamic
+        )
+        let data = try DataTransferService.makeExportData(format: .json, snapshot: snapshot)
+        let imported = try DataTransferService.importSnapshot(from: data, format: .json)
+        XCTAssertEqual(imported.dynamicProgram?.program.blocks.first?.phaseGoal?.title, "Get stronger")
+        XCTAssertEqual(
+            imported.dynamicProgram?.program.blocks.first?.phaseGoal?.primaryTarget?.value,
+            3
+        )
     }
 
     func testVersionedEncodeRoundTripPreservesExtendedFields() throws {
