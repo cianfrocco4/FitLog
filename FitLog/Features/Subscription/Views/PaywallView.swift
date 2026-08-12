@@ -279,6 +279,7 @@ struct PaywallView: View {
                         if entitlementStore.isPurchasing {
                             ProgressView()
                                 .tint(.white)
+                                .accessibilityHidden(true)
                         } else {
                             Text(ctaTitle(for: package))
                                 .fontWeight(.semibold)
@@ -288,6 +289,17 @@ struct PaywallView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(entitlementStore.isPurchasing)
+                .accessibilityLabel(
+                    PaywallPurchaseAccessibility.purchaseLabel(
+                        isPurchasing: entitlementStore.isPurchasing,
+                        ctaTitle: ctaTitle(for: package)
+                    )
+                )
+                .accessibilityHint(
+                    PaywallPurchaseAccessibility.purchaseHint(
+                        isPurchasing: entitlementStore.isPurchasing
+                    )
+                )
             }
 #endif
             Button {
