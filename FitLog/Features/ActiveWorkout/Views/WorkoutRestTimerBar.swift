@@ -15,6 +15,7 @@ struct WorkoutRestTimerBar: View {
 
     @State private var swipeAdjustTrigger = 0
     @State private var buttonAdjustTrigger = 0
+    @State private var skipTrigger = 0
 
     private var progress: CGFloat {
         guard totalSeconds > 0 else { return 0 }
@@ -89,6 +90,7 @@ struct WorkoutRestTimerBar: View {
 
                 Button {
                     onSkip()
+                    skipTrigger += 1
                 } label: {
                     Label("Skip", systemImage: "forward.fill")
                         .font(.caption.weight(.semibold))
@@ -118,6 +120,7 @@ struct WorkoutRestTimerBar: View {
         )
         .sensoryFeedback(.selection, trigger: buttonAdjustTrigger)
         .sensoryFeedback(.impact(weight: .light), trigger: swipeAdjustTrigger)
+        .sensoryFeedback(.impact(weight: .medium), trigger: skipTrigger)
     }
 }
 
