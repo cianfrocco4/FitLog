@@ -18,6 +18,7 @@ struct PaywallView: View {
     var onDismiss: (() -> Void)?
 
     @State private var alertMessage: String?
+    @State private var showRestoreSuccess = false
     @State private var storeProductsFailed = false
     @State private var didTrackDismiss = false
 
@@ -54,8 +55,8 @@ struct PaywallView: View {
             await entitlementStore.loadOfferings()
         }
         .task {
-            for await _ in Transaction.updates {
-                await handleStoreKitTransactionUpdate()
+            for await verification in Transaction.updates {
+                await handleStoreKitTransactionUpdate(verification)
             }
         }
         .onDisappear {
@@ -68,6 +69,13 @@ struct PaywallView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(alertMessage ?? "")
+        }
+        .alert("Access restored", isPresented: $showRestoreSuccess) {
+            Button("Continue") {
+                if entitlementStore.isPremium { dismiss() }
+            }
+        } message: {
+            Text("Your premium access is active.")
         }
     }
 
@@ -162,6 +170,22 @@ struct PaywallView: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
             LegalLinksView(style: .compact)
+            Button {
+                Task { await restorePurchasesFromPaywall() }
+            } label: {
+                if entitlementStore.isRestoring {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Restoring…")
+                    }
+                } else {
+                    Text("Restore purchases")
+                }
+            }
+            .font(.footnote)
+            .disabled(entitlementStore.isRestoring)
+            .accessibilityLabel(entitlementStore.isRestoring ? "Restoring purchases" : "Restore purchases")
+            .accessibilityHint("Restores an existing Apple subscription and syncs Premium access")
         }
     }
 
@@ -179,10 +203,13 @@ struct PaywallView: View {
         switch result {
         case .success(let purchaseResult):
             switch purchaseResult {
-            case .success:
+            case .success(let verification):
                 AnalyticsService.shared.track(.purchaseCompleted)
-                let synced = await entitlementStore.syncPurchases()
-                if synced || entitlementStore.isPremium {
+                _ = await entitlementStore.syncPurchases()
+                if case .verified(let transaction) = verification {
+                    await transaction.finish()
+                }
+                if entitlementStore.isPremium {
                     dismiss()
                 } else {
                     alertMessage = entitlementStore.lastErrorMessage
@@ -202,9 +229,26 @@ struct PaywallView: View {
     }
 
     @MainActor
-    private func handleStoreKitTransactionUpdate() async {
+    private func restorePurchasesFromPaywall() async {
+        let restored = await entitlementStore.restorePurchases()
+        if restored {
+            showRestoreSuccess = true
+            AnalyticsService.shared.track(.restoreCompleted, properties: ["source": "paywall"])
+        } else if let msg = entitlementStore.lastErrorMessage {
+            alertMessage = msg
+            AnalyticsService.shared.track(.restoreFailed, properties: ["source": "paywall", "reason": msg])
+        } else {
+            alertMessage = "No active subscription found for this Apple ID."
+            AnalyticsService.shared.track(.restoreFailed, properties: ["source": "paywall", "reason": "no_active_subscription"])
+        }
+    }
+
+    @MainActor
+    private func handleStoreKitTransactionUpdate(_ verification: VerificationResult<Transaction>) async {
+        guard case .verified(let transaction) = verification else { return }
         let wasPremium = entitlementStore.isPremium
         _ = await entitlementStore.syncPurchases()
+        await transaction.finish()
         if !wasPremium && entitlementStore.isPremium {
             dismiss()
         }
