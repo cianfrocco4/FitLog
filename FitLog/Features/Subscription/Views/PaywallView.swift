@@ -44,11 +44,9 @@ struct PaywallView: View {
             await MainActor.run {
                 AnalyticsService.shared.track(.purchaseStarted, properties: ["product_id": productID])
             }
-            return true
         }
         .onInAppPurchaseCompletion { _, result in
             await handlePurchaseCompletion(result)
-            return true
         }
         .task {
             AnalyticsService.shared.track(.paywallShown, properties: paywallAnalyticsProperties)
