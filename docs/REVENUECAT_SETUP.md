@@ -15,6 +15,8 @@ Do this **in order**: App Store Connect products must exist before RevenueCat ca
 
 Source of truth in code: `FitLog/Features/Subscription/Models/RevenueCatConfig.swift`.
 
+The in-app purchase UI is StoreKit **`SubscriptionStoreView`** for monthly and annual only (Guideline 3.1.2(c)). After a StoreKit purchase or restore, `EntitlementStore.syncPurchases()` refreshes RevenueCat so entitlement **`premium`** still gates features. Do **not** put lifetime on the paywall unless that non-consumable is created **and** submitted with the version.
+
 The **public** SDK key (`appl_…`) lives in `FitLog/Info.plist` under `REVENUECAT_API_KEY`. You may override via Xcode scheme env var `REVENUECAT_API_KEY` for local experiments. Do **not** put the RevenueCat **secret** API key in the app.
 
 ---
@@ -26,7 +28,7 @@ The **public** SDK key (`appl_…`) lives in `FitLog/Info.plist` under `REVENUEC
 - [ ] **Subscriptions** → create group **Workout Log AI Premium**
 - [ ] Add `workoutlogai_premium_monthly` ($5.99, 14-day free trial) and `workoutlogai_premium_annual` ($49.99, 14-day free trial)
 - [ ] Optional: non-consumable `workoutlogai_premium_lifetime`
-- [ ] Localize display names/descriptions; submit products for review with the app if required
+- [ ] Localize display names/descriptions; **attach products to the app version** and upload Review Information screenshots — [APP_REVIEW_RESOLUTION.md](APP_REVIEW_RESOLUTION.md)
 - [ ] RevenueCat → add iOS app `com.acianfrocco.FitLog` + App Store Connect API key
 - [ ] Import products; attach all to entitlement **`premium`**
 - [ ] Offering **`default`** packages → set as **Current**

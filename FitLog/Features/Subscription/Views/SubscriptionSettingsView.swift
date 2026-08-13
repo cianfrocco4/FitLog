@@ -112,9 +112,12 @@ struct SubscriptionSettingsView: View {
             }
 
             Section {
-                Text("Not medical advice — general fitness coaching tool only.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                LegalLinkRow(link: .termsOfUse)
+                LegalLinkRow(link: .privacyPolicy)
+            } header: {
+                Text("Legal")
+            } footer: {
+                Text("Not medical advice — general fitness coaching tool only. Terms of Use is Apple’s Standard Licensed Application EULA.")
             }
         }
         .navigationTitle("Subscription")
@@ -194,10 +197,19 @@ struct SubscriptionSettingsView: View {
     }
 }
 
-#Preview {
+#Preview("Subscription settings") {
     NavigationStack {
         SubscriptionSettingsView()
             .environment(EntitlementStore())
             .environmentObject(AuthViewModel())
     }
+}
+
+#Preview("Subscription settings Dark") {
+    NavigationStack {
+        SubscriptionSettingsView()
+            .environment(EntitlementStore())
+            .environmentObject(AuthViewModel())
+    }
+    .preferredColorScheme(.dark)
 }
