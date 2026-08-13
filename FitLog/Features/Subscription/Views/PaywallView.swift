@@ -38,7 +38,8 @@ struct PaywallView: View {
         }
         .subscriptionStorePolicyDestination(url: LegalURLs.privacyPolicy, for: .privacyPolicy)
         .subscriptionStorePolicyDestination(url: LegalURLs.termsOfUse, for: .termsOfService)
-        .storeButton(.visible, for: .restorePurchases)
+        // Built-in Restore only runs AppStore.sync() and will not sync RevenueCat.
+        .storeButton(.hidden, for: .restorePurchases)
         .storeButton(.visible, for: .cancellation)
         .onInAppPurchaseStart { product in
             let productID = product.id
@@ -186,6 +187,7 @@ struct PaywallView: View {
             .disabled(entitlementStore.isRestoring)
             .accessibilityLabel(entitlementStore.isRestoring ? "Restoring purchases" : "Restore purchases")
             .accessibilityHint("Restores an existing Apple subscription and syncs Premium access")
+            .accessibilityAddTraits(.isButton)
         }
     }
 
