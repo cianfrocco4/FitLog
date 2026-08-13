@@ -60,7 +60,8 @@ struct SubscriptionSettingsView: View {
                             statusMessage = premiumRefreshMessage
                             AnalyticsService.shared.track(.restoreCompleted, properties: ["source": "settings"])
                         } else {
-                            statusMessage = entitlementStore.lastErrorMessage ?? "No active premium access found."
+                            statusMessage = entitlementStore.lastErrorMessage
+                                ?? PurchaseRestoreMessaging.noActiveSubscription
                             AnalyticsService.shared.track(
                                 .restoreFailed,
                                 properties: [

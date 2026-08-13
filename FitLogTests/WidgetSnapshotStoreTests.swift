@@ -50,4 +50,41 @@ struct WidgetSnapshotStoreTests {
             authorizationAttempted: true
         ) == .noData)
     }
+
+    @Test func freshness_isStaleAfterTwentyFourHours() {
+        let now = Date(timeIntervalSince1970: 1_700_100_000)
+        let fresh = now.addingTimeInterval(-3_600)
+        let stale = now.addingTimeInterval(-(24 * 60 * 60))
+        #expect(!WidgetSnapshotFreshness.isStale(updatedAt: fresh, now: now))
+        #expect(WidgetSnapshotFreshness.isStale(updatedAt: stale, now: now))
+    }
+
+    @Test func freshness_updatedCaption_marksStaleSnapshots() {
+        let now = Date(timeIntervalSince1970: 1_700_100_000)
+        let updatedAt = now.addingTimeInterval(-(30 * 60 * 60))
+        let caption = WidgetSnapshotFreshness.updatedCaption(
+            updatedAt: updatedAt,
+            now: now,
+            relativePhrase: "30 hours ago"
+        )
+        #expect(caption == "Updated 30 hours ago · May be outdated")
+
+        let a11y = WidgetSnapshotFreshness.accessibilityUpdatedSuffix(
+            updatedAt: updatedAt,
+            now: now,
+            relativePhrase: "30 hours ago"
+        )
+        #expect(a11y == "Updated 30 hours ago, may be outdated")
+    }
+
+    @Test func freshness_updatedCaption_freshSnapshot() {
+        let now = Date(timeIntervalSince1970: 1_700_100_000)
+        let updatedAt = now.addingTimeInterval(-900)
+        let caption = WidgetSnapshotFreshness.updatedCaption(
+            updatedAt: updatedAt,
+            now: now,
+            relativePhrase: "15 minutes ago"
+        )
+        #expect(caption == "Updated 15 minutes ago")
+    }
 }

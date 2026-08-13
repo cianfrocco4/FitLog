@@ -300,7 +300,7 @@ struct PaywallView: View {
                         alertMessage = msg
                         AnalyticsService.shared.track(.restoreFailed, properties: ["source": "paywall", "reason": msg])
                     } else {
-                        alertMessage = "No active subscription found for this Apple ID."
+                        alertMessage = PurchaseRestoreMessaging.noActiveSubscription
                         AnalyticsService.shared.track(.restoreFailed, properties: ["source": "paywall", "reason": "no_active_subscription"])
                     }
                 }

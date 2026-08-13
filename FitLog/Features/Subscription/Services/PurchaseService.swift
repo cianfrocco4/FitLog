@@ -31,6 +31,63 @@ enum PurchaseServiceError: LocalizedError {
     }
 }
 
+enum PurchaseRestoreMessaging {
+    static let noActiveSubscription = "No active subscription found for this Apple ID."
+    static let networkFailure = "Couldn't reach the App Store. Check your connection and try again."
+    static let genericFailure = "Couldn't restore purchases. Try again in a moment. If this continues, confirm this Apple ID has an active subscription."
+
+    /// Maps StoreKit / RevenueCat / URL failures into short restore copy.
+    /// Network-ish failures get connection guidance; other errors stay readable without raw SDK dumps when possible.
+    static func userFacingFailureMessage(for error: Error) -> String {
+        if let purchaseError = error as? PurchaseServiceError {
+            return purchaseError.errorDescription ?? genericFailure
+        }
+
+        if isLikelyNetworkFailure(error) {
+            return networkFailure
+        }
+
+        let localized = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if localized.isEmpty {
+            return genericFailure
+        }
+        // Prefer a short generic line when the system string is a long opaque dump.
+        if localized.count > 160 {
+            return genericFailure
+        }
+        return localized
+    }
+
+    static func isLikelyNetworkFailure(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            return Self.networkURLErrorCodes.contains(urlError.code)
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain,
+           let code = URLError.Code(rawValue: nsError.code),
+           Self.networkURLErrorCodes.contains(code) {
+            return true
+        }
+        // RevenueCat often wraps connectivity under NSError with URLError codes in `userInfo`.
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
+            return isLikelyNetworkFailure(underlying)
+        }
+        return false
+    }
+
+    private static let networkURLErrorCodes: Set<URLError.Code> = [
+        .notConnectedToInternet,
+        .networkConnectionLost,
+        .timedOut,
+        .cannotFindHost,
+        .cannotConnectToHost,
+        .dnsLookupFailed,
+        .internationalRoamingOff,
+        .dataNotAllowed,
+        .secureConnectionFailed
+    ]
+}
+
 enum PurchaseService {
 #if canImport(RevenueCat)
     /// True only after `Purchases.configure` — never use `RevenueCatConfig.isConfigured` alone;
