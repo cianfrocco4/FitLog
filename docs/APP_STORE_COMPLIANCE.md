@@ -82,13 +82,16 @@ Nutrition labels should document readiness reads separately from workout logging
 
 ---
 
-## Subscriptions (Guideline 3.1)
+## Subscriptions (Guideline 3.1 / 3.1.2(c))
 
 - **Free tier:** logging, rest timer, today's readiness score, basic history, widgets, custom exercises
 - **Premium:** AI features, readiness trends, advanced analytics, unlimited history, export
-- In-app paywall with restore purchases, Privacy Policy, and Apple Standard EULA links
+- In-app paywall is StoreKit **`SubscriptionStoreView`** (title, duration, price, Restore, Privacy Policy, Terms of Use)
+- Additional **Terms of Use** and **Privacy Policy** links: paywall marketing content, More → Subscription, More → Legal & Support
 - **Manage Subscription** in More → Subscription (active subscribers)
 - Local testing: `Configuration.storekit` wired in the FitLog scheme
+- **App Store metadata:** Privacy Policy URL in App Information; Apple Standard EULA URL in the App Description (see [APP_STORE_METADATA.md](../APP_STORE_METADATA.md))
+- **IAP packaging:** attach monthly + annual products to the version and upload a Review Information screenshot per SKU before Submit — [APP_REVIEW_RESOLUTION.md](APP_REVIEW_RESOLUTION.md)
 
 ---
 
@@ -110,9 +113,13 @@ READINESS (free)
 - Not medical advice — general fitness guidance only
 
 PREMIUM / SUBSCRIPTIONS
-- RevenueCat + StoreKit: monthly, annual (14-day trial), optional lifetime
-- Public SDK key is in Info.plist (REVENUECAT_API_KEY, appl_…)
-- Restore purchases on paywall and in More → Subscription
+- Auto-renewable: workoutlogai_premium_monthly and workoutlogai_premium_annual (14-day trial). Attached to this version.
+- Paywall: More → Subscription → Upgrade to Premium (StoreKit SubscriptionStoreView).
+- Title, length, and price appear on the store view. Restore purchases is visible on that screen.
+- Terms of Use (Apple Standard EULA) and Privacy Policy are on the paywall, More → Subscription, and More → Legal & Support.
+- Terms of Use: https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
+- Privacy Policy: https://cianfrocco4.github.io/FitLog/privacy-policy.html
+- Public RevenueCat SDK key is in Info.plist (REVENUECAT_API_KEY, appl_…)
 - Comp path: More → Subscription → copy App User ID → RevenueCat promotional entitlement → Restore / Refresh
 
 OPTIONAL FEATURES
@@ -130,11 +137,12 @@ NO DEMO ACCOUNT REQUIRED.
 Complete in ASC (also tracked in [SHIP_CHECKLIST.md](SHIP_CHECKLIST.md) §3–4):
 
 1. App Information: Privacy Policy + Support URLs (GitHub Pages `/docs`)
-2. Privacy Nutrition Labels: **Purchases**, **Health & Fitness** (sleep, HRV, RHR), **Photos**, **User ID**, **Other** (workout text for optional AI) — match the table above; Tracking = No
-3. Screenshots: Home+readiness, paywall, Coach, History, widget
-4. Attach subscription products / IAP group to this version
-5. Paste **App Review notes** (section above)
-6. Select signed-off TestFlight build → Submit for Review
+2. Version **Description** includes Terms of Use (EULA) URL — [APP_STORE_METADATA.md](../APP_STORE_METADATA.md)
+3. Privacy Nutrition Labels: **Purchases**, **Health & Fitness** (sleep, HRV, RHR), **Photos**, **User ID**, **Other** (workout text for optional AI) — match the table above; Tracking = No
+4. Screenshots: Home+readiness, paywall, Coach, History, widget
+5. Attach subscription products / IAP group to this version (Review Information screenshot on each SKU)
+6. Paste **App Review notes** (section above)
+7. Select signed-off TestFlight build → Submit for Review
 
 ## Review contact
 

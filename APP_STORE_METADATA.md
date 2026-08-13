@@ -70,6 +70,12 @@ PRIVACY-FIRST
 Workouts stay on your iPhone with SwiftData. Sign in with Apple is optional. Subscriptions are managed by Apple; restore anytime in Settings.
 
 Whether you're chasing hypertrophy, strength, or consistency, Workout Log AI keeps logging free and puts smarter coaching one upgrade away.
+
+SUBSCRIPTIONS
+Premium is an auto-renewable subscription (monthly and annual) with an optional 14-day free trial. Payment is charged to your Apple ID. Subscriptions renew unless cancelled at least 24 hours before the end of the period. Manage in iOS Settings or More → Subscription.
+
+Privacy Policy: https://cianfrocco4.github.io/FitLog/privacy-policy.html
+Terms of Use (EULA): https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
 ```
 
 ---
@@ -85,6 +91,26 @@ Apple needs a **web page** (not only `mailto:`). Options:
    `https://github.com/cianfrocco4/FitLog` — acceptable as support for many indie apps, but a dedicated support page looks more professional.
 
 **Before publishing:** Edit `docs/support.html` and set your real support email.
+
+---
+
+## Terms of Use (EULA) — required for subscriptions (Guideline 3.1.2(c))
+
+This app uses **Apple’s Standard Licensed Application EULA** (do not upload a custom EULA in App Store Connect unless you wrote one).
+
+Paste this URL into the **App Description** (already included in the Description block above):
+
+```
+https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
+```
+
+**Privacy Policy URL** (App Information):
+
+```
+https://cianfrocco4.github.io/FitLog/privacy-policy.html
+```
+
+Optional first-party Terms page (GitHub Pages): `https://cianfrocco4.github.io/FitLog/terms-of-use.html` — in-app Terms of Use still opens Apple’s standard EULA.
 
 ---
 

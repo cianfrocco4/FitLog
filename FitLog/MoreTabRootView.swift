@@ -57,6 +57,12 @@ struct MoreTabRootView: View {
                     Label("Data & Integrations", systemImage: "gearshape")
                 }
 
+                Section("Legal & Support") {
+                    LegalLinkRow(link: .termsOfUse)
+                    LegalLinkRow(link: .privacyPolicy)
+                    LegalLinkRow(link: .support)
+                }
+
                 Section {
                     if authVM.isLoggedIn {
                         Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
