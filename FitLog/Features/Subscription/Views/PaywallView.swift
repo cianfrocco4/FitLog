@@ -56,7 +56,7 @@ struct PaywallView: View {
             await entitlementStore.loadOfferings()
         }
         .task {
-            for await verification in Transaction.updates {
+            for await verification in StoreKit.Transaction.updates {
                 await handleStoreKitTransactionUpdate(verification)
             }
         }
@@ -246,7 +246,7 @@ struct PaywallView: View {
     }
 
     @MainActor
-    private func handleStoreKitTransactionUpdate(_ verification: VerificationResult<Transaction>) async {
+    private func handleStoreKitTransactionUpdate(_ verification: VerificationResult<StoreKit.Transaction>) async {
         guard case .verified(let transaction) = verification else { return }
         let wasPremium = entitlementStore.isPremium
         _ = await entitlementStore.syncPurchases()
