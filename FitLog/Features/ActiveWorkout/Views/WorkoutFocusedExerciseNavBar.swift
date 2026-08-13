@@ -27,6 +27,7 @@ struct WorkoutFocusedExerciseNavBar: View {
             .foregroundStyle(canGoPrevious ? .primary : .tertiary)
             .disabled(!canGoPrevious)
             .accessibilityLabel("Previous exercise")
+            .accessibilityHint(WorkoutFocusedExerciseNavAccessibility.previousHint(canGoPrevious: canGoPrevious))
 
             VStack(spacing: 2) {
                 Text(exerciseTitle)
@@ -38,6 +39,13 @@ struct WorkoutFocusedExerciseNavBar: View {
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+                WorkoutFocusedExerciseNavAccessibility.currentExerciseAccessibilityLabel(
+                    exerciseTitle: exerciseTitle,
+                    positionLabel: positionLabel
+                )
+            )
 
             Button(action: onNext) {
                 Label("Next", systemImage: "chevron.right")
@@ -49,6 +57,7 @@ struct WorkoutFocusedExerciseNavBar: View {
             .foregroundStyle(canGoNext ? .primary : .tertiary)
             .disabled(!canGoNext)
             .accessibilityLabel("Next exercise")
+            .accessibilityHint(WorkoutFocusedExerciseNavAccessibility.nextHint(canGoNext: canGoNext))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
