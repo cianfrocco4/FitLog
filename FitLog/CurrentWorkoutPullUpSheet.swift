@@ -1780,8 +1780,18 @@ struct CurrentWorkoutPullUpSheet: View {
               logs[exerciseIndex].id == logId,
               let last = logs[exerciseIndex].loggedSets.last
         else { return }
+        applyLoggedSetToInlineDraft(last, logId: logId)
+    }
+
+    /// Prefills the inline draft from a previous-session set (tap on PreviousSessionStrip).
+    private func prefillInlineDraft(from set: LoggedSet, logId: UUID) {
+        applyLoggedSetToInlineDraft(set, logId: logId)
+        seedInlineText(for: logId)
+    }
+
+    private func applyLoggedSetToInlineDraft(_ set: LoggedSet, logId: UUID) {
         let unit = userPreferences.weightDisplayUnit
-        let netDisplay = WeightStoreConversion.displayValue(storedPounds: last.weight, unit: unit)
+        let netDisplay = WeightStoreConversion.displayValue(storedPounds: set.weight, unit: unit)
         if draftStore.bodyweightModeLogIds.contains(logId) {
             let clampedNet = clampSignedNetDisplayForUser(netDisplay)
             if clampedNet >= 0 {
@@ -1795,7 +1805,7 @@ struct CurrentWorkoutPullUpSheet: View {
         } else {
             draftStore.weightByLogId[logId] = clampDisplayWeightForUser(netDisplay)
         }
-        draftStore.repsByLogId[logId] = last.reps
+        draftStore.repsByLogId[logId] = set.reps
     }
 
     private func isSupersetLoggingContext(exerciseIndex: Int) -> Bool {
@@ -2170,10 +2180,13 @@ struct CurrentWorkoutPullUpSheet: View {
             // Previous session strip
             if !prevSessionSets.isEmpty {
                 PreviousSessionStrip(
-                    sets: prevSessionSets,
+                    sets: Array(prevSessionSets),
                     draftWeight: draftWeightStored,
                     draftReps: draftReps,
-                    unit: unit
+                    unit: unit,
+                    onSelectSet: { set in
+                        prefillInlineDraft(from: set, logId: logId)
+                    }
                 )
             }
             HStack {

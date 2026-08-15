@@ -348,6 +348,8 @@ struct HistoryOverviewTab: View {
                     showPaywall = true
                 }
                 .buttonStyle(.borderedProminent)
+                .accessibilityLabel(HistoryPremiumUpsellAccessibility.unlockLabel(for: .fullTrainingHistory))
+                .accessibilityHint(HistoryPremiumUpsellAccessibility.unlockHint(for: .fullTrainingHistory))
             }
             .padding(.vertical, 4)
         }
@@ -365,7 +367,9 @@ struct HistoryOverviewTab: View {
                     paywallTrigger = .advancedAnalytics
                     showPaywall = true
                 }
-                    .buttonStyle(.borderedProminent)
+                .buttonStyle(.borderedProminent)
+                .accessibilityLabel(HistoryPremiumUpsellAccessibility.unlockLabel(for: .advancedAnalytics))
+                .accessibilityHint(HistoryPremiumUpsellAccessibility.unlockHint(for: .advancedAnalytics))
             }
             .padding(.vertical, 4)
         }

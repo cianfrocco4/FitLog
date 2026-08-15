@@ -8,8 +8,10 @@ import SwiftUI
 struct HistoryView: View {
     @Environment(DataManager.self) private var dataVM
     @Environment(EntitlementStore.self) private var entitlementStore
+    @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
     @State private var viewModel = HistoryViewModel()
     @State private var isSearchPresented = false
+    @State private var openedHistorySessionID: UUID?
 
     private var sessionsContentRevision: Int {
         HistoryAggregator.contentRevision(for: dataVM.completedSessions)
@@ -51,11 +53,28 @@ struct HistoryView: View {
                 ),
                 prompt: searchPrompt
             )
+            .navigationDestination(item: $openedHistorySessionID) { sessionID in
+                if let session = dataVM.completedSessions.first(where: { $0.id == sessionID }) {
+                    SessionDetailView(session: session)
+                        .environment(dataVM)
+                        .environment(currentVM)
+                } else {
+                    ContentUnavailableView(
+                        "Workout not found",
+                        systemImage: "chart.bar",
+                        description: Text("This session is no longer in History.")
+                    )
+                }
+            }
             .onAppear {
                 clampDayRangeForSubscriptionTier()
                 dataVM.refreshCompletedSessions()
                 viewModel.recompute(dataVM: dataVM)
                 loadTabDataIfNeeded()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fitlogOpenHistorySession)) { note in
+                guard let sessionID = note.object as? UUID else { return }
+                openHistorySession(id: sessionID)
             }
             .onChange(of: entitlementStore.isPremium) { _, _ in
                 clampDayRangeForSubscriptionTier()
@@ -76,6 +95,17 @@ struct HistoryView: View {
                 viewModel.recompute(dataVM: dataVM)
                 loadTabDataIfNeeded()
             }
+        }
+    }
+
+    private func openHistorySession(id: UUID) {
+        viewModel.mainTab = .sessions
+        dataVM.refreshCompletedSessions()
+        viewModel.recompute(dataVM: dataVM)
+        viewModel.ensureSessionsData(dataVM: dataVM)
+        // Defer so the Sessions tab is on-screen before the push.
+        DispatchQueue.main.async {
+            openedHistorySessionID = id
         }
     }
 

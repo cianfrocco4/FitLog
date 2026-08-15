@@ -70,6 +70,7 @@ private struct PremiumGateModifier: ViewModifier {
                 .foregroundStyle(.white)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Unlock Premium, \(feature.displayTitle)")
         .accessibilityHint("Shows subscription options for \(feature.displayTitle)")
     }
 }

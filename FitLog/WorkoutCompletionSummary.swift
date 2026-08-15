@@ -454,7 +454,10 @@ private struct ActivityShareSheet: UIViewControllerRepresentable {
 struct WorkoutCompletionSummaryView: View {
     let summary: WorkoutCompletionSummary
     var onDone: () -> Void
+    /// When set, shows a “View in History” action that opens this session in History.
+    var onViewInHistory: (() -> Void)? = nil
     @EnvironmentObject var userPreferences: UserPreferences
+    @State private var appearHapticTick = 0
     #if canImport(UIKit)
     @State private var showImageShareSheet = false
     @State private var shareImageItems: [Any] = []
@@ -493,6 +496,24 @@ struct WorkoutCompletionSummaryView: View {
                     )
                     if summary.personalRecordCount > 0 {
                         LabeledContent("PR sets (this workout)", value: "\(summary.personalRecordCount)")
+                    }
+                }
+
+                if let onViewInHistory {
+                    Section {
+                        Button {
+                            onViewInHistory()
+                        } label: {
+                            Label("View in History", systemImage: "chart.bar.doc.horizontal")
+                                .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .accessibilityLabel("View in History")
+                        .accessibilityHint(
+                            WorkoutCompletionNavigation.viewInHistoryAccessibilityHint(
+                                workoutName: summary.workoutName
+                            )
+                        )
                     }
                 }
 
@@ -586,7 +607,9 @@ struct WorkoutCompletionSummaryView: View {
                         .accessibilityHint("Dismisses the workout summary")
                 }
             }
+            .sensoryFeedback(.success, trigger: appearHapticTick)
             .onAppear {
+                appearHapticTick += 1
                 AccessibilityNotification.Announcement(
                     WorkoutCompletionAnnouncement.message(
                         summary: summary,
