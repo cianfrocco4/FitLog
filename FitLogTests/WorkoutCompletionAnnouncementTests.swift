@@ -28,7 +28,8 @@ struct WorkoutCompletionAnnouncementTests {
         let message = WorkoutCompletionAnnouncement.message(summary: summary, displayUnit: .pounds)
         #expect(message.contains("Workout complete"))
         #expect(message.contains("Push Day"))
-        #expect(message.contains("45:00"))
+        #expect(message.contains("45 minutes"))
+        #expect(!message.contains("45:00"))
         #expect(message.contains("18 working sets"))
         #expect(message.contains("12500 lb"))
         #expect(!message.contains("personal record"))
@@ -73,6 +74,7 @@ struct WorkoutCompletionAnnouncementTests {
         )
         let message = WorkoutCompletionAnnouncement.message(summary: summary, displayUnit: .kilograms)
         #expect(message.hasPrefix("Workout complete. Duration"))
+        #expect(message.contains("0 seconds"))
         #expect(message.contains("0 working sets"))
         #expect(message.contains("kg"))
     }

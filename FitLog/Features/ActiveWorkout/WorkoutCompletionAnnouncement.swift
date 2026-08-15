@@ -22,7 +22,7 @@ enum WorkoutCompletionAnnouncement {
         if !name.isEmpty {
             parts.append(name)
         }
-        parts.append("Duration \(summary.durationFormatted)")
+        parts.append("Duration \(CardioMetricsCalculator.spokenDuration(seconds: summary.durationSeconds))")
         parts.append(
             "\(summary.totalSets) working \(summary.totalSets == 1 ? "set" : "sets")"
         )
