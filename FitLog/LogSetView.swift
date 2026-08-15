@@ -59,6 +59,7 @@ struct LogSetView: View {
     @State private var bwAssistedDisplay: Double = 0
     /// Guards against double-tapping Save before the sheet dismisses.
     @State private var isSaving = false
+    @State private var saveSuccessTick = 0
 
     private var displayUnit: WeightDisplayUnit { userPreferences.weightDisplayUnit }
 
@@ -523,6 +524,7 @@ struct LogSetView: View {
                     Button("Save") {
                         guard canSaveSet else { return }
                         isSaving = true
+                        saveSuccessTick += 1
                         let effectiveRest = (isSupersetContext && !effectiveRestAfterSet) ? 0 : restTime
                         let displayForStore = bodyweightMode ? displayNetLoad : weight
                         let storedWeight = WeightStoreConversion.storedPounds(
@@ -549,6 +551,7 @@ struct LogSetView: View {
                     .accessibilityHint(saveAccessibilityHint)
                 }
             }
+            .sensoryFeedback(.success, trigger: saveSuccessTick)
             .keyboardDismissToolbar()
             .sheet(isPresented: $showPlateCalculator) {
                 let suggest: Double? = {
