@@ -2,19 +2,11 @@
 //  PaywallView.swift
 //  FitLog
 //
-//  Value-first premium paywall for Workout Log AI.
+//  Premium paywall using StoreKit SubscriptionStoreView (Guideline 3.1.2(c)).
 //
 
+import StoreKit
 import SwiftUI
-
-#if canImport(RevenueCat)
-import RevenueCat
-#endif
-
-private enum PaywallLegalURL {
-    static let privacyPolicy = URL(string: "https://cianfrocco4.github.io/FitLog/privacy-policy.html")!
-    static let eula = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
-}
 
 struct PaywallView: View {
     @Environment(EntitlementStore.self) private var entitlementStore
@@ -25,18 +17,10 @@ struct PaywallView: View {
     var analyticsSource: String?
     var onDismiss: (() -> Void)?
 
-    @State private var selectedPackageID: String?
-    @State private var showRestoreSuccess = false
     @State private var alertMessage: String?
-
-    private var canPurchase: Bool {
-#if canImport(RevenueCat)
-        RevenueCatConfig.isConfigured
-            && !(entitlementStore.offerings?.current?.availablePackages.isEmpty ?? true)
-#else
-        false
-#endif
-    }
+    @State private var showRestoreSuccess = false
+    @State private var storeProductsFailed = false
+    @State private var didTrackDismiss = false
 
     private var paywallAnalyticsProperties: [String: String] {
         var props: [String: String] = [
@@ -49,50 +33,65 @@ struct PaywallView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    heroSection
-                    benefitsSection
-                    planSection
-                    legalSection
-                }
-                .padding()
-            }
-            .navigationTitle("Workout Log AI Premium")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Not now") {
-                        AnalyticsService.shared.track(.paywallDismissed, properties: paywallAnalyticsProperties)
-                        onDismiss?()
-                        dismiss()
-                    }
-                }
-            }
-            .safeAreaInset(edge: .bottom) {
-                purchaseBar
-            }
-            .task {
-                AnalyticsService.shared.track(.paywallShown, properties: paywallAnalyticsProperties)
-                await entitlementStore.loadOfferings()
-            }
-            .alert("Subscription", isPresented: Binding(
-                get: { alertMessage != nil },
-                set: { if !$0 { alertMessage = nil } }
-            )) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(alertMessage ?? "")
-            }
-            .alert("Access restored", isPresented: $showRestoreSuccess) {
-                Button("Continue") {
-                    if entitlementStore.isPremium { dismiss() }
-                }
-            } message: {
-                Text("Your premium access is active.")
+        SubscriptionStoreView(productIDs: SubscriptionCatalog.autoRenewableProductIDs) {
+            marketingContent
+        }
+        .subscriptionStorePolicyDestination(url: LegalURLs.privacyPolicy, for: .privacyPolicy)
+        .subscriptionStorePolicyDestination(url: LegalURLs.termsOfUse, for: .termsOfService)
+        // Built-in Restore only runs AppStore.sync() and will not sync RevenueCat.
+        .storeButton(.hidden, for: .restorePurchases)
+        .storeButton(.visible, for: .cancellation)
+        .onInAppPurchaseStart { product in
+            let productID = product.id
+            await MainActor.run {
+                AnalyticsService.shared.track(.purchaseStarted, properties: ["product_id": productID])
             }
         }
+        .onInAppPurchaseCompletion { _, result in
+            await handlePurchaseCompletion(result)
+        }
+        .task {
+            AnalyticsService.shared.track(.paywallShown, properties: paywallAnalyticsProperties)
+            await loadStoreProducts()
+            await entitlementStore.loadOfferings()
+        }
+        .task {
+            for await verification in StoreKit.Transaction.updates {
+                await handleStoreKitTransactionUpdate(verification)
+            }
+        }
+        .onDisappear {
+            trackDismissIfNeeded()
+        }
+        .alert("Subscription", isPresented: Binding(
+            get: { alertMessage != nil },
+            set: { if !$0 { alertMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(alertMessage ?? "")
+        }
+        .alert("Access restored", isPresented: $showRestoreSuccess) {
+            Button("Continue") {
+                if entitlementStore.isPremium { dismiss() }
+            }
+        } message: {
+            Text("Your premium access is active.")
+        }
+    }
+
+    private var marketingContent: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            heroSection
+            benefitsSection
+            if storeProductsFailed {
+                staticPlanDisclosure
+            }
+            legalSection
+        }
+        .padding()
+        .frame(maxWidth: 560)
+        .frame(maxWidth: .infinity)
     }
 
     private var heroSection: some View {
@@ -116,6 +115,7 @@ struct PaywallView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 
     private var benefitsSection: some View {
@@ -130,235 +130,152 @@ struct PaywallView: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    private var unavailableMessage: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Plans unavailable", systemImage: "info.circle")
+    private var staticPlanDisclosure: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Subscription options", systemImage: "info.circle")
                 .font(.subheadline.weight(.semibold))
-            Text("Workout logging and readiness stay free. Check your connection and try again in a moment. If this continues, contact support from the Support link in App Store or Settings.")
+            Text("Plans could not be loaded from the App Store right now. Purchase stays disabled until they appear. US list prices for Workout Log AI Premium:")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-#if DEBUG
-            Text("DEBUG: Configure RevenueCat or attach a StoreKit configuration file for local purchase testing.")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-#endif
+            ForEach(SubscriptionCatalog.autoRenewablePlans) { plan in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(plan.title)
+                        .font(.headline)
+                    Text("\(plan.duration) · \(plan.listPriceUSD)")
+                        .font(.subheadline)
+                    Text(plan.disclosure)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                )
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(plan.title), \(plan.duration), \(plan.listPriceUSD). \(plan.disclosure)")
+            }
+            LegalLinksView(style: .compact)
         }
         .padding()
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
-
-    @ViewBuilder
-    private var planSection: some View {
-#if canImport(RevenueCat)
-        if entitlementStore.isLoadingOfferings {
-            ProgressView("Loading plans…")
-                .frame(maxWidth: .infinity)
-        } else if let packages = entitlementStore.offerings?.current?.availablePackages, !packages.isEmpty {
-            VStack(spacing: 10) {
-                ForEach(packages, id: \.identifier) { package in
-                    planRow(package: package)
-                }
-            }
-            .onAppear {
-                if selectedPackageID == nil {
-                    selectedPackageID = packages.first?.identifier
-                }
-            }
-        } else {
-            // Single empty state — avoid stacking placeholderPlans + unavailableMessage.
-            unavailableMessage
-        }
-#else
-        unavailableMessage
-#endif
-    }
-
-#if canImport(RevenueCat)
-    private func planRow(package: Package) -> some View {
-        let isSelected = selectedPackageID == package.identifier
-        let priceLine = planPriceDisclosure(for: package)
-        return Button {
-            selectedPackageID = package.identifier
-        } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(package.storeProduct.localizedTitle)
-                        .font(.headline)
-                    Text(priceLine)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
-                }
-                Spacer()
-                Text(package.storeProduct.localizedPriceString)
-                    .font(.headline)
-                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
-            }
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.25), lineWidth: isSelected ? 2 : 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(package.storeProduct.localizedTitle), \(priceLine)")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    private func planPriceDisclosure(for package: Package) -> String {
-        let product = package.storeProduct
-        let price = product.localizedPriceString
-        let period = subscriptionPeriodLabel(product.subscriptionPeriod)
-        let recurring = period.map { "\(price)/\($0)" } ?? price
-
-        guard let intro = product.introductoryDiscount else {
-            return product.localizedDescription.isEmpty ? recurring : "\(recurring). \(product.localizedDescription)"
-        }
-
-        let eligible = entitlementStore.isIntroEligible(forProductID: product.productIdentifier)
-        let introPeriod = subscriptionPeriodLabel(intro.subscriptionPeriod) ?? "intro period"
-        if eligible, intro.paymentMode == .freeTrial {
-            return "\(introPeriod) free, then \(recurring)"
-        }
-        if eligible, intro.paymentMode == .payUpFront {
-            return "\(intro.localizedPriceString) for \(introPeriod), then \(recurring)"
-        }
-        if eligible, intro.paymentMode == .payAsYouGo {
-            return "\(intro.localizedPriceString) for \(introPeriod), then \(recurring)"
-        }
-        return recurring
-    }
-
-    private func subscriptionPeriodLabel(_ period: SubscriptionPeriod?) -> String? {
-        guard let period else { return nil }
-        let value = period.value
-        switch period.unit {
-        case .day:
-            return value == 1 ? "day" : "\(value) days"
-        case .week:
-            return value == 1 ? "week" : "\(value) weeks"
-        case .month:
-            return value == 1 ? "month" : "\(value) months"
-        case .year:
-            return value == 1 ? "year" : "\(value) years"
-        @unknown default:
-            return nil
-        }
-    }
-#endif
 
     private var legalSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Not medical advice — general fitness coaching tool only.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("Payment is charged to your Apple ID. Subscriptions renew automatically unless cancelled at least 24 hours before the end of the period.")
+            Text("Payment is charged to your Apple ID. Subscriptions renew automatically unless cancelled at least 24 hours before the end of the period. Manage or cancel in iOS Settings or More → Subscription.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
-            HStack(spacing: 16) {
-                Link("Privacy Policy", destination: PaywallLegalURL.privacyPolicy)
-                Link("Apple Standard EULA", destination: PaywallLegalURL.eula)
-            }
-            .font(.caption)
-        }
-    }
-
-    private var purchaseBar: some View {
-        VStack(spacing: 10) {
-#if canImport(RevenueCat)
-            if canPurchase, let package = selectedPackage ?? entitlementStore.offerings?.current?.availablePackages.first {
-                Button {
-                    Task {
-                        let success = await entitlementStore.purchase(package: package)
-                        if success { dismiss() }
-                        else if let msg = entitlementStore.lastErrorMessage { alertMessage = msg }
-                    }
-                } label: {
-                    Group {
-                        if entitlementStore.isPurchasing {
-                            ProgressView()
-                                .tint(.white)
-                                .accessibilityHidden(true)
-                        } else {
-                            Text(ctaTitle(for: package))
-                                .fontWeight(.semibold)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(entitlementStore.isPurchasing)
-                .accessibilityLabel(
-                    PaywallPurchaseAccessibility.purchaseLabel(
-                        isPurchasing: entitlementStore.isPurchasing,
-                        ctaTitle: ctaTitle(for: package)
-                    )
-                )
-                .accessibilityHint(
-                    PaywallPurchaseAccessibility.purchaseHint(
-                        isPurchasing: entitlementStore.isPurchasing
-                    )
-                )
-            }
-#endif
+            LegalLinksView(style: .compact)
             Button {
-                Task {
-                    let restored = await entitlementStore.restorePurchases()
-                    if restored {
-                        showRestoreSuccess = true
-                        AnalyticsService.shared.track(.restoreCompleted, properties: ["source": "paywall"])
-                    } else if let msg = entitlementStore.lastErrorMessage {
-                        alertMessage = msg
-                        AnalyticsService.shared.track(.restoreFailed, properties: ["source": "paywall", "reason": msg])
-                    } else {
-                        alertMessage = "No active subscription found for this Apple ID."
-                        AnalyticsService.shared.track(.restoreFailed, properties: ["source": "paywall", "reason": "no_active_subscription"])
-                    }
-                }
+                Task { await restorePurchasesFromPaywall() }
             } label: {
                 if entitlementStore.isRestoring {
                     HStack(spacing: 8) {
                         ProgressView()
                         Text("Restoring…")
                     }
-                    .font(.footnote)
                 } else {
                     Text("Restore purchases")
-                        .font(.footnote)
                 }
             }
+            .font(.footnote)
             .disabled(entitlementStore.isRestoring)
             .accessibilityLabel(entitlementStore.isRestoring ? "Restoring purchases" : "Restore purchases")
+            .accessibilityHint("Restores an existing Apple subscription and syncs Premium access")
+            .accessibilityAddTraits(.isButton)
         }
-        .padding()
-        .background(.bar)
     }
 
-#if canImport(RevenueCat)
-    private var selectedPackage: Package? {
-        guard let id = selectedPackageID else {
-            return entitlementStore.offerings?.current?.availablePackages.first
+    private func loadStoreProducts() async {
+        do {
+            let products = try await Product.products(for: Set(SubscriptionCatalog.autoRenewableProductIDs))
+            storeProductsFailed = products.isEmpty
+        } catch {
+            storeProductsFailed = true
         }
-        return entitlementStore.offerings?.current?.availablePackages.first { $0.identifier == id }
     }
 
-    private func ctaTitle(for package: Package) -> String {
-        if package.packageType == .lifetime {
-            return "Unlock lifetime access"
+    @MainActor
+    private func handlePurchaseCompletion(_ result: Result<Product.PurchaseResult, Error>) async {
+        switch result {
+        case .success(let purchaseResult):
+            switch purchaseResult {
+            case .success(let verification):
+                AnalyticsService.shared.track(.purchaseCompleted)
+                _ = await entitlementStore.syncPurchases()
+                if case .verified(let transaction) = verification {
+                    await transaction.finish()
+                }
+                if entitlementStore.isPremium {
+                    dismiss()
+                } else {
+                    alertMessage = entitlementStore.lastErrorMessage
+                        ?? "Purchase completed but Premium is not active yet. Use Restore purchases, or contact support with your App User ID."
+                }
+            case .userCancelled:
+                AnalyticsService.shared.track(.purchaseCancelled)
+            case .pending:
+                alertMessage = "Your purchase is pending approval. Premium will unlock after Apple confirms the transaction."
+            @unknown default:
+                break
+            }
+        case .failure(let error):
+            AnalyticsService.shared.track(.purchaseFailed, properties: ["message": error.localizedDescription])
+            alertMessage = error.localizedDescription
         }
-        let product = package.storeProduct
-        if let intro = product.introductoryDiscount,
-           intro.paymentMode == .freeTrial,
-           entitlementStore.isIntroEligible(forProductID: product.productIdentifier) {
-            return "Start free trial"
-        }
-        return "Continue with Premium"
     }
-#endif
+
+    @MainActor
+    private func restorePurchasesFromPaywall() async {
+        let restored = await entitlementStore.restorePurchases()
+        if restored {
+            showRestoreSuccess = true
+            AnalyticsService.shared.track(.restoreCompleted, properties: ["source": "paywall"])
+        } else if let msg = entitlementStore.lastErrorMessage {
+            alertMessage = msg
+            AnalyticsService.shared.track(.restoreFailed, properties: ["source": "paywall", "reason": msg])
+        } else {
+            alertMessage = "No active subscription found for this Apple ID."
+            AnalyticsService.shared.track(.restoreFailed, properties: ["source": "paywall", "reason": "no_active_subscription"])
+        }
+    }
+
+    @MainActor
+    private func handleStoreKitTransactionUpdate(_ verification: VerificationResult<StoreKit.Transaction>) async {
+        guard case .verified(let transaction) = verification else { return }
+        let wasPremium = entitlementStore.isPremium
+        _ = await entitlementStore.syncPurchases()
+        await transaction.finish()
+        if !wasPremium && entitlementStore.isPremium {
+            dismiss()
+        }
+    }
+
+    private func trackDismissIfNeeded() {
+        guard !didTrackDismiss else { return }
+        didTrackDismiss = true
+        AnalyticsService.shared.track(.paywallDismissed, properties: paywallAnalyticsProperties)
+        onDismiss?()
+    }
 }
 
 #Preview("Paywall") {
     PaywallView(triggerFeature: .aiCoach)
+        .environment(EntitlementStore())
+}
+
+#Preview("Paywall Dark") {
+    PaywallView(triggerFeature: .aiCoach)
+        .environment(EntitlementStore())
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Paywall iPad", traits: .fixedLayout(width: 834, height: 1194)) {
+    PaywallView(triggerFeature: .readinessTrends)
         .environment(EntitlementStore())
 }
