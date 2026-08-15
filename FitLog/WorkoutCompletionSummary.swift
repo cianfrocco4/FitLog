@@ -604,12 +604,18 @@ struct WorkoutCompletionSummaryView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done", action: onDone)
                         .fontWeight(.semibold)
-                        .accessibilityHint("Dismisses workout summary")
+                        .accessibilityHint("Dismisses the workout summary")
                 }
             }
             .sensoryFeedback(.success, trigger: appearHapticTick)
             .onAppear {
                 appearHapticTick += 1
+                AccessibilityNotification.Announcement(
+                    WorkoutCompletionAnnouncement.message(
+                        summary: summary,
+                        displayUnit: userPreferences.weightDisplayUnit
+                    )
+                ).post()
             }
             #if canImport(UIKit)
             .sheet(isPresented: $showImageShareSheet) {

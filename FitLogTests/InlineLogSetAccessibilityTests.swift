@@ -105,4 +105,12 @@ struct InlineLogSetAccessibilityTests {
         )
         #expect(message == "Logged set, Pull-Up, +25 lb net, 6 reps")
     }
+
+    @Test func confirmEditAndDropCopy_explainsDisabledAndEnabled() {
+        #expect(InlineLogSetAccessibility.confirmDisabledHint == "Enter reps greater than zero to save")
+        #expect(InlineLogSetAccessibility.confirmEditSetLabel(setNumber: 3) == "Save edited set 3")
+        #expect(InlineLogSetAccessibility.confirmEditSetHint == "Saves changes to this set")
+        #expect(InlineLogSetAccessibility.confirmDropSegmentLabel == "Save drop segment")
+        #expect(InlineLogSetAccessibility.confirmDropSegmentHint == "Saves this drop segment")
+    }
 }

@@ -43,4 +43,13 @@ enum LogSetSaveAccessibility {
         }
         return "Saves this set and returns to the workout"
     }
+
+    /// Visible caption when Save is blocked for missing reps (drop-empty already has its own caption).
+    static func visibleDisabledCaption(
+        reps: Int,
+        isSaving: Bool
+    ) -> String? {
+        guard !isSaving, reps <= 0 else { return nil }
+        return "Enter reps greater than 0 to save."
+    }
 }

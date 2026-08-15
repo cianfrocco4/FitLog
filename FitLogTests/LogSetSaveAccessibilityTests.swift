@@ -109,4 +109,13 @@ struct LogSetSaveAccessibilityTests {
             ) == "Saves this set and returns to the workout"
         )
     }
+
+    @Test func visibleDisabledCaption_onlyWhenRepsMissing() {
+        #expect(
+            LogSetSaveAccessibility.visibleDisabledCaption(reps: 0, isSaving: false)
+                == "Enter reps greater than 0 to save."
+        )
+        #expect(LogSetSaveAccessibility.visibleDisabledCaption(reps: 8, isSaving: false) == nil)
+        #expect(LogSetSaveAccessibility.visibleDisabledCaption(reps: 0, isSaving: true) == nil)
+    }
 }
