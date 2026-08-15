@@ -123,10 +123,15 @@ struct MainTabView: View {
             get: { currentVM.pendingWorkoutCompletionSummary },
             set: { currentVM.pendingWorkoutCompletionSummary = $0 }
         )) { summary in
-            WorkoutCompletionSummaryView(summary: summary) {
-                currentVM.pendingWorkoutCompletionSummary = nil
-                maybePresentPostWorkoutPaywall()
-            }
+            WorkoutCompletionSummaryView(
+                summary: summary,
+                onDone: {
+                    dismissWorkoutCompletion(summary: summary, kind: .done)
+                },
+                onViewInHistory: {
+                    dismissWorkoutCompletion(summary: summary, kind: .viewInHistory)
+                }
+            )
             .environmentObject(userPreferences)
         }
         .sheet(isPresented: $showPostWorkoutPaywall) {
@@ -227,6 +232,20 @@ struct MainTabView: View {
             case .open:
                 rootTab = .home
             }
+        }
+    }
+
+    private func dismissWorkoutCompletion(summary: WorkoutCompletionSummary, kind: WorkoutCompletionDismissKind) {
+        currentVM.pendingWorkoutCompletionSummary = nil
+        if kind == .viewInHistory {
+            rootTab = .history
+            NotificationCenter.default.post(
+                name: .fitlogOpenHistorySession,
+                object: summary.id
+            )
+        }
+        if WorkoutCompletionNavigation.shouldOfferPostWorkoutPaywall(after: kind) {
+            maybePresentPostWorkoutPaywall()
         }
     }
 

@@ -24,6 +24,8 @@ extension Notification.Name {
     static let fitlogDynamicProgramBlockChanged = Notification.Name("fitlogDynamicProgramBlockChanged")
     /// Posted after a workout session is saved to history (readiness/widget refresh).
     static let fitlogWorkoutCompleted = Notification.Name("fitlogWorkoutCompleted")
+    /// Opens History → Sessions and pushes session detail. `object` is the session `UUID`.
+    static let fitlogOpenHistorySession = Notification.Name("fitlogOpenHistorySession")
 }
 
 enum FitLogDeepLink: Equatable {
