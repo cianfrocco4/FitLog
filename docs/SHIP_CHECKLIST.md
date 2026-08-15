@@ -23,7 +23,7 @@ Branch: `feature/phase-1-workout-log-ai` → merge to `main` before / with submi
 
 ## Enable GitHub Pages
 
-The HTML files already live on `main` under `docs/privacy-policy.html` and `docs/support.html`. A **404** means Pages is off or pointed at the wrong branch/folder — not that the files are missing from git.
+The HTML files already live on `main` under `docs/privacy-policy.html`, `docs/support.html`, and `docs/terms-of-use.html`. A **404** means Pages is off or pointed at the wrong branch/folder — not that the files are missing from git.
 
 ### Click path
 
@@ -40,6 +40,7 @@ The HTML files already live on `main` under `docs/privacy-policy.html` and `docs
 8. Open these URLs (hard-refresh if you still see 404):
   - Privacy: [https://cianfrocco4.github.io/FitLog/privacy-policy.html](https://cianfrocco4.github.io/FitLog/privacy-policy.html)  
   - Support: [https://cianfrocco4.github.io/FitLog/support.html](https://cianfrocco4.github.io/FitLog/support.html)
+  - Terms of Use: [https://cianfrocco4.github.io/FitLog/terms-of-use.html](https://cianfrocco4.github.io/FitLog/terms-of-use.html)
 
 ### Why the path looks like that
 
@@ -49,6 +50,8 @@ The HTML files already live on `main` under `docs/privacy-policy.html` and `docs
 | Branch `main`                   | Publishes whatever is on `main`               |
 | Folder `/docs`                  | Site root = contents of the `docs/` directory |
 | File `docs/privacy-policy.html` | Public URL = `…/FitLog/privacy-policy.html`   |
+| File `docs/support.html`        | Public URL = `…/FitLog/support.html`          |
+| File `docs/terms-of-use.html`   | Public URL = `…/FitLog/terms-of-use.html`     |
 
 
 If you picked folder `**/ (root)**` by mistake, the URL would be  
@@ -60,8 +63,9 @@ App Store Connect → your app → **App Information**:
 
 - **Privacy Policy URL:** `https://cianfrocco4.github.io/FitLog/privacy-policy.html`
 - **Support URL:** `https://cianfrocco4.github.io/FitLog/support.html`
+- **App Description Terms of Use (EULA):** `https://www.apple.com/legal/internet-services/itunes/dev/stdeula/`
 
-(Also used on the paywall / legal links in the app.)
+(Also used on the paywall, More → Subscription, and More → Legal & Support.)
 
 ### If it still 404s
 
@@ -315,9 +319,9 @@ Do this **after** a signed-off TestFlight build exists (§1) and proxy/IAP backe
 | -------------------- | ---------------------------------------------------------- |
 | Name                 | Workout Log AI                                             |
 | Privacy Policy URL   | `https://cianfrocco4.github.io/FitLog/privacy-policy.html` |
+| License Agreement    | Apple Standard EULA (do not attach a custom EULA)          |
 | Category (Primary)   | Health & Fitness                                           |
 | Category (Secondary) | Optional — Lifestyle                                       |
-| License Agreement    | Apple Standard EULA (unless you attach a custom one)       |
 | Content Rights       | See **§1a** below (required before Add for Review)         |
 
 
@@ -327,6 +331,7 @@ Do this **after** a signed-off TestFlight build exists (§1) and proxy/IAP backe
 | Field         | Value                                               |
 | ------------- | --------------------------------------------------- |
 | Support URL   | `https://cianfrocco4.github.io/FitLog/support.html` |
+| Description   | Must include Terms of Use URL — [APP_STORE_METADATA.md](../APP_STORE_METADATA.md) |
 | Marketing URL | Optional (same site, GitHub, or leave blank)        |
 | Copyright     | `2026 Anthony Cianfrocco` (see **§1b**)             |
 
@@ -511,7 +516,8 @@ You do **not** declare “OpenAI collects data” as a separate tracking partner
 | Check                             | Must match                                                                                                                              |
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | Privacy Policy URL                | Live page describes Health, SIWA, Purchases, AI proxy, photos                                                                           |
-| In-app paywall / settings         | Restore + Privacy link present                                                                                                          |
+| App Description                   | Includes Apple Standard EULA URL (`stdeula`)                                                                                            |
+| In-app paywall / settings         | Restore + Terms of Use + Privacy Policy links (`SubscriptionStoreView` + More → Subscription + More → Legal & Support)                  |
 | `PrivacyInfo.xcprivacy` in binary | Should not contradict (manifest declares collected types for required-reason APIs; nutrition labels are the store-facing questionnaire) |
 | No “Data Not Collected”           | Do not claim you collect nothing while shipping HealthKit + IAP + optional AI                                                           |
 | Tracking = No                     | Do not add IDFA/ad SDKs without updating this section                                                                                   |
@@ -570,14 +576,14 @@ Status must leave “Missing Metadata” before you can submit cleanly.
 
 Apple requires **one review screenshot per auto-renewable subscription** (or per product that still shows Missing Metadata). It is **only for App Review** — it does **not** appear on the App Store product page (that’s §3.7 Previews and Screenshots).
 
-**What to show:** the in-app paywall with plan options visible (Monthly / Annual, prices or trial CTA, Restore, Privacy / Terms links if on screen). Do **not** upload a blank screen, App Store marketing collage, or a photo of your Mac desktop.
+**What to show:** StoreKit `SubscriptionStoreView` with Monthly / Annual **title, duration, and price** visible, plus Restore and Terms of Use / Privacy Policy. Do **not** upload a blank screen, “Plans unavailable” only, an App Store marketing collage, or a photo of your Mac desktop.
 
 **Capture (Simulator — recommended)**
 
-1. Run **Workout Log AI** on an iPhone simulator (e.g. iPhone 16 or 16 Pro Max). Prefer a build that can load offerings (TestFlight, or local with StoreKit / RevenueCat configured) so the paywall shows real plan rows — not “Plans unavailable”.
+1. Run **Workout Log AI** on an iPhone simulator (e.g. iPhone 16 or 16 Pro Max). Prefer a build that can load StoreKit products (scheme StoreKit Configuration = `Configuration.storekit`, or TestFlight) so `SubscriptionStoreView` shows real plans — not the static fallback-only state.
 2. Navigate: **More** → **Subscription** → **Upgrade to Premium**.
   - Alternate: trigger any Premium gate (Coach send, History 30/90 days, AI program) so `PaywallView` opens.
-3. Wait until packages/prices render.
+3. Wait until subscription title, length, and price render. Scroll so Terms of Use and Privacy Policy are visible if needed.
 4. Capture:
   - Simulator menu → **Device → Trigger Screenshot**, or  
   - `xcrun simctl io booted screenshot ~/Desktop/workout-log-ai-paywall-review.png`

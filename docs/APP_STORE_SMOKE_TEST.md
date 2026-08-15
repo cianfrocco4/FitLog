@@ -35,11 +35,13 @@ Run on a **physical device** with a **Release** or TestFlight build before submi
 
 ### Premium / subscriptions
 - [ ] More → Subscription shows Free / Active correctly
-- [ ] Paywall loads packages (or clear user-facing “Plans unavailable” if offline / RC misconfigured — not developer “Configure RevenueCat” copy in Release)
-- [ ] Plan rows show period + trial disclosure when eligible (e.g. “14 days free, then $X/period”)
-- [ ] Eligible sandbox Apple ID: CTA **Start free trial**; exhausted-trial sandbox ID: CTA **Continue with Premium** (not trial)
-- [ ] Sandbox purchase unlocks Coach send + program generate + trends + export + extended history
-- [ ] **Restore purchases** works on paywall
+- [ ] More → Subscription **Legal** section: **Terms of Use** and **Privacy Policy** open in Safari (EULA + GitHub Pages policy)
+- [ ] More → **Legal & Support**: Terms of Use, Privacy Policy, and Support open in Safari
+- [ ] Paywall is StoreKit **SubscriptionStoreView** (More → Subscription → Upgrade, or any Premium gate)
+- [ ] Store view shows subscription **title**, **duration**, and **price** on iPhone and iPad (not an empty / “Plans unavailable” only screen)
+- [ ] Restore purchases control is visible on the paywall
+- [ ] Paywall **Terms of Use** and **Privacy Policy** links open the same URLs (Safari 200)
+- [ ] Eligible sandbox Apple ID: purchase unlocks Coach send + program generate + trends + export + extended history
 - [ ] **Manage Subscription** opens for active subscribers
 - [ ] Comp path: copy App User ID → RevenueCat promotional entitlement → Restore / Refresh
 - [ ] RevenueCat dashboard: production `appl_` key, Current offering `default`, products attached to `premium`

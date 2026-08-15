@@ -32,12 +32,12 @@ Subscriptions are managed via **RevenueCat** and App Store In-App Purchases.
 3. Set `REVENUECAT_API_KEY` in the scheme environment or `Info.plist` for purchase flows
 4. Build & Run (⌘R)
 
-See [docs/REVENUECAT_SETUP.md](docs/REVENUECAT_SETUP.md) for subscription configuration.
+See [docs/REVENUECAT_SETUP.md](docs/REVENUECAT_SETUP.md) for subscription configuration. After an App Review IAP / EULA rejection, see [docs/APP_REVIEW_RESOLUTION.md](docs/APP_REVIEW_RESOLUTION.md).
 
 ## Data & privacy
 
 - Workout data is stored on-device with SwiftData
 - Readiness uses on-device scoring from Apple Health metrics you authorize
 - Cloud AI features require Premium and send workout context to the configured proxy
-
-See [PRIVACY_POLICY.md](PRIVACY_POLICY.md) and [docs/APP_STORE_COMPLIANCE.md](docs/APP_STORE_COMPLIANCE.md).
+- Privacy Policy and Terms of Use (Apple Standard EULA) are linked in-app (paywall, More → Subscription, More → Legal & Support)
+- See [PRIVACY_POLICY.md](PRIVACY_POLICY.md) and [docs/APP_STORE_COMPLIANCE.md](docs/APP_STORE_COMPLIANCE.md).

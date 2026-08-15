@@ -1,6 +1,6 @@
 # Privacy Policy for Workout Log AI
 
-**Last updated:** June 2026
+**Last updated:** July 2026
 
 Workout Log AI ("the app") is a local-first workout tracker with optional Premium subscriptions and Apple Health readiness insights. This policy describes what data the app uses, where it is stored, and what may be sent off your device.
 
@@ -100,3 +100,5 @@ Email: acianfrocco@gmail.com
 ---
 
 For Apple's Sign in with Apple privacy information, see: [Apple Privacy](https://www.apple.com/legal/privacy/).
+
+Terms of Use: Workout Log AI uses [Apple’s Standard Licensed Application EULA](https://www.apple.com/legal/internet-services/itunes/dev/stdeula/).

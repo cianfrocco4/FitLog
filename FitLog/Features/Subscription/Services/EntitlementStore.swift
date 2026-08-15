@@ -207,6 +207,7 @@ final class EntitlementStore {
             return false
         }
         isRestoring = true
+        lastErrorMessage = nil
         defer { isRestoring = false }
         do {
             let info = try await PurchaseService.restorePurchases()

@@ -6,12 +6,13 @@ Use this checklist when submitting **Workout Log AI** (FitLog) to App Store Conn
 
 | Field | Value |
 |-------|--------|
-| Privacy Policy URL | Host `docs/privacy-policy.html` (GitHub Pages or your site) |
-| Support URL | Host `docs/support.html` |
+| Privacy Policy URL | `https://cianfrocco4.github.io/FitLog/privacy-policy.html` |
+| Support URL | `https://cianfrocco4.github.io/FitLog/support.html` |
+| Terms of Use (EULA) in App Description | `https://www.apple.com/legal/internet-services/itunes/dev/stdeula/` |
 | Marketing URL | Optional |
 | Support email | `acianfrocco@gmail.com` |
 
-Confirm both HTML pages are live and say **Workout Log AI** (subscriptions + readiness) before submission.
+Confirm privacy, support, and terms HTML pages are live and say **Workout Log AI** (subscriptions + readiness) before submission. The App Description **must** include the Apple Standard EULA URL (Guideline 3.1.2(c)).
 
 ## Privacy Nutrition Labels
 
@@ -25,10 +26,13 @@ Match [APP_STORE_COMPLIANCE.md](APP_STORE_COMPLIANCE.md) / [PRIVACY_POLICY.md](.
 
 - [ ] Paid Apps Agreement + tax/banking complete
 - [ ] Subscription group **Workout Log AI Premium**
-- [ ] Products: `workoutlogai_premium_monthly`, `workoutlogai_premium_annual`, optional `workoutlogai_premium_lifetime`
+- [ ] Products: `workoutlogai_premium_monthly`, `workoutlogai_premium_annual` (optional lifetime only if created **and** submitted)
+- [ ] Each SKU: localization + **Review Information screenshot** (status not Missing Metadata)
+- [ ] Products **attached to this iOS version** (In-App Purchases and Subscriptions)
 - [ ] RevenueCat entitlement `premium` + **Current** offering — [REVENUECAT_SETUP.md](REVENUECAT_SETUP.md)
 - [ ] `REVENUECAT_API_KEY` present in Release archive
 - [ ] Sandbox purchase + Restore verified on device
+- [ ] App Description includes Terms of Use (EULA) URL
 
 ## Export compliance
 
@@ -53,7 +57,7 @@ Before archiving for App Store:
 
 - [ ] iPhone 6.7" and 6.1" screenshots (required sizes per ASC)
 - [ ] App name: **Workout Log AI**
-- [ ] Subtitle, description, keywords from [APP_STORE_METADATA.md](../APP_STORE_METADATA.md)
+- [ ] Subtitle, description (with EULA URL), keywords from [APP_STORE_METADATA.md](../APP_STORE_METADATA.md)
 - [ ] Age rating questionnaire (fitness app, no unrestricted web)
 - [ ] Category: Health & Fitness
 
