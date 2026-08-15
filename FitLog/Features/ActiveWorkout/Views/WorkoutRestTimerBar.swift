@@ -6,6 +6,9 @@
 //
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct WorkoutRestTimerBar: View {
     let remainingSeconds: Int
@@ -88,6 +91,9 @@ struct WorkoutRestTimerBar: View {
                 .accessibilityHint("Increases the rest countdown")
 
                 Button {
+                    // Skip sets remaining rest to 0 and unmounts this bar in the same
+                    // update, so `.sensoryFeedback` on a local trigger never plays.
+                    playSkipRestHaptic()
                     onSkip()
                 } label: {
                     Label("Skip", systemImage: "forward.fill")
@@ -118,6 +124,12 @@ struct WorkoutRestTimerBar: View {
         )
         .sensoryFeedback(.selection, trigger: buttonAdjustTrigger)
         .sensoryFeedback(.impact(weight: .light), trigger: swipeAdjustTrigger)
+    }
+
+    private func playSkipRestHaptic() {
+        #if canImport(UIKit)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        #endif
     }
 }
 
