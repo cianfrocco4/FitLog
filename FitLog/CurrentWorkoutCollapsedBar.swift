@@ -14,6 +14,7 @@ struct CurrentWorkoutCollapsedBar: View {
     @Environment(\.openCurrentWorkoutSheet) private var openSheet
 
     @State private var showSwipeHint = true
+    @State private var pauseResumeHapticTick = 0
 
     private var primaryExerciseLog: ExerciseLog? {
         guard let session = currentVM.currentSession,
@@ -106,6 +107,7 @@ struct CurrentWorkoutCollapsedBar: View {
                         } else {
                             currentVM.pauseWorkout()
                         }
+                        pauseResumeHapticTick += 1
                     } label: {
                         Image(systemName: currentVM.isWorkoutPaused ? "play.fill" : "pause.fill")
                             .font(.body)
@@ -120,6 +122,7 @@ struct CurrentWorkoutCollapsedBar: View {
                 .clipShape(RoundedRectangle(cornerRadius: 20))
             }
         }
+        .sensoryFeedback(.impact(weight: .medium), trigger: pauseResumeHapticTick)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background {
