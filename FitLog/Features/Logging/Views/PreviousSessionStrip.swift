@@ -3,7 +3,7 @@
 //  FitLog
 //
 //  Compact strip showing the last 3 working sets from the previous session,
-//  with delta arrows vs the set being entered.
+//  with delta arrows vs the set being entered. Tapping a pill prefills the draft.
 //
 
 import SwiftUI
@@ -15,23 +15,57 @@ struct PreviousSessionStrip: View {
     let draftWeight: Double
     let draftReps: Int
     let unit: WeightDisplayUnit
+    /// When set, each pill becomes a button that prefills weight/reps.
+    var onSelectSet: ((LoggedSet) -> Void)? = nil
+
+    @State private var prefillHapticTick = 0
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(sets.prefix(3)) { set in
-                    PrevSetPill(
-                        set: set,
-                        draftWeight: draftWeight,
-                        draftReps: draftReps,
-                        unit: unit
-                    )
+                    if let onSelectSet {
+                        Button {
+                            onSelectSet(set)
+                            prefillHapticTick += 1
+                        } label: {
+                            PrevSetPill(
+                                set: set,
+                                draftWeight: draftWeight,
+                                draftReps: draftReps,
+                                unit: unit
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(pillAccessibilityLabel(for: set))
+                        .accessibilityHint(PreviousSessionPrefillAccessibility.pillHint)
+                        .accessibilityAddTraits(.isButton)
+                    } else {
+                        PrevSetPill(
+                            set: set,
+                            draftWeight: draftWeight,
+                            draftReps: draftReps,
+                            unit: unit
+                        )
+                    }
                 }
             }
             .padding(.horizontal, 4)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityText)
+        .sensoryFeedback(.selection, trigger: prefillHapticTick)
+        .modifier(PreviousSessionStripAccessibilityModifier(
+            isInteractive: onSelectSet != nil,
+            combinedLabel: accessibilityText
+        ))
+    }
+
+    private func pillAccessibilityLabel(for set: LoggedSet) -> String {
+        let display = WeightStoreConversion.displayValue(storedPounds: set.weight, unit: unit)
+        return PreviousSessionPrefillAccessibility.pillLabel(
+            weightDisplay: WeightStoreConversion.formatDisplay(display),
+            unitLabel: unit.shortLabel,
+            reps: set.reps
+        )
     }
 
     private var accessibilityText: String {
@@ -40,6 +74,21 @@ struct PreviousSessionStrip: View {
             return "\(WeightStoreConversion.formatDisplay(display)) \(unit.shortLabel) × \(set.reps)"
         }
         return "Previous sets: " + parts.joined(separator: ", ")
+    }
+}
+
+private struct PreviousSessionStripAccessibilityModifier: ViewModifier {
+    let isInteractive: Bool
+    let combinedLabel: String
+
+    func body(content: Content) -> some View {
+        if isInteractive {
+            content
+        } else {
+            content
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(combinedLabel)
+        }
     }
 }
 
@@ -128,7 +177,8 @@ private struct DeltaLabel: View {
             ],
             draftWeight: 190,
             draftReps: 8,
-            unit: .pounds
+            unit: .pounds,
+            onSelectSet: { _ in }
         )
     }
     .padding()

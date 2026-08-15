@@ -71,14 +71,23 @@ struct SubscriptionSettingsView: View {
                         }
                     }
                 } label: {
-                    Label("Restore / Refresh access", systemImage: "arrow.clockwise")
+                    if entitlementStore.isRestoring {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text(SubscriptionRestoreAccessibility.restoringCaption)
+                        }
+                    } else {
+                        Label(SubscriptionRestoreAccessibility.settingsIdleLabel, systemImage: "arrow.clockwise")
+                    }
                 }
                 .disabled(entitlementStore.isRestoring)
-                .accessibilityHint("Refreshes subscription status from the App Store and RevenueCat")
-
-                if entitlementStore.isRestoring {
-                    ProgressView()
-                }
+                .accessibilityLabel(
+                    SubscriptionRestoreAccessibility.restoreLabel(
+                        isRestoring: entitlementStore.isRestoring,
+                        idleLabel: SubscriptionRestoreAccessibility.settingsIdleLabel
+                    )
+                )
+                .accessibilityHint(SubscriptionRestoreAccessibility.settingsHint)
             }
 
             Section {
