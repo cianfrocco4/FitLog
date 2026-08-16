@@ -7,7 +7,7 @@ import SwiftUI
 import WidgetKit
 
 private enum ReadinessWidgetDeepLink {
-    static let quickLog = URL(string: "fitlog://quick-log")!
+    static let readiness = URL(string: "fitlog://readiness")!
     static let openApp = URL(string: "fitlog://open")!
 }
 
@@ -107,12 +107,12 @@ struct ReadinessWidgetView: View {
             }
             Spacer(minLength: 0)
             Label(
-                hasReadinessSnapshot ? "Quick log" : "Open app",
-                systemImage: hasReadinessSnapshot ? "plus.circle.fill" : "arrow.up.forward.app"
+                hasReadinessSnapshot ? "Open readiness" : "Open app",
+                systemImage: hasReadinessSnapshot ? "heart.text.square" : "arrow.up.forward.app"
             )
             .font(.caption2.weight(.semibold))
         }
-        .widgetURL(hasReadinessSnapshot ? ReadinessWidgetDeepLink.quickLog : ReadinessWidgetDeepLink.openApp)
+        .widgetURL(hasReadinessSnapshot ? ReadinessWidgetDeepLink.readiness : ReadinessWidgetDeepLink.openApp)
         .containerBackground(for: .widget) {
             Color(.systemBackground)
         }
@@ -120,7 +120,7 @@ struct ReadinessWidgetView: View {
         .accessibilityLabel(readinessAccessibilityLabel)
         .accessibilityHint(
             hasReadinessSnapshot
-                ? "Opens Workout Log AI to log a set or start a workout"
+                ? "Opens Workout Log AI to readiness details"
                 : emptyStateAccessibilityHint
         )
     }

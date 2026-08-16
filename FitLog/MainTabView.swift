@@ -231,6 +231,9 @@ struct MainTabView: View {
                 }
             case .open:
                 rootTab = .home
+            case .readiness:
+                rootTab = .home
+                NotificationCenter.default.post(name: .fitlogOpenReadinessDetail, object: nil)
             }
         }
     }

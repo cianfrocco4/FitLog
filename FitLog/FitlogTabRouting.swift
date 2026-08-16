@@ -26,6 +26,8 @@ extension Notification.Name {
     static let fitlogWorkoutCompleted = Notification.Name("fitlogWorkoutCompleted")
     /// Opens History → Sessions and pushes session detail. `object` is the session `UUID`.
     static let fitlogOpenHistorySession = Notification.Name("fitlogOpenHistorySession")
+    /// Opens Home → Readiness detail (e.g. readiness widget tap).
+    static let fitlogOpenReadinessDetail = Notification.Name("fitlogOpenReadinessDetail")
 }
 
 enum FitLogDeepLink: Equatable {
@@ -33,6 +35,8 @@ enum FitLogDeepLink: Equatable {
     case quickLog
     /// Opens the app to Home without starting a log flow (e.g. empty readiness widget).
     case open
+    /// Opens Home and navigates to Readiness detail.
+    case readiness
 
     init?(url: URL) {
         guard url.scheme?.lowercased() == "fitlog" else { return nil }
@@ -41,6 +45,8 @@ enum FitLogDeepLink: Equatable {
             self = .quickLog
         case "open", "home":
             self = .open
+        case "readiness":
+            self = .readiness
         default:
             return nil
         }

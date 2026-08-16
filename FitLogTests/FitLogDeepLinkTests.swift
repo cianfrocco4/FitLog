@@ -19,6 +19,11 @@ struct FitLogDeepLinkTests {
         #expect(FitLogDeepLink(url: URL(string: "fitlog://OPEN")!) == .open)
     }
 
+    @Test func parsesReadiness() {
+        #expect(FitLogDeepLink(url: URL(string: "fitlog://readiness")!) == .readiness)
+        #expect(FitLogDeepLink(url: URL(string: "fitlog://READINESS")!) == .readiness)
+    }
+
     @Test func rejectsUnknownHostAndScheme() {
         #expect(FitLogDeepLink(url: URL(string: "fitlog://unknown")!) == nil)
         #expect(FitLogDeepLink(url: URL(string: "https://example.com/open")!) == nil)

@@ -869,6 +869,9 @@ struct HomeView: View {
             .navigationDestination(isPresented: $showReadinessDetail) {
                 ReadinessDetailView(viewModel: readinessVM, dayKey: dayMonitor.currentDayKey)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .fitlogOpenReadinessDetail)) { _ in
+                showReadinessDetail = true
+            }
             .task {
                 try? await Task.sleep(nanoseconds: 280_000_000)
                 withAnimation(.easeInOut(duration: 0.3)) {
