@@ -45,8 +45,13 @@ struct HistoryOverviewTab: View {
             }
         }
         .sheet(isPresented: $showPaywall) {
-            PaywallView(triggerFeature: paywallTrigger)
-                .environment(entitlementStore)
+            PaywallView(
+                triggerFeature: paywallTrigger,
+                analyticsSource: paywallTrigger == .advancedAnalytics
+                    ? "history_overview_analytics"
+                    : "history_overview_history"
+            )
+            .environment(entitlementStore)
         }
         .popover(isPresented: $showVolumeInfo) {
             Text(HistoryFormatters.volumeUnitExplanation(weightUnit: userPreferences.weightDisplayUnit))

@@ -110,8 +110,11 @@ struct AIChatView: View {
                 CoachContextSheet(summary: viewModel.contextSummary)
             }
             .sheet(isPresented: $showPaywall) {
-                PaywallView(triggerFeature: .aiCoach)
-                    .environment(entitlementStore)
+                PaywallView(
+                    triggerFeature: .aiCoach,
+                    analyticsSource: "ai_chat"
+                )
+                .environment(entitlementStore)
             }
             .onAppear {
                 viewModel.bootstrap(dataVM: dataVM)
