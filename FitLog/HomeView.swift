@@ -1530,6 +1530,7 @@ private struct TodayWorkoutCard: View {
                     primaryTitle: "Open workout",
                     primarySystemImage: "arrow.up.circle",
                     primaryTint: FitlogPalette.success,
+                    primaryHint: "Opens exercise logging for the active workout",
                     primaryAction: openActiveWorkout
                 )
             } else if isAnotherWorkoutActive {
@@ -1540,6 +1541,7 @@ private struct TodayWorkoutCard: View {
                     primaryTitle: "Start workout",
                     primarySystemImage: "play.fill",
                     primaryTint: Color.accentColor,
+                    primaryHint: "Saves the active workout to history, then starts this plan",
                     primaryAction: onStartPlanWorkout
                 )
             } else if isCompleted {
@@ -1553,6 +1555,7 @@ private struct TodayWorkoutCard: View {
                     primaryTitle: "Continue session",
                     primarySystemImage: "arrow.clockwise.circle.fill",
                     primaryTint: Color.accentColor,
+                    primaryHint: "Resumes today’s completed session with logged sets",
                     primaryAction: onResumeCompletedToday
                 )
                 Button(action: onStartPlanWorkout) {
@@ -1561,11 +1564,14 @@ private struct TodayWorkoutCard: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
+                .accessibilityLabel("Start fresh instead")
+                .accessibilityHint("Starts this plan as a new session without prior sets")
             } else {
                 primaryDetailRow(
                     primaryTitle: "Start workout",
                     primarySystemImage: "play.fill",
                     primaryTint: Color.accentColor,
+                    primaryHint: "Starts today’s planned workout",
                     primaryAction: onStartPlanWorkout
                 )
             }
@@ -1577,6 +1583,7 @@ private struct TodayWorkoutCard: View {
         primaryTitle: String,
         primarySystemImage: String,
         primaryTint: Color,
+        primaryHint: String,
         primaryAction: @escaping () -> Void
     ) -> some View {
         HStack(alignment: .center, spacing: 10) {
@@ -1595,6 +1602,8 @@ private struct TodayWorkoutCard: View {
             .tint(primaryTint)
             .controlSize(.regular)
             .frame(maxWidth: .infinity)
+            .accessibilityLabel(primaryTitle)
+            .accessibilityHint(primaryHint)
 
             Button(action: onViewWorkoutDetail) {
                 Image(systemName: "list.bullet.rectangle")
@@ -1603,6 +1612,7 @@ private struct TodayWorkoutCard: View {
             .buttonStyle(.bordered)
             .controlSize(.regular)
             .accessibilityLabel(detailLabel)
+            .accessibilityHint("Shows exercises and details for this workout")
         }
     }
 
