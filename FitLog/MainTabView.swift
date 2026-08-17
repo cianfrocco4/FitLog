@@ -23,6 +23,7 @@ struct MainTabView: View {
     @State private var rootTab: FitlogRootTab = .home
     @State private var coachDeepLink: FitlogCoachDeepLink = .idle
     @State private var workoutChromeMetrics = WorkoutChromeMetrics()
+    @State private var didApplyUITestHarness = false
 
     private var activeCoachTip: String? {
         guard userPreferences.hasCompletedOnboarding else { return nil }
@@ -192,6 +193,7 @@ struct MainTabView: View {
         .onAppear {
             if FitLogUITestLaunch.isActive {
                 userPreferences.applyUITestDefaults()
+                applyUITestStoreHarnessIfNeeded()
             } else {
                 UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
             }
@@ -257,6 +259,19 @@ struct MainTabView: View {
         ) else { return }
         userPreferences.hasSeenPostWorkoutPaywall = true
         showPostWorkoutPaywall = true
+    }
+
+    private func applyUITestStoreHarnessIfNeeded() {
+        guard !didApplyUITestHarness else { return }
+        didApplyUITestHarness = true
+        guard FitLogUITestLaunch.shouldResetStore else { return }
+        if currentVM.isInProgress {
+            currentVM.cancelWorkout()
+        }
+        dataVM.eraseAllAppData(createSafetyBackup: false)
+        if let persona = FitLogUITestLaunch.persona {
+            FitLogSimulatedUserSeeder.seed(persona, into: dataVM)
+        }
     }
 
     private func coachMarkBanner(message: String) -> some View {

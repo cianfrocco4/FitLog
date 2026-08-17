@@ -37,7 +37,7 @@ final class FitLogUserJourneyUITests: XCTestCase {
 
     @MainActor
     func testCreatePushAWorkoutFromHome() throws {
-        let app = FitLogUITestSupport.launchConfiguredApp()
+        let app = FitLogUITestSupport.launchConfiguredApp(persona: "newFree")
         FitLogUITestSupport.tapTab("Home", in: app)
 
         let newWorkout = FitLogUITestSupport.control(app, identifier: "fitlog.newWorkout", label: "New workout")
@@ -90,12 +90,18 @@ final class FitLogUserJourneyUITests: XCTestCase {
 
     @MainActor
     func testCoachTabShowsComposerAndPremiumGate() throws {
-        let app = FitLogUITestSupport.launchConfiguredApp()
+        let app = FitLogUITestSupport.launchConfiguredApp(persona: "newFree")
         FitLogUITestSupport.tapTab("Coach", in: app)
 
         XCTAssertTrue(
             app.navigationBars["Coach"].waitForExistence(timeout: 10),
             "Coach tab should show the Coach navigation title"
+        )
+
+        XCTAssertTrue(
+            app.staticTexts["Premium AI Coach"].waitForExistence(timeout: 8)
+                || app.buttons["View Premium"].waitForExistence(timeout: 4),
+            "Free persona should see the Coach Premium banner"
         )
 
         let message = app.textFields["Message"]

@@ -10,6 +10,7 @@ Cloud Agent VMs are Linux. They cannot boot Xcode or the iOS Simulator, so they 
 |------|------|------------------------|
 | Recurring “walk the app, find friction” | **Cursor Automation** → **fitlog-mac** | Agent launches the Simulator, taps flows, records findings |
 | Repeatable core journeys | **XCUITest** (`FitLogUITests`) | Scripted taps: launch, tabs, create workout, Coach gate |
+| **N distinct users** | **Personas + seeder + `FitLogSimulatedUserUITests`** | Each run is a different gym-goer (data + workflow), not N clones |
 | Compile + logic regressions | **FitLogTests** + GitHub **iOS CI** | Fast; does **not** drive the UI |
 | PR code review | **Bugbot** | Reads diffs; never opens the app |
 | Device / StoreKit / HealthKit / widgets | You on a **physical device** | [APP_STORE_SMOKE_TEST.md](APP_STORE_SMOKE_TEST.md) |
@@ -42,6 +43,47 @@ xcodebuild test \
 Prefer XcodeBuildMCP `session_show_defaults` then `test_sim` when that MCP is available.
 
 GitHub **iOS CI** still runs **FitLogTests only**. UI tests stay on the Mac worker (or a future dedicated `macos` job) because they are slower and more environment-sensitive.
+
+## Layer 1b — N simulated users (personas)
+
+Yes: you can simulate **N actual users** if each one is a **persona** (different history, Premium vs free, cardio vs strength, plan vs scratch). Running the empty-app path N times is not N users.
+
+Catalog (`FitLogSimulatedUserPersona`, N=5):
+
+| Persona | Premium | Starting data | Workflow under test |
+|---------|---------|---------------|---------------------|
+| `newFree` | No | Empty library | Create Push A; Coach gate |
+| `returningFree` | No | Push/Pull/Legs + recent and 40-day-old sessions | Start sheet Recent; History 30-day range locked |
+| `premiumLifter` | Yes | Same library, deeper history | 90-day history unlocked; Subscription Active |
+| `cardioHobbyist` | No | Zone 2 cardio workout + sessions | Home shows Zone 2 |
+| `planFollower` | No | Push A assigned to today | Plan calendar shows today’s workout |
+
+Launch one user in the Simulator:
+
+```text
+-fitlog-ui-testing -fitlog-ui-reset-store -fitlog-ui-persona returningFree
+```
+
+Run the first N catalog users on a Mac:
+
+```bash
+scripts/run-simulated-users.sh 5
+# first 3 users:
+scripts/run-simulated-users.sh 3
+# soak beyond 5 (repeats the catalog; does not invent new people):
+REPEAT=2 scripts/run-simulated-users.sh 5
+```
+
+Each XCUITest launch **resets** SwiftData then seeds that persona, so users do not leak into each other. They still run **one at a time** on one Simulator (the UI test target is not parallel). True concurrent N would mean N Simulator clones on a beefy Mac; that is optional and more flaky.
+
+Cursor / Slack (Mac awake):
+
+```text
+@Cursor worker=fitlog-mac repo=cianfrocco4/FitLog Follow docs/automation-prompts/n-user-simulation.md with N=5.
+```
+
+Seeder logic is covered by `FitLogTests/SimulatedUserSeederTests` (runs in GitHub iOS CI). The tap journeys themselves stay on `fitlog-mac`.
+
 
 ## Layer 2 — Exploratory bot (Cursor + Simulator)
 
@@ -105,5 +147,5 @@ Prefer these IDs in new UI tests. Keep `.accessibilityLabel` / `.accessibilityHi
 
 - Cloud Linux Computer Use can drive a **browser**, not an iPhone.
 - Simulator ≠ device (Health, widgets, push, StoreKit presentation).
-- UI tests share one simulator; do not parallelize `FitLogUITests`.
+- UI tests share one simulator; `FitLogUITests` is not parallelized. Simulate N users **sequentially** via personas (`scripts/run-simulated-users.sh`).
 - Do not change SwiftData schema from an exploratory run unless migration is required and tested.
