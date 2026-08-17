@@ -35,6 +35,39 @@ final class FitLogUITests: XCTestCase {
     }
 
     @MainActor
+    func testDeleteAccountFlowReturnsToSignIn() throws {
+        let app = XCUIApplication()
+        FitLogUITestSupport.configure(app)
+        app.launch()
+
+        XCTAssertTrue(
+            app.tabBars.firstMatch.waitForExistence(timeout: 30),
+            "Main tab bar should appear after launch (UI test login bypass)."
+        )
+
+        let moreTab = app.tabBars.buttons["More"]
+        XCTAssertTrue(moreTab.waitForExistence(timeout: 10), "More tab should exist")
+        moreTab.tap()
+
+        let deleteAccount = app.buttons["Delete Account"]
+        XCTAssertTrue(
+            deleteAccount.waitForExistence(timeout: 10),
+            "Guideline 5.1.1(v): signed-in users must see Delete Account on More."
+        )
+        deleteAccount.tap()
+
+        let confirm = app.alerts["Delete Account?"].buttons["Delete Account"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 8), "Delete Account confirmation must appear")
+        confirm.tap()
+
+        XCTAssertTrue(
+            app.buttons["Continue without signing in"].waitForExistence(timeout: 10),
+            "Account deletion must return to the sign-in screen."
+        )
+        XCTAssertFalse(app.tabBars.firstMatch.exists)
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         let isCI = ProcessInfo.processInfo.environment["CI"] == "true"
             || ProcessInfo.processInfo.environment["XCODE_CLOUD"] == "1"

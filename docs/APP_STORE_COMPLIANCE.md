@@ -72,6 +72,19 @@ In App Store Connect upload dialog: **No** for non-exempt encryption (or use exe
 
 ---
 
+## Account deletion (Guideline 5.1.1(v))
+
+Sign in with Apple users can **permanently delete** their account in-app. This is not a temporary deactivation and does not require email or customer service.
+
+- **Path:** More → **Account** → **Delete Account**, or More → **Delete Account**
+- Confirm the **Delete Account** alert. The app erases Sign in with Apple details stored locally, all local user data, and RevenueCat identity, then returns to the sign-in screen.
+- **Sign Out** does not delete workouts. **Delete Account** does.
+- App Store subscriptions are billed by Apple and are **not** canceled by Delete Account; manage them in iOS Settings.
+- Users who skipped sign-in use More → **Erase all app data** (there is no cloud account).
+- Hosted privacy policy: `https://cianfrocco4.github.io/FitLog/privacy-policy.html` (GitHub Pages; wait for `main` to deploy after merge)
+
+---
+
 ## HealthKit
 
 Declared usage strings in Info.plist:
@@ -102,6 +115,13 @@ Workout Log AI — Review Notes
 
 AUTHENTICATION
 Sign in with Apple is optional. Tap "Continue without signing in" to use the app locally.
+
+ACCOUNT DELETION (Guideline 5.1.1(v))
+- Sign in with Apple → More → Account → Delete Account (also More → Delete Account).
+- Confirm the Delete Account alert. This permanently deletes the in-app account and all local user data, then returns to the sign-in screen.
+- Sign out does not delete workouts. Delete Account does.
+- App Store subscriptions are not canceled by Delete Account; manage in iOS Settings.
+- No demo password. Use Sign in with Apple on the review device, then delete that account.
 
 CORE FUNCTIONALITY (works offline)
 - Home → start a workout → log sets → finish workout
@@ -141,8 +161,9 @@ Complete in ASC (also tracked in [SHIP_CHECKLIST.md](SHIP_CHECKLIST.md) §3–4)
 3. Privacy Nutrition Labels: **Purchases**, **Health & Fitness** (sleep, HRV, RHR), **Photos**, **User ID**, **Other** (workout text for optional AI) — match the table above; Tracking = No
 4. Screenshots: Home+readiness, paywall, Coach, History, widget
 5. Attach subscription products / IAP group to this version (Review Information screenshot on each SKU)
-6. Paste **App Review notes** (section above)
-7. Select signed-off TestFlight build → Submit for Review
+6. Paste **App Review notes** (section above), including the Delete Account path
+7. For 5.1.1(v) resubmission: attach physical-device recording (sign in → More → Delete Account → confirm) in Resolution Center and Notes — [APP_REVIEW_RESOLUTION.md](APP_REVIEW_RESOLUTION.md)
+8. Select signed-off TestFlight build → Submit for Review (do not reuse rejected build 177)
 
 ## Review contact
 
