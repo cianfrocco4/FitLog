@@ -35,6 +35,27 @@ final class FitLogUITests: XCTestCase {
     }
 
     @MainActor
+    func testDeleteAccountIsVisibleOnMoreTab() throws {
+        let app = XCUIApplication()
+        FitLogUITestSupport.configure(app)
+        app.launch()
+
+        XCTAssertTrue(
+            app.tabBars.firstMatch.waitForExistence(timeout: 30),
+            "Main tab bar should appear after launch (UI test login bypass)."
+        )
+
+        let moreTab = app.tabBars.buttons["More"]
+        XCTAssertTrue(moreTab.waitForExistence(timeout: 10), "More tab should exist")
+        moreTab.tap()
+
+        XCTAssertTrue(
+            app.buttons["Delete Account"].waitForExistence(timeout: 10),
+            "Guideline 5.1.1(v): signed-in users must see Delete Account on More."
+        )
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         let isCI = ProcessInfo.processInfo.environment["CI"] == "true"
             || ProcessInfo.processInfo.environment["XCODE_CLOUD"] == "1"

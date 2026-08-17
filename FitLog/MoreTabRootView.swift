@@ -63,23 +63,39 @@ struct MoreTabRootView: View {
                     LegalLinkRow(link: .support)
                 }
 
-                Section {
-                    if authVM.isLoggedIn {
+                if authVM.isLoggedIn {
+                    Section("Account") {
+                        NavigationLink {
+                            AccountSettingsView()
+                        } label: {
+                            Label("Account", systemImage: "person.crop.circle")
+                        }
+                        .accessibilityHint("Sign out or permanently delete your account")
+
+                        DeleteAccountButton()
+
                         Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
                             authVM.logout(entitlementStore: entitlementStore)
                         }
-                        .accessibilityHint("Signs out of your account")
-                    } else if authVM.usesLocalOnlyMode {
+                        .accessibilityLabel("Sign Out")
+                        .accessibilityHint("Signs out of your account. Workouts stay on this device.")
+                        .accessibilityAddTraits(.isButton)
+                    }
+                } else if authVM.usesLocalOnlyMode {
+                    Section {
                         Button("Sign in with Apple", systemImage: "person.crop.circle.badge.plus") {
                             authVM.logout()
                         }
                         .accessibilityHint("Returns to the sign-in screen")
-                    }
+                        .accessibilityAddTraits(.isButton)
 
-                    Button("Erase all app data", systemImage: "trash", role: .destructive) {
-                        showEraseDataConfirm = true
+                        Button("Erase all app data", systemImage: "trash", role: .destructive) {
+                            showEraseDataConfirm = true
+                        }
+                        .accessibilityLabel("Erase all app data")
+                        .accessibilityHint("Deletes workouts, history, Coach chats, readiness, photos, and other local data from this device")
+                        .accessibilityAddTraits(.isButton)
                     }
-                    .accessibilityHint("Deletes workouts, history, Coach chats, readiness, photos, and other local data from this device")
                 }
             }
             .navigationTitle("More")

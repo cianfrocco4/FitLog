@@ -1,4 +1,62 @@
-# App Review resolution — Guidelines 2.1(b) and 3.1.2(c)
+# App Review resolution
+
+## Guideline 5.1.1(v) — Account deletion (build 177)
+
+Rejected example: **Workout Log AI 1.0 (177)**, 17 August 2026, iPhone 17 Pro Max. Submission ID `8a682dca-6425-42d9-82f8-d1e725e0ce88`.
+
+Apple requires in-app account deletion because the app supports account creation (Sign in with Apple). Do **not** resubmit build **177**. Archive a **new** binary after this in-app Delete Account flow ships, attach IAPs to the version (see 2.1(b) below), Submit the app and subscriptions together, then reply in Resolution Center with a **physical-device** screen recording.
+
+### In-app (this repo)
+
+- Signed-in users: **More → Account → Delete Account**, and **More → Delete Account**.
+- Confirmation alert, then permanent local deletion (SIWA identity, workouts, history, programs, Coach, readiness, body metrics, photos) and RevenueCat `logOut`. The app returns to the sign-in screen.
+- Sign Out does **not** erase workouts. Delete Account does.
+- Not a deactivate/disable flow. No email, phone, or customer-service step.
+- App Store subscriptions stay with Apple (stated in the alert and privacy policy).
+- Local-only users (Continue without signing in): **More → Erase all app data**.
+
+### Screen recording for App Review (physical device)
+
+Record on an iPhone (they used iPhone 17 Pro Max):
+
+1. Launch Workout Log AI.
+2. **Create a new account or sign in** with Sign in with Apple (there is no demo password).
+3. Open **More**. Show **Delete Account** (Account section). Optional: open **Account** and show Delete Account there too.
+4. Tap **Delete Account** → confirm **Delete Account** on the alert.
+5. Show the app back on the sign-in screen.
+
+Save as MP4. Attach it in the Resolution Center reply. Paste the same notes into App Review Information → **Notes** for future submissions.
+
+### Resolution Center reply (paste)
+
+```
+Hello App Review,
+
+Thank you for the Guideline 5.1.1(v) feedback on Workout Log AI 1.0 (177). We have added in-app account deletion and uploaded a new binary. Please do not review build 177.
+
+Guideline 5.1.1(v)
+Workout Log AI supports optional Sign in with Apple. Signed-in users can permanently delete their account in the app:
+
+1. Sign in with Apple (or create a new account).
+2. Open More → Delete Account (also More → Account → Delete Account).
+3. Confirm the Delete Account alert.
+
+This permanently deletes the in-app account and all locally stored user data, then returns to the sign-in screen. It is not a temporary deactivation. No website, email, or customer-service step is required.
+
+Sign Out does not delete workout data. Delete Account does.
+
+App Store subscriptions are billed by Apple and are not canceled by deleting the in-app account; users manage them in iOS Settings. That is stated in the confirmation alert and in the Privacy Policy.
+
+Please see the attached screen recording captured on a physical device: Sign in with Apple → More → Delete Account → confirm → sign-in screen.
+
+Thank you.
+```
+
+After merging to `main`, confirm GitHub Pages still serves the updated privacy policy (Delete Account path) at `https://cianfrocco4.github.io/FitLog/privacy-policy.html`.
+
+---
+
+## Guidelines 2.1(b) and 3.1.2(c) — IAP and subscription legal links (build 151)
 
 Use this after a rejection that IAP products were not submitted, or that auto-renewable subscriptions are missing Terms of Use / Privacy Policy links.
 

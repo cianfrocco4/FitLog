@@ -67,16 +67,44 @@ final class AuthViewModel: ObservableObject {
     }
 
     func logout(entitlementStore: EntitlementStore? = nil) {
+        clearAccountIdentity()
+        if let entitlementStore {
+            Task { await entitlementStore.logOut() }
+        }
+    }
+
+    /// Permanently deletes the Sign in with Apple account on this device and all locally stored user data.
+    /// Does not cancel App Store subscriptions (Apple bills those) or remove Health samples already written to Apple Health.
+    @MainActor
+    func deleteAccount(
+        dataManager: DataManager,
+        currentWorkout: CurrentWorkoutSessionViewModel,
+        entitlementStore: EntitlementStore
+    ) {
+        currentWorkout.cancelWorkout()
+        dataManager.eraseAllAppData()
+        logout(entitlementStore: entitlementStore)
+    }
+
+    private func clearAccountIdentity() {
         appleUserIdentifier = ""
         userEmail = ""
         userName = ""
         isLoggedIn = false
         usesLocalOnlyModeStorage = false
         errorMessage = nil
-        if let entitlementStore {
-            Task { await entitlementStore.logOut() }
-        }
     }
+
+#if DEBUG
+    func setSignedInForTesting(userID: String, email: String = "", name: String = "") {
+        appleUserIdentifier = userID
+        userEmail = email
+        userName = name
+        usesLocalOnlyModeStorage = false
+        isLoggedIn = true
+        errorMessage = nil
+    }
+#endif
 
     private func checkCredentialStateIfNeeded() {
         guard !appleUserIdentifier.isEmpty else {
