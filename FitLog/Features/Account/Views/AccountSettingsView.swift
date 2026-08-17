@@ -117,7 +117,6 @@ private enum AccountSettingsPreviewData {
         return DataManager(modelContainer: container)
     }
 }
-#endif
 
 #Preview("Account") {
     let dataVM = AccountSettingsPreviewData.dataManager()
@@ -153,3 +152,4 @@ private enum AccountSettingsPreviewData {
     }
     .dynamicTypeSize(.accessibility2)
 }
+#endif
