@@ -82,12 +82,14 @@ struct HomeStartWorkoutSheet: View {
                     } label: {
                         Label("New workout", systemImage: "plus.rectangle.on.folder")
                     }
+                    .accessibilityIdentifier(FitLogA11yID.newWorkout)
                     Button {
                         dismiss()
                         onNewFromTemplate()
                     } label: {
                         Label("From template", systemImage: "square.grid.2x2")
                     }
+                    .accessibilityIdentifier(FitLogA11yID.fromTemplate)
                 } header: {
                     Text("Create")
                 }
