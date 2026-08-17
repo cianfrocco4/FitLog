@@ -2391,8 +2391,11 @@ final class DataManager {
 
     /// Deletes all locally stored user data while keeping the app usable (seeded exercise library remains).
     /// Does not remove workouts previously written to Apple Health — users manage those in the Health app.
-    func eraseAllAppData() {
-        rotateBackup()
+    /// - Parameter createSafetyBackup: When true (Erase all app data), writes a rotating `backup_*.json` first so accidental erase can be recovered. Account deletion must pass `false`.
+    func eraseAllAppData(createSafetyBackup: Bool = true) {
+        if createSafetyBackup {
+            rotateBackup()
+        }
         globalExercises = []
         userWorkouts = []
         completedSessions = []
@@ -2418,10 +2421,17 @@ final class DataManager {
         CardioSessionTimerPersistence.clear()
         WidgetSnapshotStore.clear()
         Self.clearActiveWorkoutSessionUserDefaults()
+        Self.clearUserContentUserDefaults()
 
         preloadFullExerciseLibrary()
         preloadCardioExerciseLibraryIfNeeded()
         publishIntentExerciseLibrary()
+    }
+
+    /// Deletes rotating `backup_*.json` snapshots of user data. Migration safety files (`pre_v*`, unified-slots, etc.) are kept.
+    func purgeRotatingUserBackups() {
+        let dir = URL.applicationSupportDirectory.appending(path: "Backups", directoryHint: .isDirectory)
+        Self.pruneRotatingBackups(in: dir, keepingNewest: 0)
     }
 
     private static func clearActiveWorkoutSessionUserDefaults() {
@@ -2434,6 +2444,13 @@ final class DataManager {
         ] {
             defaults.removeObject(forKey: key)
         }
+    }
+
+    private static func clearUserContentUserDefaults() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: ExercisePickerPersistence.favoritesKey)
+        defaults.removeObject(forKey: ExercisePickerPersistence.recentKey)
+        CloudAIUsageQuota.resetAll(defaults: defaults)
     }
 
     private func postDynamicProgramBlockTransitionIfNeeded(

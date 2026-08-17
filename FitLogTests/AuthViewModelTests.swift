@@ -11,7 +11,7 @@ import Testing
 @Suite(.serialized)
 struct AuthViewModelTests {
 
-    @Test @MainActor func deleteAccount_clearsSignInIdentity() throws {
+    @Test @MainActor func deleteAccount_clearsSignInIdentity() async throws {
         let container = try makeInMemoryContainer()
         let dataVM = DataManager(modelContainer: container)
         let currentVM = CurrentWorkoutSessionViewModel(dataManager: dataVM)
@@ -22,7 +22,7 @@ struct AuthViewModelTests {
         #expect(auth.isLoggedIn)
         #expect(auth.revenueCatAppUserID == "apple-user-1")
 
-        auth.deleteAccount(
+        await auth.deleteAccount(
             dataManager: dataVM,
             currentWorkout: currentVM,
             entitlementStore: entitlements
@@ -35,7 +35,7 @@ struct AuthViewModelTests {
         #expect(auth.userName.isEmpty)
     }
 
-    @Test @MainActor func deleteAccount_erasesLocalUserData() throws {
+    @Test @MainActor func deleteAccount_erasesLocalUserData() async throws {
         let container = try makeInMemoryContainer()
         let dataVM = DataManager(modelContainer: container)
         let currentVM = CurrentWorkoutSessionViewModel(dataManager: dataVM)
@@ -48,7 +48,7 @@ struct AuthViewModelTests {
 
         let auth = AuthViewModel()
         auth.setSignedInForTesting(userID: "apple-user-2")
-        auth.deleteAccount(
+        await auth.deleteAccount(
             dataManager: dataVM,
             currentWorkout: currentVM,
             entitlementStore: EntitlementStore()

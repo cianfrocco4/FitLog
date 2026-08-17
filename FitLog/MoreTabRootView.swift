@@ -15,6 +15,7 @@ struct MoreTabRootView: View {
     @Environment(EntitlementStore.self) private var entitlementStore
 
     @State private var showEraseDataConfirm = false
+    @State private var showDeleteAccountConfirm = false
 
     var body: some View {
         NavigationStack {
@@ -67,12 +68,16 @@ struct MoreTabRootView: View {
                     Section("Account") {
                         NavigationLink {
                             AccountSettingsView()
+                                .environment(dataVM)
+                                .environment(currentVM)
+                                .environmentObject(authVM)
+                                .environment(entitlementStore)
                         } label: {
                             Label("Account", systemImage: "person.crop.circle")
                         }
                         .accessibilityHint("Sign out or permanently delete your account")
 
-                        DeleteAccountButton()
+                        DeleteAccountButton(isConfirmationPresented: $showDeleteAccountConfirm)
 
                         Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
                             authVM.logout(entitlementStore: entitlementStore)
@@ -100,6 +105,16 @@ struct MoreTabRootView: View {
             }
             .navigationTitle("More")
             .navigationBarTitleDisplayMode(.large)
+            .deleteAccountConfirmation(isPresented: $showDeleteAccountConfirm) {
+                Task {
+                    await authVM.deleteAccount(
+                        dataManager: dataVM,
+                        currentWorkout: currentVM,
+                        entitlementStore: entitlementStore
+                    )
+                }
+            }
+            .sensoryFeedback(.warning, trigger: showDeleteAccountConfirm)
             .confirmationDialog(
                 "Erase all app data?",
                 isPresented: $showEraseDataConfirm,

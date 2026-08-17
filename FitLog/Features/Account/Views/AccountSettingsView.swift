@@ -8,19 +8,18 @@
 import SwiftData
 import SwiftUI
 
+enum AccountDeletionAlert {
+    static let title = "Delete Account?"
+    static let message = "This permanently deletes your account and all Workout Log AI data on this device. It cannot be undone. App Store subscriptions are billed by Apple and are not canceled automatically — manage them in iOS Settings. Workouts already saved to Apple Health stay in Health."
+}
+
 struct DeleteAccountButton: View {
-    @Environment(DataManager.self) private var dataVM
-    @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
-    @EnvironmentObject private var authVM: AuthViewModel
-    @Environment(EntitlementStore.self) private var entitlementStore
-
+    @Binding var isConfirmationPresented: Bool
     var showsSystemImage: Bool = true
-
-    @State private var showDeleteConfirmation = false
 
     var body: some View {
         Button(role: .destructive) {
-            showDeleteConfirmation = true
+            isConfirmationPresented = true
         } label: {
             if showsSystemImage {
                 Label("Delete Account", systemImage: "person.crop.circle.badge.minus")
@@ -31,25 +30,30 @@ struct DeleteAccountButton: View {
         .accessibilityLabel("Delete Account")
         .accessibilityHint("Permanently deletes your account and all Workout Log AI data on this device")
         .accessibilityAddTraits(.isButton)
-        .alert("Delete Account?", isPresented: $showDeleteConfirmation) {
-            Button("Delete Account", role: .destructive) {
-                authVM.deleteAccount(
-                    dataManager: dataVM,
-                    currentWorkout: currentVM,
-                    entitlementStore: entitlementStore
-                )
-            }
+    }
+}
+
+extension View {
+    func deleteAccountConfirmation(
+        isPresented: Binding<Bool>,
+        onConfirm: @escaping () -> Void
+    ) -> some View {
+        self.alert(AccountDeletionAlert.title, isPresented: isPresented) {
+            Button("Delete Account", role: .destructive, action: onConfirm)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This permanently deletes your account and all Workout Log AI data on this device. It cannot be undone. Subscriptions billed by Apple are not canceled automatically.")
+            Text(AccountDeletionAlert.message)
         }
-        .sensoryFeedback(.warning, trigger: showDeleteConfirmation)
     }
 }
 
 struct AccountSettingsView: View {
+    @Environment(DataManager.self) private var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
     @EnvironmentObject private var authVM: AuthViewModel
     @Environment(EntitlementStore.self) private var entitlementStore
+
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         List {
@@ -81,13 +85,23 @@ struct AccountSettingsView: View {
             }
 
             Section {
-                DeleteAccountButton()
+                DeleteAccountButton(isConfirmationPresented: $showDeleteConfirmation)
             } footer: {
                 Text("Delete Account permanently removes your Sign in with Apple details stored in Workout Log AI and all workouts, history, programs, Coach chats, readiness, body metrics, and progress photos on this device. This cannot be undone. App Store subscriptions are billed by Apple and are not canceled automatically — manage or cancel in iOS Settings or Subscription before deleting if needed. Workouts already saved to Apple Health stay in Health.")
             }
         }
         .navigationTitle("Account")
         .navigationBarTitleDisplayMode(.inline)
+        .deleteAccountConfirmation(isPresented: $showDeleteConfirmation) {
+            Task {
+                await authVM.deleteAccount(
+                    dataManager: dataVM,
+                    currentWorkout: currentVM,
+                    entitlementStore: entitlementStore
+                )
+            }
+        }
+        .sensoryFeedback(.warning, trigger: showDeleteConfirmation)
     }
 }
 

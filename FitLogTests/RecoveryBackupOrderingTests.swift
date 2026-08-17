@@ -113,6 +113,29 @@ struct RecoveryBackupOrderingTests {
         #expect(remainingBackups.count == 7)
     }
 
+    @Test func pruneRotatingBackups_keepingNone_deletesUserSnapshotsAndKeepsMigrationFiles() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(
+            path: "FitLogPruneAllRotating_\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let snapshot = makeSnapshot(exerciseName: "Deleted User")
+        let data = try JSONEncoder().encode(snapshot)
+        let protected = FitLogMigrationPlan.preV4BackupFileName
+        try data.write(to: dir.appending(path: protected), options: .atomic)
+        try data.write(to: dir.appending(path: "backup_2026-08-17_120000.json"), options: .atomic)
+
+        DataManager.pruneRotatingBackups(in: dir, keepingNewest: 0)
+
+        #expect(FileManager.default.fileExists(atPath: dir.appending(path: protected).path))
+        let remainingBackups = (try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))
+            .map(\.lastPathComponent)
+            .filter { $0.hasPrefix("backup_") }
+        #expect(remainingBackups.isEmpty)
+    }
+
     @Test func isProtectedMigrationBackupFileName_coversExpectedPrefixes() {
         #expect(FitLogMigrationPlan.isProtectedMigrationBackupFileName("pre_v4_latest.json"))
         #expect(FitLogMigrationPlan.isProtectedMigrationBackupFileName("pre_v3_latest.json"))

@@ -80,10 +80,12 @@ final class AuthViewModel: ObservableObject {
         dataManager: DataManager,
         currentWorkout: CurrentWorkoutSessionViewModel,
         entitlementStore: EntitlementStore
-    ) {
+    ) async {
         currentWorkout.cancelWorkout()
-        dataManager.eraseAllAppData()
-        logout(entitlementStore: entitlementStore)
+        dataManager.eraseAllAppData(createSafetyBackup: false)
+        dataManager.purgeRotatingUserBackups()
+        clearAccountIdentity()
+        await entitlementStore.logOut()
     }
 
     private func clearAccountIdentity() {

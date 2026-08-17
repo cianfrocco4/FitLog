@@ -9,7 +9,7 @@ Apple requires in-app account deletion because the app supports account creation
 ### In-app (this repo)
 
 - Signed-in users: **More → Account → Delete Account**, and **More → Delete Account**.
-- Confirmation alert, then permanent local deletion (SIWA identity, workouts, history, programs, Coach, readiness, body metrics, photos) and RevenueCat `logOut`. The app returns to the sign-in screen.
+- Confirmation alert, then permanent local deletion (SIWA identity, workouts, history, programs, Coach, readiness, body metrics, photos) and RevenueCat `logOut`. Rotating `backup_*.json` snapshots are removed so deleted data cannot be restored in-app. The app returns to the sign-in screen.
 - Sign Out does **not** erase workouts. Delete Account does.
 - Not a deactivate/disable flow. No email, phone, or customer-service step.
 - App Store subscriptions stay with Apple (stated in the alert and privacy policy).

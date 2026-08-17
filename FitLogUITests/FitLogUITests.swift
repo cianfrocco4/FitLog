@@ -35,7 +35,7 @@ final class FitLogUITests: XCTestCase {
     }
 
     @MainActor
-    func testDeleteAccountIsVisibleOnMoreTab() throws {
+    func testDeleteAccountFlowReturnsToSignIn() throws {
         let app = XCUIApplication()
         FitLogUITestSupport.configure(app)
         app.launch()
@@ -49,10 +49,22 @@ final class FitLogUITests: XCTestCase {
         XCTAssertTrue(moreTab.waitForExistence(timeout: 10), "More tab should exist")
         moreTab.tap()
 
+        let deleteAccount = app.buttons["Delete Account"]
         XCTAssertTrue(
-            app.buttons["Delete Account"].waitForExistence(timeout: 10),
+            deleteAccount.waitForExistence(timeout: 10),
             "Guideline 5.1.1(v): signed-in users must see Delete Account on More."
         )
+        deleteAccount.tap()
+
+        let confirm = app.alerts["Delete Account?"].buttons["Delete Account"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 8), "Delete Account confirmation must appear")
+        confirm.tap()
+
+        XCTAssertTrue(
+            app.buttons["Continue without signing in"].waitForExistence(timeout: 10),
+            "Account deletion must return to the sign-in screen."
+        )
+        XCTAssertFalse(app.tabBars.firstMatch.exists)
     }
 
     @MainActor
