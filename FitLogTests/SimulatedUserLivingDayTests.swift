@@ -89,6 +89,20 @@ struct SimulatedUserLivingDayTests {
         #expect(dm.completedSessions.count == 1)
     }
 
+    @Test func trainingDay_unloggableWorkout_isNotEmptyLibrary() throws {
+        let dm = try makeEmptyManager()
+        _ = dm.createWorkout(name: "Empty Shell")
+        let outcome = FitLogSimulatedUserLivingDay.runTick(
+            .returningFree,
+            into: dm,
+            now: monday,
+            writeTickLog: false
+        )
+        #expect(outcome == .skippedUnloggableWorkout)
+        #expect(!dm.userWorkouts.isEmpty)
+        #expect(dm.completedSessions.isEmpty)
+    }
+
     @Test func modelStoreFileName_defaultsWithoutLivingFlags() {
         #expect(FitLogUITestLaunch.modelStoreFileName == "FitLogData.store")
         #expect(!FitLogUITestLaunch.isDailyLiving)

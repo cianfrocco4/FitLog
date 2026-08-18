@@ -96,6 +96,40 @@ struct SimulatedUserReviewerTests {
         #expect(review.bugs.contains { $0.id == "bug.library.empty_on_training_day" })
     }
 
+    @Test func unloggableWorkout_isNotEmptyLibraryBug() throws {
+        let dm = try makeEmptyManager()
+        FitLogSimulatedUserSeeder.seedStrengthLibrary(
+            into: dm,
+            templates: Array(WorkoutQuickStartTemplate.all.prefix(1))
+        )
+        let review = FitLogSimulatedUserReviewer.makeReview(
+            .returningFree,
+            dataVM: dm,
+            tickOutcome: .skippedUnloggableWorkout,
+            now: monday,
+            isAIConfigured: false
+        )
+        #expect(!review.bugs.contains { $0.id == "bug.library.empty_on_training_day" })
+        #expect(review.bugs.contains { $0.id == "bug.library.unloggable_workout" })
+        #expect(review.workflow.contains("nothing to log"))
+    }
+
+    @Test func skippedEmptyLibrary_withNonEmptyLibrary_isNotEmptyLibraryBug() throws {
+        let dm = try makeEmptyManager()
+        FitLogSimulatedUserSeeder.seedStrengthLibrary(
+            into: dm,
+            templates: Array(WorkoutQuickStartTemplate.all.prefix(1))
+        )
+        let review = FitLogSimulatedUserReviewer.makeReview(
+            .returningFree,
+            dataVM: dm,
+            tickOutcome: .skippedEmptyLibrary,
+            now: monday,
+            isAIConfigured: false
+        )
+        #expect(!review.bugs.contains { $0.id == "bug.library.empty_on_training_day" })
+    }
+
     @Test func planFollower_withoutTodayAssignment_isABug() throws {
         let dm = try makeEmptyManager()
         FitLogSimulatedUserSeeder.seedStrengthLibrary(

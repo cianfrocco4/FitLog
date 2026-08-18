@@ -14,6 +14,7 @@ enum FitLogSimulatedUserLivingDay {
         case alreadyLoggedToday
         case logged
         case skippedEmptyLibrary
+        case skippedUnloggableWorkout
     }
 
     struct TickRecord: Codable, Equatable {
@@ -61,7 +62,7 @@ enum FitLogSimulatedUserLivingDay {
                 outcome = .logged
                 workoutName = dataVM.workout(id: workout.id)?.name ?? workout.name
             } else {
-                outcome = .skippedEmptyLibrary
+                outcome = .skippedUnloggableWorkout
             }
         }
 

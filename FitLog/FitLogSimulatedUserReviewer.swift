@@ -247,12 +247,22 @@ enum FitLogSimulatedUserReviewer {
             )
         }
 
-        if tickOutcome == .skippedEmptyLibrary || (persona.isTrainingDay(on: now, calendar: calendar) && dataVM.userWorkouts.isEmpty) {
+        if dataVM.userWorkouts.isEmpty,
+           (tickOutcome == .skippedEmptyLibrary || persona.isTrainingDay(on: now, calendar: calendar)) {
             bugs.append(
                 note(
                     "bug.library.empty_on_training_day",
                     area: "Home",
                     detail: "It's a training day and my library is empty, so nothing logged. Bootstrap or templates failed silently."
+                )
+            )
+        }
+        if tickOutcome == .skippedUnloggableWorkout {
+            bugs.append(
+                note(
+                    "bug.library.unloggable_workout",
+                    area: "Home",
+                    detail: "It's a training day and I had a saved workout, but it had nothing to log. Template resolution or a bad workout row failed silently."
                 )
             )
         }
@@ -354,6 +364,8 @@ enum FitLogSimulatedUserReviewer {
             "Rest day — no new session."
         case .skippedEmptyLibrary:
             "Wanted to train but the library was empty."
+        case .skippedUnloggableWorkout:
+            "Wanted to train but the chosen workout had nothing to log."
         case nil:
             "Opened the app without a living-day tick."
         }
