@@ -118,7 +118,7 @@ enum FitLogSimulatedUserLivingDay {
         if fileExists(url) {
             guard let handle = try? FileHandle(forWritingTo: url) else { return }
             defer { try? handle.close() }
-            try? handle.seekToEnd()
+            _ = try? handle.seekToEnd()
             try? handle.write(contentsOf: Data(line.utf8))
         } else {
             try? line.write(to: url, atomically: true, encoding: .utf8)
