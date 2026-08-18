@@ -46,9 +46,6 @@ struct ExerciseFormVideoPlayer: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.secondary.opacity(0.12))
-        .onChange(of: video.id) { _, _ in
-            playback.resetForNewVideo()
-        }
         .accessibilityElement(children: playback.failureMessage == nil ? .ignore : .contain)
         .accessibilityLabel(accessibilityLabelText)
     }
@@ -165,9 +162,12 @@ private struct ExerciseFormVideoPlayerRepresentable: UIViewRepresentable {
     final class Coordinator {
         private var looper: AVPlayerLooper?
         private var player: AVQueuePlayer?
+        private weak var playerView: FormGuidePlayerView?
         private var configuredVideoID: String?
         private var configuredRetryGeneration: Int?
-        private var statusObservation: NSKeyValueObservation?
+        private var currentItemObservation: NSKeyValueObservation?
+        private var currentItemStatusObservation: NSKeyValueObservation?
+        private var looperStatusObservation: NSKeyValueObservation?
         private var readyObservation: NSKeyValueObservation?
         private var failureObserver: NSObjectProtocol?
         private weak var playback: FormGuideVideoPlaybackState?
@@ -182,6 +182,7 @@ private struct ExerciseFormVideoPlayerRepresentable: UIViewRepresentable {
             playback: FormGuideVideoPlaybackState
         ) {
             self.playback = playback
+            self.playerView = playerView
 
             let configurationUnchanged = configuredVideoID == video.id
                 && configuredRetryGeneration == retryGeneration
@@ -196,21 +197,31 @@ private struct ExerciseFormVideoPlayerRepresentable: UIViewRepresentable {
                 return
             }
 
+            playback.resetForNewVideo()
             teardown()
             self.playback = playback
+            self.playerView = playerView
 
             let asset = FormGuideVideoAsset.makeURLAsset(url: video.streamURL, headers: requestHeaders)
             let item = AVPlayerItem(asset: asset)
             let queuePlayer = AVQueuePlayer(playerItem: item)
             queuePlayer.isMuted = isMuted
             queuePlayer.automaticallyWaitsToMinimizeStalling = true
-            looper = AVPlayerLooper(player: queuePlayer, templateItem: item)
+            let playerLooper = AVPlayerLooper(player: queuePlayer, templateItem: item)
+            looper = playerLooper
             player = queuePlayer
             playerView.player = queuePlayer
             configuredVideoID = video.id
             configuredRetryGeneration = retryGeneration
 
-            observePlayback(item: item, playerView: playerView, playback: playback)
+            observePlayback(
+                templateItem: item,
+                queuePlayer: queuePlayer,
+                looper: playerLooper,
+                playerView: playerView,
+                videoID: video.id,
+                retryGeneration: retryGeneration
+            )
 
             if shouldAutoPlay {
                 FormGuideAudioSession.activateForMutedVideoPlayback()
@@ -223,52 +234,132 @@ private struct ExerciseFormVideoPlayerRepresentable: UIViewRepresentable {
                 NotificationCenter.default.removeObserver(failureObserver)
             }
             failureObserver = nil
-            statusObservation?.invalidate()
-            statusObservation = nil
+            currentItemObservation?.invalidate()
+            currentItemObservation = nil
+            currentItemStatusObservation?.invalidate()
+            currentItemStatusObservation = nil
+            looperStatusObservation?.invalidate()
+            looperStatusObservation = nil
             readyObservation?.invalidate()
             readyObservation = nil
             player?.pause()
             looper?.disableLooping()
             looper = nil
+            playerView?.player = nil
             player = nil
             configuredVideoID = nil
             configuredRetryGeneration = nil
         }
 
         private func observePlayback(
-            item: AVPlayerItem,
+            templateItem: AVPlayerItem,
+            queuePlayer: AVQueuePlayer,
+            looper: AVPlayerLooper,
             playerView: FormGuidePlayerView,
-            playback: FormGuideVideoPlaybackState
+            videoID: String,
+            retryGeneration: Int
         ) {
-            statusObservation = item.observe(\.status, options: [.initial, .new]) { [weak playback] item, _ in
-                let status = item.status
-                let message = Self.playbackFailureMessage(for: item)
-                Task { @MainActor in
-                    guard status == .failed else { return }
-                    playback?.isReadyForDisplay = false
-                    playback?.failureMessage = message
-                }
+            attachCurrentItemStatusObserver(
+                templateItem,
+                videoID: videoID,
+                retryGeneration: retryGeneration
+            )
+
+            currentItemObservation = queuePlayer.observe(\.currentItem, options: [.new]) { [weak self] player, _ in
+                guard let item = player.currentItem else { return }
+                self?.attachCurrentItemStatusObserver(
+                    item,
+                    videoID: videoID,
+                    retryGeneration: retryGeneration
+                )
             }
 
-            readyObservation = playerView.playerLayer.observe(\.isReadyForDisplay, options: [.initial, .new]) { [weak playback] layer, _ in
-                let isReady = layer.isReadyForDisplay
-                Task { @MainActor in
-                    guard isReady else { return }
-                    playback?.isReadyForDisplay = true
-                    playback?.failureMessage = nil
-                }
+            looperStatusObservation = looper.observe(\.status, options: [.initial, .new]) { [weak self] looper, _ in
+                guard looper.status == .failed else { return }
+                self?.applyFailure(
+                    Self.playbackFailureMessage(from: looper.error),
+                    videoID: videoID,
+                    retryGeneration: retryGeneration
+                )
+            }
+
+            readyObservation = playerView.playerLayer.observe(\.isReadyForDisplay, options: [.initial, .new]) { [weak self] layer, _ in
+                self?.applyReady(
+                    layer.isReadyForDisplay,
+                    videoID: videoID,
+                    retryGeneration: retryGeneration
+                )
             }
 
             failureObserver = NotificationCenter.default.addObserver(
                 forName: .AVPlayerItemFailedToPlayToEndTime,
-                object: item,
+                object: nil,
                 queue: .main
-            ) { [weak playback] notification in
-                let message = Self.playbackFailureMessage(
-                    from: notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+            ) { [weak self] notification in
+                guard let self,
+                      let failedItem = notification.object as? AVPlayerItem,
+                      self.playerContains(failedItem)
+                else { return }
+                self.applyFailure(
+                    Self.playbackFailureMessage(
+                        from: notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+                    ),
+                    videoID: videoID,
+                    retryGeneration: retryGeneration
                 )
-                playback?.isReadyForDisplay = false
-                playback?.failureMessage = message
+            }
+        }
+
+        private func attachCurrentItemStatusObserver(
+            _ item: AVPlayerItem,
+            videoID: String,
+            retryGeneration: Int
+        ) {
+            currentItemStatusObservation?.invalidate()
+            currentItemStatusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+                guard item.status == .failed else { return }
+                self?.applyFailure(
+                    Self.playbackFailureMessage(for: item),
+                    videoID: videoID,
+                    retryGeneration: retryGeneration
+                )
+            }
+        }
+
+        private func playerContains(_ item: AVPlayerItem) -> Bool {
+            if player?.currentItem === item { return true }
+            return player?.items().contains { $0 === item } ?? false
+        }
+
+        private func applyReady(_ isReady: Bool, videoID: String, retryGeneration: Int) {
+            Task { @MainActor [weak self] in
+                guard let self,
+                      FormGuideVideoAsset.shouldApplyPlaybackEvent(
+                        configuredVideoID: self.configuredVideoID,
+                        configuredRetryGeneration: self.configuredRetryGeneration,
+                        eventVideoID: videoID,
+                        eventRetryGeneration: retryGeneration
+                      )
+                else { return }
+                self.playback?.isReadyForDisplay = isReady
+                if isReady {
+                    self.playback?.failureMessage = nil
+                }
+            }
+        }
+
+        private func applyFailure(_ message: String, videoID: String, retryGeneration: Int) {
+            Task { @MainActor [weak self] in
+                guard let self,
+                      FormGuideVideoAsset.shouldApplyPlaybackEvent(
+                        configuredVideoID: self.configuredVideoID,
+                        configuredRetryGeneration: self.configuredRetryGeneration,
+                        eventVideoID: videoID,
+                        eventRetryGeneration: retryGeneration
+                      )
+                else { return }
+                self.playback?.isReadyForDisplay = false
+                self.playback?.failureMessage = message
             }
         }
 

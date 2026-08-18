@@ -22,4 +22,39 @@ struct FormGuideVideoAssetTests {
         let asset = FormGuideVideoAsset.makeURLAsset(url: url, headers: headers)
         #expect(asset.url == url)
     }
+
+    @Test func shouldApplyPlaybackEvent_rejectsStaleVideoOrRetry() {
+        #expect(
+            FormGuideVideoAsset.shouldApplyPlaybackEvent(
+                configuredVideoID: "squat",
+                configuredRetryGeneration: 1,
+                eventVideoID: "squat",
+                eventRetryGeneration: 1
+            )
+        )
+        #expect(
+            !FormGuideVideoAsset.shouldApplyPlaybackEvent(
+                configuredVideoID: "squat",
+                configuredRetryGeneration: 2,
+                eventVideoID: "squat",
+                eventRetryGeneration: 1
+            )
+        )
+        #expect(
+            !FormGuideVideoAsset.shouldApplyPlaybackEvent(
+                configuredVideoID: "bench",
+                configuredRetryGeneration: 1,
+                eventVideoID: "squat",
+                eventRetryGeneration: 1
+            )
+        )
+        #expect(
+            !FormGuideVideoAsset.shouldApplyPlaybackEvent(
+                configuredVideoID: nil,
+                configuredRetryGeneration: nil,
+                eventVideoID: "squat",
+                eventRetryGeneration: 0
+            )
+        )
+    }
 }

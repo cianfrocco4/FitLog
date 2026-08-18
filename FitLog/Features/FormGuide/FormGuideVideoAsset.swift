@@ -18,4 +18,14 @@ enum FormGuideVideoAsset {
         }
         return AVURLAsset(url: url, options: [httpHeaderFieldsKey: headers])
     }
+
+    /// Ignores KVO/notification callbacks that belong to a previous clip or retry.
+    static func shouldApplyPlaybackEvent(
+        configuredVideoID: String?,
+        configuredRetryGeneration: Int?,
+        eventVideoID: String,
+        eventRetryGeneration: Int
+    ) -> Bool {
+        configuredVideoID == eventVideoID && configuredRetryGeneration == eventRetryGeneration
+    }
 }
