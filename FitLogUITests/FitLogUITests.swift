@@ -23,27 +23,13 @@ final class FitLogUITests: XCTestCase {
     }
 
     @MainActor
-    func testExample() throws {
-        let app = XCUIApplication()
-        FitLogUITestSupport.configure(app)
-        app.launch()
-
-        XCTAssertTrue(
-            app.tabBars.firstMatch.waitForExistence(timeout: 30),
-            "Main tab bar should appear after launch (UI test login bypass)."
-        )
+    func testLaunchShowsMainTabBar() throws {
+        _ = FitLogUITestSupport.launchConfiguredApp()
     }
 
     @MainActor
     func testDeleteAccountFlowReturnsToSignIn() throws {
-        let app = XCUIApplication()
-        FitLogUITestSupport.configure(app)
-        app.launch()
-
-        XCTAssertTrue(
-            app.tabBars.firstMatch.waitForExistence(timeout: 30),
-            "Main tab bar should appear after launch (UI test login bypass)."
-        )
+        let app = FitLogUITestSupport.launchConfiguredApp()
 
         let moreTab = app.tabBars.buttons["More"]
         XCTAssertTrue(moreTab.waitForExistence(timeout: 10), "More tab should exist")

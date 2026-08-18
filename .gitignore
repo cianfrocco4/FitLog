@@ -16,3 +16,6 @@ AppStoreScreenshots/
 # ASC → Cursor review intake (local / Actions cache mirror)
 .asc-review-intake-state.json
 AuthKey_*.p8
+
+# Persistent simulated-user SwiftData (local / Actions cache; do not commit)
+living-users/

@@ -23,6 +23,7 @@ struct MainTabView: View {
     @State private var rootTab: FitlogRootTab = .home
     @State private var coachDeepLink: FitlogCoachDeepLink = .idle
     @State private var workoutChromeMetrics = WorkoutChromeMetrics()
+    @State private var didApplyUITestHarness = false
 
     private var activeCoachTip: String? {
         guard userPreferences.hasCompletedOnboarding else { return nil }
@@ -192,6 +193,7 @@ struct MainTabView: View {
         .onAppear {
             if FitLogUITestLaunch.isActive {
                 userPreferences.applyUITestDefaults()
+                applyUITestStoreHarnessIfNeeded()
             } else {
                 UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
             }
@@ -231,6 +233,9 @@ struct MainTabView: View {
                 }
             case .open:
                 rootTab = .home
+            case .uitestTab(let tab):
+                guard FitLogUITestLaunch.isActive else { return }
+                rootTab = tab
             }
         }
     }
@@ -257,6 +262,28 @@ struct MainTabView: View {
         ) else { return }
         userPreferences.hasSeenPostWorkoutPaywall = true
         showPostWorkoutPaywall = true
+    }
+
+    private func applyUITestStoreHarnessIfNeeded() {
+        guard !didApplyUITestHarness else { return }
+        didApplyUITestHarness = true
+        if currentVM.isInProgress {
+            currentVM.cancelWorkout()
+        }
+        if FitLogUITestLaunch.shouldResetStore {
+            dataVM.eraseAllAppData(createSafetyBackup: false)
+            if let persona = FitLogUITestLaunch.persona {
+                FitLogSimulatedUserSeeder.seed(persona, into: dataVM)
+            }
+            return
+        }
+        var tickOutcome: FitLogSimulatedUserLivingDay.Outcome?
+        if FitLogUITestLaunch.isDailyLiving, let persona = FitLogUITestLaunch.persona {
+            tickOutcome = FitLogSimulatedUserLivingDay.runTick(persona, into: dataVM)
+        }
+        if FitLogUITestLaunch.shouldWriteReview, let persona = FitLogUITestLaunch.persona {
+            _ = FitLogSimulatedUserReviewer.run(persona, into: dataVM, tickOutcome: tickOutcome)
+        }
     }
 
     private func coachMarkBanner(message: String) -> some View {

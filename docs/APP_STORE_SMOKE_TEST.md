@@ -8,8 +8,11 @@ Run on a **physical device** with a **Release** or TestFlight build before submi
 |-------|--------|
 | Debug build compiles | `xcodebuild -scheme FitLog -destination 'platform=iOS Simulator,id=<iPhone>' build` |
 | Unit tests | `FitLogTests` including SwiftData V5→V6, readiness, entitlement, history range |
+| UI journeys | `FitLogUITests` plus **daily living** (`scripts/run-daily-living-users.sh`) to grow History and write likes/dislikes/bugs into `INBOX.md`. Snapshot UI tests stay on a Mac / `fitlog-mac` (not GitHub iOS CI). See [AUTOMATED_USER_TESTING.md](AUTOMATED_USER_TESTING.md). |
 | StoreKit config | FitLog scheme → Run → StoreKit Configuration = `Configuration.storekit` |
 | RevenueCat SPM | `purchases-ios-spm` resolved (see Package.resolved) |
+
+Exploratory bot (taps like a free user, screenshots, optional small UX PR): [automation-prompts/exploratory-user-testing.md](automation-prompts/exploratory-user-testing.md).
 
 ## Manual device checklist
 

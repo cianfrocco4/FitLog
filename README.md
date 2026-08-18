@@ -34,6 +34,18 @@ Subscriptions are managed via **RevenueCat** and App Store In-App Purchases.
 
 See [docs/REVENUECAT_SETUP.md](docs/REVENUECAT_SETUP.md) for subscription configuration. After an App Review IAP / EULA rejection, see [docs/APP_REVIEW_RESOLUTION.md](docs/APP_REVIEW_RESOLUTION.md).
 
+## Automated testing (bots + UI)
+
+Cloud Linux agents cannot tap the iPhone UI. On a Mac worker (`fitlog-mac`) you can:
+
+- Run **XCUITest** journeys (tabs, create Push A, Coach gate)
+- Simulate **N distinct users** (`scripts/run-simulated-users.sh`, personas in `docs/AUTOMATED_USER_TESTING.md`)
+- Grow History daily on **GitHub Actions** (`Living users` workflow) or locally (`scripts/run-daily-living-users.sh`)
+- Read **likes / dislikes / bugs / UX notes** from those users (`living-users/INBOX.md` or the **Living user feedback inbox** GitHub issue)
+- Schedule or Slack an **exploratory Simulator bot** that uses the app like a new free user
+
+See [docs/AUTOMATED_USER_TESTING.md](docs/AUTOMATED_USER_TESTING.md). Xcode/worker setup: [docs/CLOUD_AGENT_XCODE.md](docs/CLOUD_AGENT_XCODE.md).
+
 ## Data & privacy
 
 - Workout data is stored on-device with SwiftData

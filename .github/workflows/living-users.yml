@@ -1,0 +1,121 @@
+# Daily living users on GitHub-hosted macOS (iOS Simulator).
+# Cursor Cloud Linux cannot boot Xcode; this is the cloud path that accumulates History.
+name: Living users
+
+on:
+  schedule:
+    # 11:00 UTC ≈ 07:00 Eastern during EDT
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+    inputs:
+      n:
+        description: "Number of catalog users (1–5)"
+        required: false
+        default: "5"
+
+concurrency:
+  group: living-users
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+jobs:
+  daily-tick:
+    name: Daily living tick
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Restore living-user stores
+        uses: actions/cache@v4
+        with:
+          path: |
+            living-users/FitLogData-sim-*
+            living-users/fitlog-living-ticks.jsonl
+            living-users/fitlog-living-reviews.jsonl
+            living-users/fitlog-living-review-*.md
+            living-users/INBOX.md
+          key: living-users-v1-${{ github.run_id }}
+          restore-keys: |
+            living-users-v1-
+
+      - name: Show toolchain
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun simctl list devices available | head -40 || true
+
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project FitLog.xcodeproj \
+            -scheme FitLog
+
+      - name: Run daily living ticks
+        env:
+          LIVING_USERS_STORE_DIR: ${{ github.workspace }}/living-users
+          LIVING_USERS_SCREENSHOT_DIR: ${{ runner.temp }}/living-screenshots
+          SETTLE_SECONDS: "15"
+          POST_LIVING_USER_REVIEWS: "1"
+        run: |
+          set -euo pipefail
+          mkdir -p living-users
+          N="${{ github.event.inputs.n || '5' }}"
+          chmod +x scripts/run-daily-living-users.sh scripts/pick-iphone-simulator.py \
+            scripts/assemble-living-user-inbox.py scripts/post-living-user-reviews.sh
+          ./scripts/run-daily-living-users.sh "$N"
+
+      - name: Summarize ticks and reviews
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "## Living user ticks"
+            echo
+            if [[ -f living-users/fitlog-living-ticks.jsonl ]]; then
+              echo '```'
+              tail -n 20 living-users/fitlog-living-ticks.jsonl
+              echo '```'
+            else
+              echo "No tick log written."
+            fi
+            echo
+            echo "## Inbox (truncated)"
+            echo
+            if [[ -f living-users/INBOX.md ]]; then
+              echo '```markdown'
+              head -c 8000 living-users/INBOX.md
+              echo
+              echo '```'
+            else
+              echo "No INBOX.md written."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload living-user stores
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: living-user-stores
+          path: living-users
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Upload living-user screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: living-user-screenshots
+          path: ${{ runner.temp }}/living-screenshots
+          if-no-files-found: warn
+          retention-days: 14
