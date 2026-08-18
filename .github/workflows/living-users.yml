@@ -20,6 +20,7 @@ concurrency:
 permissions:
   contents: read
   actions: write
+  issues: write
 
 jobs:
   daily-tick:
@@ -38,7 +39,12 @@ jobs:
       - name: Restore living-user stores
         uses: actions/cache@v4
         with:
-          path: living-users
+          path: |
+            living-users/FitLogData-sim-*
+            living-users/fitlog-living-ticks.jsonl
+            living-users/fitlog-living-reviews.jsonl
+            living-users/fitlog-living-review-*.md
+            living-users/INBOX.md
           key: living-users-v1-${{ github.run_id }}
           restore-keys: |
             living-users-v1-
@@ -58,28 +64,41 @@ jobs:
       - name: Run daily living ticks
         env:
           LIVING_USERS_STORE_DIR: ${{ github.workspace }}/living-users
+          LIVING_USERS_SCREENSHOT_DIR: ${{ runner.temp }}/living-screenshots
           SETTLE_SECONDS: "15"
+          POST_LIVING_USER_REVIEWS: "1"
         run: |
           set -euo pipefail
           mkdir -p living-users
           N="${{ github.event.inputs.n || '5' }}"
-          chmod +x scripts/run-daily-living-users.sh scripts/pick-iphone-simulator.py
+          chmod +x scripts/run-daily-living-users.sh scripts/pick-iphone-simulator.py \
+            scripts/assemble-living-user-inbox.py scripts/post-living-user-reviews.sh
           ./scripts/run-daily-living-users.sh "$N"
 
-      - name: Summarize ticks
+      - name: Summarize ticks and reviews
         if: always()
         run: |
           set -euo pipefail
-          LOG="living-users/fitlog-living-ticks.jsonl"
           {
             echo "## Living user ticks"
             echo
-            if [[ -f "$LOG" ]]; then
+            if [[ -f living-users/fitlog-living-ticks.jsonl ]]; then
               echo '```'
-              tail -n 20 "$LOG"
+              tail -n 20 living-users/fitlog-living-ticks.jsonl
               echo '```'
             else
               echo "No tick log written."
+            fi
+            echo
+            echo "## Inbox (truncated)"
+            echo
+            if [[ -f living-users/INBOX.md ]]; then
+              echo '```markdown'
+              head -c 8000 living-users/INBOX.md
+              echo
+              echo '```'
+            else
+              echo "No INBOX.md written."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -91,3 +110,12 @@ jobs:
           path: living-users
           if-no-files-found: warn
           retention-days: 90
+
+      - name: Upload living-user screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: living-user-screenshots
+          path: ${{ runner.temp }}/living-screenshots
+          if-no-files-found: warn
+          retention-days: 14

@@ -11,6 +11,7 @@ Cloud Agent VMs are Linux. They cannot boot Xcode or the iOS Simulator, so they 
 | Recurring “walk the app, find friction” | **Cursor Automation** → **fitlog-mac** | Agent launches the Simulator, taps flows, records findings |
 | Repeatable core journeys | **XCUITest** (`FitLogUITests`) | Scripted taps: launch, tabs, create workout, Coach gate |
 | **N distinct users** | **Personas + seeder + `FitLogSimulatedUserUITests`** | Each run is a different gym-goer (data + workflow), not N clones |
+| **Likes / dislikes / bugs / UX notes** | **Living-user reviews** + GitHub inbox issue | Each persona reports from their store; tabs are screenshotted |
 | Compile + logic regressions | **FitLogTests** + GitHub **iOS CI** | Fast; does **not** drive the UI |
 | PR code review | **Bugbot** | Reads diffs; never opens the app |
 | Device / StoreKit / HealthKit / widgets | You on a **physical device** | [APP_STORE_SMOKE_TEST.md](APP_STORE_SMOKE_TEST.md) |
@@ -109,7 +110,7 @@ Cursor Cloud Agent VMs are **Linux** and cannot boot the iOS Simulator. GitHub-h
 
 1. Merge this to `main` (scheduled workflows only run on the default branch).
 2. Repo **Settings → Actions → General**: allow Actions, and allow the `Living users` workflow.
-3. It runs daily at **11:00 UTC** (~07:00 Eastern in summer). Each run restores cached `living-users/` SwiftData files, ticks all five personas, then saves the cache + a 90-day artifact.
+3. It runs daily at **11:00 UTC** (~07:00 Eastern in summer). Each run restores cached `living-users/` SwiftData files, ticks all five personas, writes reviews, screenshots the main tabs, then saves the cache + artifacts.
 4. Run now (after merge): GitHub **Actions → Living users → Run workflow**, or:
 
 ```bash
@@ -118,7 +119,7 @@ gh workflow run "Living users" --ref main
 
 From a Cursor Cloud session you can trigger the same command (`gh` is authenticated); the work still happens on GitHub’s Mac, not on the Linux agent VM.
 
-Download History: Actions run → artifact **living-user-stores**.
+Download History: Actions run → artifact **living-user-stores**. Tab screenshots: **living-user-screenshots**. Human-readable digest: `INBOX.md` inside the stores artifact, also posted to the **Living user feedback inbox** issue.
 
 **Local Mac LaunchAgent** (optional if the GitHub workflow is on):
 
@@ -143,6 +144,7 @@ Inspect ticks (after a run):
 ```bash
 DATA=$(xcrun simctl get_app_container booted com.acianfrocco.FitLog data)
 tail "$DATA/Documents/fitlog-living-ticks.jsonl"
+tail "$DATA/Documents/fitlog-living-reviews.jsonl"
 ```
 
 Browse a grown user (no extra log unless you also pass daily-living):
@@ -156,7 +158,39 @@ xcrun simctl launch booted com.acianfrocco.FitLog \
 
 Do **not** erase that Simulator or pass `-fitlog-ui-reset-store` on living stores. Snapshot XCUITests use the default `FitLogData.store` and leave `FitLogData-sim-*` alone.
 
+## Layer 1d — Users report likes, dislikes, bugs, and improvements
 
+Living users do more than log workouts. After each daily tick they **write a structured review** from the actual store (session count, History age, Plan assignment, Premium vs Coach, empty library, and so on). That is how they tell you what they like, what they don’t, what looks broken, and what would make the workflow better.
+
+Each review is first-person notes with stable ids (`dislike.history.14_day_cap`, `bug.plan.missing_today`, …) so the same complaint can stack across days.
+
+**What gets written (Simulator Documents, then copied to `living-users/`):**
+
+| File | Role |
+|------|------|
+| `fitlog-living-reviews.jsonl` | One JSON object per persona per day |
+| `fitlog-living-review-<persona>.md` | Latest markdown for that user |
+| `INBOX.md` | Digest: recurring ids + latest day’s full reports |
+| Tab screenshots | Home / Plan / History / Coach / More (artifact, not cached) |
+
+Launch flags (already passed by `scripts/run-daily-living-users.sh`):
+
+```text
+-fitlog-ui-testing -fitlog-ui-persistent-store -fitlog-ui-daily-living
+-fitlog-ui-write-review -fitlog-ui-persona returningFree
+```
+
+Tab screenshots use UI-test-only deep links (`fitlog://uitest/tab/history`, …). Production ignores those URLs.
+
+**Where to read the reports**
+
+1. GitHub **Actions → Living users** → artifacts `living-user-stores` (`INBOX.md`) and `living-user-screenshots`.
+2. Standing issue **Living user feedback inbox** (the workflow comments each run; needs `issues: write`, which the workflow requests).
+3. Locally: `LIVING_USERS_STORE_DIR=$PWD/living-users scripts/run-daily-living-users.sh 5` then open `living-users/INBOX.md`.
+
+Heuristic reviews are grounded in store state (for example a free user with sessions older than 14 days dislikes the History cap). They will not catch every visual bug. For a qualitative pass on the screenshots, run [automation-prompts/living-user-review.md](automation-prompts/living-user-review.md) on `fitlog-mac`.
+
+Reviewer logic is covered by `FitLogTests/SimulatedUserReviewerTests` (GitHub iOS CI).
 
 ## Layer 2 — Exploratory bot (Cursor + Simulator)
 
@@ -212,7 +246,8 @@ Prefer these IDs in new UI tests. Keep `.accessibilityLabel` / `.accessibilityHi
 
 ## Findings → product work
 
-- **Nightly code loop** ([nightly-improvement-loop.md](automation-prompts/nightly-improvement-loop.md)) reads the repo and implements 1–3 fixes without opening the app.
+- **Living-user inbox** (Layer 1d) is the default source for “what users like / don’t like / bugs / workflow.” Prefer recurring note ids and screenshot artifacts over guesswork.
+- **Nightly code loop** ([nightly-improvement-loop.md](automation-prompts/nightly-improvement-loop.md)) should read that inbox (GitHub issue or latest artifact) and implement 1–3 fixes without requiring the Simulator.
 - **This exploratory loop** should prefer evidence from Simulator screenshots and XCUITest failures over static review.
 - File Slack notes even when nothing is shipped. Empty “looked fine” runs are useful.
 

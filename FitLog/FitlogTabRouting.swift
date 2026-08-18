@@ -14,6 +14,28 @@ enum FitlogRootTab: Int, Hashable {
     case history = 2
     case coach = 3
     case more = 4
+
+    /// `fitlog://uitest/tab/{name}` (UI-test harness only).
+    var deepLinkName: String {
+        switch self {
+        case .home: return "home"
+        case .plan: return "plan"
+        case .history: return "history"
+        case .coach: return "coach"
+        case .more: return "more"
+        }
+    }
+
+    init?(deepLinkName: String) {
+        switch deepLinkName.lowercased() {
+        case "home": self = .home
+        case "plan": self = .plan
+        case "history": self = .history
+        case "coach": self = .coach
+        case "more": self = .more
+        default: return nil
+        }
+    }
 }
 
 /// In-memory Coach tab routing (e.g. Plan tab opens the split builder with plan context).
@@ -33,6 +55,8 @@ enum FitLogDeepLink: Equatable {
     case quickLog
     /// Opens the app to Home without starting a log flow (e.g. empty readiness widget).
     case open
+    /// UI-test / living-user screenshot harness: switch the root tab. Ignored in production.
+    case uitestTab(FitlogRootTab)
 
     init?(url: URL) {
         guard url.scheme?.lowercased() == "fitlog" else { return nil }
@@ -41,6 +65,13 @@ enum FitLogDeepLink: Equatable {
             self = .quickLog
         case "open", "home":
             self = .open
+        case "uitest":
+            let parts = url.pathComponents.filter { $0 != "/" }
+            guard parts.count >= 2,
+                  parts[0].lowercased() == "tab",
+                  let tab = FitlogRootTab(deepLinkName: parts[1])
+            else { return nil }
+            self = .uitestTab(tab)
         default:
             return nil
         }

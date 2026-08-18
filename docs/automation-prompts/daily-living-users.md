@@ -2,7 +2,7 @@
 
 ## Cloud (GitHub Actions)
 
-Cursor Cloud Linux **cannot** run Xcode. Use the **Living users** GitHub Action (`macos-15` + iOS Simulator). Stores persist in Actions cache and the `living-user-stores` artifact.
+Cursor Cloud Linux **cannot** run Xcode. Use the **Living users** GitHub Action (`macos-15` + iOS Simulator). Stores persist in Actions cache and the `living-user-stores` artifact. Each tick also writes likes/dislikes/bugs (`INBOX.md`) and posts them to the **Living user feedback inbox** GitHub issue. Tab screenshots are the `living-user-screenshots` artifact.
 
 After the workflow is on `main`:
 
@@ -34,4 +34,5 @@ Then stop.
 1) Prefer GitHub Actions: gh workflow run "Living users" --ref main
 2) Or locally: LIVING_USERS_STORE_DIR=$PWD/living-users scripts/run-daily-living-users.sh 5
 3) Do NOT pass -fitlog-ui-reset-store. Slack tick outcomes from the log.
+4) If living-users/INBOX.md exists, Slack a short digest of likes/dislikes/bugs (or link the Living user feedback inbox issue).
 ```

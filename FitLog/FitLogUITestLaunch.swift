@@ -10,6 +10,7 @@
 //  Optional `-fitlog-ui-persona` seeds a snapshot user after `-fitlog-ui-reset-store`.
 //  Daily living: `-fitlog-ui-daily-living -fitlog-ui-persistent-store -fitlog-ui-persona <id>`
 //  (does not reset; each persona has its own FitLogData-sim-*.store).
+//  Reviews: `-fitlog-ui-write-review` writes likes/dislikes/bugs to Documents JSONL.
 //
 
 import Foundation
@@ -40,6 +41,12 @@ enum FitLogUITestLaunch {
     static var isDailyLiving: Bool {
         ProcessInfo.processInfo.arguments.contains("-fitlog-ui-daily-living")
             || ProcessInfo.processInfo.environment["FITLOG_UI_DAILY_LIVING"] == "1"
+    }
+
+    /// After launch (and after a living tick when that flag is set), write a likes/dislikes/bugs report.
+    static var shouldWriteReview: Bool {
+        ProcessInfo.processInfo.arguments.contains("-fitlog-ui-write-review")
+            || ProcessInfo.processInfo.environment["FITLOG_UI_WRITE_REVIEW"] == "1"
     }
 
     static var persona: FitLogSimulatedUserPersona? {

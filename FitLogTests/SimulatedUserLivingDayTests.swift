@@ -93,6 +93,7 @@ struct SimulatedUserLivingDayTests {
         #expect(FitLogUITestLaunch.modelStoreFileName == "FitLogData.store")
         #expect(!FitLogUITestLaunch.isDailyLiving)
         #expect(!FitLogUITestLaunch.usesPersistentPersonaStore)
+        #expect(!FitLogUITestLaunch.shouldWriteReview)
     }
 
     private func makeEmptyManager() throws -> DataManager {

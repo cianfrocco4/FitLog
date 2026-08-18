@@ -233,6 +233,9 @@ struct MainTabView: View {
                 }
             case .open:
                 rootTab = .home
+            case .uitestTab(let tab):
+                guard FitLogUITestLaunch.isActive else { return }
+                rootTab = tab
             }
         }
     }
@@ -274,8 +277,12 @@ struct MainTabView: View {
             }
             return
         }
+        var tickOutcome: FitLogSimulatedUserLivingDay.Outcome?
         if FitLogUITestLaunch.isDailyLiving, let persona = FitLogUITestLaunch.persona {
-            _ = FitLogSimulatedUserLivingDay.runTick(persona, into: dataVM)
+            tickOutcome = FitLogSimulatedUserLivingDay.runTick(persona, into: dataVM)
+        }
+        if FitLogUITestLaunch.shouldWriteReview, let persona = FitLogUITestLaunch.persona {
+            _ = FitLogSimulatedUserReviewer.run(persona, into: dataVM, tickOutcome: tickOutcome)
         }
     }
 
