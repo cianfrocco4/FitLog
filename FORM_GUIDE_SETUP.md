@@ -67,6 +67,8 @@ curl --request GET \
 
 If videos fail with “not configured”, check Render logs and confirm `/health` returns `"formGuide": true`.
 
+If the player is a **black or blank screen**, the stream request is likely missing `X-FitLog-Proxy-Secret` and the proxy is returning **401 JSON** (AVPlayer cannot play that). Confirm the iOS `FITLOG_PROXY_SHARED_SECRET` matches Render.
+
 ---
 
 ## Files

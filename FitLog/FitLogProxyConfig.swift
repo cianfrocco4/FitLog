@@ -8,6 +8,9 @@
 import Foundation
 
 enum FitLogProxyConfig {
+    static let proxySecretHeaderName = "X-FitLog-Proxy-Secret"
+    static let muscleWikiAPIKeyHeaderName = "X-API-Key"
+
     private static func trimmed(_ s: String) -> String? {
         let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
         return t.isEmpty ? nil : t
@@ -23,6 +26,23 @@ enum FitLogProxyConfig {
 
     static func applyProxyAuthHeaders(to request: inout URLRequest) {
         guard let secret = sharedSecret else { return }
-        request.setValue(secret, forHTTPHeaderField: "X-FitLog-Proxy-Secret")
+        request.setValue(secret, forHTTPHeaderField: proxySecretHeaderName)
+    }
+
+    /// Headers AVPlayer must send when fetching branded form-guide MP4s.
+    /// Proxy mode needs the shared secret; direct MuscleWiki access needs the API key.
+    static func videoStreamHeaders(
+        usesProxy: Bool,
+        proxySharedSecret: String?,
+        muscleWikiAPIKey: String?
+    ) -> [String: String] {
+        if usesProxy {
+            guard let secret = proxySharedSecret?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !secret.isEmpty else { return [:] }
+            return [proxySecretHeaderName: secret]
+        }
+        guard let key = muscleWikiAPIKey?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !key.isEmpty else { return [:] }
+        return [muscleWikiAPIKeyHeaderName: key]
     }
 }
