@@ -74,13 +74,14 @@ xcodebuild build \
 
 APP_PATH="$(
   xcodebuild -project FitLog.xcodeproj -scheme FitLog -configuration Debug \
-    -sdk iphonesimulator -showBuildSettings 2>/dev/null \
+    -destination "$DEST" -showBuildSettings 2>/dev/null \
     | awk -F' = ' '/ TARGET_BUILD_DIR /{d=$2} / FULL_PRODUCT_NAME /{n=$2} END{print d "/" n}'
 )"
 if [[ ! -d "$APP_PATH" ]]; then
   echo "Built app not found at: ${APP_PATH}" >&2
   exit 1
 fi
+echo "App bundle: ${APP_PATH}"
 
 # GitHub macos runners often finish bootstatus before SpringBoard accepts launches
 # (FBSOpenApplicationServiceErrorDomain code 4).
@@ -95,9 +96,8 @@ fi
 boot_simulator() {
   xcrun simctl boot "$SIMULATOR_UDID" 2>/dev/null || true
   xcrun simctl bootstatus "$SIMULATOR_UDID" -b
-  if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
-    open -a Simulator 2>/dev/null || true
-  fi
+  # Do not `open -a Simulator` on GitHub Actions: it races simctl and can
+  # leave the device without a registered app container (POSIX ENOENT).
   sleep "$SIMULATOR_READY_SECONDS"
 }
 
@@ -115,13 +115,32 @@ simctl_launch() {
   return 1
 }
 
+install_app() {
+  echo "Installing ${APP_PATH} onto ${SIMULATOR_UDID}"
+  local attempt
+  for attempt in 1 2 3 4 5 6; do
+    if xcrun simctl install "$SIMULATOR_UDID" "$APP_PATH"; then
+      sleep 3
+      if xcrun simctl get_app_container "$SIMULATOR_UDID" "$BUNDLE_ID" app >/dev/null 2>&1; then
+        echo "Registered ${BUNDLE_ID}"
+        return 0
+      fi
+      echo "install succeeded but app container missing (attempt ${attempt}/6)" >&2
+    else
+      echo "simctl install failed (attempt ${attempt}/6)" >&2
+    fi
+    xcrun simctl boot "$SIMULATOR_UDID" 2>/dev/null || true
+    xcrun simctl bootstatus "$SIMULATOR_UDID" -b >/dev/null 2>&1 || true
+    sleep $((attempt * 4))
+  done
+  echo "Failed to install ${BUNDLE_ID} on ${SIMULATOR_UDID}." >&2
+  xcrun simctl listapps "$SIMULATOR_UDID" 2>/dev/null | head -50 >&2 || true
+  ls -ld "$APP_PATH" >&2 || true
+  return 1
+}
+
 boot_simulator
-xcrun simctl install "$SIMULATOR_UDID" "$APP_PATH"
-if ! xcrun simctl get_app_container "$SIMULATOR_UDID" "$BUNDLE_ID" app >/dev/null; then
-  echo "Install did not register ${BUNDLE_ID} on ${SIMULATOR_UDID}." >&2
-  exit 1
-fi
-sleep 2
+install_app
 
 # Create the data container, then optionally restore yesterday's stores from the host.
 simctl_launch -fitlog-ui-testing
