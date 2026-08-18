@@ -64,6 +64,7 @@ actor FormGuideVideoClipStore {
 
     private let session: URLSession
     private let fileManager: FileManager
+    private var inFlightDownloads: [URL: Task<URL, Error>] = [:]
 
     init(session: URLSession = .shared, fileManager: FileManager = .default) {
         self.session = session
@@ -80,6 +81,19 @@ actor FormGuideVideoClipStore {
             return destination
         }
 
+        if let existing = inFlightDownloads[remoteURL] {
+            return try await existing.value
+        }
+
+        let task = Task {
+            try await self.downloadToCache(remoteURL: remoteURL, destination: destination, headers: headers)
+        }
+        inFlightDownloads[remoteURL] = task
+        defer { inFlightDownloads[remoteURL] = nil }
+        return try await task.value
+    }
+
+    private func downloadToCache(remoteURL: URL, destination: URL, headers: [String: String]) async throws -> URL {
         var request = URLRequest(url: remoteURL)
         request.httpMethod = "GET"
         request.timeoutInterval = 45
@@ -89,6 +103,11 @@ actor FormGuideVideoClipStore {
         }
 
         let (tempURL, response) = try await session.download(for: request)
+        defer {
+            if fileManager.fileExists(atPath: tempURL.path) {
+                try? fileManager.removeItem(at: tempURL)
+            }
+        }
         try FormGuideVideoResponseValidator.validatePlayableDownload(response: response, fileURL: tempURL)
 
         try fileManager.createDirectory(
