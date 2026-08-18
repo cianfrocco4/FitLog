@@ -41,12 +41,16 @@ final class SpotlightTourController {
         workoutInProgress: Bool
     ) {
         guard let queued = queuedKind else { return }
+        guard !alreadyCompleted else {
+            queuedKind = nil
+            return
+        }
         // Keep the queue so the tour can start after the in-progress session ends.
         guard !workoutInProgress else { return }
         queuedKind = nil
         start(
             kind: resolvedKind(queued, hasProgram: hasProgram, hasWorkouts: hasWorkouts),
-            alreadyCompleted: alreadyCompleted,
+            alreadyCompleted: false,
             workoutInProgress: false
         )
     }

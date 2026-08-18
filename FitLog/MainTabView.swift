@@ -163,10 +163,6 @@ struct MainTabView: View {
         .onChange(of: currentVM.isInProgress) { wasActive, isActive in
             if isActive && !wasActive {
                 showCurrentWorkoutPullUp = true
-                if spotlightTour.isActive {
-                    spotlightTour.complete()
-                    userPreferences.markSpotlightTourCompleted()
-                }
             }
             if !isActive {
                 showCurrentWorkoutPullUp = false
@@ -218,6 +214,10 @@ struct MainTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .fitlogDidEraseUserData)) { _ in
             userPreferences.resetFirstRunExperience()
             spotlightTour.reset()
+            pendingFirstRunSheet = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .fitlogStartPendingSpotlight)) { _ in
+            startPendingSpotlight()
         }
         .onOpenURL { url in
             guard let link = FitLogDeepLink(url: url) else { return }

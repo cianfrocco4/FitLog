@@ -77,6 +77,20 @@ struct FirstRunOnboardingTests {
             workoutInProgress: false
         )
         #expect(!tour.isActive)
+        #expect(!tour.hasQueuedTour)
+    }
+
+    @Test @MainActor func spotlightTour_dropsQueueWhenAlreadyCompletedEvenDuringWorkout() {
+        let tour = SpotlightTourController()
+        tour.queue(.explore)
+        tour.startIfQueued(
+            alreadyCompleted: true,
+            hasProgram: false,
+            hasWorkouts: false,
+            workoutInProgress: true
+        )
+        #expect(!tour.isActive)
+        #expect(!tour.hasQueuedTour)
     }
 
     @Test @MainActor func spotlightTour_keepsQueueWhenWorkoutInProgressThenStartsLater() {

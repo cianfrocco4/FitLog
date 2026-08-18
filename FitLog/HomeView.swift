@@ -19,7 +19,6 @@ struct HomeView: View {
     @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
     @Environment(\.openPullUpToExerciseLogIndex) private var openPullUpToExerciseLogIndex
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
-    @Environment(SpotlightTourController.self) private var spotlightTour
 
     @State private var readinessVM = ReadinessViewModel()
     @State private var showReadinessDetail = false
@@ -243,12 +242,7 @@ struct HomeView: View {
     }()
 
     private func startPendingSpotlightIfNeeded() {
-        spotlightTour.startIfQueued(
-            alreadyCompleted: userPreferences.spotlightTourCompleted,
-            hasProgram: dataVM.dynamicProgramState != nil,
-            hasWorkouts: !dataVM.userWorkouts.isEmpty,
-            workoutInProgress: currentVM.isInProgress
-        )
+        NotificationCenter.default.post(name: .fitlogStartPendingSpotlight, object: nil)
     }
 
     private func refreshCachedHomeData() {

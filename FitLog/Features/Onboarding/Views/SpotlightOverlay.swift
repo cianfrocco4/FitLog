@@ -49,6 +49,7 @@ struct SpotlightOverlay: View {
     var onFinished: () -> Void
 
     @State private var missingSkipSerial = 0
+    @AccessibilityFocusState private var tooltipFocused: Bool
 
     var body: some View {
         GeometryReader { geo in
@@ -64,6 +65,7 @@ struct SpotlightOverlay: View {
                         .padding(.horizontal, 20)
                         .accessibilityElement(children: .contain)
                         .accessibilityAddTraits(.isModal)
+                        .accessibilityFocused($tooltipFocused)
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
@@ -71,12 +73,14 @@ struct SpotlightOverlay: View {
         .ignoresSafeArea()
         .onChange(of: controller.currentIndex) { _, _ in
             scheduleSkipIfMissing()
+            tooltipFocused = true
         }
         .onChange(of: anchors) { _, _ in
             scheduleSkipIfMissing()
         }
         .onAppear {
             scheduleSkipIfMissing()
+            tooltipFocused = true
         }
     }
 
