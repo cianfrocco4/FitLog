@@ -88,6 +88,7 @@ struct HomeStartWorkoutSheet: View {
                         Label("New workout", systemImage: "plus.rectangle.on.folder")
                     }
                     .accessibilityHint("Opens the new workout form")
+                    .accessibilityIdentifier(FitLogA11yID.newWorkout)
                     Button {
                         dismiss()
                         onNewFromTemplate()
@@ -95,6 +96,7 @@ struct HomeStartWorkoutSheet: View {
                         Label("From template", systemImage: "square.grid.2x2")
                     }
                     .accessibilityHint("Opens quick-start workout templates")
+                    .accessibilityIdentifier(FitLogA11yID.fromTemplate)
                 } header: {
                     Text(recentWorkouts.isEmpty && scheduledWorkout == nil ? "Get started" : "Create")
                 }

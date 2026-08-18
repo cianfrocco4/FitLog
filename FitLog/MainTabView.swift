@@ -27,6 +27,7 @@ struct MainTabView: View {
     @State private var spotlightTour = SpotlightTourController()
     @State private var spotlightAnchors: [SpotlightTarget: CGRect] = [:]
     @State private var pendingFirstRunSheet = false
+    @State private var didApplyUITestHarness = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -177,6 +178,7 @@ struct MainTabView: View {
         }
         .onAppear {
             if FitLogUITestLaunch.isActive {
+                applyUITestStoreHarnessIfNeeded()
                 if FitLogUITestLaunch.shouldForceOnboarding {
                     userPreferences.resetFirstRunExperience()
                 } else if FitLogUITestLaunch.shouldSkipOnboarding {
@@ -231,6 +233,9 @@ struct MainTabView: View {
                 }
             case .open:
                 rootTab = .home
+            case .uitestTab(let tab):
+                guard FitLogUITestLaunch.isActive else { return }
+                rootTab = tab
             }
         }
     }
@@ -322,5 +327,27 @@ struct MainTabView: View {
         ) else { return }
         userPreferences.hasSeenPostWorkoutPaywall = true
         showPostWorkoutPaywall = true
+    }
+
+    private func applyUITestStoreHarnessIfNeeded() {
+        guard !didApplyUITestHarness else { return }
+        didApplyUITestHarness = true
+        if currentVM.isInProgress {
+            currentVM.cancelWorkout()
+        }
+        if FitLogUITestLaunch.shouldResetStore {
+            dataVM.eraseAllAppData(createSafetyBackup: false)
+            if let persona = FitLogUITestLaunch.persona {
+                FitLogSimulatedUserSeeder.seed(persona, into: dataVM)
+            }
+            return
+        }
+        var tickOutcome: FitLogSimulatedUserLivingDay.Outcome?
+        if FitLogUITestLaunch.isDailyLiving, let persona = FitLogUITestLaunch.persona {
+            tickOutcome = FitLogSimulatedUserLivingDay.runTick(persona, into: dataVM)
+        }
+        if FitLogUITestLaunch.shouldWriteReview, let persona = FitLogUITestLaunch.persona {
+            _ = FitLogSimulatedUserReviewer.run(persona, into: dataVM, tickOutcome: tickOutcome)
+        }
     }
 }

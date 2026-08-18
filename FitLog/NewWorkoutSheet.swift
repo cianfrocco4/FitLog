@@ -131,6 +131,7 @@ struct NewWorkoutSheet: View {
                     Button("Create") { createFromForm() }
                         .buttonStyle(.borderedProminent)
                         .disabled(!canCreateFromForm)
+                        .accessibilityIdentifier(FitLogA11yID.createWorkout)
                 }
             }
         }
@@ -161,6 +162,9 @@ struct NewWorkoutSheet: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel(tpl.displayName)
+                        .accessibilityHint(tpl.subtitle)
+                        .accessibilityIdentifier(tpl.id == "push_a" ? FitLogA11yID.quickStartPushA : "fitlog.quickStart.\(tpl.id)")
                     }
                 }
                 .padding(.vertical, 4)

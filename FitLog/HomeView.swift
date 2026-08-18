@@ -206,11 +206,13 @@ struct HomeView: View {
                     showNewWorkout = true
                 }
                 .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier(FitLogA11yID.newWorkout)
                 Button("From template") {
                     newWorkoutLaunchHint = .templatesFirst
                     showNewWorkout = true
                 }
                 .buttonStyle(.bordered)
+                .accessibilityIdentifier(FitLogA11yID.fromTemplate)
                 if let tab = rootTabSelection {
                     Button("Open Plan") { tab.wrappedValue = .plan }
                         .buttonStyle(.bordered)
