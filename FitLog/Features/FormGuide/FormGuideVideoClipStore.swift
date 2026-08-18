@@ -89,11 +89,11 @@ actor FormGuideVideoClipStore {
             try await self.downloadToCache(remoteURL: remoteURL, destination: destination, headers: headers)
         }
         inFlightDownloads[remoteURL] = task
-        defer { inFlightDownloads[remoteURL] = nil }
         return try await task.value
     }
 
     private func downloadToCache(remoteURL: URL, destination: URL, headers: [String: String]) async throws -> URL {
+        defer { inFlightDownloads[remoteURL] = nil }
         var request = URLRequest(url: remoteURL)
         request.httpMethod = "GET"
         request.timeoutInterval = 45
