@@ -79,6 +79,29 @@ struct FirstRunOnboardingTests {
         #expect(!tour.isActive)
     }
 
+    @Test @MainActor func spotlightTour_keepsQueueWhenWorkoutInProgressThenStartsLater() {
+        let tour = SpotlightTourController()
+        tour.queue(.afterWorkout)
+        tour.startIfQueued(
+            alreadyCompleted: false,
+            hasProgram: false,
+            hasWorkouts: true,
+            workoutInProgress: true
+        )
+        #expect(!tour.isActive)
+        #expect(tour.hasQueuedTour)
+
+        tour.startIfQueued(
+            alreadyCompleted: false,
+            hasProgram: false,
+            hasWorkouts: true,
+            workoutInProgress: false
+        )
+        #expect(tour.isActive)
+        #expect(!tour.hasQueuedTour)
+        #expect(tour.currentStep?.target == .workoutsList)
+    }
+
     @Test func catalog_hasThreeStepsPerKind() {
         #expect(SpotlightTourCatalog.steps(for: .explore).count == 3)
         #expect(SpotlightTourCatalog.steps(for: .afterProgram).count == 3)

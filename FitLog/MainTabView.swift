@@ -170,6 +170,9 @@ struct MainTabView: View {
             }
             if !isActive {
                 showCurrentWorkoutPullUp = false
+                if spotlightTour.hasQueuedTour {
+                    startPendingSpotlight()
+                }
             }
         }
         .onChange(of: dayMonitor.currentDayKey) { _, _ in
