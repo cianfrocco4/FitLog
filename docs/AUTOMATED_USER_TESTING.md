@@ -103,7 +103,24 @@ Weekly cadence (Gregorian weekday: Sun=1):
 | `cardioHobbyist` | Tue, Thu, Sat |
 | `planFollower` | Mon, Wed, Fri |
 
-**Most reliable schedule (recommended):** a LaunchAgent on the Mac that stays plugged in and awake.
+**Cloud (GitHub Actions, recommended if you want this without a Mac awake):**
+
+Cursor Cloud Agent VMs are **Linux** and cannot boot the iOS Simulator. GitHub-hosted **macos-15** runners can. Workflow: [`.github/workflows/living-users.yml`](../.github/workflows/living-users.yml).
+
+1. Merge this to `main` (scheduled workflows only run on the default branch).
+2. Repo **Settings → Actions → General**: allow Actions, and allow the `Living users` workflow.
+3. It runs daily at **11:00 UTC** (~07:00 Eastern in summer). Each run restores cached `living-users/` SwiftData files, ticks all five personas, then saves the cache + a 90-day artifact.
+4. Run now (after merge): GitHub **Actions → Living users → Run workflow**, or:
+
+```bash
+gh workflow run "Living users" --ref main
+```
+
+From a Cursor Cloud session you can trigger the same command (`gh` is authenticated); the work still happens on GitHub’s Mac, not on the Linux agent VM.
+
+Download History: Actions run → artifact **living-user-stores**.
+
+**Local Mac LaunchAgent** (optional if the GitHub workflow is on):
 
 ```bash
 chmod +x scripts/run-daily-living-users.sh
@@ -113,10 +130,12 @@ launchctl load ~/Library/LaunchAgents/com.fitlog.daily-living-users.plist
 # Default: 07:00 local. Logs: /tmp/fitlog-daily-living.log
 ```
 
-Run once by hand:
+Run once by hand on a Mac:
 
 ```bash
 scripts/run-daily-living-users.sh 5
+# Cloud-style persistence on a Mac:
+LIVING_USERS_STORE_DIR="$PWD/living-users" scripts/run-daily-living-users.sh 5
 ```
 
 Inspect ticks (after a run):
@@ -133,7 +152,7 @@ xcrun simctl launch booted com.acianfrocco.FitLog \
   -fitlog-ui-testing -fitlog-ui-persistent-store -fitlog-ui-persona returningFree
 ```
 
-**Cursor Automation (optional):** paste [automation-prompts/daily-living-users.md](automation-prompts/daily-living-users.md) into a **daily** Automation with repo attached. On Pro+, scheduled jobs often hit **Cloud Linux** — they cannot touch the Simulator. The prompt Slack-handoffs to `fitlog-mac`. Prefer launchd if you want History to grow even when you do not open Cursor.
+**Cursor Automation:** cannot run the Simulator on Cloud Linux. Use the **Living users** GitHub Action for cloud History, or Slack-handoff to `fitlog-mac` ([daily-living-users.md](automation-prompts/daily-living-users.md)).
 
 Do **not** erase that Simulator or pass `-fitlog-ui-reset-store` on living stores. Snapshot XCUITests use the default `FitLogData.store` and leave `FitLogData-sim-*` alone.
 

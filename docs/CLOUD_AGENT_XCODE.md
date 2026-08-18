@@ -104,7 +104,7 @@ This runs whether or not your Mac worker is online. Treat a green **iOS CI** che
 | Compile + unit tests before merge | GitHub Actions **iOS CI** |
 | Scripted UI journeys (XCUITest) | My Machines (`fitlog-mac`); see [AUTOMATED_USER_TESTING.md](AUTOMATED_USER_TESTING.md) |
 | N simulated users (personas) | `scripts/run-simulated-users.sh` on `fitlog-mac`; prompt [n-user-simulation.md](automation-prompts/n-user-simulation.md) |
-| Daily living users (History grows) | LaunchAgent [com.fitlog.daily-living-users.plist](../scripts/macos/com.fitlog.daily-living-users.plist) or [daily-living-users.md](automation-prompts/daily-living-users.md) |
+| Daily living users (History grows) | GitHub Action **Living users** (cloud) or LaunchAgent / `fitlog-mac` locally |
 | Exploratory “use it like a user” bot | Automation prompt [exploratory-user-testing.md](automation-prompts/exploratory-user-testing.md) on `fitlog-mac` |
 | Device / StoreKit / HealthKit UX smoke | You (human) on a real device or local Simulator |
 
