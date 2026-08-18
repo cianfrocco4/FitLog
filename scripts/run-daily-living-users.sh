@@ -51,9 +51,14 @@ if [[ "$N" -gt "$CATALOG" ]]; then
 fi
 
 if [[ -z "${SIMULATOR_UDID:-}" || -z "${SIMULATOR_NAME:-}" ]]; then
-  mapfile -t SIM < <(python3 "$ROOT/scripts/pick-iphone-simulator.py")
-  SIMULATOR_NAME="${SIMULATOR_NAME:-${SIM[0]}}"
-  SIMULATOR_UDID="${SIMULATOR_UDID:-${SIM[1]}}"
+  # macOS /bin/bash is 3.2 — no `mapfile`. Read name/udid lines portably.
+  SIM_PICK="$(python3 "$ROOT/scripts/pick-iphone-simulator.py")"
+  SIMULATOR_NAME="${SIMULATOR_NAME:-$(printf '%s\n' "$SIM_PICK" | awk 'NR==1 {print; exit}')}"
+  SIMULATOR_UDID="${SIMULATOR_UDID:-$(printf '%s\n' "$SIM_PICK" | awk 'NR==2 {print; exit}')}"
+fi
+if [[ -z "${SIMULATOR_NAME:-}" || -z "${SIMULATOR_UDID:-}" ]]; then
+  echo "Could not pick an iPhone simulator (need SIMULATOR_NAME and SIMULATOR_UDID)." >&2
+  exit 1
 fi
 DEST="platform=iOS Simulator,id=${SIMULATOR_UDID}"
 
