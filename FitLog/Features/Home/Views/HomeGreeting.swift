@@ -2,7 +2,7 @@
 //  HomeGreeting.swift
 //  FitLog
 //
-//  Time-aware personalized greeting copy for the Home hero area.
+//  Personalized Home copy: first name, navigation title, and today subtitle.
 //
 
 import Foundation
