@@ -333,7 +333,10 @@ private struct ExerciseFormVideoPlayerRepresentable: UIViewRepresentable {
 
         private func applyReady(_ isReady: Bool, videoID: String, retryGeneration: Int) {
             Task { @MainActor [weak self] in
+                // AVPlayerLooper briefly reports not-ready on each item advance.
+                // Latch true only so loops do not flash the poster/spinner.
                 guard let self,
+                      isReady,
                       FormGuideVideoAsset.shouldApplyPlaybackEvent(
                         configuredVideoID: self.configuredVideoID,
                         configuredRetryGeneration: self.configuredRetryGeneration,
@@ -341,10 +344,8 @@ private struct ExerciseFormVideoPlayerRepresentable: UIViewRepresentable {
                         eventRetryGeneration: retryGeneration
                       )
                 else { return }
-                self.playback?.isReadyForDisplay = isReady
-                if isReady {
-                    self.playback?.failureMessage = nil
-                }
+                self.playback?.isReadyForDisplay = true
+                self.playback?.failureMessage = nil
             }
         }
 
