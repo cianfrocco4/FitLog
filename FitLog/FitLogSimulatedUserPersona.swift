@@ -44,6 +44,29 @@ enum FitLogSimulatedUserPersona: String, CaseIterable, Sendable {
         }
     }
 
+    /// Calendar weekday ints (`1` = Sunday … `7` = Saturday) this user trains.
+    var trainingWeekdays: Set<Int> {
+        switch self {
+        case .newFree: return [3, 5]
+        case .returningFree: return [2, 4, 6]
+        case .premiumLifter: return [2, 3, 5, 6]
+        case .cardioHobbyist: return [3, 5, 7]
+        case .planFollower: return [2, 4, 6]
+        }
+    }
+
+    var trainsWithCardio: Bool {
+        self == .cardioHobbyist
+    }
+
+    func isTrainingDay(on date: Date, calendar: Calendar = .current) -> Bool {
+        trainingWeekdays.contains(calendar.component(.weekday, from: date))
+    }
+
+    var persistentStoreFileName: String {
+        "FitLogData-sim-\(rawValue).store"
+    }
+
     /// Ordered catalog used when simulating the first N users.
     static var catalog: [FitLogSimulatedUserPersona] { allCases }
 }

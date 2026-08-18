@@ -7,7 +7,9 @@
 //  credential refresh, notification permission prompts, etc.). Does not affect normal installs.
 //
 //  Premium unlock / fake login for UI tests are DEBUG-only (see EntitlementStore, AuthViewModel).
-//  Optional `-fitlog-ui-persona` seeds a simulated user after `-fitlog-ui-reset-store`.
+//  Optional `-fitlog-ui-persona` seeds a snapshot user after `-fitlog-ui-reset-store`.
+//  Daily living: `-fitlog-ui-daily-living -fitlog-ui-persistent-store -fitlog-ui-persona <id>`
+//  (does not reset; each persona has its own FitLogData-sim-*.store).
 //
 
 import Foundation
@@ -27,6 +29,19 @@ enum FitLogUITestLaunch {
             || ProcessInfo.processInfo.environment["FITLOG_UI_RESET_STORE"] == "1"
     }
 
+    /// Keep per-persona SwiftData files so daily living runs accumulate History.
+    static var usesPersistentPersonaStore: Bool {
+        ProcessInfo.processInfo.arguments.contains("-fitlog-ui-persistent-store")
+            || ProcessInfo.processInfo.environment["FITLOG_UI_PERSISTENT_STORE"] == "1"
+            || isDailyLiving
+    }
+
+    /// One calendar tick: bootstrap if needed, then log today when it is a training day.
+    static var isDailyLiving: Bool {
+        ProcessInfo.processInfo.arguments.contains("-fitlog-ui-daily-living")
+            || ProcessInfo.processInfo.environment["FITLOG_UI_DAILY_LIVING"] == "1"
+    }
+
     static var persona: FitLogSimulatedUserPersona? {
         let args = ProcessInfo.processInfo.arguments
         if let idx = args.firstIndex(of: "-fitlog-ui-persona"), idx + 1 < args.count {
@@ -36,5 +51,13 @@ enum FitLogUITestLaunch {
             return FitLogSimulatedUserPersona(rawValue: env)
         }
         return nil
+    }
+
+    /// SwiftData filename. Living users isolate stores so five personas can share one Simulator.
+    static var modelStoreFileName: String {
+        if usesPersistentPersonaStore, let persona {
+            return persona.persistentStoreFileName
+        }
+        return "FitLogData.store"
     }
 }

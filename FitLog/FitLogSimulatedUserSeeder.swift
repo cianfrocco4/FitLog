@@ -2,8 +2,7 @@
 //  FitLogSimulatedUserSeeder.swift
 //  FitLog
 //
-//  Deterministic SwiftData seed for simulated-user UI tests. Call only after
-//  `eraseAllAppData` during `-fitlog-ui-testing` launches.
+//  Snapshot seed (after erase) for one-shot XCUITests, plus helpers for daily living ticks.
 //
 
 import Foundation
@@ -54,10 +53,37 @@ enum FitLogSimulatedUserSeeder {
         }
     }
 
+    /// Creates library workouts when empty. Does not invent past sessions.
+    @MainActor
+    static func bootstrapLibraryIfNeeded(
+        _ persona: FitLogSimulatedUserPersona,
+        into dataVM: DataManager,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) {
+        guard dataVM.userWorkouts.isEmpty else {
+            if persona == .planFollower {
+                refreshPlanAssignment(into: dataVM, now: now, calendar: calendar)
+            }
+            return
+        }
+        switch persona {
+        case .newFree:
+            seedStrengthLibrary(into: dataVM, templates: Array(WorkoutQuickStartTemplate.all.prefix(1)))
+        case .returningFree, .premiumLifter:
+            seedStrengthLibrary(into: dataVM, templates: Array(WorkoutQuickStartTemplate.all.prefix(3)))
+        case .cardioHobbyist:
+            seedCardioLibrary(into: dataVM)
+        case .planFollower:
+            seedStrengthLibrary(into: dataVM, templates: Array(WorkoutQuickStartTemplate.all.prefix(1)))
+            assignRecurringPlan(into: dataVM, now: now, calendar: calendar, weekdays: Array(persona.trainingWeekdays).sorted())
+        }
+    }
+
     // MARK: - Library
 
     @MainActor
-    private static func seedStrengthLibrary(
+    static func seedStrengthLibrary(
         into dataVM: DataManager,
         templates: [WorkoutQuickStartTemplate]
     ) {
@@ -79,7 +105,7 @@ enum FitLogSimulatedUserSeeder {
     }
 
     @MainActor
-    private static func seedCardioLibrary(into dataVM: DataManager) {
+    static func seedCardioLibrary(into dataVM: DataManager) {
         let template = CardioTemplateLibrary.zone2FortyFive
         let id = dataVM.createCardioWorkout(
             name: dataVM.uniqueWorkoutName(template.name),
@@ -109,7 +135,7 @@ enum FitLogSimulatedUserSeeder {
         for (index, dayOffset) in offsets.enumerated() {
             let workout = workouts[index % workouts.count]
             guard let endedAt = calendar.date(byAdding: .day, value: -dayOffset, to: now) else { continue }
-            appendCompletedSession(
+            _ = logCompletedWorkout(
                 from: workout,
                 endedAt: endedAt,
                 into: dataVM,
@@ -118,75 +144,115 @@ enum FitLogSimulatedUserSeeder {
         }
     }
 
+    /// Appends one finished session. Returns false when the workout has no loggable rows.
+    @discardableResult
     @MainActor
-    private static func appendCompletedSession(
+    static func logCompletedWorkout(
         from workout: Workout,
         endedAt: Date,
         into dataVM: DataManager,
-        cardio: Bool
-    ) {
-        guard let live = dataVM.workout(id: workout.id), let row = live.exercises.first else { return }
-        let sets: [LoggedSet]
-        if cardio {
-            sets = [
-                LoggedSet(
-                    id: UUID(),
-                    weight: 0,
-                    reps: 0,
-                    restTime: 0,
-                    timestamp: endedAt,
-                    cardioMetrics: CardioMetrics(durationSec: 45 * 60, distanceM: 6500, source: .manual)
-                )
-            ]
-        } else {
-            sets = (0..<3).map { i in
-                LoggedSet(
-                    id: UUID(),
-                    weight: 135,
-                    reps: 8,
-                    restTime: 90,
-                    timestamp: endedAt.addingTimeInterval(Double(i) * 120)
-                )
+        cardio: Bool,
+        workingWeight: Double = 135
+    ) -> Bool {
+        guard let live = dataVM.workout(id: workout.id) else { return false }
+        let rows = Array(live.exercises.prefix(cardio ? 1 : 4))
+        guard !rows.isEmpty else { return false }
+
+        let extraMinutes = dataVM.completedSessions.count
+        let exerciseLogs: [ExerciseLog] = rows.enumerated().map { offset, row in
+            let sets: [LoggedSet]
+            if cardio {
+                sets = [
+                    LoggedSet(
+                        id: UUID(),
+                        weight: 0,
+                        reps: 0,
+                        restTime: 0,
+                        timestamp: endedAt,
+                        cardioMetrics: CardioMetrics(
+                            durationSec: (45 + extraMinutes) * 60,
+                            distanceM: 6500 + Double(extraMinutes) * 100,
+                            source: .manual
+                        )
+                    )
+                ]
+            } else {
+                sets = (0..<3).map { i in
+                    LoggedSet(
+                        id: UUID(),
+                        weight: workingWeight,
+                        reps: 8,
+                        restTime: 90,
+                        timestamp: endedAt.addingTimeInterval(Double(offset * 400 + i * 120))
+                    )
+                }
             }
+            return ExerciseLog(id: UUID(), workoutExercise: row, loggedSets: sets)
         }
-        let log = ExerciseLog(id: UUID(), workoutExercise: row, loggedSets: sets)
         let start = endedAt.addingTimeInterval(-3600)
         let session = WorkoutSession(
             id: UUID(),
             workout: live,
             startTime: start,
             endTime: endedAt,
-            exerciseLogs: [log],
-            completedExerciseIds: live.exercises.compactMap(\.exerciseId),
+            exerciseLogs: exerciseLogs,
+            completedExerciseIds: rows.compactMap(\.exerciseId),
             sessionPlanOrigin: .workout(live.id)
         )
         dataVM.appendCompletedSession(session)
+        return true
     }
 
     // MARK: - Plan
 
     @MainActor
-    private static func assignTodayPlan(
+    static func assignTodayPlan(
         into dataVM: DataManager,
         now: Date,
         calendar: Calendar
     ) {
+        let weekday = calendar.component(.weekday, from: now)
+        assignRecurringPlan(into: dataVM, now: now, calendar: calendar, weekdays: [weekday])
+    }
+
+    @MainActor
+    static func assignRecurringPlan(
+        into dataVM: DataManager,
+        now: Date,
+        calendar: Calendar,
+        weekdays: [Int]
+    ) {
         guard let workout = dataVM.userWorkouts.first else { return }
         let dayKey = TrainingProgramState.dayKey(for: now, calendar: calendar)
-        let weekday = calendar.component(.weekday, from: now)
+        var overrides = dataVM.trainingProgram.dayOverrides
+        if weekdays.contains(calendar.component(.weekday, from: now)) {
+            overrides[dayKey] = ScheduleDayOverride(intent: .workout, planRef: .workout(workout.id))
+        }
         dataVM.trainingProgram = TrainingProgramState(
-            cycleEntries: [.workout(workout.id)],
-            sessionsPerWeek: 3,
-            preferredWeekdays: [weekday],
-            anchorDayKey: dayKey,
-            cyclePhaseOffset: 0,
-            skippedCycleTrainingDayKeys: [],
-            dayOverrides: [
-                dayKey: ScheduleDayOverride(intent: .workout, planRef: .workout(workout.id))
-            ],
-            weekOverrides: [:],
-            frozenCalendarDays: [:]
+            cycleEntries: dataVM.userWorkouts.map { .workout($0.id) },
+            sessionsPerWeek: max(1, weekdays.count),
+            preferredWeekdays: weekdays.sorted(),
+            anchorDayKey: dataVM.trainingProgram.anchorDayKey.isEmpty
+                ? dayKey
+                : dataVM.trainingProgram.anchorDayKey,
+            cyclePhaseOffset: dataVM.trainingProgram.cyclePhaseOffset,
+            skippedCycleTrainingDayKeys: dataVM.trainingProgram.skippedCycleTrainingDayKeys,
+            dayOverrides: overrides,
+            weekOverrides: dataVM.trainingProgram.weekOverrides,
+            frozenCalendarDays: dataVM.trainingProgram.frozenCalendarDays
         )
         dataVM.saveTrainingProgram()
+    }
+
+    @MainActor
+    static func refreshPlanAssignment(
+        into dataVM: DataManager,
+        now: Date,
+        calendar: Calendar
+    ) {
+        let weekdays = dataVM.trainingProgram.preferredWeekdays.isEmpty
+            ? Array(FitLogSimulatedUserPersona.planFollower.trainingWeekdays).sorted()
+            : dataVM.trainingProgram.preferredWeekdays
+        assignRecurringPlan(into: dataVM, now: now, calendar: calendar, weekdays: weekdays)
     }
 }

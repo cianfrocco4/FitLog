@@ -84,6 +84,60 @@ Cursor / Slack (Mac awake):
 
 Seeder logic is covered by `FitLogTests/SimulatedUserSeederTests` (runs in GitHub iOS CI). The tap journeys themselves stay on `fitlog-mac`.
 
+## Layer 1c — Daily living users (history that grows)
+
+One-shot snapshot tests **reset** the store. To build History the way real people do, run a **daily tick** that:
+
+1. Uses a **persistent** SwiftData file per persona (`FitLogData-sim-returningFree.store`, …) so five users share one Simulator without overwriting each other
+2. **Never erases** yesterday’s sessions
+3. On a **training day**, logs one workout (idempotent if you run twice the same day)
+4. On a **rest day**, opens the app and leaves History unchanged
+
+Weekly cadence (Gregorian weekday: Sun=1):
+
+| Persona | Trains |
+|---------|--------|
+| `newFree` | Tue, Thu |
+| `returningFree` | Mon, Wed, Fri |
+| `premiumLifter` | Mon, Tue, Thu, Fri |
+| `cardioHobbyist` | Tue, Thu, Sat |
+| `planFollower` | Mon, Wed, Fri |
+
+**Most reliable schedule (recommended):** a LaunchAgent on the Mac that stays plugged in and awake.
+
+```bash
+chmod +x scripts/run-daily-living-users.sh
+# Edit the cd path in the plist if your checkout is not /Users/anthony/Documents/Projects/FitLog
+cp scripts/macos/com.fitlog.daily-living-users.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.fitlog.daily-living-users.plist
+# Default: 07:00 local. Logs: /tmp/fitlog-daily-living.log
+```
+
+Run once by hand:
+
+```bash
+scripts/run-daily-living-users.sh 5
+```
+
+Inspect ticks (after a run):
+
+```bash
+DATA=$(xcrun simctl get_app_container booted com.acianfrocco.FitLog data)
+tail "$DATA/Documents/fitlog-living-ticks.jsonl"
+```
+
+Browse a grown user (no extra log unless you also pass daily-living):
+
+```bash
+xcrun simctl launch booted com.acianfrocco.FitLog \
+  -fitlog-ui-testing -fitlog-ui-persistent-store -fitlog-ui-persona returningFree
+```
+
+**Cursor Automation (optional):** paste [automation-prompts/daily-living-users.md](automation-prompts/daily-living-users.md) into a **daily** Automation with repo attached. On Pro+, scheduled jobs often hit **Cloud Linux** — they cannot touch the Simulator. The prompt Slack-handoffs to `fitlog-mac`. Prefer launchd if you want History to grow even when you do not open Cursor.
+
+Do **not** erase that Simulator or pass `-fitlog-ui-reset-store` on living stores. Snapshot XCUITests use the default `FitLogData.store` and leave `FitLogData-sim-*` alone.
+
+
 
 ## Layer 2 — Exploratory bot (Cursor + Simulator)
 

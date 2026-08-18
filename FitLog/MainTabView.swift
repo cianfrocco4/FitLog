@@ -264,13 +264,18 @@ struct MainTabView: View {
     private func applyUITestStoreHarnessIfNeeded() {
         guard !didApplyUITestHarness else { return }
         didApplyUITestHarness = true
-        guard FitLogUITestLaunch.shouldResetStore else { return }
         if currentVM.isInProgress {
             currentVM.cancelWorkout()
         }
-        dataVM.eraseAllAppData(createSafetyBackup: false)
-        if let persona = FitLogUITestLaunch.persona {
-            FitLogSimulatedUserSeeder.seed(persona, into: dataVM)
+        if FitLogUITestLaunch.shouldResetStore {
+            dataVM.eraseAllAppData(createSafetyBackup: false)
+            if let persona = FitLogUITestLaunch.persona {
+                FitLogSimulatedUserSeeder.seed(persona, into: dataVM)
+            }
+            return
+        }
+        if FitLogUITestLaunch.isDailyLiving, let persona = FitLogUITestLaunch.persona {
+            _ = FitLogSimulatedUserLivingDay.runTick(persona, into: dataVM)
         }
     }
 

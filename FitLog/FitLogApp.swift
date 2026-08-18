@@ -35,7 +35,7 @@ struct FitLogApp: App {
     init() {
         let appSupport = URL.applicationSupportDirectory
         try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        let storeURL = appSupport.appending(path: "FitLogData.store")
+        let storeURL = Self.persistedStoreURL()
         let openResult = Self.openContainerWithRecovery(storeURL: storeURL)
         let container = openResult.container
         let migError = openResult.error
@@ -190,7 +190,7 @@ struct FitLogApp: App {
     // MARK: - Recovery actions
 
     private static func persistedStoreURL() -> URL {
-        URL.applicationSupportDirectory.appending(path: "FitLogData.store")
+        URL.applicationSupportDirectory.appending(path: FitLogUITestLaunch.modelStoreFileName)
     }
 
     /// Removes a SwiftData/SQLite store and any `-wal` / `-shm` sidecars.

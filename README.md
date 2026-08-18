@@ -40,6 +40,7 @@ Cloud Linux agents cannot tap the iPhone UI. On a Mac worker (`fitlog-mac`) you 
 
 - Run **XCUITest** journeys (tabs, create Push A, Coach gate)
 - Simulate **N distinct users** (`scripts/run-simulated-users.sh`, personas in `docs/AUTOMATED_USER_TESTING.md`)
+- Grow History daily (`scripts/run-daily-living-users.sh` + LaunchAgent on the Mac)
 - Schedule or Slack an **exploratory Simulator bot** that uses the app like a new free user
 
 See [docs/AUTOMATED_USER_TESTING.md](docs/AUTOMATED_USER_TESTING.md). Xcode/worker setup: [docs/CLOUD_AGENT_XCODE.md](docs/CLOUD_AGENT_XCODE.md).
