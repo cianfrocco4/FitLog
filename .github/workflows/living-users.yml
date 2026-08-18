@@ -66,6 +66,7 @@ jobs:
           LIVING_USERS_STORE_DIR: ${{ github.workspace }}/living-users
           LIVING_USERS_SCREENSHOT_DIR: ${{ runner.temp }}/living-screenshots
           SETTLE_SECONDS: "15"
+          SIMULATOR_READY_SECONDS: "15"
           POST_LIVING_USER_REVIEWS: "1"
         run: |
           set -euo pipefail
