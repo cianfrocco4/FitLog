@@ -920,7 +920,6 @@ struct CurrentWorkoutPullUpSheet: View {
                     Button("Finish") {
                         handleFinishTap()
                     }
-                    .foregroundStyle(.red)
                     .fontWeight(.semibold)
                     .accessibilityLabel("Finish workout")
                     .accessibilityHint("Starts finish checks; saves to history if you confirm")

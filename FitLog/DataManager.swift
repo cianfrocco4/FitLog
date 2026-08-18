@@ -2426,6 +2426,7 @@ final class DataManager {
         preloadFullExerciseLibrary()
         preloadCardioExerciseLibraryIfNeeded()
         publishIntentExerciseLibrary()
+        NotificationCenter.default.post(name: .fitlogDidEraseUserData, object: nil)
     }
 
     /// Deletes rotating `backup_*.json` snapshots of user data. Migration safety files (`pre_v*`, unified-slots, etc.) are kept.

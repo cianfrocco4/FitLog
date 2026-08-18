@@ -77,6 +77,9 @@ struct FitLogApp: App {
                         .environment(formGuideService)
                         .environmentObject(dayMonitor)
                         .environmentObject(userPreferences)
+                        .onReceive(NotificationCenter.default.publisher(for: .fitlogDidEraseUserData)) { _ in
+                            userPreferences.resetFirstRunExperience()
+                        }
                         .onAppear {
                             entitlementStore.configureIfNeeded()
                             // Skip RevenueCat identity sync under UI/unit tests — the host may

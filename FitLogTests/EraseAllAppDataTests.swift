@@ -47,6 +47,26 @@ struct EraseAllAppDataTests {
         #expect(!dm.globalExercises.isEmpty)
     }
 
+    @Test @MainActor func eraseAllAppData_postsDidEraseUserDataNotification() throws {
+        final class Flag: @unchecked Sendable {
+            var posted = false
+        }
+        let container = try makeInMemoryContainer()
+        let dm = DataManager(modelContainer: container)
+        let flag = Flag()
+        let token = NotificationCenter.default.addObserver(
+            forName: .fitlogDidEraseUserData,
+            object: nil,
+            queue: .main
+        ) { _ in
+            flag.posted = true
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        dm.eraseAllAppData(createSafetyBackup: false)
+        #expect(flag.posted)
+    }
+
     @Test @MainActor func eraseAllAppData_withoutSafetyBackup_stillClearsUserData() throws {
         let container = try makeInMemoryContainer()
         let dm = DataManager(modelContainer: container)

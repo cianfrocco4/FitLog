@@ -76,20 +76,27 @@ struct HomeStartWorkoutSheet: View {
                 }
 
                 Section {
+                    if recentWorkouts.isEmpty, scheduledWorkout == nil {
+                        Text("Create a workout first, then you can start it from here.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                     Button {
                         dismiss()
                         onNewWorkout()
                     } label: {
                         Label("New workout", systemImage: "plus.rectangle.on.folder")
                     }
+                    .accessibilityHint("Opens the new workout form")
                     Button {
                         dismiss()
                         onNewFromTemplate()
                     } label: {
                         Label("From template", systemImage: "square.grid.2x2")
                     }
+                    .accessibilityHint("Opens quick-start workout templates")
                 } header: {
-                    Text("Create")
+                    Text(recentWorkouts.isEmpty && scheduledWorkout == nil ? "Get started" : "Create")
                 }
             }
             .navigationTitle("Start workout")

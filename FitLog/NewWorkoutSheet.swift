@@ -33,6 +33,13 @@ struct NewWorkoutSheet: View {
     @State private var createdWorkoutId: UUID?
     @State private var cardioBuilderWorkoutId: UUID?
     @State private var pendingStarterReview: PendingStarterReview?
+    @State private var kindTab: NewWorkoutKindTab = .strength
+
+    private enum NewWorkoutKindTab: String, CaseIterable, Identifiable {
+        case strength
+        case cardio
+        var id: String { rawValue }
+    }
 
     private struct PendingStarterReview: Identifiable {
         let id = UUID()
@@ -67,13 +74,13 @@ struct NewWorkoutSheet: View {
             if let hint = launchHint {
                 switch hint {
                 case .templatesFirst:
+                    kindTab = .strength
                     focus = .push
                 case .buildOwnFirst:
+                    kindTab = .strength
                     focus = .custom
                 case .cardioFirst:
-                    if let tpl = CardioTemplateLibrary.quickStart.first {
-                        applyCardioTemplate(tpl)
-                    }
+                    kindTab = .cardio
                 }
             }
         }
@@ -82,109 +89,35 @@ struct NewWorkoutSheet: View {
     private var guidedForm: some View {
         Form {
             Section {
-                Text("Pick a template for a fast start, or name your workout and choose a focus for suggested exercises.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                Picker("Workout type", selection: $kindTab) {
+                    Text("Strength").tag(NewWorkoutKindTab.strength)
+                    Text("Cardio").tag(NewWorkoutKindTab.cardio)
+                }
+                .pickerStyle(.segmented)
+                .accessibilityHint("Switch between strength and cardio workout creation")
+
+                Text(
+                    kindTab == .strength
+                        ? "Pick a template for a fast start, or name your workout and choose a focus for suggested exercises."
+                        : "Start from a cardio template, or open the builder to add intervals and steady work."
+                )
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
             }
 
-            Section {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(CardioTemplateLibrary.quickStart) { tpl in
-                            Button {
-                                applyCardioTemplate(tpl)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "figure.run")
-                                            .font(.caption.weight(.semibold))
-                                        Text(tpl.name)
-                                            .font(.subheadline.weight(.semibold))
-                                            .foregroundStyle(.primary)
-                                    }
-                                    Text(tpl.subtitle)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                        .multilineTextAlignment(.leading)
-                                }
-                                .frame(width: 148, alignment: .leading)
-                                .padding(12)
-                                .background(FitlogPalette.chartSecondary.opacity(0.12))
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                            }
-                            .buttonStyle(.plain)
-                        }
+            if kindTab == .strength {
+                strengthTemplateSection
+                buildYourOwnSection
+            } else {
+                cardioTemplateSection
+                Section {
+                    Button {
+                        startEmptyCardioBuilder()
+                    } label: {
+                        Label("Build cardio workout…", systemImage: "figure.run.circle.fill")
                     }
-                    .padding(.vertical, 4)
+                    .accessibilityHint("Opens the cardio workout builder on a new empty workout")
                 }
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-            } header: {
-                Text("Cardio quick start")
-            } footer: {
-                Text("Creates a cardio workout from a template. Edit prescriptions in the builder.")
-                    .font(.caption)
-            }
-
-            Section {
-                Button {
-                    startEmptyCardioBuilder()
-                } label: {
-                    Label("Build cardio workout…", systemImage: "figure.run.circle.fill")
-                }
-                .accessibilityHint("Opens the cardio workout builder on a new empty workout")
-            }
-
-            Section {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(WorkoutQuickStartTemplate.all) { tpl in
-                            Button {
-                                applyQuickTemplate(tpl)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(tpl.displayName)
-                                        .font(.subheadline.weight(.semibold))
-                                        .foregroundStyle(.primary)
-                                    Text(tpl.subtitle)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                        .multilineTextAlignment(.leading)
-                                }
-                                .frame(width: 132, alignment: .leading)
-                                .padding(12)
-                                .background(Color(.secondarySystemGroupedBackground))
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-            } header: {
-                Text("Quick start templates")
-            } footer: {
-                Text("Creates a saved workout with common movements from your library. You can edit everything next.")
-                    .font(.caption)
-            }
-
-            Section {
-                TextField("Workout name", text: $workoutName, prompt: Text("e.g. Push Day, Legs"))
-                    .textFieldStyle(.roundedBorder)
-
-                Picker("Focus", selection: $focus) {
-                    ForEach(WorkoutCreationFocus.allCases) { f in
-                        Text(f.rawValue).tag(f)
-                    }
-                }
-            } header: {
-                Text("Build your own")
-            } footer: {
-                Text("Non-custom focuses offer optional starter exercises after you tap Create.")
-                    .font(.caption)
             }
         }
         .navigationTitle("New workout")
@@ -194,12 +127,110 @@ struct NewWorkoutSheet: View {
                 Button("Cancel") { dismiss() }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Create") { createFromForm() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!canCreateFromForm)
+                if kindTab == .strength {
+                    Button("Create") { createFromForm() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!canCreateFromForm)
+                }
             }
         }
         .keyboardDismissToolbar()
+    }
+
+    private var strengthTemplateSection: some View {
+        Section {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(WorkoutQuickStartTemplate.all) { tpl in
+                        Button {
+                            applyQuickTemplate(tpl)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(tpl.displayName)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Text(tpl.subtitle)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                            }
+                            .frame(width: 132, alignment: .leading)
+                            .padding(12)
+                            .background(Color(.secondarySystemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        } header: {
+            Text("Quick start templates")
+        } footer: {
+            Text("Creates a saved workout with common movements from your library. You can edit everything next.")
+                .font(.caption)
+        }
+    }
+
+    private var buildYourOwnSection: some View {
+        Section {
+            TextField("Workout name", text: $workoutName, prompt: Text("e.g. Push Day, Legs"))
+                .textFieldStyle(.roundedBorder)
+
+            Picker("Focus", selection: $focus) {
+                ForEach(WorkoutCreationFocus.allCases) { f in
+                    Text(f.rawValue).tag(f)
+                }
+            }
+        } header: {
+            Text("Build your own")
+        } footer: {
+            Text("Non-custom focuses offer optional starter exercises after you tap Create.")
+                .font(.caption)
+        }
+    }
+
+    private var cardioTemplateSection: some View {
+        Section {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(CardioTemplateLibrary.quickStart) { tpl in
+                        Button {
+                            applyCardioTemplate(tpl)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "figure.run")
+                                        .font(.caption.weight(.semibold))
+                                    Text(tpl.name)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.primary)
+                                }
+                                Text(tpl.subtitle)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                            }
+                            .frame(width: 148, alignment: .leading)
+                            .padding(12)
+                            .background(FitlogPalette.chartSecondary.opacity(0.12))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        } header: {
+            Text("Cardio quick start")
+        } footer: {
+            Text("Creates a cardio workout from a template. Edit prescriptions in the builder.")
+                .font(.caption)
+        }
     }
 
     private var canCreateFromForm: Bool {
