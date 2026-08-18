@@ -2,34 +2,16 @@
 //  HomeGreeting.swift
 //  FitLog
 //
-//  Time-aware personalized greeting copy for the Home hero area.
+//  Personalized Home copy: first name, navigation title, and today subtitle.
 //
 
 import Foundation
 
 enum HomeGreeting {
-    static func timeOfDayPhrase(for date: Date = Date(), calendar: Calendar = .current) -> String {
-        let hour = calendar.component(.hour, from: date)
-        switch hour {
-        case 5..<12: return "Good morning"
-        case 12..<17: return "Good afternoon"
-        case 17..<22: return "Good evening"
-        default: return "Hello"
-        }
-    }
-
     static func firstName(from fullName: String) -> String? {
         let trimmed = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         return trimmed.split(separator: " ").first.map(String.init) ?? trimmed
-    }
-
-    static func headline(firstName: String?) -> String {
-        let phrase = timeOfDayPhrase()
-        if let firstName, !firstName.isEmpty {
-            return "\(phrase), \(firstName)"
-        }
-        return phrase
     }
 
     static func contextualSubtitle(

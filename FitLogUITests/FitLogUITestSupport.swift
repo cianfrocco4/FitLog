@@ -11,11 +11,25 @@ enum FitLogUITestSupport {
 
     /// Call before `launch()`. Skips Apple credential checks and notification prompts in the app.
     /// Always resets the on-disk store so tests do not leak workouts between launches.
-    static func configure(_ app: XCUIApplication, persona: String? = nil) {
+    /// - Parameter skipOnboarding: Pass `false` to exercise the first-run onboarding UI.
+    /// - Parameter forceOnboarding: Reset first-run flags so onboarding appears even after other tests.
+    static func configure(
+        _ app: XCUIApplication,
+        persona: String? = nil,
+        skipOnboarding: Bool = true,
+        forceOnboarding: Bool = false
+    ) {
         app.launchArguments.append("-fitlog-ui-testing")
         app.launchArguments.append("-fitlog-ui-reset-store")
         app.launchEnvironment["FITLOG_UI_TESTING"] = "1"
         app.launchEnvironment["FITLOG_UI_RESET_STORE"] = "1"
+        if skipOnboarding {
+            app.launchArguments.append("-fitlog-skip-onboarding")
+            app.launchEnvironment["FITLOG_SKIP_ONBOARDING"] = "1"
+        }
+        if forceOnboarding {
+            app.launchArguments.append("-fitlog-force-onboarding")
+        }
         if let persona {
             app.launchArguments.append(contentsOf: ["-fitlog-ui-persona", persona])
             app.launchEnvironment["FITLOG_UI_PERSONA"] = persona
@@ -25,12 +39,17 @@ enum FitLogUITestSupport {
     @MainActor
     static func launchConfiguredApp(
         persona: String? = nil,
+        skipOnboarding: Bool = true,
+        forceOnboarding: Bool = false,
         file: StaticString = #filePath,
         line: UInt = #line
     ) -> XCUIApplication {
         let app = XCUIApplication()
-        configure(app, persona: persona)
+        configure(app, persona: persona, skipOnboarding: skipOnboarding, forceOnboarding: forceOnboarding)
         app.launch()
+        if forceOnboarding || !skipOnboarding {
+            return app
+        }
         XCTAssertTrue(
             app.tabBars.firstMatch.waitForExistence(timeout: 30),
             "Main tab bar should appear after launch (UI test login bypass).",

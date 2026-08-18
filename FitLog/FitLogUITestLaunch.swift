@@ -24,6 +24,17 @@ enum FitLogUITestLaunch {
             || ProcessInfo.processInfo.environment["XCODE_CLOUD"] == "1"
     }
 
+    /// UI tests that exercise onboarding omit `-fitlog-skip-onboarding`.
+    static var shouldSkipOnboarding: Bool {
+        ProcessInfo.processInfo.arguments.contains("-fitlog-skip-onboarding")
+            || ProcessInfo.processInfo.environment["FITLOG_SKIP_ONBOARDING"] == "1"
+    }
+
+    /// Clears first-run flags so onboarding is shown even if a previous UI test completed it.
+    static var shouldForceOnboarding: Bool {
+        ProcessInfo.processInfo.arguments.contains("-fitlog-force-onboarding")
+    }
+
     /// Wipe local workouts/history on launch so each XCUITest starts from a known store.
     static var shouldResetStore: Bool {
         ProcessInfo.processInfo.arguments.contains("-fitlog-ui-reset-store")

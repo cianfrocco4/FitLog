@@ -172,6 +172,7 @@ final class UserPreferences: ObservableObject {
     private enum Keys {
         static let weightUnit = "fitlog.weightDisplayUnit"
         static let onboarding = "fitlog.hasCompletedOnboarding"
+        static let spotlightTour = "fitlog.spotlightTourCompleted"
         static let coachHome = "fitlog.coachMark.home.v1"
         static let coachPlan = "fitlog.coachMark.plan.v1"
         static let coachHistory = "fitlog.coachMark.history.v1"
@@ -197,6 +198,11 @@ final class UserPreferences: ObservableObject {
 
     @Published var hasCompletedOnboarding: Bool {
         didSet { defaults.set(hasCompletedOnboarding, forKey: Keys.onboarding) }
+    }
+
+    /// One-time first-run spotlight tour over Home / Plan chrome.
+    @Published var spotlightTourCompleted: Bool {
+        didSet { defaults.set(spotlightTourCompleted, forKey: Keys.spotlightTour) }
     }
 
     @Published var coachMarkHomeDismissed: Bool {
@@ -280,6 +286,7 @@ final class UserPreferences: ObservableObject {
             _weightDisplayUnit = Published(initialValue: .pounds)
         }
         _hasCompletedOnboarding = Published(initialValue: defaults.bool(forKey: Keys.onboarding))
+        _spotlightTourCompleted = Published(initialValue: defaults.bool(forKey: Keys.spotlightTour))
         _coachMarkHomeDismissed = Published(initialValue: defaults.bool(forKey: Keys.coachHome))
         _coachMarkPlanDismissed = Published(initialValue: defaults.bool(forKey: Keys.coachPlan))
         _coachMarkHistoryDismissed = Published(initialValue: defaults.bool(forKey: Keys.coachHistory))
@@ -336,9 +343,29 @@ final class UserPreferences: ObservableObject {
         hasCompletedOnboarding = true
     }
 
+    func markSpotlightTourCompleted() {
+        spotlightTourCompleted = true
+    }
+
+    /// After erase-all / account deletion so the next session can see onboarding again.
+    func resetFirstRunExperience() {
+        hasCompletedOnboarding = false
+        spotlightTourCompleted = false
+        coachMarkHomeDismissed = false
+        coachMarkPlanDismissed = false
+        coachMarkHistoryDismissed = false
+        dismissedProgramAssignmentBanner = false
+        dismissedCardioGetStartedBanner = false
+        dismissedHomePremiumCard = false
+        homePremiumCardSnoozeUntil = nil
+        hasLoggedFirstWorkout = false
+        hasSeenPostWorkoutPaywall = false
+    }
+
     /// UI tests: avoid blocking flows with onboarding or coach UI.
     func applyUITestDefaults() {
         hasCompletedOnboarding = true
+        spotlightTourCompleted = true
         coachMarkHomeDismissed = true
         coachMarkPlanDismissed = true
         coachMarkHistoryDismissed = true

@@ -42,6 +42,12 @@ enum FitlogRootTab: Int, Hashable {
 extension Notification.Name {
     /// Home / onboarding asks Plan to present the program builder sheet.
     static let fitlogOpenProgramBuilder = Notification.Name("fitlogOpenProgramBuilder")
+    /// Home / onboarding presents the dynamic program builder (`SplitBuilderView`) on Home.
+    static let fitlogPresentSplitBuilder = Notification.Name("fitlogPresentSplitBuilder")
+    /// Posted when a first-run sheet dismisses so the tab shell can start the spotlight tour.
+    static let fitlogStartPendingSpotlight = Notification.Name("fitlogStartPendingSpotlight")
+    /// Posted after `DataManager.eraseAllAppData` so first-run flags and spotlight can reset.
+    static let fitlogDidEraseUserData = Notification.Name("fitlogDidEraseUserData")
     /// Posted when the calendar “today” moves into a new dynamic program block (multi-block programs).
     static let fitlogDynamicProgramBlockChanged = Notification.Name("fitlogDynamicProgramBlockChanged")
     /// Posted after a workout session is saved to history (readiness/widget refresh).

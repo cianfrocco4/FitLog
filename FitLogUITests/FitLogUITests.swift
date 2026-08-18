@@ -54,6 +54,49 @@ final class FitLogUITests: XCTestCase {
     }
 
     @MainActor
+    func testFirstRunOnboardingTwoPathAndHomeHero() throws {
+        let app = XCUIApplication()
+        FitLogUITestSupport.configure(app, skipOnboarding: false, forceOnboarding: true)
+        app.launch()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["onboarding.welcome"].waitForExistence(timeout: 20)
+                || app.staticTexts["Welcome to Workout Log AI"].waitForExistence(timeout: 20),
+            "Onboarding welcome should appear for a new user."
+        )
+
+        let next = app.buttons["onboarding.next"]
+        XCTAssertTrue(next.waitForExistence(timeout: 8), "Welcome Next should exist")
+        next.tap()
+
+        XCTAssertTrue(
+            app.buttons["onboarding.planWeek"].waitForExistence(timeout: 8),
+            "Plan my week should be a first-run path."
+        )
+        XCTAssertTrue(
+            app.buttons["onboarding.logWorkout"].exists,
+            "Log a workout today should be a first-run path."
+        )
+
+        let explore = app.buttons["onboarding.explore"]
+        XCTAssertTrue(explore.waitForExistence(timeout: 5), "I'll explore first should exist")
+        explore.tap()
+
+        let skipTour = app.buttons["spotlight.skip"]
+        if skipTour.waitForExistence(timeout: 6) {
+            skipTour.tap()
+        }
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["firstRun.hero"].waitForExistence(timeout: 12)
+                || app.staticTexts["Create something to train"].waitForExistence(timeout: 12),
+            "First-run Home hero should explain how to create a workout or program."
+        )
+        XCTAssertTrue(app.buttons["firstRun.newWorkout"].exists)
+        XCTAssertTrue(app.buttons["firstRun.buildProgram"].exists)
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         let isCI = ProcessInfo.processInfo.environment["CI"] == "true"
             || ProcessInfo.processInfo.environment["XCODE_CLOUD"] == "1"

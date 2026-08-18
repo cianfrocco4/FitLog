@@ -109,8 +109,14 @@ struct HomeView: View {
         PremiumPromptPolicy.shouldShowHomePremiumCard(
             isPremium: entitlementStore.isPremium,
             dismissed: userPreferences.dismissedHomePremiumCard,
-            snoozeUntil: userPreferences.homePremiumCardSnoozeUntil
+            snoozeUntil: userPreferences.homePremiumCardSnoozeUntil,
+            completedSessionCount: dataVM.completedSessions.count
         )
+    }
+
+    /// Brand-new Home: no library workouts and no applied program.
+    private var isFirstRunHome: Bool {
+        dataVM.userWorkouts.isEmpty && dataVM.dynamicProgramState == nil
     }
 
     private var workoutSearchTrimmed: String {
@@ -236,6 +242,10 @@ struct HomeView: View {
         f.dateFormat = "EEEE, MMM d"
         return f
     }()
+
+    private func startPendingSpotlightIfNeeded() {
+        NotificationCenter.default.post(name: .fitlogStartPendingSpotlight, object: nil)
+    }
 
     private func refreshCachedHomeData() {
         cachedTodayPlan = dataVM.resolvedScheduleDay(for: Date(), calendar: .current)
@@ -414,20 +424,39 @@ struct HomeView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
             }
 
-            readinessDashboardCard
+            if !isFirstRunHome || readinessVM.todayScore != nil {
+                readinessDashboardCard
+            }
 
-            if shouldShowHomePremiumCard {
+            if !isFirstRunHome, shouldShowHomePremiumCard {
                 homePremiumTeaserCard
             }
 
-            WeeklyInsightCard(
-                readinessTrendSummaries: readinessVM.todayScore.map { ["Today: \($0.score)/100 — \($0.band.displayTitle)"] } ?? []
-            )
-            .listRowInsets(homeDashboardListInsets)
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
+            if !isFirstRunHome {
+                WeeklyInsightCard(
+                    readinessTrendSummaries: readinessVM.todayScore.map { ["Today: \($0.score)/100 — \($0.band.displayTitle)"] } ?? []
+                )
+                .listRowInsets(homeDashboardListInsets)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            }
 
-            if homeFirstPaintSkeleton {
+            if isFirstRunHome {
+                FirstRunHomeHeroView(
+                    onNewWorkout: {
+                        newWorkoutLaunchHint = nil
+                        showNewWorkout = true
+                    },
+                    onFromTemplate: {
+                        newWorkoutLaunchHint = .templatesFirst
+                        showNewWorkout = true
+                    },
+                    onBuildProgram: { showSplitBuilder = true }
+                )
+                .listRowInsets(homeDashboardListInsets)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            } else if homeFirstPaintSkeleton {
                 FitlogSkeletonCardBlock()
                     .listRowInsets(homeDashboardListInsets)
                     .listRowSeparator(.hidden)
@@ -437,6 +466,7 @@ struct HomeView: View {
                     .listRowInsets(homeDashboardListInsets)
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
+                    .spotlightAnchor(.todayPlan)
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
 
                 if let progress = cachedProgressSummary {
@@ -499,7 +529,7 @@ struct HomeView: View {
                 }
                 homeActiveAndReadinessSection
 
-                if shouldShowProgramAssignmentBanner {
+                if shouldShowProgramAssignmentBanner, !isFirstRunHome {
                     Section {
                         programAssignmentBannerCard
                             .listRowInsets(homeDashboardListInsets)
@@ -508,6 +538,7 @@ struct HomeView: View {
                     }
                 }
 
+                if !isFirstRunHome {
                 Section {
                     if let dyn = dataVM.dynamicProgramState {
                         HomeProgramSummaryCard(
@@ -520,11 +551,13 @@ struct HomeView: View {
                         .listRowInsets(homeDashboardListInsets)
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
+                        .spotlightAnchor(.programCard)
                     } else {
                         HomeBuildProgramCard { showSplitBuilder = true }
                             .listRowInsets(homeDashboardListInsets)
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
+                            .spotlightAnchor(.programCard)
                     }
                 } header: {
                     Text("Program")
@@ -537,7 +570,9 @@ struct HomeView: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
+                }
 
+                if !isFirstRunHome {
                 Section {
                     if dataVM.userWorkouts.isEmpty {
                         homeEmptyWorkoutsCallout
@@ -614,6 +649,8 @@ struct HomeView: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                 }
+                .spotlightAnchor(.workoutsList)
+                }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -625,6 +662,7 @@ struct HomeView: View {
                     HomeStartWorkoutFAB(isWorkoutActive: currentVM.isInProgress) {
                         showStartWorkoutSheet = true
                     }
+                    .spotlightAnchor(.startWorkoutFAB)
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
                     .padding(.bottom, 4)
@@ -634,14 +672,21 @@ struct HomeView: View {
             .navigationTitle(homeNavigationTitle)
             .navigationBarTitleDisplayMode(.large)
             .modifier(HomeWorkoutSearchModifier(
-                isEnabled: !homeShowsWorkoutPreviewOnly,
+                isEnabled: !isFirstRunHome && !homeShowsWorkoutPreviewOnly,
                 text: $workoutSearchText,
                 prompt: "Search workouts"
             ))
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     EditButton()
-                        .disabled(!workoutSearchTrimmed.isEmpty || homeShowsWorkoutPreviewOnly || dataVM.userWorkouts.isEmpty)
+                        .disabled(
+                            isFirstRunHome
+                                || !workoutSearchTrimmed.isEmpty
+                                || homeShowsWorkoutPreviewOnly
+                                || dataVM.userWorkouts.isEmpty
+                        )
+                        .opacity(isFirstRunHome ? 0 : 1)
+                        .accessibilityHidden(isFirstRunHome)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -683,7 +728,10 @@ struct HomeView: View {
                 )
                 .environment(dataVM)
             }
-            .sheet(isPresented: $showNewWorkout, onDismiss: { newWorkoutLaunchHint = nil }) {
+            .sheet(isPresented: $showNewWorkout, onDismiss: {
+                newWorkoutLaunchHint = nil
+                startPendingSpotlightIfNeeded()
+            }) {
                 NewWorkoutSheet(launchHint: newWorkoutLaunchHint)
                     .environment(dataVM)
                     .environment(currentVM)
@@ -696,6 +744,9 @@ struct HomeView: View {
                     newWorkoutLaunchHint = nil
                 }
                 showNewWorkout = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fitlogPresentSplitBuilder)) { _ in
+                showSplitBuilder = true
             }
             .onReceive(NotificationCenter.default.publisher(for: .fitlogDynamicProgramBlockChanged)) { note in
                 let name = (note.userInfo?["newBlockName"] as? String) ?? "Next block"
@@ -715,7 +766,7 @@ struct HomeView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showSplitBuilder) {
+            .sheet(isPresented: $showSplitBuilder, onDismiss: startPendingSpotlightIfNeeded) {
                 SplitBuilderView()
                     .environment(dataVM)
                     .environment(currentVM)
@@ -1191,9 +1242,6 @@ struct HomeView: View {
                 Text(Self.homeDateFormatter.string(from: Date()))
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.tertiary)
-                Text(HomeGreeting.headline(firstName: homeGreetingFirstName))
-                    .font(.title2.weight(.bold))
-                    .accessibilityAddTraits(.isHeader)
                 Text(HomeGreeting.contextualSubtitle(
                     plan: plan,
                     weekGlance: cachedWeekGlance,
