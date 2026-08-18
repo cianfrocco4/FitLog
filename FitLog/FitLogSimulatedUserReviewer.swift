@@ -369,7 +369,7 @@ enum FitLogSimulatedUserReviewer {
         if FileManager.default.fileExists(atPath: jsonURL.path) {
             guard let handle = try? FileHandle(forWritingTo: jsonURL) else { return }
             defer { try? handle.close() }
-            try? handle.seekToEnd()
+            _ = try? handle.seekToEnd()
             try? handle.write(contentsOf: Data(line.utf8))
         } else {
             try? line.write(to: jsonURL, atomically: true, encoding: .utf8)

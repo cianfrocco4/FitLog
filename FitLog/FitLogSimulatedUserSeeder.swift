@@ -169,6 +169,7 @@ enum FitLogSimulatedUserSeeder {
                         reps: 0,
                         restTime: 0,
                         timestamp: endedAt,
+                        setType: .steadyState,
                         cardioMetrics: CardioMetrics(
                             durationSec: (45 + extraMinutes) * 60,
                             distanceM: 6500 + Double(extraMinutes) * 100,
@@ -183,7 +184,8 @@ enum FitLogSimulatedUserSeeder {
                         weight: workingWeight,
                         reps: 8,
                         restTime: 90,
-                        timestamp: endedAt.addingTimeInterval(Double(offset * 400 + i * 120))
+                        timestamp: endedAt.addingTimeInterval(Double(offset * 400 + i * 120)),
+                        setType: .working
                     )
                 }
             }
