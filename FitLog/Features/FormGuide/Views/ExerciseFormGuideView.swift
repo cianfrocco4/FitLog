@@ -9,7 +9,7 @@ import SwiftUI
 
 struct ExerciseFormGuideCompactView: View {
     let exercise: Exercise
-    var height: CGFloat = 120
+    var height: CGFloat = 220
     /// When false, shows a thumbnail / button until the user opts in (avoids autoplay + audio route).
     var shouldAutoPlay: Bool = false
     var onTap: (() -> Void)?
