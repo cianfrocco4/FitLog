@@ -37,6 +37,7 @@ jobs:
           xcode-version: latest-stable
 
       - name: Restore living-user stores
+        id: restore-living-users
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -61,7 +62,10 @@ jobs:
             -project FitLog.xcodeproj \
             -scheme FitLog
 
+      # Exact-key hit means this run already ticked (re-run after a later
+      # step failed). Skip so History is not duplicated.
       - name: Run daily living ticks
+        if: steps.restore-living-users.outputs.cache-hit != 'true'
         env:
           LIVING_USERS_STORE_DIR: ${{ github.workspace }}/living-users
           LIVING_USERS_SCREENSHOT_DIR: ${{ runner.temp }}/living-screenshots
@@ -80,8 +84,10 @@ jobs:
           ./scripts/run-daily-living-users.sh "$N"
 
       # Combined cache@v4 only saves on job success. Persist here so a later
-      # Issues API failure cannot drop this run's History.
+      # Issues API failure cannot drop this run's History. Skip on exact-key
+      # hit: that cache already exists and save@v4 cannot overwrite it.
       - name: Persist living-user stores
+        if: steps.restore-living-users.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
