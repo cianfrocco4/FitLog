@@ -17,7 +17,7 @@ struct LoginView: View {
             VStack(spacing: 32) {
                 Image(systemName: "dumbbell.fill")
                     .font(.system(size: 80))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(.tint)
 
                 Text(AppBrand.name)
                     .font(.largeTitle.bold())
@@ -28,7 +28,7 @@ struct LoginView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
 
-                Text("Track workouts on your device. Sign in with Apple is optional but recommended for subscription restore.")
+                Text("Start training in a minute. Sign in with Apple is optional and helps restore Premium later.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

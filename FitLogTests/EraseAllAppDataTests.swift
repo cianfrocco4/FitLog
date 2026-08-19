@@ -35,6 +35,7 @@ struct EraseAllAppDataTests {
         #expect(!dm.coachChatStore.loadConversations().isEmpty)
 
         UserDefaults.standard.set(Data([0x01, 0x02]), forKey: "activeWorkoutSession")
+        UserDefaults.standard.set(["favorite-id"], forKey: ExercisePickerPersistence.favoritesKey)
         dm.eraseAllAppData()
 
         #expect(dm.coachChatStore.loadConversations().isEmpty)
@@ -42,6 +43,42 @@ struct EraseAllAppDataTests {
         #expect(dm.bodyMetricEntries.isEmpty)
         #expect(dm.progressPhotoRecords.isEmpty)
         #expect(UserDefaults.standard.data(forKey: "activeWorkoutSession") == nil)
+        #expect(UserDefaults.standard.stringArray(forKey: ExercisePickerPersistence.favoritesKey) == nil)
+        #expect(!dm.globalExercises.isEmpty)
+    }
+
+    @Test @MainActor func eraseAllAppData_postsDidEraseUserDataNotification() throws {
+        final class Flag: @unchecked Sendable {
+            var posted = false
+        }
+        let container = try makeInMemoryContainer()
+        let dm = DataManager(modelContainer: container)
+        let flag = Flag()
+        let token = NotificationCenter.default.addObserver(
+            forName: .fitlogDidEraseUserData,
+            object: nil,
+            queue: .main
+        ) { _ in
+            flag.posted = true
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        dm.eraseAllAppData(createSafetyBackup: false)
+        #expect(flag.posted)
+    }
+
+    @Test @MainActor func eraseAllAppData_withoutSafetyBackup_stillClearsUserData() throws {
+        let container = try makeInMemoryContainer()
+        let dm = DataManager(modelContainer: container)
+        let conversationID = dm.coachChatStore.createConversation(title: "No backup erase")
+        #expect(dm.coachChatStore.appendMessage(
+            CoachChatMessage(role: .user, text: "Gone"),
+            conversationID: conversationID
+        ))
+
+        dm.eraseAllAppData(createSafetyBackup: false)
+
+        #expect(dm.coachChatStore.loadConversations().isEmpty)
         #expect(!dm.globalExercises.isEmpty)
     }
 

@@ -27,6 +27,7 @@ struct HomeStartWorkoutFAB: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .shadow(color: Color.accentColor.opacity(0.35), radius: 12, y: 4)
+            .accessibilityIdentifier(FitLogA11yID.startWorkout)
             .accessibilityHint("Opens options to start a workout")
             .sensoryFeedback(.impact(weight: .medium), trigger: tapSerial)
         }

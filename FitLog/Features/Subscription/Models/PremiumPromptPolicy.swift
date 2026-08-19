@@ -30,10 +30,12 @@ enum PremiumPromptPolicy {
         isPremium: Bool,
         dismissed: Bool,
         snoozeUntil: Date?,
+        completedSessionCount: Int = 0,
         now: Date = .now
     ) -> Bool {
         guard !isPremium else { return false }
         guard !dismissed else { return false }
+        guard completedSessionCount >= 1 else { return false }
         if let snoozeUntil, snoozeUntil > now { return false }
         return true
     }

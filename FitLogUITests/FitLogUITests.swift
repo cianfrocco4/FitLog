@@ -23,15 +23,77 @@ final class FitLogUITests: XCTestCase {
     }
 
     @MainActor
-    func testExample() throws {
+    func testLaunchShowsMainTabBar() throws {
+        _ = FitLogUITestSupport.launchConfiguredApp()
+    }
+
+    @MainActor
+    func testDeleteAccountFlowReturnsToSignIn() throws {
+        let app = FitLogUITestSupport.launchConfiguredApp()
+
+        let moreTab = app.tabBars.buttons["More"]
+        XCTAssertTrue(moreTab.waitForExistence(timeout: 10), "More tab should exist")
+        moreTab.tap()
+
+        let deleteAccount = app.buttons["Delete Account"]
+        XCTAssertTrue(
+            deleteAccount.waitForExistence(timeout: 10),
+            "Guideline 5.1.1(v): signed-in users must see Delete Account on More."
+        )
+        deleteAccount.tap()
+
+        let confirm = app.alerts["Delete Account?"].buttons["Delete Account"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 8), "Delete Account confirmation must appear")
+        confirm.tap()
+
+        XCTAssertTrue(
+            app.buttons["Continue without signing in"].waitForExistence(timeout: 10),
+            "Account deletion must return to the sign-in screen."
+        )
+        XCTAssertFalse(app.tabBars.firstMatch.exists)
+    }
+
+    @MainActor
+    func testFirstRunOnboardingTwoPathAndHomeHero() throws {
         let app = XCUIApplication()
-        FitLogUITestSupport.configure(app)
+        FitLogUITestSupport.configure(app, skipOnboarding: false, forceOnboarding: true)
         app.launch()
 
         XCTAssertTrue(
-            app.tabBars.firstMatch.waitForExistence(timeout: 30),
-            "Main tab bar should appear after launch (UI test login bypass)."
+            app.descendants(matching: .any)["onboarding.welcome"].waitForExistence(timeout: 20)
+                || app.staticTexts["Welcome to Workout Log AI"].waitForExistence(timeout: 20),
+            "Onboarding welcome should appear for a new user."
         )
+
+        let next = app.buttons["onboarding.next"]
+        XCTAssertTrue(next.waitForExistence(timeout: 8), "Welcome Next should exist")
+        next.tap()
+
+        XCTAssertTrue(
+            app.buttons["onboarding.planWeek"].waitForExistence(timeout: 8),
+            "Plan my week should be a first-run path."
+        )
+        XCTAssertTrue(
+            app.buttons["onboarding.logWorkout"].exists,
+            "Log a workout today should be a first-run path."
+        )
+
+        let explore = app.buttons["onboarding.explore"]
+        XCTAssertTrue(explore.waitForExistence(timeout: 5), "I'll explore first should exist")
+        explore.tap()
+
+        let skipTour = app.buttons["spotlight.skip"]
+        if skipTour.waitForExistence(timeout: 6) {
+            skipTour.tap()
+        }
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["firstRun.hero"].waitForExistence(timeout: 12)
+                || app.staticTexts["Create something to train"].waitForExistence(timeout: 12),
+            "First-run Home hero should explain how to create a workout or program."
+        )
+        XCTAssertTrue(app.buttons["firstRun.newWorkout"].exists)
+        XCTAssertTrue(app.buttons["firstRun.buildProgram"].exists)
     }
 
     @MainActor

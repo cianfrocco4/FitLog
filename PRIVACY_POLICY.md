@@ -1,6 +1,6 @@
 # Privacy Policy for Workout Log AI
 
-**Last updated:** July 2026
+**Last updated:** August 2026
 
 Workout Log AI ("the app") is a local-first workout tracker with optional Premium subscriptions and Apple Health readiness insights. This policy describes what data the app uses, where it is stored, and what may be sent off your device.
 
@@ -69,7 +69,8 @@ If you allow notifications, we use them to remind you when a rest period ends or
 ## 5. Your Rights and Choices
 
 - Sign out or continue without signing in at any time
-- Erase all app data from the **More** tab (workouts, history, programs, Coach chats, readiness history, body metrics, and progress photos on this device). Workouts previously written to Apple Health remain in Health until you delete them there.
+- If you signed in with Apple, **Delete Account** from **More → Account** (or **More → Delete Account**). This permanently removes your account details stored in the app and all workouts, history, programs, Coach chats, readiness, body metrics, and progress photos on this device. It cannot be undone. App Store subscriptions are billed by Apple and are not canceled by deleting the in-app account — manage or cancel in iOS Settings. Workouts previously written to Apple Health remain in Health until you delete them there.
+- If you use the app without signing in, erase all app data from the **More** tab (same local data types as above).
 - Export a backup from **Data & Integrations**
 - Delete the app to remove local data from your device
 - Disable Health sync and avoid optional AI features to keep related data off third-party services

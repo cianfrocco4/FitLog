@@ -14,12 +14,40 @@ enum FitlogRootTab: Int, Hashable {
     case history = 2
     case coach = 3
     case more = 4
+
+    /// `fitlog://uitest/tab/{name}` (UI-test harness only).
+    var deepLinkName: String {
+        switch self {
+        case .home: return "home"
+        case .plan: return "plan"
+        case .history: return "history"
+        case .coach: return "coach"
+        case .more: return "more"
+        }
+    }
+
+    init?(deepLinkName: String) {
+        switch deepLinkName.lowercased() {
+        case "home": self = .home
+        case "plan": self = .plan
+        case "history": self = .history
+        case "coach": self = .coach
+        case "more": self = .more
+        default: return nil
+        }
+    }
 }
 
 /// In-memory Coach tab routing (e.g. Plan tab opens the split builder with plan context).
 extension Notification.Name {
     /// Home / onboarding asks Plan to present the program builder sheet.
     static let fitlogOpenProgramBuilder = Notification.Name("fitlogOpenProgramBuilder")
+    /// Home / onboarding presents the dynamic program builder (`SplitBuilderView`) on Home.
+    static let fitlogPresentSplitBuilder = Notification.Name("fitlogPresentSplitBuilder")
+    /// Posted when a first-run sheet dismisses so the tab shell can start the spotlight tour.
+    static let fitlogStartPendingSpotlight = Notification.Name("fitlogStartPendingSpotlight")
+    /// Posted after `DataManager.eraseAllAppData` so first-run flags and spotlight can reset.
+    static let fitlogDidEraseUserData = Notification.Name("fitlogDidEraseUserData")
     /// Posted when the calendar “today” moves into a new dynamic program block (multi-block programs).
     static let fitlogDynamicProgramBlockChanged = Notification.Name("fitlogDynamicProgramBlockChanged")
     /// Posted after a workout session is saved to history (readiness/widget refresh).
@@ -37,6 +65,8 @@ enum FitLogDeepLink: Equatable {
     case open
     /// Opens Home and navigates to Readiness detail.
     case readiness
+    /// UI-test / living-user screenshot harness: switch the root tab. Ignored in production.
+    case uitestTab(FitlogRootTab)
 
     init?(url: URL) {
         guard url.scheme?.lowercased() == "fitlog" else { return nil }
@@ -47,6 +77,13 @@ enum FitLogDeepLink: Equatable {
             self = .open
         case "readiness":
             self = .readiness
+        case "uitest":
+            let parts = url.pathComponents.filter { $0 != "/" }
+            guard parts.count >= 2,
+                  parts[0].lowercased() == "tab",
+                  let tab = FitlogRootTab(deepLinkName: parts[1])
+            else { return nil }
+            self = .uitestTab(tab)
         default:
             return nil
         }
