@@ -72,13 +72,18 @@ xcodebuild build \
   -skipMacroValidation \
   CODE_SIGNING_ALLOWED=NO
 
-APP_PATH="$(
+# Scheme settings include the Live Activity extension. The last FULL_PRODUCT_NAME
+# is FitLogLiveActivityExtension.appex ("Rest timer"), which simctl cannot install
+# as an app. Pin the FitLog target and require FitLog.app.
+BUILD_DIR="$(
   xcodebuild -project FitLog.xcodeproj -scheme FitLog -configuration Debug \
-    -destination "$DEST" -showBuildSettings 2>/dev/null \
-    | awk -F' = ' '/ TARGET_BUILD_DIR /{d=$2} / FULL_PRODUCT_NAME /{n=$2} END{print d "/" n}'
+    -destination "$DEST" -target FitLog -showBuildSettings 2>/dev/null \
+    | awk -F' = ' '/^[[:space:]]*TARGET_BUILD_DIR[[:space:]]*=/{print $2; exit}'
 )"
-if [[ ! -d "$APP_PATH" ]]; then
-  echo "Built app not found at: ${APP_PATH}" >&2
+APP_PATH="${BUILD_DIR%/}/FitLog.app"
+if [[ -z "$BUILD_DIR" || ! -d "$APP_PATH" ]]; then
+  echo "Built FitLog.app not found at: ${APP_PATH}" >&2
+  echo "TARGET_BUILD_DIR was: ${BUILD_DIR:-<empty>}" >&2
   exit 1
 fi
 echo "App bundle: ${APP_PATH}"
@@ -116,6 +121,10 @@ simctl_launch() {
 }
 
 install_app() {
+  if [[ "$APP_PATH" != *.app ]]; then
+    echo "Refusing to install non-app bundle: ${APP_PATH}" >&2
+    return 1
+  fi
   echo "Installing ${APP_PATH} onto ${SIMULATOR_UDID}"
   local attempt
   for attempt in 1 2 3 4 5 6; do
