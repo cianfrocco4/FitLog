@@ -15,6 +15,7 @@ struct HomeActiveWorkoutCard: View {
     let onFinish: () -> Void
 
     @State private var pulsePhase = false
+    @State private var pauseResumeHapticTick = 0
 
     private var session: WorkoutSession? { currentVM.currentSession }
 
@@ -135,6 +136,7 @@ struct HomeActiveWorkoutCard: View {
                     } else {
                         currentVM.pauseWorkout()
                     }
+                    pauseResumeHapticTick += 1
                 } label: {
                     Label(
                         currentVM.isWorkoutPaused ? "Resume" : "Pause",
@@ -145,6 +147,16 @@ struct HomeActiveWorkoutCard: View {
                     .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
+                .accessibilityLabel(
+                    WorkoutSessionCompactChromeAccessibility.pauseResumeLabel(
+                        isPaused: currentVM.isWorkoutPaused
+                    )
+                )
+                .accessibilityHint(
+                    WorkoutSessionCompactChromeAccessibility.pauseResumeHint(
+                        isPaused: currentVM.isWorkoutPaused
+                    )
+                )
 
                 Button(action: onOpen) {
                     Label("Log Sets", systemImage: "arrow.up.circle")
@@ -179,6 +191,6 @@ struct HomeActiveWorkoutCard: View {
                 pulsePhase = true
             }
         }
-        .sensoryFeedback(.selection, trigger: currentVM.isWorkoutPaused)
+        .sensoryFeedback(.impact(weight: .medium), trigger: pauseResumeHapticTick)
     }
 }

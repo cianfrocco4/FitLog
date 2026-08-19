@@ -275,8 +275,11 @@ struct ExerciseHistoryDetailView: View {
         .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showPaywall) {
-            PaywallView(triggerFeature: .unlimitedHistory)
-                .environment(entitlementStore)
+            PaywallView(
+                triggerFeature: .unlimitedHistory,
+                analyticsSource: "exercise_history_all_time"
+            )
+            .environment(entitlementStore)
         }
     }
 }

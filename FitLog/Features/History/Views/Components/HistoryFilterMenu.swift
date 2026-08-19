@@ -83,8 +83,11 @@ struct HistoryFilterMenu: View {
         .accessibilityLabel("History filters")
         .accessibilityHint("Change time range or compare to prior period")
         .sheet(isPresented: $showPaywall) {
-            PaywallView(triggerFeature: paywallTrigger)
-                .environment(entitlementStore)
+            PaywallView(
+                triggerFeature: paywallTrigger,
+                analyticsSource: "history_filter"
+            )
+            .environment(entitlementStore)
         }
     }
 }
