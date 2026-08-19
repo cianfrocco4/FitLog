@@ -146,15 +146,35 @@ install_app() {
   return 1
 }
 
+wait_for_data_container() {
+  # First launch creates the data container. Query it while the app is still
+  # running — terminate-then-get races on GitHub runners (silent exit 1 because
+  # simctl's error is captured inside $()).
+  local attempt path
+  for attempt in 1 2 3 4 5 6 7 8; do
+    path="$(xcrun simctl get_app_container "$SIMULATOR_UDID" "$BUNDLE_ID" data 2>/dev/null || true)"
+    if [[ -n "$path" && -d "$path" ]]; then
+      printf '%s\n' "$path"
+      return 0
+    fi
+    echo "data container missing (attempt ${attempt}/8); launching ${BUNDLE_ID}..." >&2
+    # Keep PID line off stdout — this function's stdout is the container path.
+    simctl_launch -fitlog-ui-testing >&2 || true
+    sleep $((attempt + 2))
+  done
+  echo "Failed to resolve data container for ${BUNDLE_ID}." >&2
+  xcrun simctl get_app_container "$SIMULATOR_UDID" "$BUNDLE_ID" data >&2 || true
+  xcrun simctl get_app_container "$SIMULATOR_UDID" "$BUNDLE_ID" app >&2 || true
+  return 1
+}
+
 boot_simulator
 install_app
 
 # Create the data container, then optionally restore yesterday's stores from the host.
-simctl_launch -fitlog-ui-testing
-sleep 3
+DATA_CONTAINER="$(wait_for_data_container)"
+echo "Data container: ${DATA_CONTAINER}"
 xcrun simctl terminate "$SIMULATOR_UDID" "$BUNDLE_ID" 2>/dev/null || true
-
-DATA_CONTAINER="$(xcrun simctl get_app_container "$SIMULATOR_UDID" "$BUNDLE_ID" data)"
 APP_SUPPORT="${DATA_CONTAINER}/Library/Application Support"
 DOCS="${DATA_CONTAINER}/Documents"
 mkdir -p "$APP_SUPPORT" "$DOCS"
@@ -213,7 +233,9 @@ capture_persona_tabs() {
   for tab in home plan history coach more; do
     xcrun simctl openurl "$SIMULATOR_UDID" "fitlog://uitest/tab/${tab}" >/dev/null 2>&1 || true
     sleep "$TAB_SCREENSHOT_SECONDS"
-    xcrun simctl io "$SIMULATOR_UDID" screenshot "${dir}/${day}-${tab}.png"
+    if ! xcrun simctl io "$SIMULATOR_UDID" screenshot "${dir}/${day}-${tab}.png"; then
+      echo "screenshot failed for ${persona} ${tab}" >&2
+    fi
   done
   echo "Screenshots: ${dir}/${day}-*.png"
 }
