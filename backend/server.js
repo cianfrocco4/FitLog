@@ -10,8 +10,8 @@
  *   REQUIRE_PROXY_SECRET        (optional) "1" to fail closed without secret even outside production
  *   CHAT_RATE_LIMIT_PER_MIN     (optional) default 10
  *   CHAT_RATE_LIMIT_PER_DAY     (optional) default 100
- *   FORM_GUIDE_RATE_LIMIT_PER_MIN (optional) default 30
- *   FORM_GUIDE_RATE_LIMIT_PER_DAY (optional) default 300
+ *   FORM_GUIDE_RATE_LIMIT_PER_MIN / `_PER_DAY` (optional) default 30 / 300
+ *   FORM_GUIDE_STREAM_RATE_LIMIT_PER_MIN (optional) default 300 (AVPlayer Range requests)
  *   MAX_CHAT_TOKENS             (optional) default 2048
  *   MAX_CHAT_MESSAGES           (optional) default 24
  *   MAX_CHAT_CHARS              (optional) default 40000
@@ -47,6 +47,7 @@ const CHAT_RATE_LIMIT_PER_MIN = envInt('CHAT_RATE_LIMIT_PER_MIN', 10);
 const CHAT_RATE_LIMIT_PER_DAY = envInt('CHAT_RATE_LIMIT_PER_DAY', 100);
 const FORM_GUIDE_RATE_LIMIT_PER_MIN = envInt('FORM_GUIDE_RATE_LIMIT_PER_MIN', 30);
 const FORM_GUIDE_RATE_LIMIT_PER_DAY = envInt('FORM_GUIDE_RATE_LIMIT_PER_DAY', 300);
+const FORM_GUIDE_STREAM_RATE_LIMIT_PER_MIN = envInt('FORM_GUIDE_STREAM_RATE_LIMIT_PER_MIN', 300);
 const ALLOW_FORM_GUIDE_STREAM = process.env.ALLOW_FORM_GUIDE_STREAM !== '0';
 
 function getModel() {
@@ -185,7 +186,7 @@ async function forwardToOpenAI(apiKey, body) {
   return { status: res.status, body: data, maxTokens };
 }
 
-async function forwardMuscleWikiGET(upstreamPath, reqQuery, req, res) {
+async function forwardMuscleWikiGET(upstreamPath, reqQuery, req, res, options = {}) {
   const apiKey = getOptionalEnv('MUSCLEWIKI_API_KEY');
   if (!apiKey) {
     sendJSON(res, 503, { error: 'Form guide proxy not configured: missing MUSCLEWIKI_API_KEY' });
@@ -198,15 +199,25 @@ async function forwardMuscleWikiGET(upstreamPath, reqQuery, req, res) {
     headers.Range = req.headers.range;
   }
 
+  const method = req.method === 'HEAD' ? 'HEAD' : 'GET';
+
   try {
-    const upstream = await fetch(upstreamURL, { method: 'GET', headers });
+    const upstream = await fetch(upstreamURL, { method, headers });
     const responseHeaders = {};
     const contentType = upstream.headers.get('content-type');
-    if (contentType) responseHeaders['Content-Type'] = contentType;
+    if (contentType) {
+      responseHeaders['Content-Type'] = contentType;
+    } else if (options.stream) {
+      responseHeaders['Content-Type'] = 'video/mp4';
+    }
     const contentLength = upstream.headers.get('content-length');
     if (contentLength) responseHeaders['Content-Length'] = contentLength;
     const acceptRanges = upstream.headers.get('accept-ranges');
-    if (acceptRanges) responseHeaders['Accept-Ranges'] = acceptRanges;
+    if (acceptRanges) {
+      responseHeaders['Accept-Ranges'] = acceptRanges;
+    } else if (options.stream) {
+      responseHeaders['Accept-Ranges'] = 'bytes';
+    }
     const contentRange = upstream.headers.get('content-range');
     if (contentRange) responseHeaders['Content-Range'] = contentRange;
 
@@ -285,15 +296,26 @@ async function handleChatCompletions(req, res) {
 
 function handleFormGuideRoute(path, reqQuery, req, res) {
   if (!verifyProxyAuth(req, res)) return true;
-  if (!enforceRateLimits(req, res, {
-    perMin: FORM_GUIDE_RATE_LIMIT_PER_MIN,
-    perDay: FORM_GUIDE_RATE_LIMIT_PER_DAY,
-    kind: 'form',
-  })) return true;
 
   const searchPrefix = '/v1/form-guide/search';
   const exercisePrefix = '/v1/form-guide/exercises/';
   const streamPrefix = '/v1/form-guide/stream/videos/branded/';
+  const isStream = path.startsWith(streamPrefix);
+
+  if (isStream) {
+    // AVPlayer issues many Range requests per clip; do not share the JSON API budget.
+    if (!enforceRateLimits(req, res, {
+      perMin: FORM_GUIDE_STREAM_RATE_LIMIT_PER_MIN,
+      perDay: FORM_GUIDE_STREAM_RATE_LIMIT_PER_MIN * 24,
+      kind: 'form-stream',
+    })) return true;
+  } else if (!enforceRateLimits(req, res, {
+    perMin: FORM_GUIDE_RATE_LIMIT_PER_MIN,
+    perDay: FORM_GUIDE_RATE_LIMIT_PER_DAY,
+    kind: 'form',
+  })) {
+    return true;
+  }
 
   if (path === searchPrefix) {
     logProxyCall({ kind: 'form-search', req, status: 200 });
@@ -312,7 +334,7 @@ function handleFormGuideRoute(path, reqQuery, req, res) {
     return true;
   }
 
-  if (path.startsWith(streamPrefix)) {
+  if (isStream) {
     if (!ALLOW_FORM_GUIDE_STREAM) {
       sendJSON(res, 404, { error: 'Video streaming disabled' });
       return true;
@@ -323,7 +345,7 @@ function handleFormGuideRoute(path, reqQuery, req, res) {
       return true;
     }
     logProxyCall({ kind: 'form-stream', req, status: 200 });
-    forwardMuscleWikiGET(`/stream/videos/branded/${filename}`, '', req, res);
+    forwardMuscleWikiGET(`/stream/videos/branded/${filename}`, '', req, res, { stream: true });
     return true;
   }
 

@@ -57,9 +57,7 @@ final class EntitlementStore {
     init() {
 #if DEBUG
         if FitLogUITestLaunch.isActive {
-            isPremium = true
-            appUserID = "uitest-user"
-            isConfigured = true
+            applyUITestPersonaEntitlements()
         }
 #endif
     }
@@ -93,10 +91,7 @@ final class EntitlementStore {
     }
 
     func hasAccess(to feature: PremiumFeature) -> Bool {
-#if DEBUG
-        if FitLogUITestLaunch.isActive { return true }
-#endif
-        return Self.grantsAccess(isPremium: isPremium, to: feature)
+        Self.grantsAccess(isPremium: isPremium, to: feature)
     }
 
     /// Test seam for unit tests — do not use in production UI.
@@ -113,6 +108,18 @@ final class EntitlementStore {
     func requirePremium(for feature: PremiumFeature) -> Bool {
         hasAccess(to: feature)
     }
+
+#if DEBUG
+    private func applyUITestPersonaEntitlements() {
+        let premium = FitLogUITestLaunch.persona?.isPremium ?? true
+        isPremium = premium
+        premiumDetails = premium
+            ? PremiumAccessDetails(isActive: true, willRenew: true, expirationDate: nil, isPromotional: false)
+            : .inactive
+        appUserID = "uitest-\(FitLogUITestLaunch.persona?.rawValue ?? "default")"
+        isConfigured = true
+    }
+#endif
 
 #if canImport(RevenueCat)
     func refreshCustomerInfo() async {

@@ -14,7 +14,8 @@ Small backend that forwards FitLog’s **OpenAI** and **MuscleWiki form guide** 
 | `FITLOG_PROXY_SHARED_SECRET` | **Required in production** | — | Shared secret the iOS app sends as `X-FitLog-Proxy-Secret` |
 | `REQUIRE_PROXY_SECRET` | No                            | —             | Set `1` to require secret even outside `NODE_ENV=production` |
 | `CHAT_RATE_LIMIT_PER_MIN` / `_PER_DAY` | No | `10` / `100` | Per-IP chat limits |
-| `FORM_GUIDE_RATE_LIMIT_PER_MIN` / `_PER_DAY` | No | `30` / `300` | Per-IP form-guide limits |
+| `FORM_GUIDE_RATE_LIMIT_PER_MIN` / `_PER_DAY` | No | `30` / `300` | Per-IP form-guide JSON limits |
+| `FORM_GUIDE_STREAM_RATE_LIMIT_PER_MIN` | No | `300` | Per-IP video Range-request limit (separate from JSON) |
 | `MAX_CHAT_TOKENS` / `MAX_CHAT_MESSAGES` / `MAX_CHAT_CHARS` | No | `2048` / `24` / `40000` | Chat body caps |
 | `ALLOW_FORM_GUIDE_STREAM` | No | enabled | Set `0` to disable branded video proxy |
 
@@ -105,6 +106,6 @@ Returns **503** if `MUSCLEWIKI_API_KEY` is not set on the server.
 
 Set `FITLOG_FORM_GUIDE_BASE_URL` in the iOS app to this service URL (can be the same host as `FITLOG_AI_BASE_URL`).
 
-When `FITLOG_PROXY_SHARED_SECRET` is configured on the server, set the same value in the iOS app (`FITLOG_PROXY_SHARED_SECRET`). Requests without the header are rejected with **401**. Default rate limits: **10** chat / **30** form-guide requests per IP per minute, plus daily caps (**100** / **300**). Oversized chat bodies return **400**.
+When `FITLOG_PROXY_SHARED_SECRET` is configured on the server, set the same value in the iOS app (`FITLOG_PROXY_SHARED_SECRET`). Requests without the header are rejected with **401**, including branded video streams (missing this header is a blank/black AVPlayer). Default rate limits: **10** chat / **30** form-guide JSON requests per IP per minute, plus daily caps (**100** / **300**). Video `Range` requests use a separate budget (default **300**/min). Oversized chat bodies return **400**.
 
 See **FORM_GUIDE_SETUP.md** in the repo root for iOS configuration.

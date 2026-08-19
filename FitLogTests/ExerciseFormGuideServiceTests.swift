@@ -36,14 +36,35 @@ struct ExerciseFormGuideServiceTests {
         #expect(service.isConfigured == true)
     }
 
-    @Test func streamRequestHeaders_emptyInProxyMode() {
-        let service = ExerciseFormGuideService(apiKey: "mw-should-be-ignored", proxyBaseURL: "https://proxy.example.com")
+    @Test func streamRequestHeaders_proxyMode_sendsSharedSecretAndIgnoresMuscleWikiKey() {
+        let service = ExerciseFormGuideService(
+            apiKey: "mw-should-be-ignored",
+            proxyBaseURL: "https://proxy.example.com",
+            proxySharedSecret: "proxy-secret"
+        )
+        #expect(service.streamRequestHeaders() == [
+            FitLogProxyConfig.proxySecretHeaderName: "proxy-secret"
+        ])
+        #expect(service.streamRequestHeaders()["X-API-Key"] == nil)
+    }
+
+    @Test func streamRequestHeaders_proxyModeWithoutSecret_isEmpty() {
+        let service = ExerciseFormGuideService(
+            apiKey: "mw-should-be-ignored",
+            proxyBaseURL: "https://proxy.example.com",
+            proxySharedSecret: nil
+        )
         #expect(service.streamRequestHeaders().isEmpty)
     }
 
     @Test func streamRequestHeaders_includesKeyInDirectMode() {
-        let service = ExerciseFormGuideService(apiKey: "mw-test-key", proxyBaseURL: nil)
-        #expect(service.streamRequestHeaders()["X-API-Key"] == "mw-test-key")
+        let service = ExerciseFormGuideService(
+            apiKey: "mw-test-key",
+            proxyBaseURL: nil,
+            proxySharedSecret: "unused"
+        )
+        #expect(service.streamRequestHeaders()[FitLogProxyConfig.muscleWikiAPIKeyHeaderName] == "mw-test-key")
+        #expect(service.streamRequestHeaders()[FitLogProxyConfig.proxySecretHeaderName] == nil)
     }
 
     @Test func cachedGuide_returnsSeededPreviewGuide() async {

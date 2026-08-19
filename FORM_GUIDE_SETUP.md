@@ -67,12 +67,18 @@ curl --request GET \
 
 If videos fail with “not configured”, check Render logs and confirm `/health` returns `"formGuide": true`.
 
+If the player is a **black or blank screen**:
+
+1. Confirm the TestFlight/App Store binary includes the form-guide **download-then-play** path (`FormGuideVideoClipStore`). AVPlayer does **not** reliably send `X-FitLog-Proxy-Secret` on media requests, so streaming the proxy URL directly gets **401 JSON** and a black frame.
+2. Confirm the iOS `FITLOG_PROXY_SHARED_SECRET` matches Render (`/health` reports `"authRequired": true`).
+
 ---
 
 ## Files
 
 - `FitLog/Features/FormGuide/MuscleWikiConfig.swift` — reads `FITLOG_FORM_GUIDE_BASE_URL` and `MUSCLEWIKI_API_KEY`
 - `FitLog/Features/FormGuide/ExerciseFormGuideService.swift` — proxy-aware networking
+- `FitLog/Features/FormGuide/FormGuideVideoClipStore.swift` — authenticated URLSession download + on-disk playback
 - `backend/server.js` — MuscleWiki proxy routes
 
 ## Security note

@@ -660,10 +660,10 @@ Optional: App Preview videos — not required for v1.
 
 **Path:** version page → **App Review Information**.
 
-1. Paste **Review Notes** from [APP_STORE_COMPLIANCE.md](APP_STORE_COMPLIANCE.md) (SIWA optional, free offline logging, restore + App User ID comp path, no demo account).
+1. Paste **Review Notes** from [APP_STORE_COMPLIANCE.md](APP_STORE_COMPLIANCE.md) (SIWA optional, **Delete Account** path, free offline logging, restore + App User ID comp path, no demo account).
 2. Contact: First **Anthony**, Last **Cianfrocco**, phone (your number), email `acianfrocco@gmail.com` (or your support address).
-3. **Sign-in required?** No — note that reviewers can tap **Continue without signing in**.
-4. Attach a demo video only if Review asks later; not required for this app.
+3. **Sign-in required?** No — reviewers can tap **Continue without signing in**. To review **account deletion**, they must Sign in with Apple, then More → Delete Account (see [APP_REVIEW_RESOLUTION.md](APP_REVIEW_RESOLUTION.md)).
+4. Attach the physical-device **Delete Account** screen recording in Resolution Center and in Notes when resubmitting after a 5.1.1(v) rejection.
 
 ### 9. Build selection (on the version)
 

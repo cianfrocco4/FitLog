@@ -43,10 +43,20 @@ struct PremiumPromptPolicyTests {
     @Test func homeCard_hiddenWhenPremiumDismissedOrSnoozed() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         #expect(
+            !PremiumPromptPolicy.shouldShowHomePremiumCard(
+                isPremium: false,
+                dismissed: false,
+                snoozeUntil: nil,
+                completedSessionCount: 0,
+                now: now
+            )
+        )
+        #expect(
             PremiumPromptPolicy.shouldShowHomePremiumCard(
                 isPremium: false,
                 dismissed: false,
                 snoozeUntil: nil,
+                completedSessionCount: 1,
                 now: now
             )
         )
@@ -55,6 +65,7 @@ struct PremiumPromptPolicyTests {
                 isPremium: true,
                 dismissed: false,
                 snoozeUntil: nil,
+                completedSessionCount: 1,
                 now: now
             )
         )
@@ -63,6 +74,7 @@ struct PremiumPromptPolicyTests {
                 isPremium: false,
                 dismissed: true,
                 snoozeUntil: nil,
+                completedSessionCount: 1,
                 now: now
             )
         )
@@ -71,6 +83,7 @@ struct PremiumPromptPolicyTests {
                 isPremium: false,
                 dismissed: false,
                 snoozeUntil: now.addingTimeInterval(3600),
+                completedSessionCount: 1,
                 now: now
             )
         )
@@ -79,6 +92,7 @@ struct PremiumPromptPolicyTests {
                 isPremium: false,
                 dismissed: false,
                 snoozeUntil: now.addingTimeInterval(-60),
+                completedSessionCount: 1,
                 now: now
             )
         )

@@ -8,8 +8,11 @@ Run on a **physical device** with a **Release** or TestFlight build before submi
 |-------|--------|
 | Debug build compiles | `xcodebuild -scheme FitLog -destination 'platform=iOS Simulator,id=<iPhone>' build` |
 | Unit tests | `FitLogTests` including SwiftData V5→V6, readiness, entitlement, history range |
+| UI journeys | `FitLogUITests` plus **daily living** (`scripts/run-daily-living-users.sh`) to grow History and write likes/dislikes/bugs into `INBOX.md`. Snapshot UI tests stay on a Mac / `fitlog-mac` (not GitHub iOS CI). See [AUTOMATED_USER_TESTING.md](AUTOMATED_USER_TESTING.md). |
 | StoreKit config | FitLog scheme → Run → StoreKit Configuration = `Configuration.storekit` |
 | RevenueCat SPM | `purchases-ios-spm` resolved (see Package.resolved) |
+
+Exploratory bot (taps like a free user, screenshots, optional small UX PR): [automation-prompts/exploratory-user-testing.md](automation-prompts/exploratory-user-testing.md).
 
 ## Manual device checklist
 
@@ -55,8 +58,15 @@ Run on a **physical device** with a **Release** or TestFlight build before submi
 - [ ] Daily AI soft-limit copy appears after heavy local use (“Daily AI limit reached…”)
 
 ### Erase / privacy
-- [ ] **Erase all app data** clears workouts, Coach chats, readiness, body metrics, and progress photos
+- [ ] **Erase all app data** (local-only / not signed in) clears workouts, Coach chats, readiness, body metrics, and progress photos
 - [ ] Confirmation copy mentions Apple Health workouts may remain in Health
+
+### Account deletion (Guideline 5.1.1(v) — signed in)
+- [ ] Sign in with Apple (or create a new SIWA account)
+- [ ] More shows an **Account** section with **Delete Account** (also More → Account → Delete Account)
+- [ ] Confirming Delete Account returns to the sign-in screen
+- [ ] After deletion, local workouts / Coach chats are gone (Sign Out alone must **not** erase workouts)
+- [ ] Copy states App Store subscriptions are not canceled automatically
 
 ### Widgets
 - [ ] Add Readiness widget to Home Screen
@@ -77,6 +87,7 @@ Run on a **physical device** with a **Release** or TestFlight build before submi
 - [ ] Fresh install: onboarding can be completed or skipped; Premium page dismissible
 - [ ] Sign in with Apple optional; app usable without sign-in
 - [ ] Sign out does not delete workout data; RC logOut when entitlement store is passed
+- [ ] Signed-in users do **not** see only “Erase all app data” in place of Delete Account
 
 ## Sign-off
 

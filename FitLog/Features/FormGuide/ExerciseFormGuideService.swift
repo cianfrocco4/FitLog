@@ -13,6 +13,7 @@ final class ExerciseFormGuideService {
     private let session: URLSession
     private let apiKey: String?
     private let proxyBaseURL: String?
+    private let proxySharedSecret: String?
     private var guideCache: [UUID: ExerciseFormGuide] = [:]
     private var unavailableExerciseIds: Set<UUID> = []
     private var loadStates: [UUID: ExerciseFormGuideLoadState] = [:]
@@ -30,10 +31,12 @@ final class ExerciseFormGuideService {
 
     init(
         apiKey: String? = MuscleWikiConfig.apiKey,
-        proxyBaseURL: String? = MuscleWikiConfig.proxyBaseURL
+        proxyBaseURL: String? = MuscleWikiConfig.proxyBaseURL,
+        proxySharedSecret: String? = FitLogProxyConfig.sharedSecret
     ) {
         self.apiKey = apiKey
         self.proxyBaseURL = proxyBaseURL?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.proxySharedSecret = proxySharedSecret?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 25
         config.urlCache = URLCache(
@@ -112,8 +115,11 @@ final class ExerciseFormGuideService {
     }
 
     func streamRequestHeaders() -> [String: String] {
-        guard !usesProxy, let apiKey else { return [:] }
-        return ["X-API-Key": apiKey]
+        FitLogProxyConfig.videoStreamHeaders(
+            usesProxy: usesProxy,
+            proxySharedSecret: proxySharedSecret,
+            muscleWikiAPIKey: apiKey
+        )
     }
 
     func wakeProxyAndRetryIfNeeded() {
@@ -124,7 +130,9 @@ final class ExerciseFormGuideService {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 30
-        FitLogProxyConfig.applyProxyAuthHeaders(to: &request)
+        if let proxySharedSecret {
+            request.setValue(proxySharedSecret, forHTTPHeaderField: FitLogProxyConfig.proxySecretHeaderName)
+        }
 
         Task(priority: .utility) { @MainActor in
             guard let (_, response) = try? await session.data(for: request),
@@ -273,10 +281,10 @@ final class ExerciseFormGuideService {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         if !usesProxy, let apiKey {
-            request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+            request.setValue(apiKey, forHTTPHeaderField: FitLogProxyConfig.muscleWikiAPIKeyHeaderName)
         }
-        if usesProxy {
-            FitLogProxyConfig.applyProxyAuthHeaders(to: &request)
+        if usesProxy, let proxySharedSecret {
+            request.setValue(proxySharedSecret, forHTTPHeaderField: FitLogProxyConfig.proxySecretHeaderName)
         }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {

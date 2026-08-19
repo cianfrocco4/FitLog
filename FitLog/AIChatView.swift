@@ -27,9 +27,9 @@ struct AIChatView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if !entitlementStore.isPremium {
+                if shouldShowCoachPremiumBanner {
                     premiumRequiredBanner
-                } else if !aiService.isConfigured {
+                } else if entitlementStore.isPremium, !aiService.isConfigured {
                     notConfiguredBanner
                 }
 
@@ -219,6 +219,11 @@ struct AIChatView: View {
     }
 
     // MARK: - Empty state
+
+    private var shouldShowCoachPremiumBanner: Bool {
+        guard !entitlementStore.isPremium else { return false }
+        return !dataVM.userWorkouts.isEmpty || dataVM.dynamicProgramState != nil
+    }
 
     private var emptyStateHero: some View {
         VStack(alignment: .leading, spacing: 12) {

@@ -40,8 +40,12 @@ You may complete Step 1 + Step 2 in one run:
 If build/tests fail: fix or stop; no PR.
 
 ## Product work (Step 1)
-1) Review recent code and product gaps. Prefer real user workflows: start workout → log sets → finish → history; readiness; freemium gates; paywall; widgets. Consider Slack triage notes and App Store review backlog.
-2) Short findings list (bugs, UX friction, small features).
+1) Review recent code and product gaps. Prefer real user workflows: start workout → log sets → finish → history; readiness; freemium gates; paywall; widgets.
+   Also read simulated-user feedback before inventing work:
+   - GitHub issue titled **Living user feedback inbox** (latest comment), or
+   - `gh run list --workflow "Living users" --limit 1` then download artifact `living-user-stores` and read `INBOX.md`
+   Prefer recurring note ids (dislikes/bugs/improvements) that showed up more than once.
+2) Short findings list (bugs, UX friction, small features). Cite inbox ids when you use them.
 3) Implement at most 1–3 highest-impact, low-risk items. No large refactors. No SwiftData schema changes unless clearly required and migration-safe. Respect freemium/paywall.
 4) Follow the environment rules above for branch push vs PR.
 

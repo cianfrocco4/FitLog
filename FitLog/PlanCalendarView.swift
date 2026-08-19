@@ -26,13 +26,13 @@ struct PlanCalendarView: View {
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var aiService: AIService
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
-    @Environment(\.fitlogCoachDeepLink) private var coachDeepLink
 
     @State private var visibleMonth: Date = Date()
     @State private var weekStripWeekOffset: Int = 0
     @State private var daySheetDate: Date?
     @State private var weekEditAnchor: Date?
     @State private var showProgramBuilder = false
+    @State private var showSplitBuilder = false
     @State private var showActiveProgramDetail = false
     @State private var resolvedDayCache: [String: ResolvedScheduleDay] = [:]
     @State private var pendingWorkoutReplace: PendingWorkoutReplace?
@@ -81,6 +81,14 @@ struct PlanCalendarView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 0) {
+                    if showsEmptyProgramHero {
+                        PlanEmptyProgramHeroView(
+                            onBuildProgram: { presentSplitBuilder() },
+                            onNewWorkout: { presentNewWorkoutFromPlan() }
+                        )
+                        .padding(.horizontal)
+                        .padding(.bottom, 12)
+                    }
                     monthHeader
                     if let blockTransitionToast {
                         Text(blockTransitionToast)
@@ -166,11 +174,11 @@ struct PlanCalendarView: View {
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
-                        openCoachDynamicProgramBuilderWithPlanContext()
+                        presentSplitBuilder()
                     } label: {
                         Label("Build program", systemImage: "calendar.badge.clock")
                     }
-                    .accessibilityHint("Opens Coach with the program builder and your current plan context")
+                    .accessibilityHint("Opens the program builder on this tab")
                     Button {
                         jumpToTodayMonth()
                     } label: {
@@ -199,7 +207,7 @@ struct PlanCalendarView: View {
                 ProgramBuilderSheet(
                     onBuildProgram: {
                         showProgramBuilder = false
-                        openCoachDynamicProgramBuilderWithPlanContext()
+                        presentSplitBuilderAfterDismissal()
                     },
                     onViewActiveProgram: {
                         showProgramBuilder = false
@@ -209,6 +217,13 @@ struct PlanCalendarView: View {
                     .environment(dataVM)
                     .environment(currentVM)
                     .environmentObject(aiService)
+            }
+            .sheet(isPresented: $showSplitBuilder) {
+                SplitBuilderView()
+                    .environment(dataVM)
+                    .environment(currentVM)
+                    .environmentObject(aiService)
+                    .environment(\.fitlogAISplitCoachPrefill, dataVM.planCycleContextLineForCoach())
             }
             .sheet(isPresented: $showActiveProgramDetail) {
                 ActiveProgramDetailView()
@@ -220,6 +235,31 @@ struct PlanCalendarView: View {
         }
     }
 
+    private var showsEmptyProgramHero: Bool {
+        dataVM.dynamicProgramState == nil && dataVM.trainingProgram.cycleEntries.isEmpty
+    }
+
+    private func presentSplitBuilder() {
+        FitlogHaptics.lightImpact()
+        showSplitBuilder = true
+    }
+
+    private func presentSplitBuilderAfterDismissal() {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            presentSplitBuilder()
+        }
+    }
+
+    private func presentNewWorkoutFromPlan() {
+        FitlogHaptics.lightImpact()
+        rootTabSelection?.wrappedValue = .home
+        NotificationCenter.default.post(
+            name: .fitlogPresentNewWorkout,
+            object: NewWorkoutLaunchHint.templatesFirst
+        )
+    }
+
     private func jumpToTodayMonth() {
         FitlogHaptics.mediumImpact()
         let today = Date()
@@ -229,12 +269,6 @@ struct PlanCalendarView: View {
 
     private func advanceVisibleMonth(by months: Int) {
         visibleMonth = calendar.date(byAdding: .month, value: months, to: visibleMonth) ?? visibleMonth
-    }
-
-    private func openCoachDynamicProgramBuilderWithPlanContext() {
-        FitlogHaptics.lightImpact()
-        coachDeepLink.wrappedValue = .openDynamicProgramBuilder(prefill: dataVM.planCycleContextLineForCoach())
-        rootTabSelection?.wrappedValue = .coach
     }
 
     // MARK: - Week strip (focused week)
@@ -1288,7 +1322,7 @@ struct ProgramBuilderSheet: View {
                                 Label("Open program builder", systemImage: "calendar.badge.clock")
                             }
                             .buttonStyle(.borderedProminent)
-                            .accessibilityHint("Opens Coach to edit your generated program")
+                            .accessibilityHint("Opens the program builder")
                         }
                     } header: {
                         Text("Program lineup")
@@ -1344,7 +1378,7 @@ struct ProgramBuilderSheet: View {
                     } label: {
                         Label("Open program builder", systemImage: "calendar.badge.clock")
                     }
-                    .accessibilityHint("Opens Coach to build a single- or multi-phase program with AI or local presets")
+                    .accessibilityHint("Opens the program builder to create or edit a training program")
                 } header: {
                     Text("Quick actions")
                 }

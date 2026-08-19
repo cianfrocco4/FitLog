@@ -7,79 +7,66 @@ import SwiftUI
 
 enum PostOnboardingRoutineAction: Equatable {
     case none
-    case coachAISplit
-    case homeNewWorkoutTemplates
-    case homeNewWorkoutScratch
-    case homeCardioQuickStart
+    case homeProgramBuilder
+    case homeNewWorkout
 }
 
 struct OnboardingFlowView: View {
     @Binding var isPresented: Bool
-    /// Called when onboarding ends (including Skip). Use to deep-link into Coach or New Workout.
+    /// Called when onboarding ends (including Skip). Use to deep-link into program or workout creation.
     var onPostOnboarding: ((PostOnboardingRoutineAction) -> Void)?
 
     @Environment(DataManager.self) private var dataVM
     @EnvironmentObject private var userPreferences: UserPreferences
-    @Environment(EntitlementStore.self) private var entitlementStore
 
     @State private var page = 0
     @State private var sessionsPerWeek = 3
-    @State private var showPaywall = false
 
-    private var lastPageIndex: Int { 4 }
+    private enum Page: Int {
+        case welcome = 0
+        case startChoice = 1
+        case weeklyRhythm = 2
+    }
 
     var body: some View {
         NavigationStack {
             Group {
-                switch page {
-                case 0:
+                switch Page(rawValue: page) ?? .welcome {
+                case .welcome:
                     welcomePage
-                case 1:
+                case .startChoice:
+                    startChoicePage
+                case .weeklyRhythm:
                     frequencyPage
-                case 2:
-                    routineChoicePage
-                case 3:
-                    premiumValuePage
-                default:
-                    wrapUpPage
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle(page == 0 ? "" : "Get started")
+            .navigationTitle(page == Page.welcome.rawValue ? "" : "Get started")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Skip") {
                         finishWithAction(.none)
                     }
+                    .accessibilityIdentifier("onboarding.skip")
+                    .accessibilityHint("Skips setup and opens Home")
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    if page < 2 {
+                    if page == Page.welcome.rawValue {
                         Button("Next") {
-                            withAnimation {
-                                page = min(lastPageIndex, page + 1)
-                            }
+                            withAnimation { page = Page.startChoice.rawValue }
                         }
                         .fontWeight(.semibold)
-                    } else if page < lastPageIndex {
-                        Button("Next") {
-                            withAnimation {
-                                page = min(lastPageIndex, page + 1)
-                            }
+                        .accessibilityIdentifier("onboarding.next")
+                    } else if page == Page.weeklyRhythm.rawValue {
+                        Button("Continue") {
+                            finishWithAction(.homeProgramBuilder)
                         }
                         .fontWeight(.semibold)
-                    } else if page == lastPageIndex {
-                        Button("Done") {
-                            finishWithAction(.none)
-                        }
-                        .fontWeight(.semibold)
+                        .accessibilityIdentifier("onboarding.continuePlan")
                     }
                 }
             }
-        }
-        .sheet(isPresented: $showPaywall) {
-            PaywallView(triggerFeature: .aiCoach, onDismiss: nil)
-                .environment(entitlementStore)
         }
         .onAppear {
             let current = dataVM.trainingProgram.sessionsPerWeek
@@ -93,28 +80,72 @@ struct OnboardingFlowView: View {
             Image(systemName: "figure.strengthtraining.traditional")
                 .font(.system(size: 56))
                 .foregroundStyle(.tint)
+                .accessibilityHidden(true)
             Text("Welcome to \(AppBrand.name)")
                 .font(.largeTitle.weight(.bold))
                 .multilineTextAlignment(.center)
-            Text("Track strength and cardio in one place — sets, intervals, readiness from Apple Health, and optional AI coaching.")
+                .accessibilityAddTraits(.isHeader)
+            Text("A workout is a session you log. A program is the week that tells you what to train each day.")
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
-            Label("Log runs, rides, and intervals alongside your lifts", systemImage: "figure.run")
-                .font(.subheadline)
-                .foregroundStyle(FitlogPalette.chartSecondary)
-                .padding(.top, 4)
             Spacer()
         }
         .padding()
+        .accessibilityIdentifier("onboarding.welcome")
+    }
+
+    private var startChoicePage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("How do you want to start?")
+                    .font(.title2.weight(.semibold))
+                    .accessibilityAddTraits(.isHeader)
+                Text("Pick one path — you can always create the other later from Home.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                startPathCard(
+                    title: "Plan my week",
+                    subtitle: "Build a program so Home and Plan know what to train each day.",
+                    systemImage: "calendar.badge.clock",
+                    recommended: true,
+                    identifier: "onboarding.planWeek"
+                ) {
+                    withAnimation { page = Page.weeklyRhythm.rawValue }
+                }
+
+                startPathCard(
+                    title: "Log a workout today",
+                    subtitle: "Create a session from a template or from scratch, then start logging.",
+                    systemImage: "dumbbell.fill",
+                    recommended: false,
+                    identifier: "onboarding.logWorkout"
+                ) {
+                    finishWithAction(.homeNewWorkout)
+                }
+
+                Button("I’ll explore first") {
+                    finishWithAction(.none)
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 8)
+                .accessibilityIdentifier("onboarding.explore")
+                .accessibilityHint("Opens Home with tips on creating a workout or program")
+            }
+            .padding()
+        }
     }
 
     private var frequencyPage: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Weekly rhythm")
                 .font(.title2.weight(.semibold))
-            Text("How many strength sessions do you want to aim for each week? You can change this anytime under Plan → Program.")
+                .accessibilityAddTraits(.isHeader)
+            Text("How many strength sessions do you want to aim for each week? You can change this anytime in Plan.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             Stepper(value: $sessionsPerWeek, in: 1...7) {
@@ -122,123 +153,83 @@ struct OnboardingFlowView: View {
                     .font(.headline)
             }
             .padding(.vertical, 8)
+            .accessibilityHint("Sets how many training days to aim for each week")
             Spacer()
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .accessibilityIdentifier("onboarding.frequency")
     }
 
-    private var routineChoicePage: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Build your first routine")
-                .font(.title2.weight(.semibold))
-            Text("Pick one path — you can always change things later in Home or Plan.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+    private func startPathCard(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        recommended: Bool,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: systemImage)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 44, height: 44)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.14))
+                    )
+                    .accessibilityHidden(true)
 
-            VStack(spacing: 12) {
-                Button {
-                    finishWithAction(.coachAISplit)
-                } label: {
-                    Label("Build a split", systemImage: "sparkles")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .accessibilityHint("Opens the coach to generate a training split")
-
-                Button {
-                    finishWithAction(.homeNewWorkoutTemplates)
-                } label: {
-                    Label("Use a quick-start template", systemImage: "rectangle.stack.badge.plus")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityHint("Opens Home with workout templates")
-
-                Button {
-                    finishWithAction(.homeNewWorkoutScratch)
-                } label: {
-                    Label("Start from scratch", systemImage: "square.and.pencil")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityHint("Opens Home to create a custom workout")
-
-                Button {
-                    finishWithAction(.homeCardioQuickStart)
-                } label: {
-                    Label("Build a cardio workout", systemImage: "figure.run")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .tint(FitlogPalette.chartSecondary)
-                .accessibilityHint("Opens the cardio workout builder with interval and steady templates")
-
-                Button("Skip for now") {
-                    withAnimation {
-                        page = 3
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text(title)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                        if recommended {
+                            Text("Recommended")
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Capsule().fill(FitlogPalette.highlight.opacity(0.18)))
+                                .foregroundStyle(FitlogPalette.highlight)
+                        }
                     }
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 8)
-            }
-            Spacer()
-        }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
 
-    private var premiumValuePage: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Train smarter with Premium")
-                .font(.title2.weight(.semibold))
-            Text("Logging stays free forever. Premium unlocks private on-device coaching (Apple Intelligence), cloud AI when needed, readiness trends, and advanced analytics.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Label("On-device AI adjust + cloud coach & program builder", systemImage: "sparkles")
-            Label("Readiness trends (7–90 days) from Apple Health", systemImage: "heart.text.square.fill")
-            Label("Advanced analytics, unlimited history, and export", systemImage: "chart.xyaxis.line")
-            Text("Not medical advice — general fitness coaching tool only.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Button("See Premium options") {
-                showPaywall = true
-            }
-            .buttonStyle(.borderedProminent)
-            Button("Continue with free plan") {
-                withAnimation { page = lastPageIndex }
-            }
-            .font(.subheadline)
-            Spacer()
-        }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
+                Spacer(minLength: 0)
 
-    private var wrapUpPage: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("You’re set")
-                .font(.title2.weight(.semibold))
-            Label("Home shows today's plan, readiness, and your week.", systemImage: "house")
-            Label("Plan is your calendar and training program.", systemImage: "calendar")
-            Label("History shows the last 14 days free — unlock full history with Premium.", systemImage: "chart.bar")
-            Label("Cardio templates cover steady state, intervals, and hybrid days.", systemImage: "figure.run")
-                .foregroundStyle(FitlogPalette.chartSecondary)
-            Text("Tap Done to start logging, or use Skip anytime.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-            Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 4)
+                    .accessibilityHidden(true)
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(FitlogPalette.subtleFill)
+            )
         }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
+        .accessibilityLabel(title)
+        .accessibilityHint(subtitle)
     }
 
     private func finishWithAction(_ action: PostOnboardingRoutineAction) {
         dataVM.setTrainingSessionsPerWeek(sessionsPerWeek)
         userPreferences.markOnboardingComplete()
-        isPresented = false
         onPostOnboarding?(action)
+        isPresented = false
     }
+}
+
+#Preview("Welcome") {
+    OnboardingFlowView(isPresented: .constant(true))
 }
