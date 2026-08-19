@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Find or create the standing "Living user feedback inbox" GitHub issue and
-# comment with living-users/INBOX.md. Soft-fails so a missing token does not
-# fail the living-users job.
+# comment with living-users/INBOX.md.
+#
+# GitHub Actions uses scripts/post-living-user-inbox.cjs (Issues REST API).
+# This script is the local-Mac path. Do not use --search (GITHUB_TOKEN often
+# cannot call /search/issues, which previously skipped posting with no error).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -24,7 +27,7 @@ fi
 
 REPO="${GITHUB_REPOSITORY:-}"
 if [[ -z "$REPO" ]]; then
-  REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
+  REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
 fi
 if [[ -z "$REPO" ]]; then
   echo "Could not resolve GitHub repo; skip posting." >&2
@@ -34,10 +37,9 @@ fi
 ISSUE_NUMBER="${FITLOG_LIVING_USERS_ISSUE_NUMBER:-}"
 if [[ -z "$ISSUE_NUMBER" ]]; then
   ISSUE_NUMBER="$(
-    gh issue list --repo "$REPO" --state open --search "${ISSUE_TITLE} in:title" \
+    gh issue list --repo "$REPO" --state open --limit 100 \
       --json number,title --jq \
-      "[.[] | select(.title == \"${ISSUE_TITLE}\")] | .[0].number // empty" \
-      2>/dev/null || true
+      "[.[] | select(.title == \"${ISSUE_TITLE}\")] | .[0].number // empty"
   )"
   ISSUE_NUMBER="$(printf '%s' "$ISSUE_NUMBER" | tr -d '[:space:]')"
 fi
@@ -53,14 +55,14 @@ The nightly improvement loop should read the latest comment (or `living-users/IN
 
 Leave this issue open while the Living users workflow is active.
 EOF
-  ISSUE_URL="$(gh issue create --repo "$REPO" --title "$ISSUE_TITLE" --body-file "$BODY_CREATE" || true)"
+  ISSUE_URL="$(gh issue create --repo "$REPO" --title "$ISSUE_TITLE" --body-file "$BODY_CREATE")"
   rm -f "$BODY_CREATE"
   ISSUE_NUMBER="${ISSUE_URL##*/}"
 fi
 
 if [[ -z "$ISSUE_NUMBER" ]]; then
-  echo "Could not find or create inbox issue; skip posting." >&2
-  exit 0
+  echo "Could not find or create inbox issue." >&2
+  exit 1
 fi
 
 BODY="$(mktemp)"
@@ -72,9 +74,6 @@ BODY="$(mktemp)"
   cat "$INBOX"
 } > "$BODY"
 
-if gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file "$BODY"; then
-  echo "Posted living-user inbox to https://github.com/${REPO}/issues/${ISSUE_NUMBER}"
-else
-  echo "Failed to comment on issue ${ISSUE_NUMBER} (missing issues:write?)." >&2
-fi
+gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file "$BODY"
 rm -f "$BODY"
+echo "Posted living-user inbox to https://github.com/${REPO}/issues/${ISSUE_NUMBER}"

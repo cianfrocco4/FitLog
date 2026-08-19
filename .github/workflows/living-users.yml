@@ -67,7 +67,10 @@ jobs:
           LIVING_USERS_SCREENSHOT_DIR: ${{ runner.temp }}/living-screenshots
           SETTLE_SECONDS: "15"
           SIMULATOR_READY_SECONDS: "15"
-          POST_LIVING_USER_REVIEWS: "1"
+          # Posted in the dedicated step below (Issues REST API). The bash
+          # helper previously used `gh issue list --search`, which GITHUB_TOKEN
+          # cannot call, so the inbox issue was never created.
+          POST_LIVING_USER_REVIEWS: "0"
         run: |
           set -euo pipefail
           mkdir -p living-users
@@ -120,3 +123,10 @@ jobs:
           path: ${{ runner.temp }}/living-screenshots
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Post living-user inbox
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const post = require('./scripts/post-living-user-inbox.cjs');
+            await post({ github, context, core });
