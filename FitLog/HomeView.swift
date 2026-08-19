@@ -508,9 +508,146 @@ struct HomeView: View {
         }
     }
 
+    @ViewBuilder
+    private var homeProgramSections: some View {
+        if shouldShowProgramAssignmentBanner, !isFirstRunHome {
+            Section {
+                programAssignmentBannerCard
+                    .listRowInsets(homeDashboardListInsets)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+            }
+        }
+
+        if !isFirstRunHome {
+            Section {
+                if let dyn = dataVM.dynamicProgramState {
+                    HomeProgramSummaryCard(
+                        state: dyn,
+                        onOpenDetail: { showActiveProgramDetail = true },
+                        onBuildNew: { showSplitBuilder = true },
+                        onOpenWorkout: { todayPlanDetailRoute = .plannedWorkout($0) },
+                        onStartWorkout: { startWorkoutFromTodayPlan($0) }
+                    )
+                    .listRowInsets(homeDashboardListInsets)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .spotlightAnchor(.programCard)
+                } else {
+                    HomeBuildProgramCard { showSplitBuilder = true }
+                        .listRowInsets(homeDashboardListInsets)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .spotlightAnchor(.programCard)
+                }
+            } header: {
+                Text("Program")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                    .textCase(nil)
+            } footer: {
+                Text("Uses your goals, schedule, and exercise library—then updates Plan.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var homeWorkoutsLibrarySection: some View {
+        if !isFirstRunHome {
+            Section {
+                if dataVM.userWorkouts.isEmpty {
+                    homeEmptyWorkoutsCallout
+                        .listRowInsets(homeDashboardListInsets)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                } else if homeShowsWorkoutPreviewOnly {
+                    ForEach(homePreviewWorkouts) { workout in
+                        HomeWorkoutListRow(
+                            workout: workout,
+                            workoutToRename: $workoutToRename,
+                            renameText: $renameText,
+                            onStartLibrary: startWorkoutFromLibrary
+                        )
+                    }
+                    NavigationLink {
+                        HomeWorkoutLibraryView()
+                            .environment(dataVM)
+                            .environment(currentVM)
+                            .environmentObject(aiService)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "rectangle.stack")
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 28)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("All workouts")
+                                    .font(.headline)
+                                Text("\(dataVM.userWorkouts.count) saved · search, reorder, and edit")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                } else if workoutSearchTrimmed.isEmpty {
+                    ForEach(dataVM.userWorkouts) { workout in
+                        HomeWorkoutListRow(
+                            workout: workout,
+                            workoutToRename: $workoutToRename,
+                            renameText: $renameText,
+                            onStartLibrary: startWorkoutFromLibrary
+                        )
+                    }
+                    .onMove(perform: dataVM.moveWorkout)
+                } else {
+                    ForEach(filteredWorkouts) { workout in
+                        HomeWorkoutListRow(
+                            workout: workout,
+                            workoutToRename: $workoutToRename,
+                            renameText: $renameText,
+                            onStartLibrary: startWorkoutFromLibrary
+                        )
+                    }
+                }
+            } header: {
+                Text("Your workouts")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                    .textCase(nil)
+            } footer: {
+                Text(
+                    dataVM.userWorkouts.isEmpty
+                        ? "Workouts you create appear here and in Plan."
+                        : homeShowsWorkoutPreviewOnly
+                            ? "Showing the first \(homeWorkoutPreviewCount) in your list order. Open All workouts for the full library."
+                            : "Swipe right on a row to start quickly."
+                )
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            }
+            .spotlightAnchor(.workoutsList)
+        }
+    }
+
     var body: some View {
-        @Bindable var dm = dataVM
-        return NavigationStack {
+        NavigationStack {
+            homeStackWithPresentation
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .fitlogOpenReadinessDetail)) { _ in
+            showReadinessDetail = true
+        }
+    }
+
+    /// List + chrome only — split from sheets so the type checker can finish.
+    private var homeRootList: some View {
             List {
                 if let homeBlockTransitionToast {
                     Section {
@@ -528,129 +665,8 @@ struct HomeView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 }
                 homeActiveAndReadinessSection
-
-                if shouldShowProgramAssignmentBanner, !isFirstRunHome {
-                    Section {
-                        programAssignmentBannerCard
-                            .listRowInsets(homeDashboardListInsets)
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                    }
-                }
-
-                if !isFirstRunHome {
-                Section {
-                    if let dyn = dataVM.dynamicProgramState {
-                        HomeProgramSummaryCard(
-                            state: dyn,
-                            onOpenDetail: { showActiveProgramDetail = true },
-                            onBuildNew: { showSplitBuilder = true },
-                            onOpenWorkout: { todayPlanDetailRoute = .plannedWorkout($0) },
-                            onStartWorkout: { startWorkoutFromTodayPlan($0) }
-                        )
-                        .listRowInsets(homeDashboardListInsets)
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                        .spotlightAnchor(.programCard)
-                    } else {
-                        HomeBuildProgramCard { showSplitBuilder = true }
-                            .listRowInsets(homeDashboardListInsets)
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                            .spotlightAnchor(.programCard)
-                    }
-                } header: {
-                    Text("Program")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.secondary)
-                        .textCase(nil)
-                } footer: {
-                    Text("Uses your goals, schedule, and exercise library—then updates Plan.")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-                }
-
-                if !isFirstRunHome {
-                Section {
-                    if dataVM.userWorkouts.isEmpty {
-                        homeEmptyWorkoutsCallout
-                            .listRowInsets(homeDashboardListInsets)
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                    } else if homeShowsWorkoutPreviewOnly {
-                        ForEach(homePreviewWorkouts) { workout in
-                            HomeWorkoutListRow(
-                                workout: workout,
-                                workoutToRename: $workoutToRename,
-                                renameText: $renameText,
-                                onStartLibrary: startWorkoutFromLibrary
-                            )
-                        }
-                        NavigationLink {
-                            HomeWorkoutLibraryView()
-                                .environment(dataVM)
-                                .environment(currentVM)
-                                .environmentObject(aiService)
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: "rectangle.stack")
-                                    .font(.title3)
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 28)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("All workouts")
-                                        .font(.headline)
-                                    Text("\(dataVM.userWorkouts.count) saved · search, reorder, and edit")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer(minLength: 0)
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-                    } else if workoutSearchTrimmed.isEmpty {
-                        ForEach(dataVM.userWorkouts) { workout in
-                            HomeWorkoutListRow(
-                                workout: workout,
-                                workoutToRename: $workoutToRename,
-                                renameText: $renameText,
-                                onStartLibrary: startWorkoutFromLibrary
-                            )
-                        }
-                        .onMove(perform: dataVM.moveWorkout)
-                    } else {
-                        ForEach(filteredWorkouts) { workout in
-                            HomeWorkoutListRow(
-                                workout: workout,
-                                workoutToRename: $workoutToRename,
-                                renameText: $renameText,
-                                onStartLibrary: startWorkoutFromLibrary
-                            )
-                        }
-                    }
-                } header: {
-                    Text("Your workouts")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.secondary)
-                        .textCase(nil)
-                } footer: {
-                    Text(
-                        dataVM.userWorkouts.isEmpty
-                            ? "Workouts you create appear here and in Plan."
-                            : homeShowsWorkoutPreviewOnly
-                                ? "Showing the first \(homeWorkoutPreviewCount) in your list order. Open All workouts for the full library."
-                                : "Swipe right on a row to start quickly."
-                    )
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                }
-                .spotlightAnchor(.workoutsList)
-                }
+                homeProgramSections
+                homeWorkoutsLibrarySection
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -705,6 +721,10 @@ struct HomeView: View {
                     }
                 }
             }
+    }
+
+    private var homeStackWithSheets: some View {
+        homeRootList
             .sheet(isPresented: $showStartWorkoutSheet) {
                 HomeStartWorkoutSheet(
                     todayPlan: cachedTodayPlan,
@@ -799,6 +819,11 @@ struct HomeView: View {
                     .environment(dataVM)
                     .environmentObject(aiService)
             }
+    }
+
+    private var homeStackWithPresentation: some View {
+        @Bindable var dm = dataVM
+        return homeStackWithSheets
             .alert("Rename Workout", isPresented: Binding(
                 get: { workoutToRename != nil },
                 set: { if !$0 { workoutToRename = nil } }
@@ -922,9 +947,6 @@ struct HomeView: View {
             .navigationDestination(isPresented: $showReadinessDetail) {
                 ReadinessDetailView(viewModel: readinessVM, dayKey: dayMonitor.currentDayKey)
             }
-            .onReceive(NotificationCenter.default.publisher(for: .fitlogOpenReadinessDetail)) { _ in
-                showReadinessDetail = true
-            }
             .task {
                 try? await Task.sleep(nanoseconds: 280_000_000)
                 withAnimation(.easeInOut(duration: 0.3)) {
@@ -945,7 +967,6 @@ struct HomeView: View {
                 }
             )
             .sensoryFeedback(.impact(weight: .medium), trigger: startWorkoutFeedbackSerial)
-        }
     }
 
     private func weeklyRecapCard(_ recap: DataManager.WeeklyRecapSummary) -> some View {
