@@ -185,8 +185,8 @@ Tab screenshots use UI-test-only deep links (`fitlog://uitest/tab/history`, …)
 **Where to read the reports**
 
 1. GitHub **Actions → Living users** → artifacts `living-user-stores` (`INBOX.md`) and `living-user-screenshots`.
-2. Standing issue **Living user feedback inbox** (the workflow comments each run; needs `issues: write`, which the workflow requests).
-3. Locally: `LIVING_USERS_STORE_DIR=$PWD/living-users scripts/run-daily-living-users.sh 5` then open `living-users/INBOX.md`.
+2. Standing issue **Living user feedback inbox** (the workflow creates it on first success and comments each run).
+3. Locally: `LIVING_USERS_STORE_DIR=$PWD/living-users scripts/run-daily-living-users.sh 5` then open `living-users/INBOX.md`. Optional: `POST_LIVING_USER_REVIEWS=1` if `gh` can open issues.
 
 Heuristic reviews are grounded in store state (for example a free user with sessions older than 14 days dislikes the History cap). They will not catch every visual bug. For a qualitative pass on the screenshots, run [automation-prompts/living-user-review.md](automation-prompts/living-user-review.md) on `fitlog-mac`.
 
