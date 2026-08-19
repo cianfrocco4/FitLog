@@ -207,45 +207,55 @@ mkdir -p "$APP_SUPPORT" "$DOCS"
 
 copy_doc_globs_from_store() {
   local src="$1"
-  [[ -d "$src" ]] || return 0
-  shopt -s nullglob
   local f
+  [[ -d "$src" ]] || return 0
   for f in "$src"/fitlog-living-ticks.jsonl "$src"/fitlog-living-reviews.jsonl "$src"/fitlog-living-review-*.md; do
-    [[ -f "$f" ]] && cp "$f" "$DOCS/"
+    if [[ -f "$f" ]]; then
+      echo "Copying $(basename "$f") into Documents" >&2
+      cp "$f" "$DOCS/"
+    fi
   done
 }
 
 copy_doc_globs_to_store() {
   local dest="$1"
-  mkdir -p "$dest"
-  shopt -s nullglob
   local f
+  mkdir -p "$dest"
   for f in "$DOCS"/fitlog-living-ticks.jsonl "$DOCS"/fitlog-living-reviews.jsonl "$DOCS"/fitlog-living-review-*.md; do
-    [[ -f "$f" ]] && cp "$f" "$dest/"
+    if [[ -f "$f" ]]; then
+      echo "Saving $(basename "$f") to ${dest}" >&2
+      cp "$f" "$dest/"
+    fi
   done
 }
 
 restore_living_stores() {
+  local f
   [[ -n "$LIVING_USERS_STORE_DIR" && -d "$LIVING_USERS_STORE_DIR" ]] || return 0
-  shopt -s nullglob
-  local files=("$LIVING_USERS_STORE_DIR"/FitLogData-sim-*)
-  if ((${#files[@]} > 0)); then
-    echo "Restoring ${#files[@]} store file(s) from ${LIVING_USERS_STORE_DIR}"
-    cp -R "$LIVING_USERS_STORE_DIR"/FitLogData-sim-* "$APP_SUPPORT/"
-  fi
+  ls -la "$LIVING_USERS_STORE_DIR" >&2 || true
+  # macOS /bin/bash 3.2: `local files=(no-match*)` with nullglob can exit 1 under set -e.
+  for f in "$LIVING_USERS_STORE_DIR"/FitLogData-sim-*; do
+    if [[ -e "$f" ]]; then
+      echo "Restoring ${f} -> ${APP_SUPPORT}/" >&2
+      cp -R "$f" "$APP_SUPPORT/"
+    fi
+  done
   copy_doc_globs_from_store "$LIVING_USERS_STORE_DIR"
+  echo "Store restore finished." >&2
 }
 
 save_living_stores() {
+  local f
   [[ -n "$LIVING_USERS_STORE_DIR" ]] || return 0
   mkdir -p "$LIVING_USERS_STORE_DIR"
-  shopt -s nullglob
-  local files=("$APP_SUPPORT"/FitLogData-sim-*)
-  if ((${#files[@]} > 0)); then
-    echo "Saving ${#files[@]} store file(s) to ${LIVING_USERS_STORE_DIR}"
-    cp -R "$APP_SUPPORT"/FitLogData-sim-* "$LIVING_USERS_STORE_DIR/"
-  fi
+  for f in "$APP_SUPPORT"/FitLogData-sim-*; do
+    if [[ -e "$f" ]]; then
+      echo "Saving ${f} -> ${LIVING_USERS_STORE_DIR}/" >&2
+      cp -R "$f" "$LIVING_USERS_STORE_DIR/"
+    fi
+  done
   copy_doc_globs_to_store "$LIVING_USERS_STORE_DIR"
+  echo "Store save finished." >&2
 }
 
 capture_persona_tabs() {
