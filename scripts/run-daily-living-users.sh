@@ -96,6 +96,26 @@ if [[ -z "${SIMULATOR_READY_SECONDS:-}" ]]; then
   fi
 fi
 
+# simctl terminate/launch can hang for minutes on GitHub runners when the app
+# is not running (stderr discarded, looks like a silent exit 1).
+run_timed() {
+  local seconds="$1"
+  shift
+  python3 - "$seconds" "$@" <<'PY'
+import subprocess
+import sys
+
+timeout = int(sys.argv[1])
+cmd = sys.argv[2:]
+try:
+    completed = subprocess.run(cmd, timeout=timeout)
+    raise SystemExit(completed.returncode)
+except subprocess.TimeoutExpired:
+    sys.stderr.write("timed out after %ss: %s\n" % (timeout, " ".join(cmd)))
+    raise SystemExit(124)
+PY
+}
+
 boot_simulator() {
   xcrun simctl boot "$SIMULATOR_UDID" 2>/dev/null || true
   xcrun simctl bootstatus "$SIMULATOR_UDID" -b
@@ -104,10 +124,15 @@ boot_simulator() {
   sleep "$SIMULATOR_READY_SECONDS"
 }
 
+simctl_terminate() {
+  echo "simctl terminate ${BUNDLE_ID}..." >&2
+  run_timed 15 xcrun simctl terminate "$SIMULATOR_UDID" "$BUNDLE_ID" || true
+}
+
 simctl_launch() {
   local attempt
   for attempt in 1 2 3 4 5 6; do
-    if xcrun simctl launch "$SIMULATOR_UDID" "$BUNDLE_ID" "$@"; then
+    if run_timed 45 xcrun simctl launch "$SIMULATOR_UDID" "$BUNDLE_ID" "$@"; then
       return 0
     fi
     echo "simctl launch failed (attempt ${attempt}/6); waiting for SpringBoard..." >&2
@@ -174,9 +199,10 @@ install_app
 # Create the data container, then optionally restore yesterday's stores from the host.
 DATA_CONTAINER="$(wait_for_data_container)"
 echo "Data container: ${DATA_CONTAINER}"
-xcrun simctl terminate "$SIMULATOR_UDID" "$BUNDLE_ID" 2>/dev/null || true
+simctl_terminate
 APP_SUPPORT="${DATA_CONTAINER}/Library/Application Support"
 DOCS="${DATA_CONTAINER}/Documents"
+echo "Creating ${APP_SUPPORT} and ${DOCS}" >&2
 mkdir -p "$APP_SUPPORT" "$DOCS"
 
 copy_doc_globs_from_store() {
@@ -240,12 +266,13 @@ capture_persona_tabs() {
   echo "Screenshots: ${dir}/${day}-*.png"
 }
 
+echo "Restoring living stores (if cached)..." >&2
 restore_living_stores
 
 for ((i = 0; i < N; i++)); do
   persona="${PERSONAS[$i]}"
   echo "--- living tick + review: ${persona} ---"
-  xcrun simctl terminate "$SIMULATOR_UDID" "$BUNDLE_ID" 2>/dev/null || true
+  simctl_terminate
   simctl_launch \
     -fitlog-ui-testing \
     -fitlog-ui-persistent-store \
@@ -254,7 +281,7 @@ for ((i = 0; i < N; i++)); do
     -fitlog-ui-persona "$persona"
   sleep "$SETTLE_SECONDS"
   capture_persona_tabs "$persona"
-  xcrun simctl terminate "$SIMULATOR_UDID" "$BUNDLE_ID" 2>/dev/null || true
+  simctl_terminate
 done
 
 save_living_stores
