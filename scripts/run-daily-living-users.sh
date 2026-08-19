@@ -19,6 +19,7 @@
 #   TAB_SCREENSHOT_SECONDS           default: 2
 #   LIVING_USERS_STORE_DIR           optional host folder to restore/save stores
 #   LIVING_USERS_SCREENSHOT_DIR      optional host folder for tab screenshots
+#   LIVING_USERS_DERIVED             optional DerivedData path (default: build/LivingUsersDerived)
 #   CAPTURE_LIVING_SCREENSHOTS       default: 1
 #   POST_LIVING_USER_REVIEWS         default: 0 (set 1 in GitHub Actions)
 set -euo pipefail
@@ -61,6 +62,11 @@ if [[ -z "${SIMULATOR_NAME:-}" || -z "${SIMULATOR_UDID:-}" ]]; then
   exit 1
 fi
 DEST="platform=iOS Simulator,id=${SIMULATOR_UDID}"
+# Pin DerivedData so we install FitLog.app, not the Live Activity .appex.
+# Do not use `xcodebuild -scheme … -target …` (exit 64) or the last
+# FULL_PRODUCT_NAME from scheme -showBuildSettings (the extension).
+DERIVED="${LIVING_USERS_DERIVED:-${ROOT}/build/LivingUsersDerived}"
+APP_PATH="${DERIVED}/Build/Products/Debug-iphonesimulator/FitLog.app"
 
 echo "Building Debug FitLog for ${SIMULATOR_NAME} (${SIMULATOR_UDID})"
 xcodebuild build \
@@ -68,22 +74,14 @@ xcodebuild build \
   -scheme FitLog \
   -configuration Debug \
   -destination "$DEST" \
+  -derivedDataPath "$DERIVED" \
   -skipPackagePluginValidation \
   -skipMacroValidation \
   CODE_SIGNING_ALLOWED=NO
 
-# Scheme settings include the Live Activity extension. The last FULL_PRODUCT_NAME
-# is FitLogLiveActivityExtension.appex ("Rest timer"), which simctl cannot install
-# as an app. Pin the FitLog target and require FitLog.app.
-BUILD_DIR="$(
-  xcodebuild -project FitLog.xcodeproj -scheme FitLog -configuration Debug \
-    -destination "$DEST" -target FitLog -showBuildSettings 2>/dev/null \
-    | awk -F' = ' '/^[[:space:]]*TARGET_BUILD_DIR[[:space:]]*=/{print $2; exit}'
-)"
-APP_PATH="${BUILD_DIR%/}/FitLog.app"
-if [[ -z "$BUILD_DIR" || ! -d "$APP_PATH" ]]; then
+if [[ ! -d "$APP_PATH" || ! -f "$APP_PATH/Info.plist" ]]; then
   echo "Built FitLog.app not found at: ${APP_PATH}" >&2
-  echo "TARGET_BUILD_DIR was: ${BUILD_DIR:-<empty>}" >&2
+  ls -la "${DERIVED}/Build/Products/Debug-iphonesimulator" >&2 || true
   exit 1
 fi
 echo "App bundle: ${APP_PATH}"
