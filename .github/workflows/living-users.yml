@@ -125,8 +125,10 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # Skip on exact-key hit: this run already uploaded these artifacts, and
+      # upload-artifact@v4 rejects the same name (409) unless overwrite is set.
       - name: Upload living-user stores
-        if: always()
+        if: always() && steps.restore-living-users.outputs.cache-hit != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: living-user-stores
@@ -135,7 +137,7 @@ jobs:
           retention-days: 90
 
       - name: Upload living-user screenshots
-        if: always()
+        if: always() && steps.restore-living-users.outputs.cache-hit != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: living-user-screenshots
