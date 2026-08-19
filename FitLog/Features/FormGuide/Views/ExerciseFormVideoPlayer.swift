@@ -170,6 +170,7 @@ private struct ExerciseFormVideoPlayerRepresentable: UIViewRepresentable {
         private var looperStatusObservation: NSKeyValueObservation?
         private var readyObservation: NSKeyValueObservation?
         private var failureObserver: NSObjectProtocol?
+        private var loadTask: Task<Void, Never>?
         private weak var playback: FormGuideVideoPlaybackState?
 
         func configure(
@@ -201,8 +202,67 @@ private struct ExerciseFormVideoPlayerRepresentable: UIViewRepresentable {
             teardown()
             self.playback = playback
             self.playerView = playerView
+            configuredVideoID = video.id
+            configuredRetryGeneration = retryGeneration
 
-            let asset = FormGuideVideoAsset.makeURLAsset(url: video.streamURL, headers: requestHeaders)
+            let videoID = video.id
+            let generation = retryGeneration
+            let remoteURL = video.streamURL
+            let headers = requestHeaders
+            let muted = isMuted
+            let autoPlay = shouldAutoPlay
+
+            loadTask = Task { [weak self] in
+                do {
+                    let fileURL = try await FormGuideVideoClipStore.shared.localFile(
+                        for: remoteURL,
+                        headers: headers
+                    )
+                    try Task.checkCancellation()
+                    await MainActor.run {
+                        self?.attachLocalPlayer(
+                            fileURL: fileURL,
+                            isMuted: muted,
+                            shouldAutoPlay: autoPlay,
+                            videoID: videoID,
+                            retryGeneration: generation
+                        )
+                    }
+                } catch is CancellationError {
+                    return
+                } catch let urlError as URLError where urlError.code == .cancelled {
+                    return
+                } catch {
+                    if Task.isCancelled { return }
+                    let message = (error as? LocalizedError)?.errorDescription
+                        ?? Coordinator.playbackFailureMessage(from: error)
+                    await MainActor.run {
+                        self?.applyFailure(
+                            message,
+                            videoID: videoID,
+                            retryGeneration: generation
+                        )
+                    }
+                }
+            }
+        }
+
+        private func attachLocalPlayer(
+            fileURL: URL,
+            isMuted: Bool,
+            shouldAutoPlay: Bool,
+            videoID: String,
+            retryGeneration: Int
+        ) {
+            guard FormGuideVideoAsset.shouldApplyPlaybackEvent(
+                configuredVideoID: configuredVideoID,
+                configuredRetryGeneration: configuredRetryGeneration,
+                eventVideoID: videoID,
+                eventRetryGeneration: retryGeneration
+            ) else { return }
+            guard let playerView else { return }
+
+            let asset = AVURLAsset(url: fileURL)
             let item = AVPlayerItem(asset: asset)
             let queuePlayer = AVQueuePlayer(playerItem: item)
             queuePlayer.isMuted = isMuted
@@ -211,15 +271,13 @@ private struct ExerciseFormVideoPlayerRepresentable: UIViewRepresentable {
             looper = playerLooper
             player = queuePlayer
             playerView.player = queuePlayer
-            configuredVideoID = video.id
-            configuredRetryGeneration = retryGeneration
 
             observePlayback(
                 templateItem: item,
                 queuePlayer: queuePlayer,
                 looper: playerLooper,
                 playerView: playerView,
-                videoID: video.id,
+                videoID: videoID,
                 retryGeneration: retryGeneration
             )
 
@@ -230,6 +288,8 @@ private struct ExerciseFormVideoPlayerRepresentable: UIViewRepresentable {
         }
 
         func teardown() {
+            loadTask?.cancel()
+            loadTask = nil
             if let failureObserver {
                 NotificationCenter.default.removeObserver(failureObserver)
             }
