@@ -20,6 +20,7 @@ struct PaywallView: View {
     @State private var alertMessage: String?
     @State private var showRestoreSuccess = false
     @State private var storeProductsFailed = false
+    @State private var isRetryingStoreProducts = false
     @State private var didTrackDismiss = false
 
     private var paywallAnalyticsProperties: [String: String] {
@@ -156,6 +157,24 @@ struct PaywallView: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("\(plan.title), \(plan.duration), \(plan.listPriceUSD). \(plan.disclosure)")
             }
+            Button {
+                Task { await retryLoadStoreProducts() }
+            } label: {
+                if isRetryingStoreProducts {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Retrying…")
+                    }
+                    .frame(maxWidth: .infinity)
+                } else {
+                    Label("Retry loading plans", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isRetryingStoreProducts)
+            .accessibilityLabel(isRetryingStoreProducts ? "Retrying loading plans" : "Retry loading plans")
+            .accessibilityHint("Tries again to load App Store subscription products")
             LegalLinksView(style: .compact)
         }
         .padding()
@@ -197,6 +216,17 @@ struct PaywallView: View {
             storeProductsFailed = products.isEmpty
         } catch {
             storeProductsFailed = true
+        }
+    }
+
+    @MainActor
+    private func retryLoadStoreProducts() async {
+        guard !isRetryingStoreProducts else { return }
+        isRetryingStoreProducts = true
+        defer { isRetryingStoreProducts = false }
+        await loadStoreProducts()
+        if !storeProductsFailed {
+            await entitlementStore.loadOfferings()
         }
     }
 

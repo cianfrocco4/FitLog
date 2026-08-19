@@ -11,6 +11,7 @@ struct HistorySessionsTab: View {
     @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
     @Environment(\.undoManager) private var undoManager
+    @Environment(\.fitlogRootTabSelection) private var rootTabSelection
     @Bindable var viewModel: HistoryViewModel
 
     @State private var pendingStartAgainReplace: PendingWorkoutReplace?
@@ -24,12 +25,7 @@ struct HistorySessionsTab: View {
         Group {
             if sessions.isEmpty {
                 Section {
-                    Text(
-                        viewModel.sessionsSearch.isEmpty
-                            ? viewModel.dayRange.emptySessionsMessage
-                            : "No sessions match your search"
-                    )
-                    .foregroundStyle(.secondary)
+                    emptySessionsContent
                 }
             } else {
                 ForEach(sections) { section in
@@ -51,6 +47,33 @@ struct HistorySessionsTab: View {
             pending: $pendingStartAgainReplace,
             onAfterReplace: { openCurrentWorkoutSheet?() }
         )
+    }
+
+    @ViewBuilder
+    private var emptySessionsContent: some View {
+        let isSearchEmpty = viewModel.sessionsSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if isSearchEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(viewModel.dayRange.emptySessionsMessage)
+                    .foregroundStyle(.secondary)
+                Text("Start a workout from Home to build your history.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                if let tab = rootTabSelection {
+                    Button("Start Workout") {
+                        tab.wrappedValue = .home
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityLabel("Start Workout")
+                    .accessibilityHint("Switches to Home so you can begin a workout")
+                }
+            }
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            Text("No sessions match your search")
+                .foregroundStyle(.secondary)
+        }
     }
 
     @ViewBuilder

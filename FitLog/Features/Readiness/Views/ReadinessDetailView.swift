@@ -121,6 +121,8 @@ struct ReadinessDetailView: View {
                                 .font(.subheadline)
                             Button("Unlock readiness trends") { showPaywall = true }
                                 .buttonStyle(.borderedProminent)
+                                .accessibilityLabel("Unlock readiness trends")
+                                .accessibilityHint("Shows Premium subscription options for readiness trends")
                         }
                     }
                 }
@@ -145,7 +147,7 @@ struct ReadinessDetailView: View {
             viewModel.loadTrend(dataVM: dataVM, days: newValue, endingDayKey: dayKey)
         }
         .sheet(isPresented: $showPaywall) {
-            PaywallView(triggerFeature: .readinessTrends)
+            PaywallView(triggerFeature: .readinessTrends, analyticsSource: "readiness_detail_trends")
                 .environment(entitlementStore)
         }
     }

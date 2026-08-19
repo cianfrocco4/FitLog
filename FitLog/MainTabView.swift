@@ -233,6 +233,9 @@ struct MainTabView: View {
                 }
             case .open:
                 rootTab = .home
+            case .readiness:
+                rootTab = .home
+                NotificationCenter.default.post(name: .fitlogOpenReadinessDetail, object: nil)
             case .uitestTab(let tab):
                 guard FitLogUITestLaunch.isActive else { return }
                 rootTab = tab
