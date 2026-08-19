@@ -37,7 +37,7 @@ jobs:
           xcode-version: latest-stable
 
       - name: Restore living-user stores
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             living-users/FitLogData-sim-*
@@ -78,6 +78,19 @@ jobs:
           chmod +x scripts/run-daily-living-users.sh scripts/pick-iphone-simulator.py \
             scripts/assemble-living-user-inbox.py scripts/post-living-user-reviews.sh
           ./scripts/run-daily-living-users.sh "$N"
+
+      # Combined cache@v4 only saves on job success. Persist here so a later
+      # Issues API failure cannot drop this run's History.
+      - name: Persist living-user stores
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            living-users/FitLogData-sim-*
+            living-users/fitlog-living-ticks.jsonl
+            living-users/fitlog-living-reviews.jsonl
+            living-users/fitlog-living-review-*.md
+            living-users/INBOX.md
+          key: living-users-v1-${{ github.run_id }}
 
       - name: Summarize ticks and reviews
         if: always()
