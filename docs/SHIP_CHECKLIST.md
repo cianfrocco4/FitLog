@@ -381,7 +381,7 @@ Both must return **200** (not GitHub 404). Pages source: branch `main`, folder `
 
 ### 2. Version metadata (subtitle, keywords, description, What’s New)
 
-**Path:** App → **App Store** tab → select the **iOS version** you will submit (e.g. 1.0 Prepare for Submission).
+**Path:** App → **App Store** tab → select the **iOS version** you will submit (e.g. **1.0.1** Prepare for Submission). If 1.0 is already live / closed, create **1.0.1** first — Xcode Cloud cannot attach new binaries to a closed train.
 
 Paste from [APP_STORE_METADATA.md](../APP_STORE_METADATA.md):
 
