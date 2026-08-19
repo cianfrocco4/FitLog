@@ -77,6 +77,7 @@ struct SessionDetailView: View {
                     } label: {
                         Label("Continue session", systemImage: "arrow.clockwise.circle.fill")
                     }
+                    .accessibilityHint("Resumes this finished session with the same logged sets; the history entry stays until you finish again")
                 } footer: {
                     Text("Continues this session with the same logged sets and progress. This finished entry stays in your history until you complete the new run.")
                 }

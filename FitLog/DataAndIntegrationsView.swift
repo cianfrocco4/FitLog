@@ -109,7 +109,7 @@ struct DataAndIntegrationsView: View {
         .navigationTitle("Data & Integrations")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showPaywall) {
-            PaywallView(triggerFeature: .dataExport)
+            PaywallView(triggerFeature: .dataExport, analyticsSource: "data_export")
                 .environment(entitlementStore)
         }
         .confirmationDialog(

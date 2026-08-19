@@ -69,6 +69,7 @@ struct HomeStartWorkoutSheet: View {
                                     }
                                 }
                             }
+                            .accessibilityHint("Starts \(workout.name)")
                         }
                     } header: {
                         Text("Recent")

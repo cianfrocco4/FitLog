@@ -48,7 +48,12 @@ struct CoachConversationView: View {
             }
         }
         .sheet(isPresented: $showPaywall) {
-            PaywallView(triggerFeature: paywallTrigger)
+            PaywallView(
+                triggerFeature: paywallTrigger,
+                analyticsSource: paywallTrigger == .aiProgramGeneration
+                    ? "coach_program_generation"
+                    : "coach_conversation"
+            )
                 .environment(entitlementStore)
         }
         .sensoryFeedback(.selection, trigger: coachVM.selectionFeedbackCount)

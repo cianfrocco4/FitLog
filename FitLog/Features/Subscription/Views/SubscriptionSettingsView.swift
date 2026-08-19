@@ -132,7 +132,7 @@ struct SubscriptionSettingsView: View {
         .navigationTitle("Subscription")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showPaywall) {
-            PaywallView(triggerFeature: nil)
+            PaywallView(triggerFeature: nil, analyticsSource: "subscription_settings")
                 .environment(entitlementStore)
         }
         .alert("Subscription", isPresented: Binding(

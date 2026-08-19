@@ -190,13 +190,14 @@ struct HomeView: View {
                 .symbolEffect(.bounce, value: homeFirstPaintSkeleton)
             Text("No workouts yet")
                 .font(.title3.weight(.semibold))
-            Text("Get training in three quick steps:")
+            Text("New workout starts blank. From template picks a ready-made day.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
             VStack(alignment: .leading, spacing: 8) {
-                emptyStepRow(number: 1, text: "Create a workout or pick a template")
-                emptyStepRow(number: 2, text: "Add exercises from your library")
-                emptyStepRow(number: 3, text: "Start training and log your sets")
+                emptyStepRow(number: 1, text: "New workout — blank plan you fill with exercises")
+                emptyStepRow(number: 2, text: "From template — Push, Pull, Legs, and more")
+                emptyStepRow(number: 3, text: "Then start training and log your sets")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 8)
@@ -207,15 +208,18 @@ struct HomeView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier(FitLogA11yID.newWorkout)
+                .accessibilityHint("Opens a blank workout you fill with exercises")
                 Button("From template") {
                     newWorkoutLaunchHint = .templatesFirst
                     showNewWorkout = true
                 }
                 .buttonStyle(.bordered)
                 .accessibilityIdentifier(FitLogA11yID.fromTemplate)
+                .accessibilityHint("Opens ready-made workout templates like Push or Legs")
                 if let tab = rootTabSelection {
                     Button("Open Plan") { tab.wrappedValue = .plan }
                         .buttonStyle(.bordered)
+                        .accessibilityHint("Opens the Plan tab to set your weekly split")
                 }
             }
         }
@@ -295,6 +299,19 @@ struct HomeView: View {
 
     private func isPlannedWorkoutCompletedToday(plan: WorkoutPlanRef) -> Bool {
         cachedTodayCompletedRefs.contains(plan.cacheKey)
+    }
+
+    /// Any finished session ending today (planned or ad hoc) — drives Home "already trained" copy.
+    private var hasCompletedSessionToday: Bool {
+        let calendar = Calendar.current
+        if let glance = cachedWeekGlance,
+           let today = glance.days.first(where: { calendar.isDateInToday($0.date) }) {
+            return today.hasWorkout
+        }
+        return dataVM.completedSessions.contains { session in
+            guard let end = session.endTime else { return false }
+            return calendar.isDateInToday(end)
+        }
     }
 
     private func startWorkoutFromLibrary(_ library: Workout) {
@@ -1245,7 +1262,8 @@ struct HomeView: View {
                 Text(HomeGreeting.contextualSubtitle(
                     plan: plan,
                     weekGlance: cachedWeekGlance,
-                    scheduledWorkoutName: scheduledName
+                    scheduledWorkoutName: scheduledName,
+                    hasCompletedSessionToday: hasCompletedSessionToday
                 ))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

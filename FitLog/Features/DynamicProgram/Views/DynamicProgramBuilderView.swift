@@ -229,7 +229,7 @@ struct DynamicProgramBuilderView: View {
             .environment(\.modelContext, modelContext)
         }
         .sheet(isPresented: $showPaywall) {
-            PaywallView(triggerFeature: .aiProgramGeneration)
+            PaywallView(triggerFeature: .aiProgramGeneration, analyticsSource: "dynamic_program_builder")
                 .environment(entitlementStore)
         }
         .confirmationDialog(

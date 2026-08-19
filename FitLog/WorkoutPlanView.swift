@@ -180,7 +180,9 @@ struct WorkoutPlanView: View {
                 .accessibilityHint(
                     isThisLibrarySessionActive
                         ? "Starts finish checks; saves to history if you confirm"
-                        : "Starts this workout as your active session"
+                        : (workout.exercises.isEmpty
+                            ? "Add at least one exercise before starting"
+                            : "Starts this workout as your active session")
                 )
             }
             ToolbarItem(placement: .topBarTrailing) {

@@ -61,7 +61,7 @@ struct ProgramTemplateGalleryView: View {
             Text(viewModel.errorMessage ?? "Something went wrong while generating your program.")
         }
         .sheet(isPresented: $showPaywall) {
-            PaywallView(triggerFeature: .aiProgramGeneration)
+            PaywallView(triggerFeature: .aiProgramGeneration, analyticsSource: "program_template_gallery")
                 .environment(entitlementStore)
         }
     }

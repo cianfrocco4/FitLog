@@ -915,6 +915,7 @@ struct CurrentWorkoutPullUpSheet: View {
                         Image(systemName: "arrow.up.arrow.down")
                     }
                     .accessibilityLabel("Reorder exercises")
+                    .accessibilityHint("Opens a list to drag exercises into a new order")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Finish") {

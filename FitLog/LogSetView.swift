@@ -529,6 +529,7 @@ struct LogSetView: View {
                         Image(systemName: "scalemass")
                     }
                     .accessibilityLabel("Plate calculator")
+                    .accessibilityHint("Opens a calculator for bar and plate loading")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {

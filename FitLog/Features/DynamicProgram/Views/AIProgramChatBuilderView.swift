@@ -110,7 +110,7 @@ struct AIProgramChatBuilderView: View {
         }
         .sensoryFeedback(.success, trigger: viewModel.generationSuccessCount)
         .sheet(isPresented: $showPaywall) {
-            PaywallView(triggerFeature: .aiProgramGeneration)
+            PaywallView(triggerFeature: .aiProgramGeneration, analyticsSource: "ai_program_chat_builder")
                 .environment(entitlementStore)
         }
     }

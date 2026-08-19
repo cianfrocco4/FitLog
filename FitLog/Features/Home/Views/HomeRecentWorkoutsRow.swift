@@ -38,7 +38,7 @@ struct HomeRecentWorkoutsRow: View {
                                 Label("Start workout", systemImage: "play.fill")
                             }
                         }
-                        .accessibilityHint("Starts this workout immediately")
+                        .accessibilityHint("Starts \(workout.name)")
                     }
                 }
             }
