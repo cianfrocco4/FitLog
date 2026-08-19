@@ -173,7 +173,7 @@ Capture: Home + readiness, paywall, Coach, History, home-screen widget.
 2. Add internal testers (your Apple ID)
 3. Install via TestFlight app
 4. Complete [APP_STORE_SMOKE_TEST.md](APP_STORE_SMOKE_TEST.md) on device (free / paid / comped)
-5. Fix any issues; bump `CURRENT_PROJECT_VERSION` and re-upload if needed
+5. Fix any issues and re-upload. If Apple already approved this marketing version, bump `MARKETING_VERSION` (ITMS-90186 / ITMS-90062) and create a matching App Store Connect version. Otherwise increment `CURRENT_PROJECT_VERSION` only.
 
 ---
 

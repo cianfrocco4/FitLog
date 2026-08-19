@@ -120,16 +120,13 @@ Same as Support, your personal site, or GitHub repo.
 
 ---
 
-## What’s new (release notes) – example
+## What’s new (release notes) – 1.0.1
 
 ```
-Workout Log AI
+Workout Log AI 1.0.1
 
-• Readiness score from Apple Health + training load (free)
-• Premium: AI Coach, program builder, trends, and advanced analytics
-• On-device coaching when Apple Intelligence is available (with cloud fallback)
-• Adjust today’s plan and weekly training insights (Premium)
-• Home screen readiness widget with quick-log
-• Subscriptions with free trial via App Store
-• Sign in with Apple optional; data stays on device
+• Delete your account from Settings
+• More reliable exercise form-guide videos
+• Clearer first-run setup and Home tour
+• Accessibility and Guided Coach polish
 ```

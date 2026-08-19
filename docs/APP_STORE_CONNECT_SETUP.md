@@ -34,18 +34,7 @@ Replace `cianfrocco4` with your GitHub username if different.
 
 **Category:** Health & Fitness
 
-**What's New (Phase 1 example):**
-```
-Workout Log AI — Phase 1
-
-• Readiness score from Apple Health + training load (free)
-• Premium: AI Coach, program builder, trends, and advanced analytics
-• Home screen readiness widget with quick-log
-• Subscriptions with free trial via App Store
-• Sign in with Apple optional; data stays on device
-```
-
-Full description: see [APP_STORE_METADATA.md](../APP_STORE_METADATA.md).
+**What's New (1.0.1):** see [APP_STORE_METADATA.md](../APP_STORE_METADATA.md).
 
 ## Subscriptions
 
@@ -53,8 +42,10 @@ See [REVENUECAT_SETUP.md](REVENUECAT_SETUP.md) for product IDs, entitlement `pre
 
 ## Build assignment
 
-- Version: marketing version in Xcode
-- Build: increment `CURRENT_PROJECT_VERSION` for each re-upload
+- Version: `MARKETING_VERSION` in `FitLog.xcodeproj` (currently **1.0.1**). This becomes `CFBundleShortVersionString`.
+- After Apple **approves** a version, that train is closed. Bump `MARKETING_VERSION` on the app, widgets, and Live Activity targets (e.g. 1.0 → 1.0.1) **before** the next Xcode Cloud upload. Reusing a closed version fails with **ITMS-90186** / **ITMS-90062**.
+- Then create a matching iOS version in App Store Connect (App Store tab → **+ Version**) so the new build can be submitted.
+- Build: Xcode Cloud auto-increments `CFBundleVersion`. For local archives, increment `CURRENT_PROJECT_VERSION` for each re-upload.
 - Archive: Release configuration with `REVENUECAT_API_KEY` set
 
 ## Checklist
