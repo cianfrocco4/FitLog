@@ -27,7 +27,7 @@ struct AIChatView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if shouldShowCoachPremiumBanner {
+                if shouldShowCoachPremiumBanner, !viewModel.isConversationEmpty {
                     premiumRequiredBanner
                 } else if entitlementStore.isPremium, !aiService.isConfigured {
                     notConfiguredBanner
@@ -41,7 +41,12 @@ struct AIChatView: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 12) {
                             if viewModel.isConversationEmpty {
-                                emptyStateHero
+                                localTipCard(localCoachTip)
+                                if shouldShowCoachPremiumBanner {
+                                    compactCoachUnlockCard
+                                } else if entitlementStore.isPremium {
+                                    emptyStateHero
+                                }
                             }
 
                             ForEach(viewModel.messages) { msg in
@@ -56,7 +61,7 @@ struct AIChatView: View {
                         }
                         .padding()
                     }
-                    .defaultScrollAnchor(.bottom)
+                    .defaultScrollAnchor(viewModel.isConversationEmpty ? .top : .bottom)
                     .scrollDismissesKeyboard(.interactively)
                     .onChange(of: viewModel.messages.count) { _, _ in
                         scrollToBottom(proxy: proxy)
@@ -69,7 +74,7 @@ struct AIChatView: View {
                     }
                 }
 
-                if viewModel.isConversationEmpty {
+                if viewModel.isConversationEmpty, entitlementStore.isPremium {
                     starterChips
                 }
 
@@ -223,6 +228,51 @@ struct AIChatView: View {
     private var shouldShowCoachPremiumBanner: Bool {
         guard !entitlementStore.isPremium else { return false }
         return !dataVM.userWorkouts.isEmpty || dataVM.dynamicProgramState != nil
+    }
+
+    private var localCoachTip: CoachLocalTip {
+        CoachLocalTipGenerator.tip(from: CoachLocalTipGenerator.makeContext(dataVM: dataVM))
+    }
+
+    private func localTipCard(_ tip: CoachLocalTip) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(tip.title, systemImage: "lightbulb")
+                .font(.title3.weight(.semibold))
+            Text(tip.body)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("On-device tip from your log. Not medical advice.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(FitlogPalette.subtleFill)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(tip.title). \(tip.body)")
+        .accessibilityHint("Local coaching tip generated on this device from your workout log")
+    }
+
+    private var compactCoachUnlockCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Want AI coaching on this tip?")
+                .font(.subheadline.weight(.semibold))
+            Text("Premium unlocks natural-language Coach replies. The tip above is free and stays on-device.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("View Premium") { showPaywall = true }
+                .font(.caption.weight(.semibold))
+                .accessibilityHint("Shows subscription options for AI Coach")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .contain)
     }
 
     private var emptyStateHero: some View {
