@@ -16,10 +16,44 @@ struct MoreTabRootView: View {
 
     @State private var showEraseDataConfirm = false
     @State private var showDeleteAccountConfirm = false
+    @State private var showPaywall = false
 
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    NavigationLink {
+                        SubscriptionSettingsView()
+                            .environmentObject(authVM)
+                    } label: {
+                        HStack {
+                            Label("Subscription", systemImage: "sparkles")
+                            Spacer()
+                            Text(entitlementStore.isPremium ? "Premium" : "Free")
+                                .foregroundStyle(entitlementStore.isPremium ? .green : .secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("Subscription")
+                    .accessibilityLabel("Subscription")
+                    .accessibilityValue(entitlementStore.isPremium ? "Premium" : "Free")
+                    .accessibilityHint("Opens subscription status\(entitlementStore.isPremium ? "" : " and upgrade")")
+
+                    if !entitlementStore.isPremium {
+                        Button {
+                            showPaywall = true
+                        } label: {
+                            Label("Upgrade to Premium", systemImage: "lock.open")
+                        }
+                        .accessibilityHint("Shows subscription options")
+                    }
+                } header: {
+                    Text("Premium")
+                } footer: {
+                    if !entitlementStore.isPremium {
+                        Text("After a Premium lock, upgrade lives here — you don't need to hunt for it.")
+                    }
+                }
+
                 NavigationLink {
                     PersonalRecordsView()
                         .environment(dataVM)
@@ -44,12 +78,6 @@ struct MoreTabRootView: View {
                     ExercisesLibraryView()
                 } label: {
                     Label("Exercise Library", systemImage: "books.vertical")
-                }
-                NavigationLink {
-                    SubscriptionSettingsView()
-                        .environmentObject(authVM)
-                } label: {
-                    Label("Subscription", systemImage: "sparkles")
                 }
                 NavigationLink {
                     DataAndIntegrationsView()
@@ -105,6 +133,10 @@ struct MoreTabRootView: View {
             }
             .navigationTitle("More")
             .navigationBarTitleDisplayMode(.large)
+            .sheet(isPresented: $showPaywall) {
+                PaywallView(triggerFeature: nil, analyticsSource: "more_tab")
+                    .environment(entitlementStore)
+            }
             .deleteAccountConfirmation(isPresented: $showDeleteAccountConfirm) {
                 Task {
                     await authVM.deleteAccount(
