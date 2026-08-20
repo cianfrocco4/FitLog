@@ -297,6 +297,19 @@ struct HomeView: View {
         cachedTodayCompletedRefs.contains(plan.cacheKey)
     }
 
+    /// Any finished session ending today (planned or ad hoc) — drives Home "already trained" copy.
+    private var hasCompletedSessionToday: Bool {
+        let calendar = Calendar.current
+        if let glance = cachedWeekGlance,
+           let today = glance.days.first(where: { calendar.isDateInToday($0.date) }) {
+            return today.hasWorkout
+        }
+        return dataVM.completedSessions.contains { session in
+            guard let end = session.endTime else { return false }
+            return calendar.isDateInToday(end)
+        }
+    }
+
     private func startWorkoutFromLibrary(_ library: Workout) {
         startWorkoutFeedbackSerial += 1
         let toStart = library.hasFlexibleSlots ? dataVM.sessionInstance(from: library) : library
@@ -1269,7 +1282,8 @@ struct HomeView: View {
                 Text(HomeGreeting.contextualSubtitle(
                     plan: plan,
                     weekGlance: cachedWeekGlance,
-                    scheduledWorkoutName: scheduledName
+                    scheduledWorkoutName: scheduledName,
+                    hasCompletedSessionToday: hasCompletedSessionToday
                 ))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

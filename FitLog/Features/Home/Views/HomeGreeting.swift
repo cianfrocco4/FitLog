@@ -17,8 +17,13 @@ enum HomeGreeting {
     static func contextualSubtitle(
         plan: ResolvedScheduleDay,
         weekGlance: DataManager.WeekAtAGlance?,
-        scheduledWorkoutName: String?
+        scheduledWorkoutName: String?,
+        hasCompletedSessionToday: Bool = false
     ) -> String {
+        if hasCompletedSessionToday {
+            return alreadyTrainedSubtitle(plan: plan, scheduledWorkoutName: scheduledWorkoutName)
+        }
+
         switch plan {
         case .rest:
             if let glance = weekGlance, glance.completedCount > 0 {
@@ -35,6 +40,24 @@ enum HomeGreeting {
                 return "\(name) is on the schedule today."
             }
             return "You have a workout planned for today."
+        }
+    }
+
+    /// Leads with completion so Home doesn't look like the user still needs to start (`improve.home.already_trained`).
+    private static func alreadyTrainedSubtitle(
+        plan: ResolvedScheduleDay,
+        scheduledWorkoutName: String?
+    ) -> String {
+        switch plan {
+        case .rest:
+            return "You already trained today — enjoy the rest of your recovery day."
+        case .unscheduled:
+            return "You already trained today — nice work. Start another only if you want extra volume."
+        case .workout:
+            if let name = scheduledWorkoutName, !name.isEmpty {
+                return "You already trained today — \(name) is done. Continue or start fresh below if you need more."
+            }
+            return "You already trained today — your planned workout is done. Continue or start fresh below if you need more."
         }
     }
 
