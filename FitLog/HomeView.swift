@@ -105,6 +105,22 @@ struct HomeView: View {
         !userPreferences.dismissedCardioGetStartedBanner && !dataVM.hasLoggedCardio()
     }
 
+    private var shouldShowExpandLibraryCard: Bool {
+        HomeExpandLibraryNudge.shouldShow(
+            libraryWorkoutCount: dataVM.userWorkouts.count,
+            isDismissed: userPreferences.dismissedExpandLibraryBanner
+        )
+    }
+
+    private var recentWorkoutLastDurations: [UUID: Int] {
+        Dictionary(uniqueKeysWithValues: recentQuickStartWorkouts.compactMap { workout in
+            guard workout.workoutKind == .cardio || workout.workoutKind == .hybrid,
+                  let seconds = dataVM.lastLoggedDurationSeconds(forLibraryWorkoutId: workout.id)
+            else { return nil }
+            return (workout.id, seconds)
+        })
+    }
+
     private var shouldShowHomePremiumCard: Bool {
         PremiumPromptPolicy.shouldShowHomePremiumCard(
             isPremium: entitlementStore.isPremium,
@@ -497,6 +513,7 @@ struct HomeView: View {
                     HomeRecentWorkoutsRow(
                         workouts: recentQuickStartWorkouts,
                         lastCompletedDates: recentWorkoutLastDoneDates,
+                        lastDurations: recentWorkoutLastDurations,
                         onStart: startWorkoutFromLibrary
                     )
                     .listRowInsets(homeDashboardListInsets)
@@ -558,6 +575,20 @@ struct HomeView: View {
     private var homeWorkoutsLibrarySection: some View {
         if !isFirstRunHome {
             Section {
+                if shouldShowExpandLibraryCard {
+                    HomeExpandLibraryCard(
+                        onAddFromTemplate: {
+                            newWorkoutLaunchHint = .templatesFirst
+                            showNewWorkout = true
+                        },
+                        onDismiss: {
+                            userPreferences.dismissedExpandLibraryBanner = true
+                        }
+                    )
+                    .listRowInsets(homeDashboardListInsets)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                }
                 if dataVM.userWorkouts.isEmpty {
                     homeEmptyWorkoutsCallout
                         .listRowInsets(homeDashboardListInsets)
@@ -731,6 +762,7 @@ struct HomeView: View {
                     scheduledWorkout: scheduledWorkoutForToday,
                     recentWorkouts: recentQuickStartWorkouts,
                     lastCompletedDates: recentWorkoutLastDoneDates,
+                    lastDurations: recentWorkoutLastDurations,
                     onStartScheduled: {
                         if let workout = scheduledWorkoutForToday {
                             startWorkoutFromTodayPlan(workout)
@@ -1401,12 +1433,21 @@ private struct HomeWorkoutListRow: View {
     let onStartLibrary: (Workout) -> Void
 
     private var exerciseCount: Int { workout.exercises.count }
-    private var estimatedMinutes: Int {
-        HomeWorkoutFormatting.estimatedDurationMinutes(exerciseCount: exerciseCount)
+    private var lastLoggedSeconds: Int? {
+        dataVM.lastLoggedDurationSeconds(forLibraryWorkoutId: workout.id)
+    }
+    private var detailLine: String {
+        HomeWorkoutFormatting.libraryDetailLine(
+            kind: workout.workoutKind,
+            exerciseCount: exerciseCount,
+            lastLoggedSeconds: lastLoggedSeconds,
+            emptySubtitle: workout.listDetailSubtitle
+        )
     }
     private var lastDoneText: String {
-        HomeWorkoutFormatting.lastDoneLabel(
-            for: dataVM.lastCompletedDate(forLibraryWorkoutId: workout.id)
+        HomeWorkoutFormatting.lastDoneWithDurationLabel(
+            date: dataVM.lastCompletedDate(forLibraryWorkoutId: workout.id),
+            durationSeconds: lastLoggedSeconds
         )
     }
 
@@ -1437,15 +1478,9 @@ private struct HomeWorkoutListRow: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(workout.name)
                             .font(.headline)
-                        if exerciseCount > 0 {
-                            Text("\(exerciseCount) exercises · ~\(estimatedMinutes) min")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text(workout.listDetailSubtitle)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                        Text(detailLine)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         Text(lastDoneText)
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
@@ -1457,6 +1492,8 @@ private struct HomeWorkoutListRow: View {
                         .frame(width: 3)
                         .padding(.vertical, 4)
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityHint("Opens this workout")
             }
         }
         .contextMenu {

@@ -178,6 +178,7 @@ final class UserPreferences: ObservableObject {
         static let coachHistory = "fitlog.coachMark.history.v1"
         static let dismissedProgramAssignmentBanner = "fitlog.dismissedProgramAssignmentBanner"
         static let dismissedCardioGetStartedBanner = "fitlog.dismissedCardioGetStartedBanner"
+        static let dismissedExpandLibraryBanner = "fitlog.dismissedExpandLibraryBanner"
         static let effortInputStyle = "fitlog.effortInputStyle"
         static let formGuideGender = "fitlog.formGuideGender"
         static let formGuideAngle = "fitlog.formGuideAngle"
@@ -225,6 +226,11 @@ final class UserPreferences: ObservableObject {
     /// User dismissed the Home cardio get-started card.
     @Published var dismissedCardioGetStartedBanner: Bool {
         didSet { defaults.set(dismissedCardioGetStartedBanner, forKey: Keys.dismissedCardioGetStartedBanner) }
+    }
+
+    /// User dismissed the Home “add a second workout” card.
+    @Published var dismissedExpandLibraryBanner: Bool {
+        didSet { defaults.set(dismissedExpandLibraryBanner, forKey: Keys.dismissedExpandLibraryBanner) }
     }
 
     /// Whether the inline log row shows effort as RPE or RIR.
@@ -292,6 +298,7 @@ final class UserPreferences: ObservableObject {
         _coachMarkHistoryDismissed = Published(initialValue: defaults.bool(forKey: Keys.coachHistory))
         _dismissedProgramAssignmentBanner = Published(initialValue: defaults.bool(forKey: Keys.dismissedProgramAssignmentBanner))
         _dismissedCardioGetStartedBanner = Published(initialValue: defaults.bool(forKey: Keys.dismissedCardioGetStartedBanner))
+        _dismissedExpandLibraryBanner = Published(initialValue: defaults.bool(forKey: Keys.dismissedExpandLibraryBanner))
         if let raw = defaults.string(forKey: Keys.effortInputStyle),
            let style = EffortInputStyle(rawValue: raw) {
             _effortInputStyle = Published(initialValue: style)
@@ -356,6 +363,7 @@ final class UserPreferences: ObservableObject {
         coachMarkHistoryDismissed = false
         dismissedProgramAssignmentBanner = false
         dismissedCardioGetStartedBanner = false
+        dismissedExpandLibraryBanner = false
         dismissedHomePremiumCard = false
         homePremiumCardSnoozeUntil = nil
         hasLoggedFirstWorkout = false
@@ -371,6 +379,7 @@ final class UserPreferences: ObservableObject {
         coachMarkHistoryDismissed = true
         dismissedProgramAssignmentBanner = true
         dismissedCardioGetStartedBanner = true
+        dismissedExpandLibraryBanner = true
         dismissedHomePremiumCard = true
         homePremiumCardSnoozeUntil = nil
         effortInputStyle = .rpe

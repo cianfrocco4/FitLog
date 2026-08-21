@@ -178,18 +178,25 @@ struct HomeProgramSummaryCard: View {
                     .foregroundStyle(session.isRest || session.isUnscheduled ? .secondary : .primary)
                     .lineLimit(1)
                 if session.isToday, !session.isRest, !session.isUnscheduled {
-                    Text("Today")
+                    Text(session.isCompleted ? "Done today" : "Today")
                         .font(.caption2.weight(.medium))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(session.isCompleted ? FitlogPalette.success : Color.accentColor)
                 }
             }
 
             Spacer(minLength: 0)
 
             if session.isCompleted {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                    .accessibilityLabel("Completed")
+                if session.isToday {
+                    Label("Logged", systemImage: "checkmark.circle.fill")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(FitlogPalette.success)
+                        .accessibilityLabel("Logged today")
+                } else {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(FitlogPalette.success)
+                        .accessibilityLabel("Completed")
+                }
             } else if session.isToday,
                       let libraryId = session.libraryWorkoutId,
                       let workout = dataVM.userWorkouts.first(where: { $0.id == libraryId }) {
@@ -210,7 +217,13 @@ struct HomeProgramSummaryCard: View {
         .padding(.horizontal, 10)
         .background {
             RoundedRectangle(cornerRadius: 10)
-                .fill(session.isToday ? Color.accentColor.opacity(0.08) : Color(.tertiarySystemFill).opacity(0.5))
+                .fill(
+                    session.isToday && session.isCompleted
+                        ? FitlogPalette.success.opacity(0.14)
+                        : session.isToday
+                            ? Color.accentColor.opacity(0.08)
+                            : Color(.tertiarySystemFill).opacity(0.5)
+                )
         }
 
         if let libraryId = session.libraryWorkoutId, !session.isRest {

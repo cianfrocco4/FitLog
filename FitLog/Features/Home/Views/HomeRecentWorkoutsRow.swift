@@ -10,6 +10,7 @@ import SwiftUI
 struct HomeRecentWorkoutsRow: View {
     let workouts: [Workout]
     let lastCompletedDates: [UUID: Date]
+    var lastDurations: [UUID: Int] = [:]
     let onStart: (Workout) -> Void
 
     var body: some View {
@@ -27,7 +28,8 @@ struct HomeRecentWorkoutsRow: View {
                         } label: {
                             HomeRecentWorkoutChip(
                                 workout: workout,
-                                lastDone: lastCompletedDates[workout.id]
+                                lastDone: lastCompletedDates[workout.id],
+                                lastDurationSeconds: lastDurations[workout.id]
                             )
                         }
                         .buttonStyle(.plain)
@@ -50,6 +52,14 @@ struct HomeRecentWorkoutsRow: View {
 private struct HomeRecentWorkoutChip: View {
     let workout: Workout
     let lastDone: Date?
+    var lastDurationSeconds: Int? = nil
+
+    private var lastDoneText: String {
+        HomeWorkoutFormatting.lastDoneWithDurationLabel(
+            date: lastDone,
+            durationSeconds: lastDurationSeconds
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -63,7 +73,7 @@ private struct HomeRecentWorkoutChip: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
             }
-            Text(HomeWorkoutFormatting.lastDoneLabel(for: lastDone))
+            Text(lastDoneText)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             Text("\(workout.exercises.count) exercises")
@@ -79,7 +89,7 @@ private struct HomeRecentWorkoutChip: View {
                 .frame(width: 4)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(workout.name), \(HomeWorkoutFormatting.lastDoneLabel(for: lastDone))")
+        .accessibilityLabel("\(workout.name), \(lastDoneText)")
     }
 }
 

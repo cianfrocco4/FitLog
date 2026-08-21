@@ -17,6 +17,7 @@ struct FirstRunOnboardingTests {
         prefs.markSpotlightTourCompleted()
         prefs.coachMarkHomeDismissed = true
         prefs.hasLoggedFirstWorkout = true
+        prefs.dismissedExpandLibraryBanner = true
 
         prefs.resetFirstRunExperience()
 
@@ -24,6 +25,7 @@ struct FirstRunOnboardingTests {
         #expect(!prefs.spotlightTourCompleted)
         #expect(!prefs.coachMarkHomeDismissed)
         #expect(!prefs.hasLoggedFirstWorkout)
+        #expect(!prefs.dismissedExpandLibraryBanner)
     }
 
     @Test @MainActor func applyUITestDefaults_skipsOnboardingAndSpotlight() {
@@ -32,6 +34,7 @@ struct FirstRunOnboardingTests {
         prefs.applyUITestDefaults()
         #expect(prefs.hasCompletedOnboarding)
         #expect(prefs.spotlightTourCompleted)
+        #expect(prefs.dismissedExpandLibraryBanner)
     }
 
     @Test @MainActor func spotlightTour_startsQueuedExploreAndCompletes() {

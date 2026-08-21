@@ -15,6 +15,7 @@ struct HomeStartWorkoutSheet: View {
     let scheduledWorkout: Workout?
     let recentWorkouts: [Workout]
     let lastCompletedDates: [UUID: Date]
+    var lastDurations: [UUID: Int] = [:]
     let onStartScheduled: () -> Void
     let onStartLibrary: (Workout) -> Void
     let onNewWorkout: () -> Void
@@ -63,7 +64,12 @@ struct HomeStartWorkoutSheet: View {
                                         Text(workout.name)
                                             .font(.headline)
                                             .foregroundStyle(.primary)
-                                        Text(HomeWorkoutFormatting.lastDoneLabel(for: lastCompletedDates[workout.id]))
+                                        Text(
+                                            HomeWorkoutFormatting.lastDoneWithDurationLabel(
+                                                date: lastCompletedDates[workout.id],
+                                                durationSeconds: lastDurations[workout.id]
+                                            )
+                                        )
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }

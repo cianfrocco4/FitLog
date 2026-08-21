@@ -106,4 +106,43 @@ enum HomeWorkoutFormatting {
         default: return "Last done \(days)d ago"
         }
     }
+
+    /// Compact duration for Home rows, e.g. "45m" or "1h 5m".
+    static func compactDurationLabel(seconds: Int?) -> String? {
+        guard let seconds, seconds >= 30 else { return nil }
+        return HistoryFormatters.formatAvgDuration(seconds)
+    }
+
+    static func lastDoneWithDurationLabel(
+        date: Date?,
+        durationSeconds: Int?,
+        reference: Date = Date(),
+        calendar: Calendar = .current
+    ) -> String {
+        let done = lastDoneLabel(for: date, reference: reference, calendar: calendar)
+        if let duration = compactDurationLabel(seconds: durationSeconds) {
+            return "\(done) · \(duration)"
+        }
+        return done
+    }
+
+    static func libraryDetailLine(
+        kind: WorkoutKind,
+        exerciseCount: Int,
+        lastLoggedSeconds: Int?,
+        emptySubtitle: String
+    ) -> String {
+        let lastDuration = compactDurationLabel(seconds: lastLoggedSeconds)
+        let exerciseWord = exerciseCount == 1 ? "exercise" : "exercises"
+        if (kind == .cardio || kind == .hybrid), let lastDuration {
+            if exerciseCount > 0 {
+                return "\(exerciseCount) \(exerciseWord) · last \(lastDuration)"
+            }
+            return "Last \(lastDuration)"
+        }
+        if exerciseCount > 0 {
+            return "\(exerciseCount) \(exerciseWord) · ~\(estimatedDurationMinutes(exerciseCount: exerciseCount)) min"
+        }
+        return emptySubtitle
+    }
 }

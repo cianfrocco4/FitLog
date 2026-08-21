@@ -1576,13 +1576,25 @@ final class DataManager {
         return Int(sessions.actual.rounded())
     }
 
+    /// Most recent completed session tied to a library workout id (plan origin or legacy same id).
+    func lastCompletedSession(forLibraryWorkoutId libraryId: UUID) -> WorkoutSession? {
+        completedSessions.filter { session in
+            guard session.endTime != nil else { return false }
+            if session.sessionPlanOrigin?.libraryWorkoutId == libraryId { return true }
+            if session.sessionPlanOrigin == nil, session.workout.id == libraryId { return true }
+            return false
+        }.max(by: { ($0.endTime ?? .distantPast) < ($1.endTime ?? .distantPast) })
+    }
+
     /// Most recent completion date for sessions tied to a library workout id.
     func lastCompletedDate(forLibraryWorkoutId libraryId: UUID) -> Date? {
-        completedSessions.compactMap { session -> Date? in
-            guard let end = session.endTime else { return nil }
-            if session.sessionPlanOrigin?.libraryWorkoutId == libraryId { return end }
-            return nil
-        }.max()
+        lastCompletedSession(forLibraryWorkoutId: libraryId)?.endTime
+    }
+
+    /// Last logged cardio (or cardio/hybrid wall-clock) duration for a library workout.
+    func lastLoggedDurationSeconds(forLibraryWorkoutId libraryId: UUID) -> Int? {
+        guard let session = lastCompletedSession(forLibraryWorkoutId: libraryId) else { return nil }
+        return HomeLastSessionStats.durationSeconds(from: session, exercises: globalExercises)
     }
 
     /// Unique library workout ids from recent completed sessions, most recent first.

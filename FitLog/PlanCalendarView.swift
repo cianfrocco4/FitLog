@@ -353,6 +353,10 @@ struct PlanCalendarView: View {
         let inMonth = calendar.isDate(day, equalTo: visibleMonth, toGranularity: .month)
         let status = dayStatus(date: day, resolved: resolved)
         let subtitle = dayPlanSubtitle(date: day, resolved: resolved)
+        let emphasizeLoggedToday = PlanCalendarDayChrome.emphasizesCompletedToday(
+            isToday: isToday,
+            isLogged: status == .logged
+        )
 
         return Button {
             FitlogHaptics.lightImpact()
@@ -367,23 +371,37 @@ struct PlanCalendarView: View {
                     .foregroundStyle(.secondary)
                 Text("\(calendar.component(.day, from: day))")
                     .font(.subheadline.weight(isToday ? .bold : .regular))
-                statusDot(for: status)
+                statusDot(for: status, prominent: emphasizeLoggedToday)
+                if let done = PlanCalendarDayChrome.todayDoneCaption(isToday: isToday, isLogged: status == .logged) {
+                    Text(done)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(FitlogPalette.success)
+                }
             }
             .frame(minWidth: 40)
             .padding(.vertical, 8)
             .padding(.horizontal, 6)
             .background(
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(isToday ? Color.accentColor.opacity(0.18) : Color(.secondarySystemGroupedBackground))
+                    .fill(
+                        emphasizeLoggedToday
+                            ? FitlogPalette.success.opacity(0.18)
+                            : (isToday ? Color.accentColor.opacity(0.18) : Color(.secondarySystemGroupedBackground))
+                    )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(isToday ? Color.accentColor.opacity(0.55) : Color.clear, lineWidth: isToday ? 1.5 : 0)
+                    .strokeBorder(
+                        emphasizeLoggedToday
+                            ? FitlogPalette.success.opacity(0.7)
+                            : (isToday ? Color.accentColor.opacity(0.55) : Color.clear),
+                        lineWidth: (isToday || emphasizeLoggedToday) ? 1.5 : 0
+                    )
             )
             .opacity(inMonth ? 1 : 0.45)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(subtitle). \(accessibilityStatusLabel(status)).")
+        .accessibilityLabel("\(isToday ? "Today. " : "")\(subtitle). \(PlanCalendarDayChrome.accessibilityStatus(isToday: isToday, isLogged: status == .logged, baseStatus: accessibilityStatusLabel(status))).")
     }
 
     private func shortWeekdaySymbol(for date: Date) -> String {
@@ -419,27 +437,29 @@ struct PlanCalendarView: View {
     }
 
     @ViewBuilder
-    private func statusDot(for status: PlanDayStatus) -> some View {
+    private func statusDot(for status: PlanDayStatus, prominent: Bool = false) -> some View {
+        let size: Font = prominent ? .body : .caption2
         switch status {
         case .logged:
             Image(systemName: "checkmark.circle.fill")
-                .font(.caption2)
+                .font(size.weight(.semibold))
                 .foregroundStyle(FitlogPalette.success)
+                .symbolRenderingMode(.hierarchical)
         case .missedWorkout:
             Image(systemName: "exclamationmark.circle.fill")
-                .font(.caption2)
+                .font(size)
                 .foregroundStyle(FitlogPalette.caution)
         case .rest:
             Image(systemName: "moon.zzz.fill")
-                .font(.caption2)
+                .font(size)
                 .foregroundStyle(.secondary)
         case .unscheduled:
             Image(systemName: "circle.dashed")
-                .font(.caption2)
+                .font(size)
                 .foregroundStyle(.tertiary)
         case .plannedWorkout:
             Image(systemName: "dumbbell.fill")
-                .font(.caption2)
+                .font(size)
                 .foregroundStyle(Color.accentColor)
         }
     }
@@ -596,6 +616,10 @@ struct PlanCalendarView: View {
         let isPastDay = calendar.startOfDay(for: date) < calendar.startOfDay(for: Date())
         let subtitle = dayPlanSubtitle(date: date, resolved: resolved)
         let status = dayStatus(date: date, resolved: resolved)
+        let emphasizeLoggedToday = PlanCalendarDayChrome.emphasizesCompletedToday(
+            isToday: isToday,
+            isLogged: status == .logged
+        )
         let blockBoundary = dynamicBlockBoundary(at: date, gridIndex: gridIndex, daysInGrid: daysInGrid)
         let blockAccent = dynamicCalendarBlockAccent(for: date)
 
@@ -611,7 +635,7 @@ struct PlanCalendarView: View {
                 ZStack {
                     if isToday {
                         Circle()
-                            .fill(Color.accentColor)
+                            .fill(emphasizeLoggedToday ? FitlogPalette.success : Color.accentColor)
                             .frame(width: 30, height: 30)
                     }
                     Text("\(calendar.component(.day, from: date))")
@@ -620,10 +644,14 @@ struct PlanCalendarView: View {
                 }
                 .accessibilityHidden(true)
                 Spacer(minLength: 0)
-                statusDot(for: status)
+                statusDot(for: status, prominent: emphasizeLoggedToday)
             }
 
-            if isToday {
+            if let done = PlanCalendarDayChrome.todayDoneCaption(isToday: isToday, isLogged: status == .logged) {
+                Text(done)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(FitlogPalette.success)
+            } else if isToday {
                 Text("Today")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(Color.accentColor)
@@ -645,7 +673,10 @@ struct PlanCalendarView: View {
                     RoundedRectangle(cornerRadius: 8)
                         .fill(blockAccent.opacity(0.07))
                 }
-                if isToday {
+                if emphasizeLoggedToday {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(FitlogPalette.success.opacity(0.12))
+                } else if isToday {
                     RoundedRectangle(cornerRadius: 8)
                         .fill(Color.accentColor.opacity(0.08))
                 }
@@ -653,7 +684,12 @@ struct PlanCalendarView: View {
         }
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(isToday ? Color.accentColor.opacity(0.45) : Color.clear, lineWidth: isToday ? 1.5 : 0)
+                .strokeBorder(
+                    emphasizeLoggedToday
+                        ? FitlogPalette.success.opacity(0.65)
+                        : (isToday ? Color.accentColor.opacity(0.45) : Color.clear),
+                    lineWidth: (isToday || emphasizeLoggedToday) ? 1.5 : 0
+                )
         )
         .overlay(alignment: .leading) {
             if let boundary = blockBoundary {
@@ -730,7 +766,12 @@ struct PlanCalendarView: View {
     private func accessibilityDayLabel(date: Date, isToday: Bool, subtitle: String, status: PlanDayStatus) -> String {
         let when = date.formatted(date: .abbreviated, time: .omitted)
         let prefix = isToday ? "Today, " : ""
-        return "\(prefix)\(when). \(subtitle). \(accessibilityStatusLabel(status))."
+        let statusText = PlanCalendarDayChrome.accessibilityStatus(
+            isToday: isToday,
+            isLogged: status == .logged,
+            baseStatus: accessibilityStatusLabel(status)
+        )
+        return "\(prefix)\(when). \(subtitle). \(statusText)."
     }
 
     private func daysInMonthGrid(for month: Date) -> [Date?] {
