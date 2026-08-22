@@ -29,6 +29,49 @@ func startAgainFromCompletedSession(
     }
 }
 
+/// Library workout to start fresh from a finished session (not resume logged sets).
+enum HistoryRepeatWorkout {
+    static func sourceWorkout(session: WorkoutSession, library: [Workout]) -> Workout? {
+        if let id = session.sessionPlanOrigin?.libraryWorkoutId,
+           let found = library.first(where: { $0.id == id }),
+           !found.exercises.isEmpty {
+            return found
+        }
+        return session.workout.exercises.isEmpty ? nil : session.workout
+    }
+}
+
+/// Starts a **new** session from the library (or the finished workout), leaving History intact.
+@MainActor
+func startFreshWorkoutFromCompletedSession(
+    _ session: WorkoutSession,
+    dataVM: DataManager,
+    currentVM: CurrentWorkoutSessionViewModel,
+    openCurrentWorkoutSheet: (() -> Void)?,
+    setPendingReplace: @escaping (PendingWorkoutReplace?) -> Void
+) {
+    guard let source = HistoryRepeatWorkout.sourceWorkout(
+        session: session,
+        library: dataVM.userWorkouts
+    ) else { return }
+    let toStart = source.hasFlexibleSlots ? dataVM.sessionInstance(from: source) : source
+    let origin: WorkoutPlanRef? = {
+        if let id = session.sessionPlanOrigin?.libraryWorkoutId, dataVM.workout(id: id) != nil {
+            return .workout(id)
+        }
+        if dataVM.workout(id: source.id) != nil {
+            return .workout(source.id)
+        }
+        return session.sessionPlanOrigin
+    }()
+    currentVM.startWorkoutResolvingConflict(toStart, sessionPlanOrigin: origin) {
+        setPendingReplace($0)
+    }
+    if currentVM.isInProgress {
+        openCurrentWorkoutSheet?()
+    }
+}
+
 @MainActor
 func fitlogDeleteCompletedSessionWithUndo(
     _ session: WorkoutSession,

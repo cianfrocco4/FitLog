@@ -112,6 +112,19 @@ struct WorkoutHistoryDetailView: View {
                             Label("Continue", systemImage: "arrow.clockwise.circle.fill")
                         }
                         .tint(FitlogPalette.success)
+                    } else {
+                        Button {
+                            startFreshWorkoutFromCompletedSession(
+                                session,
+                                dataVM: dataVM,
+                                currentVM: currentVM,
+                                openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+                                setPendingReplace: { pendingStartAgainReplace = $0 }
+                            )
+                        } label: {
+                            Label("Start again", systemImage: "play.fill")
+                        }
+                        .tint(FitlogPalette.success)
                     }
                 }
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {

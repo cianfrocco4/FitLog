@@ -10,6 +10,11 @@ struct HistorySessionRow: View {
     let summary: HistorySessionSummary
     let volumeUnit: WeightDisplayUnit
 
+    private var lastWorkingLabel: String? {
+        guard let snap = HomeLastWorkingLoad.snapshot(from: session) else { return nil }
+        return HomeWorkoutFormatting.compactWeightLabel(pounds: snap.weightPounds, unit: volumeUnit)
+    }
+
     var body: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
@@ -18,6 +23,12 @@ struct HistorySessionRow: View {
                 Text(HistoryFormatters.formatDateTime(session.endTime ?? session.startTime))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let lastWorkingLabel {
+                    Text("Last set \(lastWorkingLabel)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Last working set \(lastWorkingLabel)")
+                }
                 HStack(spacing: 12) {
                     Label("\(summary.setCount) sets", systemImage: "square.stack.3d.up")
                     if summary.volume > 0 {

@@ -77,8 +77,38 @@ struct SessionDetailView: View {
                     } label: {
                         Label("Continue session", systemImage: "arrow.clockwise.circle.fill")
                     }
+                    .accessibilityHint("Resumes this session with the same logged sets")
+                    Button {
+                        startFreshWorkoutFromCompletedSession(
+                            session,
+                            dataVM: dataVM,
+                            currentVM: currentVM,
+                            openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+                            setPendingReplace: { pendingStartAgainReplace = $0 }
+                        )
+                    } label: {
+                        Label("Start this workout", systemImage: "play.fill")
+                    }
+                    .accessibilityHint("Starts a new session from this workout without prior sets")
                 } footer: {
-                    Text("Continues this session with the same logged sets and progress. This finished entry stays in your history until you complete the new run.")
+                    Text("Continue keeps today’s logged sets. Start this workout begins a new session; the finished entry stays in History.")
+                }
+            } else {
+                Section {
+                    Button {
+                        startFreshWorkoutFromCompletedSession(
+                            session,
+                            dataVM: dataVM,
+                            currentVM: currentVM,
+                            openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+                            setPendingReplace: { pendingStartAgainReplace = $0 }
+                        )
+                    } label: {
+                        Label("Start this workout", systemImage: "play.fill")
+                    }
+                    .accessibilityHint("Starts a new session from this workout without prior sets")
+                } footer: {
+                    Text("Starts a new session from this workout so you can repeat it without going back to Home. This finished entry stays in History.")
                 }
             }
             let sessionCardio = CardioSessionAggregatesCalculator.aggregates(

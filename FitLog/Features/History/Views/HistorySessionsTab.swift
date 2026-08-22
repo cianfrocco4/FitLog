@@ -88,6 +88,31 @@ struct HistorySessionsTab: View {
                 volumeUnit: userPreferences.weightDisplayUnit
             )
         }
+        .contextMenu {
+            if completedSessionIsSameCalendarDay(session) {
+                Button {
+                    startAgainFromCompletedSession(
+                        session,
+                        currentVM: currentVM,
+                        openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+                        setPendingReplace: { pendingStartAgainReplace = $0 }
+                    )
+                } label: {
+                    Label("Continue session", systemImage: "arrow.clockwise.circle.fill")
+                }
+            }
+            Button {
+                startFreshWorkoutFromCompletedSession(
+                    session,
+                    dataVM: dataVM,
+                    currentVM: currentVM,
+                    openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+                    setPendingReplace: { pendingStartAgainReplace = $0 }
+                )
+            } label: {
+                Label("Start this workout", systemImage: "play.fill")
+            }
+        }
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             if completedSessionIsSameCalendarDay(session) {
                 Button {
@@ -101,6 +126,19 @@ struct HistorySessionsTab: View {
                     Label("Continue", systemImage: "arrow.clockwise.circle.fill")
                 }
                 .tint(FitlogPalette.success)
+            } else {
+                Button {
+                    startFreshWorkoutFromCompletedSession(
+                        session,
+                        dataVM: dataVM,
+                        currentVM: currentVM,
+                        openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+                        setPendingReplace: { pendingStartAgainReplace = $0 }
+                    )
+                } label: {
+                    Label("Start again", systemImage: "play.fill")
+                }
+                .tint(FitlogPalette.success)
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -108,5 +146,10 @@ struct HistorySessionsTab: View {
                 fitlogDeleteCompletedSessionWithUndo(session, dataVM: dataVM, undoManager: undoManager)
             }
         }
+        .accessibilityHint(
+            completedSessionIsSameCalendarDay(session)
+                ? "Opens session details. Swipe right to continue today’s session."
+                : "Opens session details. Swipe right to start this workout again."
+        )
     }
 }
