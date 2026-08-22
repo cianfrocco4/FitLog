@@ -17,7 +17,8 @@ enum HomeGreeting {
     static func contextualSubtitle(
         plan: ResolvedScheduleDay,
         weekGlance: DataManager.WeekAtAGlance?,
-        scheduledWorkoutName: String?
+        scheduledWorkoutName: String?,
+        lastWorkingWeightLabel: String? = nil
     ) -> String {
         switch plan {
         case .rest:
@@ -32,6 +33,9 @@ enum HomeGreeting {
             return "Nothing scheduled — pick a workout below or set your split in Plan."
         case .workout:
             if let name = scheduledWorkoutName, !name.isEmpty {
+                if let last = lastWorkingWeightLabel, !last.isEmpty {
+                    return "\(name) is on the schedule today · last \(last)."
+                }
                 return "\(name) is on the schedule today."
             }
             return "You have a workout planned for today."

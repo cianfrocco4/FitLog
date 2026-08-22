@@ -10,6 +10,8 @@ import SwiftUI
 struct HomeRecentWorkoutsRow: View {
     let workouts: [Workout]
     let lastCompletedDates: [UUID: Date]
+    var lastWorkingLoads: [UUID: HomeLastWorkingLoad.Snapshot] = [:]
+    var weightUnit: WeightDisplayUnit = .pounds
     let onStart: (Workout) -> Void
 
     var body: some View {
@@ -27,7 +29,9 @@ struct HomeRecentWorkoutsRow: View {
                         } label: {
                             HomeRecentWorkoutChip(
                                 workout: workout,
-                                lastDone: lastCompletedDates[workout.id]
+                                lastDone: lastCompletedDates[workout.id],
+                                lastLoad: lastWorkingLoads[workout.id],
+                                weightUnit: weightUnit
                             )
                         }
                         .buttonStyle(.plain)
@@ -50,6 +54,16 @@ struct HomeRecentWorkoutsRow: View {
 private struct HomeRecentWorkoutChip: View {
     let workout: Workout
     let lastDone: Date?
+    let lastLoad: HomeLastWorkingLoad.Snapshot?
+    let weightUnit: WeightDisplayUnit
+
+    private var lastDoneText: String {
+        HomeWorkoutFormatting.lastDoneWithWeightLabel(
+            date: lastDone,
+            weightPounds: lastLoad?.weightPounds,
+            unit: weightUnit
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -63,7 +77,7 @@ private struct HomeRecentWorkoutChip: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
             }
-            Text(HomeWorkoutFormatting.lastDoneLabel(for: lastDone))
+            Text(lastDoneText)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             Text("\(workout.exercises.count) exercises")
@@ -79,7 +93,7 @@ private struct HomeRecentWorkoutChip: View {
                 .frame(width: 4)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(workout.name), \(HomeWorkoutFormatting.lastDoneLabel(for: lastDone))")
+        .accessibilityLabel("\(workout.name), \(lastDoneText)")
     }
 }
 

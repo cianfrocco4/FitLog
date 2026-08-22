@@ -106,4 +106,25 @@ enum HomeWorkoutFormatting {
         default: return "Last done \(days)d ago"
         }
     }
+
+    /// Compact stored-pound weight for Home rows, e.g. "185 lb".
+    static func compactWeightLabel(pounds: Double?, unit: WeightDisplayUnit) -> String? {
+        guard let pounds, pounds > 0, pounds.isFinite else { return nil }
+        let display = WeightStoreConversion.displayValue(storedPounds: pounds, unit: unit)
+        return "\(WeightStoreConversion.formatDisplay(display)) \(unit.shortLabel)"
+    }
+
+    static func lastDoneWithWeightLabel(
+        date: Date?,
+        weightPounds: Double?,
+        unit: WeightDisplayUnit,
+        reference: Date = Date(),
+        calendar: Calendar = .current
+    ) -> String {
+        let done = lastDoneLabel(for: date, reference: reference, calendar: calendar)
+        if let weight = compactWeightLabel(pounds: weightPounds, unit: unit) {
+            return "\(done) · \(weight)"
+        }
+        return done
+    }
 }

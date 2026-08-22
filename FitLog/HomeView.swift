@@ -87,6 +87,14 @@ struct HomeView: View {
         return dataVM.userWorkouts.first(where: { $0.id == ref.libraryWorkoutId })
     }
 
+    private var scheduledTodayLastWeightLabel: String? {
+        guard let workout = scheduledWorkoutForToday else { return nil }
+        return HomeWorkoutFormatting.compactWeightLabel(
+            pounds: dataVM.lastWorkingLoad(forLibraryWorkoutId: workout.id)?.weightPounds,
+            unit: userPreferences.weightDisplayUnit
+        )
+    }
+
     private var recentQuickStartWorkouts: [Workout] {
         let ids = dataVM.recentCompletedLibraryWorkoutIds(limit: 4)
         return ids.compactMap { id in dataVM.userWorkouts.first(where: { $0.id == id }) }
@@ -98,6 +106,13 @@ struct HomeView: View {
         }.compactMap { pair -> (UUID, Date)? in
             guard let date = pair.1 else { return nil }
             return (pair.0, date)
+        })
+    }
+
+    private var recentWorkoutLastLoads: [UUID: HomeLastWorkingLoad.Snapshot] {
+        Dictionary(uniqueKeysWithValues: dataVM.userWorkouts.compactMap { workout in
+            guard let snap = dataVM.lastWorkingLoad(forLibraryWorkoutId: workout.id) else { return nil }
+            return (workout.id, snap)
         })
     }
 
@@ -497,6 +512,8 @@ struct HomeView: View {
                     HomeRecentWorkoutsRow(
                         workouts: recentQuickStartWorkouts,
                         lastCompletedDates: recentWorkoutLastDoneDates,
+                        lastWorkingLoads: recentWorkoutLastLoads,
+                        weightUnit: userPreferences.weightDisplayUnit,
                         onStart: startWorkoutFromLibrary
                     )
                     .listRowInsets(homeDashboardListInsets)
@@ -731,6 +748,8 @@ struct HomeView: View {
                     scheduledWorkout: scheduledWorkoutForToday,
                     recentWorkouts: recentQuickStartWorkouts,
                     lastCompletedDates: recentWorkoutLastDoneDates,
+                    lastWorkingLoads: recentWorkoutLastLoads,
+                    weightUnit: userPreferences.weightDisplayUnit,
                     onStartScheduled: {
                         if let workout = scheduledWorkoutForToday {
                             startWorkoutFromTodayPlan(workout)
@@ -1269,7 +1288,8 @@ struct HomeView: View {
                 Text(HomeGreeting.contextualSubtitle(
                     plan: plan,
                     weekGlance: cachedWeekGlance,
-                    scheduledWorkoutName: scheduledName
+                    scheduledWorkoutName: scheduledName,
+                    lastWorkingWeightLabel: scheduledTodayLastWeightLabel
                 ))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -1294,7 +1314,13 @@ struct HomeView: View {
                 if let workout = dataVM.userWorkouts.first(where: { $0.id == id }) {
                     let sessionWorkout = workout.hasFlexibleSlots ? dataVM.sessionInstance(from: workout) : workout
                     let thisPlanActive = currentVM.isActiveSessionMatching(workout: sessionWorkout, planRef: ref)
-                    let subtitle = "\(workout.listDetailSubtitle) · from your plan"
+                    var subtitle = "\(workout.listDetailSubtitle) · from your plan"
+                    if let last = HomeWorkoutFormatting.compactWeightLabel(
+                        pounds: dataVM.lastWorkingLoad(forLibraryWorkoutId: workout.id)?.weightPounds,
+                        unit: userPreferences.weightDisplayUnit
+                    ) {
+                        subtitle += " · last \(last)"
+                    }
                     TodayWorkoutCard(
                         title: workout.name,
                         subtitle: subtitle,
@@ -1394,6 +1420,7 @@ private struct HomeWorkoutListRow: View {
     @Environment(DataManager.self) var dataVM
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var aiService: AIService
+    @EnvironmentObject var userPreferences: UserPreferences
 
     let workout: Workout
     @Binding var workoutToRename: Workout?
@@ -1404,9 +1431,12 @@ private struct HomeWorkoutListRow: View {
     private var estimatedMinutes: Int {
         HomeWorkoutFormatting.estimatedDurationMinutes(exerciseCount: exerciseCount)
     }
+
     private var lastDoneText: String {
-        HomeWorkoutFormatting.lastDoneLabel(
-            for: dataVM.lastCompletedDate(forLibraryWorkoutId: workout.id)
+        HomeWorkoutFormatting.lastDoneWithWeightLabel(
+            date: dataVM.lastCompletedDate(forLibraryWorkoutId: workout.id),
+            weightPounds: dataVM.lastWorkingLoad(forLibraryWorkoutId: workout.id)?.weightPounds,
+            unit: userPreferences.weightDisplayUnit
         )
     }
 
@@ -1451,6 +1481,9 @@ private struct HomeWorkoutListRow: View {
                             .foregroundStyle(.tertiary)
                     }
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(workout.name), \(lastDoneText)")
+                .accessibilityHint("Opens workout details. Swipe right or use the context menu to start.")
                 .overlay(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(workout.workoutKind.homeAccentColor)

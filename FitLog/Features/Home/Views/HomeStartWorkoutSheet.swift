@@ -15,6 +15,8 @@ struct HomeStartWorkoutSheet: View {
     let scheduledWorkout: Workout?
     let recentWorkouts: [Workout]
     let lastCompletedDates: [UUID: Date]
+    var lastWorkingLoads: [UUID: HomeLastWorkingLoad.Snapshot] = [:]
+    var weightUnit: WeightDisplayUnit = .pounds
     let onStartScheduled: () -> Void
     let onStartLibrary: (Workout) -> Void
     let onNewWorkout: () -> Void
@@ -36,13 +38,17 @@ struct HomeStartWorkoutSheet: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("Today's plan")
                                         .font(.headline)
-                                    Text(scheduled.name)
+                                    Text(scheduledPlanSubtitle(for: scheduled))
                                         .font(.subheadline)
                                         .foregroundStyle(.secondary)
                                 }
                             }
                         }
-                        .accessibilityHint("Starts today's scheduled workout")
+                        .accessibilityHint(
+                            scheduledPlanSubtitle(for: scheduled) == scheduled.name
+                                ? "Starts today's scheduled workout"
+                                : "Starts today's scheduled workout, \(scheduledPlanSubtitle(for: scheduled))"
+                        )
                     } header: {
                         Text("Recommended")
                     }
@@ -63,12 +69,19 @@ struct HomeStartWorkoutSheet: View {
                                         Text(workout.name)
                                             .font(.headline)
                                             .foregroundStyle(.primary)
-                                        Text(HomeWorkoutFormatting.lastDoneLabel(for: lastCompletedDates[workout.id]))
+                                        Text(
+                                            HomeWorkoutFormatting.lastDoneWithWeightLabel(
+                                                date: lastCompletedDates[workout.id],
+                                                weightPounds: lastWorkingLoads[workout.id]?.weightPounds,
+                                                unit: weightUnit
+                                            )
+                                        )
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
                                 }
                             }
+                            .accessibilityHint("Starts this workout immediately")
                         }
                     } header: {
                         Text("Recent")
@@ -110,5 +123,16 @@ struct HomeStartWorkoutSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private func scheduledPlanSubtitle(for scheduled: Workout) -> String {
+        let last = HomeWorkoutFormatting.compactWeightLabel(
+            pounds: lastWorkingLoads[scheduled.id]?.weightPounds,
+            unit: weightUnit
+        )
+        if let last {
+            return "\(scheduled.name) · last \(last)"
+        }
+        return scheduled.name
     }
 }
