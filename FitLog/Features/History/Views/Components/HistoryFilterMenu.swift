@@ -81,7 +81,7 @@ struct HistoryFilterMenu: View {
                 .foregroundStyle(viewModel.hasActiveFilters ? Color.accentColor : .primary)
         }
         .accessibilityLabel("History filters")
-        .accessibilityHint("Change time range or compare to prior period")
+        .accessibilityHint("Change time range or compare to prior period. Sessions older than the range stay listed.")
         .sheet(isPresented: $showPaywall) {
             PaywallView(
                 triggerFeature: paywallTrigger,

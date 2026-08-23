@@ -17,6 +17,7 @@ struct HistoryOverviewTab: View {
     @State private var showVolumeInfo = false
     @State private var showPaywall = false
     @State private var paywallTrigger: PremiumFeature = .advancedAnalytics
+    @State private var olderPeekHaptic = 0
 
     private var volumeUnit: String {
         HistoryFormatters.volumeUnitLabel(weightUnit: userPreferences.weightDisplayUnit)
@@ -32,6 +33,7 @@ struct HistoryOverviewTab: View {
     var body: some View {
         Group {
             kpiSection
+            olderSessionsPeekSection
             if entitlementStore.hasAccess(to: .unlimitedHistory) {
                 heatmapSection
             } else {
@@ -174,6 +176,42 @@ struct HistoryOverviewTab: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
+    }
+
+    @ViewBuilder
+    private var olderSessionsPeekSection: some View {
+        let older = viewModel.olderSessionsOutsideRange
+        if !older.isEmpty {
+            Section {
+                Button {
+                    olderPeekHaptic += 1
+                    viewModel.mainTab = .sessions
+                } label: {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label(
+                            HistoryFreePeek.overviewBannerTitle(count: older.count),
+                            systemImage: "clock.arrow.circlepath"
+                        )
+                        .font(.headline)
+                        Text(HistoryFreePeek.overviewBannerDetail(count: older.count, range: viewModel.dayRange))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    HistoryFreePeek.overviewBannerAccessibilityLabel(
+                        count: older.count,
+                        range: viewModel.dayRange
+                    )
+                )
+                .accessibilityHint(HistoryFreePeek.overviewBannerAccessibilityHint())
+                .accessibilityAddTraits(.isButton)
+                .sensoryFeedback(.selection, trigger: olderPeekHaptic)
+            }
+        }
     }
 
     private var heatmapSection: some View {
@@ -345,7 +383,7 @@ struct HistoryOverviewTab: View {
             VStack(alignment: .leading, spacing: 10) {
                 Label("Full training history", systemImage: "calendar")
                     .font(.headline)
-                Text("Unlock the 365-day training heatmap and extended date ranges with Premium.")
+                Text("Unlock the 365-day training heatmap and extended date ranges with Premium. Older sessions stay listed in Sessions.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Button("Unlock Premium") {

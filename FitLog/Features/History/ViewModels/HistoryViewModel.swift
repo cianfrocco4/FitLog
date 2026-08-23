@@ -22,6 +22,8 @@ final class HistoryViewModel {
 
     private(set) var sessionsInDateRange: [WorkoutSession] = []
     private(set) var allSessionsSorted: [WorkoutSession] = []
+    /// Sessions before the selected range. Listed in Sessions; omitted from charts/KPIs.
+    private(set) var olderSessionsOutsideRange: [WorkoutSession] = []
     private(set) var priorSessions: [WorkoutSession] = []
 
     private(set) var currentKPIs: HistoryKPIs = .empty
@@ -65,9 +67,21 @@ final class HistoryViewModel {
     }
 
     var filteredSessionsForSessionsTab: [WorkoutSession] {
+        filterSessions(sessionsInDateRange)
+    }
+
+    var filteredOlderSessionsForSessionsTab: [WorkoutSession] {
+        filterSessions(olderSessionsOutsideRange)
+    }
+
+    var olderSessionsSectionTitle: String {
+        HistoryFreePeek.olderSectionTitle(range: dayRange)
+    }
+
+    private func filterSessions(_ sessions: [WorkoutSession]) -> [WorkoutSession] {
         let q = sessionsSearch.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return sessionsInDateRange }
-        return sessionsInDateRange.filter { $0.workout.name.lowercased().contains(q) }
+        guard !q.isEmpty else { return sessions }
+        return sessions.filter { $0.workout.name.lowercased().contains(q) }
     }
 
     func sessionSummary(for session: WorkoutSession) -> HistorySessionSummary {
@@ -79,7 +93,7 @@ final class HistoryViewModel {
         )
     }
 
-    func recompute(dataVM: DataManager) {
+    func recompute(dataVM: DataManager, now: Date = Date()) {
         let revision = HistoryAggregator.contentRevision(for: dataVM.completedSessions)
         let rangeChanged = lastDayRange != dayRange
         guard revision != lastDataRevision || rangeChanged else { return }
@@ -89,7 +103,7 @@ final class HistoryViewModel {
         sessionsDataRevision = -1
         exploreDataRevision = -1
 
-        recomputeCore(dataVM: dataVM)
+        recomputeCore(dataVM: dataVM, now: now)
     }
 
     func ensureSessionsData(dataVM: DataManager) {
@@ -98,7 +112,7 @@ final class HistoryViewModel {
         sessionSections = HistoryAggregator.groupedSessionSections(sessionsInDateRange, calendar: calendar)
 
         var summaries: [UUID: HistorySessionSummary] = [:]
-        for session in sessionsInDateRange {
+        for session in sessionsInDateRange + olderSessionsOutsideRange {
             summaries[session.id] = HistoryAggregator.sessionSummary(session: session, dataVM: dataVM)
         }
         sessionSummaries = summaries
@@ -112,15 +126,16 @@ final class HistoryViewModel {
         exploreDataRevision = lastDataRevision
     }
 
-    private func recomputeCore(dataVM: DataManager) {
+    private func recomputeCore(dataVM: DataManager, now: Date) {
         let all = dataVM.completedSessions
-        let cutoff = periodCutoff
+        let cutoff = dayRange.cutoff(from: now, calendar: .current)
         let calendar = Calendar.current
 
         sessionsInDateRange = HistoryAggregator.sessionsInDateRange(from: all, cutoff: cutoff)
         allSessionsSorted = HistoryAggregator.allSessionsSorted(from: all)
+        olderSessionsOutsideRange = HistoryAggregator.sessionsOutsideDateRange(from: all, cutoff: cutoff)
 
-        if let (priorStart, priorEnd) = dayRange.priorWindow() {
+        if let (priorStart, priorEnd) = dayRange.priorWindow(from: now, calendar: calendar) {
             priorSessions = HistoryAggregator.priorSessions(from: all, priorStart: priorStart, priorEnd: priorEnd)
         } else {
             priorSessions = []
@@ -141,7 +156,7 @@ final class HistoryViewModel {
             calendar: calendar
         )
 
-        if let weekShift = dayRange.priorToCurrentWeekShift(calendar: calendar) {
+        if let weekShift = dayRange.priorToCurrentWeekShift(from: now, calendar: calendar) {
             priorWeeklyWorkouts = HistoryAggregator.shiftWeekData(
                 HistoryAggregator.weeklyWorkouts(from: priorSessions, calendar: calendar),
                 by: weekShift,

@@ -17,24 +17,44 @@ struct HistorySessionsTab: View {
     @State private var pendingStartAgainReplace: PendingWorkoutReplace?
 
     var body: some View {
-        let sessions = viewModel.filteredSessionsForSessionsTab
-        let sections = viewModel.sessionsSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? viewModel.sessionSections
-            : [HistorySessionSection(id: "search", title: "Results", sessions: sessions)]
+        let isSearching = !viewModel.sessionsSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let inRange = viewModel.filteredSessionsForSessionsTab
+        let older = viewModel.filteredOlderSessionsForSessionsTab
 
         Group {
-            if sessions.isEmpty {
+            if inRange.isEmpty && older.isEmpty {
                 Section {
                     emptySessionsContent
                 }
+            } else if isSearching {
+                searchResultsSection(inRange: inRange, older: older)
             } else {
-                ForEach(sections) { section in
+                if inRange.isEmpty {
                     Section {
-                        ForEach(section.sessions) { session in
+                        Text(HistoryFreePeek.emptyInRangeMessage(range: viewModel.dayRange))
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel(HistoryFreePeek.emptyInRangeMessage(range: viewModel.dayRange))
+                    }
+                } else {
+                    ForEach(viewModel.sessionSections) { section in
+                        Section {
+                            ForEach(section.sessions) { session in
+                                sessionRow(session)
+                            }
+                        } header: {
+                            Text(section.title)
+                        }
+                    }
+                }
+                if !older.isEmpty {
+                    Section {
+                        ForEach(older) { session in
                             sessionRow(session)
                         }
                     } header: {
-                        Text(section.title)
+                        Text(viewModel.olderSessionsSectionTitle)
+                    } footer: {
+                        Text(HistoryFreePeek.olderSectionFooter(range: viewModel.dayRange))
                     }
                 }
             }
@@ -47,6 +67,25 @@ struct HistorySessionsTab: View {
             pending: $pendingStartAgainReplace,
             onAfterReplace: { openCurrentWorkoutSheet?() }
         )
+    }
+
+    @ViewBuilder
+    private func searchResultsSection(inRange: [WorkoutSession], older: [WorkoutSession]) -> some View {
+        let combined = inRange + older
+        if combined.isEmpty {
+            Section {
+                Text("No sessions match your search")
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            Section {
+                ForEach(combined) { session in
+                    sessionRow(session)
+                }
+            } header: {
+                Text("Results")
+            }
+        }
     }
 
     @ViewBuilder

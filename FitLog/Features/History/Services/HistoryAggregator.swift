@@ -18,6 +18,17 @@ enum HistoryAggregator {
             .sorted { ($0.endTime ?? .distantPast) > ($1.endTime ?? .distantPast) }
     }
 
+    /// Completed sessions that fall before `cutoff`, newest first.
+    /// Used so Sessions can list older workouts while charts stay range-locked.
+    static func sessionsOutsideDateRange(
+        from allSessions: [WorkoutSession],
+        cutoff: Date
+    ) -> [WorkoutSession] {
+        allSessions
+            .filter { ($0.endTime ?? $0.startTime) < cutoff }
+            .sorted { ($0.endTime ?? .distantPast) > ($1.endTime ?? .distantPast) }
+    }
+
     static func allSessionsSorted(from allSessions: [WorkoutSession]) -> [WorkoutSession] {
         allSessions.sorted { ($0.endTime ?? .distantPast) > ($1.endTime ?? .distantPast) }
     }

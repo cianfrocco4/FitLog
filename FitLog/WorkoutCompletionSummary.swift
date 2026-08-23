@@ -19,6 +19,10 @@ struct WorkoutCompletionExerciseLine: Equatable, Identifiable {
     let newPRSetCount: Int
     /// Non-nil for cardio rows (duration/distance summary instead of volume).
     let cardioSummary: String?
+    /// Last working set load in stored pounds (this session).
+    let lastWeightPounds: Double?
+    /// Last working set reps (this session).
+    let lastReps: Int?
 
     init(
         id: UUID = UUID(),
@@ -26,7 +30,9 @@ struct WorkoutCompletionExerciseLine: Equatable, Identifiable {
         workingSetCount: Int,
         volumePounds: Double,
         newPRSetCount: Int,
-        cardioSummary: String? = nil
+        cardioSummary: String? = nil,
+        lastWeightPounds: Double? = nil,
+        lastReps: Int? = nil
     ) {
         self.id = id
         self.exerciseName = exerciseName
@@ -34,6 +40,20 @@ struct WorkoutCompletionExerciseLine: Equatable, Identifiable {
         self.volumePounds = volumePounds
         self.newPRSetCount = newPRSetCount
         self.cardioSummary = cardioSummary
+        self.lastWeightPounds = lastWeightPounds
+        self.lastReps = lastReps
+    }
+
+    /// Latest working set in `sets` (volume-counting, most recent timestamp).
+    static func lastWorkingSet(from sets: [LoggedSet]) -> LoggedSet? {
+        sets.filter(\.countsTowardVolumeTotals).max { $0.timestamp < $1.timestamp }
+    }
+
+    func lastWorkingSetCaption(displayUnit: WeightDisplayUnit) -> String? {
+        guard let pounds = lastWeightPounds, let reps = lastReps, reps > 0 else { return nil }
+        let displayed = WeightStoreConversion.displayValue(storedPounds: pounds, unit: displayUnit)
+        let weight = WeightStoreConversion.formatDisplay(displayed)
+        return "Last \(weight) \(displayUnit.shortLabel) × \(reps)"
     }
 }
 
@@ -93,6 +113,9 @@ struct WorkoutCompletionSummary: Equatable, Identifiable {
                     let v = WeightStoreConversion.displayValue(storedPounds: row.volumePounds, unit: displayUnit)
                     let volStr = v == floor(v) ? "\(Int(v))" : String(format: "%.1f", v)
                     part += " — \(row.workingSetCount) sets · \(volStr) \(unit)"
+                    if let last = row.lastWorkingSetCaption(displayUnit: displayUnit) {
+                        part += " · \(last)"
+                    }
                 }
                 if row.newPRSetCount > 0 {
                     part += " · \(row.newPRSetCount) PR set\(row.newPRSetCount == 1 ? "" : "s")"
@@ -216,25 +239,31 @@ extension DataManager {
                     continue
                 }
 
+                let mixedLast = WorkoutCompletionExerciseLine.lastWorkingSet(from: workingSets)
                 lines.append(
                     WorkoutCompletionExerciseLine(
                         exerciseName: name,
                         workingSetCount: workingSets.count + cardioSets.count,
                         volumePounds: volumeLb,
                         newPRSetCount: prSetCount,
-                        cardioSummary: summaryParts.isEmpty ? nil : summaryParts.joined(separator: " · ")
+                        cardioSummary: summaryParts.isEmpty ? nil : summaryParts.joined(separator: " · "),
+                        lastWeightPounds: mixedLast?.weight,
+                        lastReps: mixedLast?.reps
                     )
                 )
                 continue
             }
 
             guard let exId = log.workoutExercise.exerciseId else {
+                let last = WorkoutCompletionExerciseLine.lastWorkingSet(from: workingSets)
                 lines.append(
                     WorkoutCompletionExerciseLine(
                         exerciseName: name,
                         workingSetCount: workingSets.count,
                         volumePounds: volumeLb,
-                        newPRSetCount: 0
+                        newPRSetCount: 0,
+                        lastWeightPounds: last?.weight,
+                        lastReps: last?.reps
                     )
                 )
                 continue
@@ -262,12 +291,15 @@ extension DataManager {
                 priorAccumulated.append(set)
             }
 
+            let last = WorkoutCompletionExerciseLine.lastWorkingSet(from: workingSets)
             lines.append(
                 WorkoutCompletionExerciseLine(
                     exerciseName: name,
                     workingSetCount: workingSets.count,
                     volumePounds: volumeLb,
-                    newPRSetCount: prSetCount
+                    newPRSetCount: prSetCount,
+                    lastWeightPounds: last?.weight,
+                    lastReps: last?.reps
                 )
             )
         }
@@ -540,6 +572,12 @@ struct WorkoutCompletionSummaryView: View {
                                         Text(cardio)
                                             .font(.caption)
                                             .foregroundStyle(FitlogPalette.chartSecondary)
+                                    } else if let last = row.lastWorkingSetCaption(
+                                        displayUnit: userPreferences.weightDisplayUnit
+                                    ) {
+                                        Text("\(row.workingSetCount) working sets · \(last)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
                                     } else {
                                         Text("\(row.workingSetCount) working sets")
                                             .font(.caption)
@@ -580,6 +618,7 @@ struct WorkoutCompletionSummaryView: View {
                                         .foregroundStyle(.secondary)
                                 }
                             }
+                            .accessibilityElement(children: .combine)
                         }
                     }
                 }
