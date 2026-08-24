@@ -652,23 +652,12 @@ struct CurrentWorkoutPullUpSheet: View {
                                                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                                                 .listRowBackground(FitlogPalette.success.opacity(0.04))
 
+                                            // No swipe-to-change-exercise here: this row holds the
+                                            // horizontal set-type chips and the numeric fields.
                                             inlineSetEntryRow(exerciseIndex: focusIndex, log: log)
                                                 .moveDisabled(true)
                                                 .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                                                 .listRowBackground(FitlogPalette.success.opacity(0.04))
-                                                .simultaneousGesture(
-                                                    DragGesture(minimumDistance: 50)
-                                                        .onEnded { value in
-                                                            guard showsWorkoutList else { return }
-                                                            let t = value.translation
-                                                            guard abs(t.width) > abs(t.height) else { return }
-                                                            if t.width < -55 {
-                                                                advanceFocusedExercise(by: 1)
-                                                            } else if t.width > 55 {
-                                                                advanceFocusedExercise(by: -1)
-                                                            }
-                                                        }
-                                                )
 
                                             if CardioWorkoutExerciseHelpers.isCardioLoggingRow(
                                                 log.workoutExercise,
@@ -817,7 +806,35 @@ struct CurrentWorkoutPullUpSheet: View {
                     }
                     .listStyle(.plain)
                     .scrollDismissesKeyboard(.interactively)
-                    .keyboardDismissToolbar()
+                    .toolbar {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            if editingSetId != nil {
+                                Button("Cancel", role: .cancel) {
+                                    cancelEditingSet()
+                                }
+                                Spacer()
+                                Button("Save") {
+                                    fitlogDismissKeyboard()
+                                    numericFieldFocus = nil
+                                    confirmEditingSet()
+                                }
+                                .disabled(editReps <= 0)
+                            } else {
+                                Spacer()
+                                Button("Done") {
+                                    fitlogDismissKeyboard()
+                                    numericFieldFocus = nil
+                                }
+                            }
+                        }
+                    }
+                    .onChange(of: numericFieldFocus) { _, newFocus in
+                        // Moving to the next-set row (or any other field) leaves edit mode.
+                        guard editingSetId != nil, let newFocus else { return }
+                        if newFocus != .editWeight, newFocus != .editReps {
+                            clearEditingSet()
+                        }
+                    }
                     .onChange(of: expandedExerciseIndex) { _, newValue in
                         if newValue != nil, sheetDetent != FitlogWorkoutSheetDetent.expanded {
                             withAnimation(.easeInOut(duration: 0.35)) {
@@ -894,6 +911,7 @@ struct CurrentWorkoutPullUpSheet: View {
                         isExerciseCompleted: { isExerciseCompleted($0) },
                         isExerciseActive: { isExerciseActive($0) },
                         supersetLetter: { supersetLetter(for: $0) },
+                        repGoal: { repGoalText(for: $0) },
                         onSelectExercise: { _ in
                             if sheetDetent != FitlogWorkoutSheetDetent.expanded {
                                 withAnimation(.easeInOut(duration: 0.35)) {
@@ -1898,6 +1916,12 @@ struct CurrentWorkoutPullUpSheet: View {
                         ExerciseFormGuideInfoButton(exercise: libraryExercise)
                     }
                 }
+                if let target = planTargetText(for: log) {
+                    Text(target)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Plan target, \(target)")
+                }
                 ProgressView(value: progress)
                     .tint(exerciseProgressTint(for: log))
             }
@@ -1920,6 +1944,25 @@ struct CurrentWorkoutPullUpSheet: View {
             }
         }
         .contentShape(Rectangle())
+    }
+
+    /// Prescribed reps for a strength row. Cardio rows describe themselves through their
+    /// prescription summary instead.
+    private func repGoalText(for log: ExerciseLog) -> String? {
+        guard !CardioWorkoutExerciseHelpers.isCardioLoggingRow(
+            log.workoutExercise,
+            exercises: dataVM.globalExercises
+        ) else { return nil }
+        let reps = log.workoutExercise.recommendedReps.trimmingCharacters(in: .whitespacesAndNewlines)
+        return reps.isEmpty ? nil : reps
+    }
+
+    /// "Target 4 × 8-12" for the focused exercise header.
+    private func planTargetText(for log: ExerciseLog) -> String? {
+        guard let reps = repGoalText(for: log) else { return nil }
+        let sets = log.workoutExercise.recommendedSets
+        guard sets > 0 else { return "Target \(reps) reps" }
+        return "Target \(sets) × \(reps)"
     }
 
     private func exerciseProgressTint(for log: ExerciseLog) -> Color {
@@ -2229,10 +2272,19 @@ struct CurrentWorkoutPullUpSheet: View {
                     }
                 )
             }
-            HStack {
+            HStack(spacing: 8) {
                 Text("Next set")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
+                if let repGoal = repGoalText(for: log) {
+                    Text("Goal \(repGoal)")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .frame(minHeight: 20)
+                        .background(Color.secondary.opacity(0.12), in: Capsule())
+                        .accessibilityLabel("Rep goal from your plan, \(repGoal) reps")
+                }
                 Spacer(minLength: 0)
                 Text(bwMode ? "Reps first — optional +/− load" : "Tap ✓ to log, or edit first")
                     .font(.caption2)
@@ -2687,65 +2739,100 @@ struct CurrentWorkoutPullUpSheet: View {
            editingSetExerciseIndex == exerciseIndex,
            editingSetIndex == setIndex {
             let fieldPadding = EdgeInsets(top: 7, leading: 9, bottom: 7, trailing: 9)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Edit set \(chronologicalSetNumber)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                if set.dropSegments.isEmpty {
-                    Picker("Type", selection: $editSetType) {
-                        Text(ExerciseSetType.working.logPickerLabel).tag(ExerciseSetType.working)
-                        Text(ExerciseSetType.warmup.logPickerLabel).tag(ExerciseSetType.warmup)
-                        Text(ExerciseSetType.amrap.logPickerLabel).tag(ExerciseSetType.amrap)
-                        Text(ExerciseSetType.failure.logPickerLabel).tag(ExerciseSetType.failure)
-                        Text(ExerciseSetType.timed.logPickerLabel).tag(ExerciseSetType.timed)
-                    }
-                    .pickerStyle(.segmented)
-                    if editSetType == .timed {
-                        Text("Reps = hold seconds. Weight = optional added load (display units).")
+            VStack(alignment: .leading, spacing: 8) {
+                // Fields sit in their own container so the keyboard-dismiss tap gesture never
+                // competes with the Cancel and Confirm targets below it.
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Edit set \(chronologicalSetNumber)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    if set.dropSegments.isEmpty {
+                        Picker("Type", selection: $editSetType) {
+                            Text(ExerciseSetType.working.logPickerLabel).tag(ExerciseSetType.working)
+                            Text(ExerciseSetType.warmup.logPickerLabel).tag(ExerciseSetType.warmup)
+                            Text(ExerciseSetType.amrap.logPickerLabel).tag(ExerciseSetType.amrap)
+                            Text(ExerciseSetType.failure.logPickerLabel).tag(ExerciseSetType.failure)
+                            Text(ExerciseSetType.timed.logPickerLabel).tag(ExerciseSetType.timed)
+                        }
+                        .pickerStyle(.segmented)
+                        if editSetType == .timed {
+                            Text("Reps = hold seconds. Weight = optional added load (display units).")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Text("Drop set — type stays Drop; edit loads in full log if needed.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
-                } else {
-                    Text("Drop set — type stays Drop; edit loads in full log if needed.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                HStack(spacing: 8) {
-                    TextField("Wt", value: Binding(
-                        get: { editWeightDisplay },
-                        set: { editWeightDisplay = clampSignedNetDisplayForUser($0) }
-                    ), format: .number.precision(.fractionLength(0...2)))
-                    .keyboardType(.decimalPad)
-                    .focused($numericFieldFocus, equals: .editWeight)
-                    .multilineTextAlignment(.trailing)
-                    .frame(minWidth: 52, minHeight: 36)
-                    .padding(fieldPadding)
-                    .background(Color(.systemGray5))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    Text(userPreferences.weightDisplayUnit.shortLabel)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text("×")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                    TextField("Reps", value: $editReps, format: .number)
-                        .keyboardType(.numberPad)
-                        .focused($numericFieldFocus, equals: .editReps)
-                        .multilineTextAlignment(.center)
-                        .frame(minWidth: 44, minHeight: 36)
+                    HStack(spacing: 8) {
+                        TextField("Wt", value: Binding(
+                            get: { editWeightDisplay },
+                            set: { editWeightDisplay = clampSignedNetDisplayForUser($0) }
+                        ), format: .number.precision(.fractionLength(0...2)))
+                        .keyboardType(.decimalPad)
+                        .focused($numericFieldFocus, equals: .editWeight)
+                        .multilineTextAlignment(.trailing)
+                        .frame(minWidth: 52, minHeight: 36)
                         .padding(fieldPadding)
                         .background(Color(.systemGray5))
                         .clipShape(RoundedRectangle(cornerRadius: 8))
+                        Text(userPreferences.weightDisplayUnit.shortLabel)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text("×")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                        TextField("Reps", value: $editReps, format: .number)
+                            .keyboardType(.numberPad)
+                            .focused($numericFieldFocus, equals: .editReps)
+                            .multilineTextAlignment(.center)
+                            .frame(minWidth: 44, minHeight: 36)
+                            .padding(fieldPadding)
+                            .background(Color(.systemGray5))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        Spacer(minLength: 0)
+                    }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    switch numericFieldFocus {
+                    case .editWeight, .editReps:
+                        fitlogDismissKeyboard()
+                        numericFieldFocus = nil
+                    default:
+                        break
+                    }
+                }
+
+                HStack(spacing: 16) {
+                    Button(role: .cancel) {
+                        cancelEditingSet()
+                    } label: {
+                        Label("Cancel", systemImage: "xmark.circle.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(
+                        InlineLogSetAccessibility.cancelEditSetLabel(setNumber: chronologicalSetNumber)
+                    )
+                    .accessibilityHint(InlineLogSetAccessibility.cancelEditSetHint)
+                    Spacer(minLength: 8)
                     Button {
                         fitlogDismissKeyboard()
                         numericFieldFocus = nil
                         confirmEditingSet()
                     } label: {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(.green)
+                        Label("Save", systemImage: "checkmark.circle.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .foregroundStyle(editReps <= 0 ? Color.secondary : Color.green)
                     .disabled(editReps <= 0)
                     .accessibilityLabel(
                         InlineLogSetAccessibility.confirmEditSetLabel(setNumber: chronologicalSetNumber)
@@ -2755,25 +2842,9 @@ struct CurrentWorkoutPullUpSheet: View {
                             ? InlineLogSetAccessibility.confirmDisabledHint
                             : InlineLogSetAccessibility.confirmEditSetHint
                     )
-                    Button("Cancel") {
-                        fitlogDismissKeyboard()
-                        numericFieldFocus = nil
-                        clearEditingSet()
-                    }
-                    .font(.caption)
                 }
             }
             .padding(8)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                switch numericFieldFocus {
-                case .editWeight, .editReps:
-                    fitlogDismissKeyboard()
-                    numericFieldFocus = nil
-                default:
-                    break
-                }
-            }
             .background(Color(.systemGray6))
             .clipShape(RoundedRectangle(cornerRadius: 10))
         } else {
@@ -2881,10 +2952,20 @@ struct CurrentWorkoutPullUpSheet: View {
         clearEditingSet()
     }
 
+    /// Leaves edit mode even with dirty fields — Cancel must always be an exit.
+    private func cancelEditingSet() {
+        fitlogDismissKeyboard()
+        numericFieldFocus = nil
+        clearEditingSet()
+    }
+
     private func clearEditingSet() {
         editingSetExerciseIndex = nil
         editingSetIndex = nil
         editingSetId = nil
+        editWeightDisplay = 0
+        editReps = 0
+        editSetType = .working
     }
 
     private func clearEditingSetIfNeeded(setId: UUID) {

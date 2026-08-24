@@ -15,6 +15,8 @@ struct WorkoutExercisePillStrip: View {
     let isExerciseCompleted: (ExerciseLog) -> Bool
     let isExerciseActive: (ExerciseLog) -> Bool
     let supersetLetter: (ExerciseLog) -> String?
+    /// Prescribed reps for strength rows, nil for cardio (the caller knows the modality).
+    var repGoal: ((ExerciseLog) -> String?)? = nil
     var onSelectExercise: ((Int) -> Void)? = nil
     var onAddExercise: (() -> Void)? = nil
     var onQuickSwap: ((Int) -> Void)? = nil
@@ -148,7 +150,16 @@ struct WorkoutExercisePillStrip: View {
                 Button("Remove", systemImage: "trash", role: .destructive) { onRemoveExercise(index) }
             }
         }
-        .accessibilityLabel(accessibilityPillLabel(name: name, done: done, rec: rec, isPlaceholder: isPlaceholder, letter: letter))
+        .accessibilityLabel(
+            accessibilityPillLabel(
+                name: name,
+                done: done,
+                rec: rec,
+                isPlaceholder: isPlaceholder,
+                letter: letter,
+                repGoal: repGoal?(log)
+            )
+        )
         .accessibilityHint(isSelected ? "Currently selected exercise" : "Double tap to log sets for this exercise")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
@@ -165,13 +176,21 @@ struct WorkoutExercisePillStrip: View {
         .accessibilityHidden(true)
     }
 
-    private func accessibilityPillLabel(name: String, done: Int, rec: Int, isPlaceholder: Bool, letter: String?) -> String {
+    private func accessibilityPillLabel(
+        name: String,
+        done: Int,
+        rec: Int,
+        isPlaceholder: Bool,
+        letter: String?,
+        repGoal: String?
+    ) -> String {
         var parts: [String] = []
         if let letter { parts.append("Superset \(letter) of the round") }
         parts.append(name)
         if isPlaceholder { parts.append("needs an exercise") }
         else if rec > 0 { parts.append("\(done) of \(rec) sets") }
         else if done > 0 { parts.append("\(done) sets logged") }
+        if !isPlaceholder, let repGoal, !repGoal.isEmpty { parts.append("goal \(repGoal) reps") }
         return parts.joined(separator: ", ")
     }
 
