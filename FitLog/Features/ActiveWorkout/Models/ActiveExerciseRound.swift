@@ -32,14 +32,17 @@ enum ActiveExerciseRound {
     }
 
     /// The one path that may grow the round, driven by an explicit "Add to superset round" action.
+    ///
+    /// Removal is only for a real round (`count > 1`). Toggling the lone focused exercise is a
+    /// no-op so an "Add to superset round" label cannot clear focus.
     static func togglingSupersetMember(_ exerciseId: UUID, in current: [UUID]) -> [UUID] {
-        var updated = current
-        if let idx = updated.firstIndex(of: exerciseId) {
+        if let idx = current.firstIndex(of: exerciseId) {
+            guard current.count > 1 else { return current }
+            var updated = current
             updated.remove(at: idx)
-        } else {
-            updated.append(exerciseId)
+            return updated
         }
-        return updated
+        return current + [exerciseId]
     }
 
     /// Collapses a round back to the current exercise.

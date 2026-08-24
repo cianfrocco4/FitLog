@@ -46,6 +46,10 @@ import Testing
         #expect(ActiveExerciseRound.isSupersetRound(removed) == false)
     }
 
+    @Test func togglingTheLoneFocusedExercise_doesNotClearFocus() {
+        #expect(ActiveExerciseRound.togglingSupersetMember(bench, in: [bench]) == [bench])
+    }
+
     @Test func endingRound_keepsOnlyCurrentExercise() {
         #expect(ActiveExerciseRound.endingSupersetRound(in: [bench, row, curl]) == [bench])
         #expect(ActiveExerciseRound.endingSupersetRound(in: []).isEmpty)
