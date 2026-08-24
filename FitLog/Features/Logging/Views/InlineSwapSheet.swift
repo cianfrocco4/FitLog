@@ -12,6 +12,10 @@ struct InlineSwapSheet: View {
     let allExercises: [Exercise]
     let displayNames: [UUID: String]
     let baselineExercise: Exercise?
+    /// Setup fields of the current exercise, so changing a grip is not mistaken for a swap.
+    var setupFields: [ExerciseSetupField] = []
+    var setupValues: [String: String] = [:]
+    var onChangeSetup: ((String, String) -> Void)? = nil
     let onConfirm: (Exercise) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -20,6 +24,7 @@ struct InlineSwapSheet: View {
     @State private var pendingSwapExercise: Exercise?
     @State private var showSwapClearsSetsConfirm = false
     @State private var showCreateCustom = false
+    @State private var setupSelection: [String: String] = [:]
 
     private var hasLoggedSets: Bool { !exerciseLog.loggedSets.isEmpty }
 
@@ -60,6 +65,23 @@ struct InlineSwapSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                if !setupFields.isEmpty, let onChangeSetup {
+                    Section {
+                        WorkoutSetupPickerRow(
+                            fields: setupFields,
+                            values: setupSelection,
+                            onSelect: { field, value in
+                                setupSelection[field] = value
+                                onChangeSetup(field, value)
+                            }
+                        )
+                    } header: {
+                        Text("Change setup")
+                    } footer: {
+                        Text("Same exercise, different grip or machine setting. Your logged sets stay.")
+                    }
+                }
+
                 Section {
                     Button {
                         showCreateCustom = true
@@ -68,6 +90,14 @@ struct InlineSwapSheet: View {
                             .font(.body.weight(.semibold))
                     }
                     .accessibilityHint("Adds a custom exercise and swaps it into this workout")
+                } header: {
+                    if !setupFields.isEmpty {
+                        Text("Swap exercise")
+                    }
+                } footer: {
+                    if !setupFields.isEmpty {
+                        Text("Replaces the movement for this session.")
+                    }
                 }
 
                 if let baseline = baselineExercise, searchText.isEmpty {
@@ -102,7 +132,10 @@ struct InlineSwapSheet: View {
             }
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always),
                         prompt: "Search exercises")
-            .navigationTitle("Swap exercise")
+            .onAppear {
+                if setupSelection.isEmpty { setupSelection = setupValues }
+            }
+            .navigationTitle(setupFields.isEmpty ? "Swap exercise" : "Setup or swap")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

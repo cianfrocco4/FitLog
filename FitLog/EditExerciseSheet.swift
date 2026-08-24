@@ -16,6 +16,7 @@ struct EditExerciseSheet: View {
     @State private var name: String
     @State private var description: String
     @State private var selectedMuscles: [MuscleGroup]
+    @State private var configurationOptions: [ExerciseConfigurationOption]
     @State private var showMusclePicker = false
     @State private var showDeleteConfirmation = false
     @State private var showExactNameConflict = false
@@ -25,6 +26,7 @@ struct EditExerciseSheet: View {
         _name = State(initialValue: exercise.name)
         _description = State(initialValue: exercise.description)
         _selectedMuscles = State(initialValue: exercise.targetedMuscles)
+        _configurationOptions = State(initialValue: exercise.configurationOptions)
     }
     
     private var availableMuscles: [MuscleGroup] {
@@ -38,6 +40,7 @@ struct EditExerciseSheet: View {
             Form {
                 exerciseInfoSection
                 muscleGroupsSection
+                setupOptionsSection
                 if exercise.isCustom {
                     deleteSection
                 }
@@ -127,6 +130,16 @@ struct EditExerciseSheet: View {
         }
     }
 
+    private var setupOptionsSection: some View {
+        Section {
+            ExerciseConfigurationOptionsEditor(options: $configurationOptions)
+        } header: {
+            Text("Setup options")
+        } footer: {
+            Text("Record grip, seat, or attachment with each set. Use these for machine variants — a wide, medium, and narrow grip stay one exercise so history and records are not split.")
+        }
+    }
+
     private var deleteSection: some View {
         Section {
             Button(role: .destructive) {
@@ -156,17 +169,9 @@ struct EditExerciseSheet: View {
     }
 
     private func saveAndDismiss() {
-        let updated: Exercise
-        if isBuiltIn {
-            updated = Exercise(
-                id: exercise.id,
-                name: exercise.name,
-                description: exercise.description,
-                targetedMuscles: exercise.targetedMuscles,
-                isCustom: false,
-                configurationOptions: exercise.configurationOptions
-            )
-        } else {
+        var updated = exercise
+        updated.configurationOptions = cleanedConfigurationOptions()
+        if !isBuiltIn {
             let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedName.isEmpty else { return }
             if dataVM.globalExercises.contains(where: {
@@ -175,16 +180,20 @@ struct EditExerciseSheet: View {
                 showExactNameConflict = true
                 return
             }
-            updated = Exercise(
-                id: exercise.id,
-                name: trimmedName,
-                description: description,
-                targetedMuscles: selectedMuscles,
-                isCustom: true,
-                configurationOptions: exercise.configurationOptions
-            )
+            updated.name = trimmedName
+            updated.description = description
+            updated.targetedMuscles = selectedMuscles
         }
         dataVM.updateExercise(updated)
         dismiss()
+    }
+
+    /// Unnamed options cannot be recorded against a set, so they are dropped on save.
+    private func cleanedConfigurationOptions() -> [ExerciseConfigurationOption] {
+        configurationOptions.compactMap { option in
+            let trimmed = option.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            return ExerciseConfigurationOption(id: option.id, name: trimmed, choices: option.choices)
+        }
     }
 }

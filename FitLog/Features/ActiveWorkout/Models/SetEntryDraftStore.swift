@@ -27,6 +27,9 @@ final class SetEntryDraftStore {
     var rpeExpandedLogIds: Set<UUID> = []
     /// Inline quick-log set type (defaults to working when absent).
     var setTypeByLogId: [UUID: ExerciseSetType] = [:]
+    /// Setup chosen for the next set (grip, seat, attachment). Sticky across logs on purpose:
+    /// the machine keeps its setting until the user changes it.
+    var configurationByLogId: [UUID: [String: String]] = [:]
 
     func clear(logId: UUID) {
         weightByLogId.removeValue(forKey: logId)
@@ -42,5 +45,6 @@ final class SetEntryDraftStore {
         bodyweightAddedTextByLogId.removeValue(forKey: logId)
         bodyweightAssistedTextByLogId.removeValue(forKey: logId)
         setTypeByLogId.removeValue(forKey: logId)
+        configurationByLogId.removeValue(forKey: logId)
     }
 }

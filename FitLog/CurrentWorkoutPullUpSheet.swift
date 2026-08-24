@@ -635,6 +635,12 @@ struct CurrentWorkoutPullUpSheet: View {
                                                     .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 6, trailing: 16))
                                                     .listRowBackground(FitlogPalette.success.opacity(0.04))
                                             }
+                                            focusedExerciseActionsBar(log: log, exerciseIndex: focusIndex)
+                                                .moveDisabled(true)
+                                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                                                .listRowSeparator(.hidden)
+                                                .listRowBackground(FitlogPalette.success.opacity(0.04))
+
                                             if let libraryExercise = libraryExercise(for: log),
                                                libraryExercise.modality != .cardio {
                                                 ExerciseFormGuideCompactView(
@@ -646,6 +652,12 @@ struct CurrentWorkoutPullUpSheet: View {
                                                 .listRowSeparator(.hidden)
                                                 .listRowBackground(FitlogPalette.success.opacity(0.04))
                                             }
+
+                                            setupPickerRow(log: log, exerciseIndex: focusIndex)
+                                                .moveDisabled(true)
+                                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                                                .listRowSeparator(.hidden)
+                                                .listRowBackground(FitlogPalette.success.opacity(0.04))
 
                                             planAndCompletionRow(log: log)
                                                 .moveDisabled(true)
@@ -682,88 +694,9 @@ struct CurrentWorkoutPullUpSheet: View {
                                                 get: { exerciseDetailMoreExpandedLogId == log.id },
                                                 set: { exerciseDetailMoreExpandedLogId = $0 ? log.id : nil }
                                             )) {
-                                                VStack(alignment: .leading, spacing: 12) {
-                                                    if !log.workoutExercise.configurationFields.isEmpty {
-                                                        recommendedConfigurationRow(for: log.workoutExercise, includeListRowInsets: false)
-                                                    }
-
-                                                    HStack(alignment: .top, spacing: 8) {
-                                                        TextField("Notes for this exercise", text: Binding(
-                                                            get: {
-                                                                guard let logs = currentVM.currentSession?.exerciseLogs,
-                                                                      logs.indices.contains(focusIndex)
-                                                                else { return "" }
-                                                                return logs[focusIndex].notes
-                                                            },
-                                                            set: { newText in
-                                                                guard let logs = currentVM.currentSession?.exerciseLogs,
-                                                                      logs.indices.contains(focusIndex)
-                                                                else { return }
-                                                                currentVM.setExerciseLogNotes(at: focusIndex, notes: newText)
-                                                            }
-                                                        ), axis: .vertical)
-                                                        .lineLimit(2...4)
-                                                        .textFieldStyle(.roundedBorder)
-                                                        .font(.subheadline)
-                                                        .textInputAutocapitalization(.sentences)
-                                                    }
-                                                    Text("Use the microphone key on the keyboard to dictate notes.")
-                                                        .font(.caption2)
-                                                        .foregroundStyle(.tertiary)
-
-                                                    sessionRestOverrideEditor(exerciseIndex: focusIndex, log: log)
-
-                                                    HStack(spacing: 12) {
-                                                        Button("Repeat last") {
-                                                            currentVM.repeatLastSet(exerciseIndex: focusIndex)
-                                                            syncInlineDraftAfterLog(for: log.id, exerciseIndex: focusIndex)
-                                                            triggerHighlightForLastSet(exerciseIndex: focusIndex)
-                                                        }
-                                                        .buttonStyle(.bordered)
-                                                        .disabled(log.loggedSets.isEmpty)
-
-                                                        Menu {
-                                                            if let exId = log.workoutExercise.exerciseId {
-                                                                if let slotId = currentVM.currentSession?.workout.templateSlotId(forWorkoutExerciseRow: log.workoutExercise.id) {
-                                                                    Button("Swap exercise") {
-                                                                        resolveSlotSelection = ResolveSlotWE(
-                                                                            workoutExerciseId: log.workoutExercise.id,
-                                                                            templateSlotId: slotId,
-                                                                            isSwapExercise: true
-                                                                        )
-                                                                    }
-                                                                }
-                                                                Button("Quick swap exercise", systemImage: "arrow.left.arrow.right") {
-                                                                        swapSheetExerciseIndex = focusIndex
-                                                                    }
-                                                                    Divider()
-                                                                    Button("Focus this exercise", systemImage: "scope") {
-                                                                        currentVM.setPrimaryExercise(exerciseId: exId)
-                                                                    }
-                                                                    Button(statusSupersetToggleTitle(for: log), systemImage: "bolt.horizontal") {
-                                                                        currentVM.toggleSupersetExercise(exerciseId: exId)
-                                                                    }
-                                                                    if isSupersetRoundActive {
-                                                                        Button("End superset round", systemImage: "bolt.horizontal.circle") {
-                                                                            currentVM.endSupersetRound()
-                                                                        }
-                                                                    }
-                                                                Button("Mark completed") {
-                                                                    currentVM.markExerciseCompleted(exerciseId: exId)
-                                                                }
-                                                            }
-                                                            Button("Remove from workout", role: .destructive) {
-                                                                removeExerciseAtListIndex(focusIndex, rowId: log.workoutExercise.id)
-                                                            }
-                                                        } label: {
-                                                            Label("More", systemImage: "ellipsis.circle")
-                                                        }
-                                                    }
-                                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                                }
-                                                .padding(.vertical, 4)
+                                                exerciseNotesAndRestSection(log: log, exerciseIndex: focusIndex)
                                             } label: {
-                                                Label("Config, notes, and actions", systemImage: "text.alignleft")
+                                                Label("Notes and rest", systemImage: "text.alignleft")
                                                     .font(.subheadline.weight(.medium))
                                             }
                                             .moveDisabled(true)
@@ -1026,7 +959,14 @@ struct CurrentWorkoutPullUpSheet: View {
                         exerciseLog: log,
                         allExercises: dataVM.globalExercises,
                         displayNames: dataVM.exerciseLocalDisplayNames,
-                        baselineExercise: libraryExercise(for: log)
+                        baselineExercise: libraryExercise(for: log),
+                        setupFields: setupFields(for: log),
+                        setupValues: inlineConfiguration(for: log),
+                        onChangeSetup: { field, value in
+                            var draft = draftStore.configurationByLogId[log.id] ?? [:]
+                            draft[field] = value
+                            draftStore.configurationByLogId[log.id] = draft
+                        }
                     ) { newExercise in
                         currentVM.swapExercise(atIndex: sel.index, to: newExercise)
                     }
@@ -1717,14 +1657,12 @@ struct CurrentWorkoutPullUpSheet: View {
     }
 
     private func inlineConfiguration(for exerciseLog: ExerciseLog) -> [String: String] {
-        if let last = exerciseLog.loggedSets.last, !last.configuration.isEmpty {
-            return last.configuration
-        }
-        let nextIndex = exerciseLog.loggedSets.count
-        if nextIndex < exerciseLog.workoutExercise.recommendedConfigBySet.count {
-            return exerciseLog.workoutExercise.recommendedConfigBySet[nextIndex]
-        }
-        return [:]
+        ExerciseSetupResolver.values(
+            setIndex: exerciseLog.loggedSets.count,
+            recommendedConfigBySet: exerciseLog.workoutExercise.recommendedConfigBySet,
+            lastLoggedConfiguration: exerciseLog.loggedSets.last?.configuration,
+            draft: draftStore.configurationByLogId[exerciseLog.id] ?? [:]
+        )
     }
 
     private func inlineQuickLog(exerciseIndex: Int, logId: UUID) {
@@ -1961,6 +1899,111 @@ struct CurrentWorkoutPullUpSheet: View {
             }
         }
         .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private func focusedExerciseActionsBar(log: ExerciseLog, exerciseIndex: Int) -> some View {
+        let slotId = currentVM.currentSession?.workout
+            .templateSlotId(forWorkoutExerciseRow: log.workoutExercise.id)
+        WorkoutExerciseActionsBar(
+            exerciseName: dataVM.displayName(for: log.workoutExercise),
+            canRepeatLastSet: !log.loggedSets.isEmpty,
+            supersetToggleTitle: statusSupersetToggleTitle(for: log),
+            showsEndSupersetRound: isSupersetRoundActive,
+            canChangePlanSlot: slotId != nil,
+            onSwap: { swapSheetExerciseIndex = exerciseIndex },
+            onRepeatLastSet: {
+                currentVM.repeatLastSet(exerciseIndex: exerciseIndex)
+                syncInlineDraftAfterLog(for: log.id, exerciseIndex: exerciseIndex)
+                triggerHighlightForLastSet(exerciseIndex: exerciseIndex)
+            },
+            onFocusExercise: {
+                guard let exId = log.workoutExercise.exerciseId else { return }
+                currentVM.setPrimaryExercise(exerciseId: exId)
+            },
+            onToggleSuperset: {
+                guard let exId = log.workoutExercise.exerciseId else { return }
+                currentVM.toggleSupersetExercise(exerciseId: exId)
+            },
+            onEndSupersetRound: { currentVM.endSupersetRound() },
+            onMarkCompleted: {
+                guard let exId = log.workoutExercise.exerciseId else { return }
+                currentVM.markExerciseCompleted(exerciseId: exId)
+            },
+            onChangePlanSlot: {
+                guard let slotId else { return }
+                resolveSlotSelection = ResolveSlotWE(
+                    workoutExerciseId: log.workoutExercise.id,
+                    templateSlotId: slotId,
+                    isSwapExercise: true
+                )
+            },
+            onRemove: {
+                removeExerciseAtListIndex(exerciseIndex, rowId: log.workoutExercise.id)
+            }
+        )
+    }
+
+    private func setupFields(for log: ExerciseLog) -> [ExerciseSetupField] {
+        ExerciseSetupResolver.fields(
+            planFields: log.workoutExercise.configurationFields,
+            libraryOptions: libraryExercise(for: log)?.configurationOptions ?? []
+        )
+    }
+
+    @ViewBuilder
+    private func setupPickerRow(log: ExerciseLog, exerciseIndex: Int) -> some View {
+        let fields = setupFields(for: log)
+        if !fields.isEmpty {
+            WorkoutSetupPickerRow(
+                fields: fields,
+                values: inlineConfiguration(for: log),
+                onSelect: { field, value in
+                    var draft = draftStore.configurationByLogId[log.id] ?? [:]
+                    if value.isEmpty {
+                        draft[field] = ""
+                    } else {
+                        draft[field] = value
+                    }
+                    draftStore.configurationByLogId[log.id] = draft
+                }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func exerciseNotesAndRestSection(log: ExerciseLog, exerciseIndex: Int) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TextField("Notes for this exercise", text: Binding(
+                get: {
+                    guard let logs = currentVM.currentSession?.exerciseLogs,
+                          logs.indices.contains(exerciseIndex)
+                    else { return "" }
+                    return logs[exerciseIndex].notes
+                },
+                set: { newText in
+                    guard let logs = currentVM.currentSession?.exerciseLogs,
+                          logs.indices.contains(exerciseIndex)
+                    else { return }
+                    currentVM.setExerciseLogNotes(at: exerciseIndex, notes: newText)
+                }
+            ), axis: .vertical)
+            .lineLimit(2...4)
+            .textFieldStyle(.roundedBorder)
+            .font(.subheadline)
+            .textInputAutocapitalization(.sentences)
+
+            Text("Use the microphone key on the keyboard to dictate notes.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+
+            sessionRestOverrideEditor(exerciseIndex: exerciseIndex, log: log)
+
+            if !log.workoutExercise.recommendedConfigBySet.isEmpty {
+                recommendedConfigurationRow(for: log.workoutExercise, includeListRowInsets: false)
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     /// Prescribed reps for a strength row. Cardio rows describe themselves through their
