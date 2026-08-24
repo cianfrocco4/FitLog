@@ -491,37 +491,66 @@ struct CurrentWorkoutPullUpSheet: View {
     private func supersetRoundSwitcher(exerciseIndex: Int, logs: [ExerciseLog]) -> some View {
         let indices = supersetRoundIndices(in: logs)
         if indices.count > 1, indices.contains(exerciseIndex) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(indices, id: \.self) { idx in
-                        let log = logs[idx]
-                        let letter = supersetLetter(for: log) ?? "?"
-                        let isCurrent = idx == exerciseIndex
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                expandedExerciseIndex = idx
-                            }
-                            if let exId = log.workoutExercise.exerciseId {
-                                currentVM.setPrimaryExercise(exerciseId: exId)
-                            }
-                        } label: {
-                            Text(letter)
-                                .font(.subheadline.weight(.bold))
-                                .frame(minWidth: 36, minHeight: 36)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Label("Superset", systemImage: "bolt.horizontal")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    Button("End") {
+                        currentVM.endSupersetRound()
+                    }
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                    .frame(minHeight: 32)
+                    .accessibilityLabel("End superset round")
+                    .accessibilityHint("Keeps only the current exercise active and restores normal rest")
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(indices, id: \.self) { idx in
+                            let log = logs[idx]
+                            let letter = supersetLetter(for: log) ?? "?"
+                            let name = dataVM.displayName(for: log.workoutExercise)
+                            let isCurrent = idx == exerciseIndex
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    expandedExerciseIndex = idx
+                                }
+                                if let exId = log.workoutExercise.exerciseId {
+                                    currentVM.setPrimaryExercise(exerciseId: exId)
+                                }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Text(letter)
+                                        .font(.caption.weight(.bold))
+                                    Text(supersetSwitcherName(name))
+                                        .font(.caption.weight(isCurrent ? .semibold : .regular))
+                                        .lineLimit(1)
+                                }
+                                .padding(.horizontal, 12)
+                                .frame(minHeight: 36)
                                 .background(isCurrent ? Color.accentColor : Color.blue.opacity(0.15))
                                 .foregroundStyle(isCurrent ? Color.white : Color.primary)
-                                .clipShape(Circle())
+                                .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Superset \(letter), \(name)")
+                            .accessibilityHint("Switches logging to this exercise in the round")
+                            .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Superset exercise \(letter)")
-                        .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
                     }
+                    .padding(.horizontal, 4)
                 }
-                .padding(.horizontal, 4)
             }
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("Superset round switcher")
+            .accessibilityLabel("Superset round")
         }
+    }
+
+    private func supersetSwitcherName(_ name: String) -> String {
+        name.count <= 16 ? name : String(name.prefix(14)) + "…"
     }
 
     @ViewBuilder
@@ -606,6 +635,12 @@ struct CurrentWorkoutPullUpSheet: View {
                                                     .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 6, trailing: 16))
                                                     .listRowBackground(FitlogPalette.success.opacity(0.04))
                                             }
+                                            focusedExerciseActionsBar(log: log, exerciseIndex: focusIndex)
+                                                .moveDisabled(true)
+                                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                                                .listRowSeparator(.hidden)
+                                                .listRowBackground(FitlogPalette.success.opacity(0.04))
+
                                             if let libraryExercise = libraryExercise(for: log),
                                                libraryExercise.modality != .cardio {
                                                 ExerciseFormGuideCompactView(
@@ -618,28 +653,23 @@ struct CurrentWorkoutPullUpSheet: View {
                                                 .listRowBackground(FitlogPalette.success.opacity(0.04))
                                             }
 
+                                            setupPickerRow(log: log, exerciseIndex: focusIndex)
+                                                .moveDisabled(true)
+                                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                                                .listRowSeparator(.hidden)
+                                                .listRowBackground(FitlogPalette.success.opacity(0.04))
+
                                             planAndCompletionRow(log: log)
                                                 .moveDisabled(true)
                                                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                                                 .listRowBackground(FitlogPalette.success.opacity(0.04))
 
+                                            // No swipe-to-change-exercise here: this row holds the
+                                            // horizontal set-type chips and the numeric fields.
                                             inlineSetEntryRow(exerciseIndex: focusIndex, log: log)
                                                 .moveDisabled(true)
                                                 .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                                                 .listRowBackground(FitlogPalette.success.opacity(0.04))
-                                                .simultaneousGesture(
-                                                    DragGesture(minimumDistance: 50)
-                                                        .onEnded { value in
-                                                            guard showsWorkoutList else { return }
-                                                            let t = value.translation
-                                                            guard abs(t.width) > abs(t.height) else { return }
-                                                            if t.width < -55 {
-                                                                advanceFocusedExercise(by: 1)
-                                                            } else if t.width > 55 {
-                                                                advanceFocusedExercise(by: -1)
-                                                            }
-                                                        }
-                                                )
 
                                             if CardioWorkoutExerciseHelpers.isCardioLoggingRow(
                                                 log.workoutExercise,
@@ -664,83 +694,9 @@ struct CurrentWorkoutPullUpSheet: View {
                                                 get: { exerciseDetailMoreExpandedLogId == log.id },
                                                 set: { exerciseDetailMoreExpandedLogId = $0 ? log.id : nil }
                                             )) {
-                                                VStack(alignment: .leading, spacing: 12) {
-                                                    if !log.workoutExercise.configurationFields.isEmpty {
-                                                        recommendedConfigurationRow(for: log.workoutExercise, includeListRowInsets: false)
-                                                    }
-
-                                                    HStack(alignment: .top, spacing: 8) {
-                                                        TextField("Notes for this exercise", text: Binding(
-                                                            get: {
-                                                                guard let logs = currentVM.currentSession?.exerciseLogs,
-                                                                      logs.indices.contains(focusIndex)
-                                                                else { return "" }
-                                                                return logs[focusIndex].notes
-                                                            },
-                                                            set: { newText in
-                                                                guard let logs = currentVM.currentSession?.exerciseLogs,
-                                                                      logs.indices.contains(focusIndex)
-                                                                else { return }
-                                                                currentVM.setExerciseLogNotes(at: focusIndex, notes: newText)
-                                                            }
-                                                        ), axis: .vertical)
-                                                        .lineLimit(2...4)
-                                                        .textFieldStyle(.roundedBorder)
-                                                        .font(.subheadline)
-                                                        .textInputAutocapitalization(.sentences)
-                                                    }
-                                                    Text("Use the microphone key on the keyboard to dictate notes.")
-                                                        .font(.caption2)
-                                                        .foregroundStyle(.tertiary)
-
-                                                    sessionRestOverrideEditor(exerciseIndex: focusIndex, log: log)
-
-                                                    HStack(spacing: 12) {
-                                                        Button("Repeat last") {
-                                                            currentVM.repeatLastSet(exerciseIndex: focusIndex)
-                                                            syncInlineDraftAfterLog(for: log.id, exerciseIndex: focusIndex)
-                                                            triggerHighlightForLastSet(exerciseIndex: focusIndex)
-                                                        }
-                                                        .buttonStyle(.bordered)
-                                                        .disabled(log.loggedSets.isEmpty)
-
-                                                        Menu {
-                                                            if let exId = log.workoutExercise.exerciseId {
-                                                                if let slotId = currentVM.currentSession?.workout.templateSlotId(forWorkoutExerciseRow: log.workoutExercise.id) {
-                                                                    Button("Swap exercise") {
-                                                                        resolveSlotSelection = ResolveSlotWE(
-                                                                            workoutExerciseId: log.workoutExercise.id,
-                                                                            templateSlotId: slotId,
-                                                                            isSwapExercise: true
-                                                                        )
-                                                                    }
-                                                                }
-                                                                Button("Quick swap exercise", systemImage: "arrow.left.arrow.right") {
-                                                                        swapSheetExerciseIndex = focusIndex
-                                                                    }
-                                                                    Divider()
-                                                                    Button("Set as current") {
-                                                                        currentVM.setPrimaryExercise(exerciseId: exId)
-                                                                    }
-                                                                    Button(statusSupersetToggleTitle(for: log)) {
-                                                                        currentVM.toggleSupersetExercise(exerciseId: exId)
-                                                                    }
-                                                                Button("Mark completed") {
-                                                                    currentVM.markExerciseCompleted(exerciseId: exId)
-                                                                }
-                                                            }
-                                                            Button("Remove from workout", role: .destructive) {
-                                                                removeExerciseAtListIndex(focusIndex, rowId: log.workoutExercise.id)
-                                                            }
-                                                        } label: {
-                                                            Label("More", systemImage: "ellipsis.circle")
-                                                        }
-                                                    }
-                                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                                }
-                                                .padding(.vertical, 4)
+                                                exerciseNotesAndRestSection(log: log, exerciseIndex: focusIndex)
                                             } label: {
-                                                Label("Config, notes, and actions", systemImage: "text.alignleft")
+                                                Label("Notes and rest", systemImage: "text.alignleft")
                                                     .font(.subheadline.weight(.medium))
                                             }
                                             .moveDisabled(true)
@@ -783,7 +739,35 @@ struct CurrentWorkoutPullUpSheet: View {
                     }
                     .listStyle(.plain)
                     .scrollDismissesKeyboard(.interactively)
-                    .keyboardDismissToolbar()
+                    .toolbar {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            if editingSetId != nil {
+                                Button("Cancel", role: .cancel) {
+                                    cancelEditingSet()
+                                }
+                                Spacer()
+                                Button("Save") {
+                                    fitlogDismissKeyboard()
+                                    numericFieldFocus = nil
+                                    confirmEditingSet()
+                                }
+                                .disabled(editReps <= 0)
+                            } else {
+                                Spacer()
+                                Button("Done") {
+                                    fitlogDismissKeyboard()
+                                    numericFieldFocus = nil
+                                }
+                            }
+                        }
+                    }
+                    .onChange(of: numericFieldFocus) { _, newFocus in
+                        // Moving to the next-set row (or any other field) leaves edit mode.
+                        guard editingSetId != nil, let newFocus else { return }
+                        if newFocus != .editWeight, newFocus != .editReps {
+                            clearEditingSet()
+                        }
+                    }
                     .onChange(of: expandedExerciseIndex) { _, newValue in
                         if newValue != nil, sheetDetent != FitlogWorkoutSheetDetent.expanded {
                             withAnimation(.easeInOut(duration: 0.35)) {
@@ -860,6 +844,7 @@ struct CurrentWorkoutPullUpSheet: View {
                         isExerciseCompleted: { isExerciseCompleted($0) },
                         isExerciseActive: { isExerciseActive($0) },
                         supersetLetter: { supersetLetter(for: $0) },
+                        repGoal: { repGoalText(for: $0) },
                         onSelectExercise: { _ in
                             if sheetDetent != FitlogWorkoutSheetDetent.expanded {
                                 withAnimation(.easeInOut(duration: 0.35)) {
@@ -974,7 +959,14 @@ struct CurrentWorkoutPullUpSheet: View {
                         exerciseLog: log,
                         allExercises: dataVM.globalExercises,
                         displayNames: dataVM.exerciseLocalDisplayNames,
-                        baselineExercise: libraryExercise(for: log)
+                        baselineExercise: libraryExercise(for: log),
+                        setupFields: setupFields(for: log),
+                        setupValues: inlineConfiguration(for: log),
+                        onChangeSetup: { field, value in
+                            var draft = draftStore.configurationByLogId[log.id] ?? [:]
+                            draft[field] = value
+                            draftStore.configurationByLogId[log.id] = draft
+                        }
                     ) { newExercise in
                         currentVM.swapExercise(atIndex: sel.index, to: newExercise)
                     }
@@ -1415,7 +1407,7 @@ struct CurrentWorkoutPullUpSheet: View {
         let primaryLog = logs[primaryIndex]
         let we = primaryLog.workoutExercise
         guard !we.isSlotPlaceholder, we.recommendedSets > 0,
-              primaryLog.loggedSets.count >= we.recommendedSets
+              primaryLog.workingSetCount >= we.recommendedSets
         else {
             applyAutoExpandForPrimaryExercise()
             return
@@ -1427,7 +1419,7 @@ struct CurrentWorkoutPullUpSheet: View {
             guard !log.workoutExercise.isSlotPlaceholder, let eid = log.workoutExercise.exerciseId else { return false }
             if currentVM.currentSession?.completedExerciseIds.contains(eid) == true { return false }
             let rec = log.workoutExercise.recommendedSets
-            return rec == 0 || log.loggedSets.count < rec
+            return rec == 0 || log.workingSetCount < rec
         }) {
             expandedExerciseIndex = nextIndex
             if let nextEid = logs[nextIndex].workoutExercise.exerciseId {
@@ -1665,14 +1657,12 @@ struct CurrentWorkoutPullUpSheet: View {
     }
 
     private func inlineConfiguration(for exerciseLog: ExerciseLog) -> [String: String] {
-        if let last = exerciseLog.loggedSets.last, !last.configuration.isEmpty {
-            return last.configuration
-        }
-        let nextIndex = exerciseLog.loggedSets.count
-        if nextIndex < exerciseLog.workoutExercise.recommendedConfigBySet.count {
-            return exerciseLog.workoutExercise.recommendedConfigBySet[nextIndex]
-        }
-        return [:]
+        ExerciseSetupResolver.values(
+            setIndex: exerciseLog.loggedSets.count,
+            recommendedConfigBySet: exerciseLog.workoutExercise.recommendedConfigBySet,
+            lastLoggedConfiguration: exerciseLog.loggedSets.last?.configuration,
+            draft: draftStore.configurationByLogId[exerciseLog.id] ?? [:]
+        )
     }
 
     private func inlineQuickLog(exerciseIndex: Int, logId: UUID) {
@@ -1735,6 +1725,9 @@ struct CurrentWorkoutPullUpSheet: View {
             rpe: rpeVal
         )
         guard didLog else { return }
+        // Warm-up, AMRAP, failure and timed are exceptions, not defaults: the chip returns to
+        // Work so the next quick-log does not silently repeat the exception.
+        draftStore.setTypeByLogId[logId] = .working
         syncInlineDraftAfterLog(for: logId, exerciseIndex: exerciseIndex)
         triggerHighlightForLastSet(exerciseIndex: exerciseIndex)
         inlineLogSuccessTick += 1
@@ -1832,9 +1825,10 @@ struct CurrentWorkoutPullUpSheet: View {
     @ViewBuilder
     private func exerciseCollapsedHeader(log: ExerciseLog, isExpanded: Bool) -> some View {
         let rec = log.workoutExercise.recommendedSets
+        let done = log.workingSetCount
         let progress: Double = {
-            guard rec > 0 else { return log.loggedSets.isEmpty ? 0 : 1 }
-            return min(1, Double(log.loggedSets.count) / Double(rec))
+            guard rec > 0 else { return done == 0 ? 0 : 1 }
+            return min(1, Double(done) / Double(rec))
         }()
 
         HStack(alignment: .center, spacing: 12) {
@@ -1844,12 +1838,19 @@ struct CurrentWorkoutPullUpSheet: View {
                         .font(.headline)
                         .multilineTextAlignment(.leading)
                     if let letter = supersetLetter(for: log) {
-                        Text(letter)
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(.white)
-                            .frame(minWidth: 20, minHeight: 20)
-                            .background(Circle().fill(Color.blue.gradient))
-                            .accessibilityLabel("Superset \(letter)")
+                        HStack(spacing: 3) {
+                            Image(systemName: "bolt.horizontal")
+                                .font(.caption2.weight(.bold))
+                            Text(letter)
+                                .font(.caption2.weight(.bold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .frame(minHeight: 20)
+                        .background(Capsule().fill(Color.blue.gradient))
+                        .accessibilityLabel(
+                            "Superset \(letter), \(dataVM.displayName(for: log.workoutExercise)). Part of a round; rest comes after the last exercise."
+                        )
                     }
                     if let libraryExercise = libraryExercise(for: log),
                        libraryExercise.modality != .cardio,
@@ -1857,12 +1858,18 @@ struct CurrentWorkoutPullUpSheet: View {
                         ExerciseFormGuideInfoButton(exercise: libraryExercise)
                     }
                 }
+                if let target = planTargetText(for: log) {
+                    Text(target)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Plan target, \(target)")
+                }
                 ProgressView(value: progress)
                     .tint(exerciseProgressTint(for: log))
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 4) {
-                let countStr = rec > 0 ? "\(log.loggedSets.count)/\(rec)" : "\(log.loggedSets.count)"
+                let countStr = rec > 0 ? "\(done)/\(rec)" : "\(done)"
                 Text(countStr)
                     .font(.subheadline.weight(.semibold))
                     .monospacedDigit()
@@ -1870,6 +1877,19 @@ struct CurrentWorkoutPullUpSheet: View {
                     .padding(.vertical, 4)
                     .background(Color.secondary.opacity(0.12))
                     .clipShape(Capsule())
+                    .accessibilityLabel(
+                        WorkoutSetProgressCopy.workSetProgressLabel(
+                            done: done,
+                            target: rec,
+                            warmups: log.warmupSetCount
+                        )
+                    )
+                if log.warmupSetCount > 0 {
+                    Text(WorkoutSetProgressCopy.warmupMarker(count: log.warmupSetCount))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                }
                 statusDot(for: log)
             }
             if !isExpanded {
@@ -1879,6 +1899,130 @@ struct CurrentWorkoutPullUpSheet: View {
             }
         }
         .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private func focusedExerciseActionsBar(log: ExerciseLog, exerciseIndex: Int) -> some View {
+        let slotId = currentVM.currentSession?.workout
+            .templateSlotId(forWorkoutExerciseRow: log.workoutExercise.id)
+        WorkoutExerciseActionsBar(
+            exerciseName: dataVM.displayName(for: log.workoutExercise),
+            canRepeatLastSet: !log.loggedSets.isEmpty,
+            supersetToggleTitle: statusSupersetToggleTitle(for: log),
+            showsEndSupersetRound: isSupersetRoundActive,
+            canChangePlanSlot: slotId != nil,
+            onSwap: { swapSheetExerciseIndex = exerciseIndex },
+            onRepeatLastSet: {
+                currentVM.repeatLastSet(exerciseIndex: exerciseIndex)
+                syncInlineDraftAfterLog(for: log.id, exerciseIndex: exerciseIndex)
+                triggerHighlightForLastSet(exerciseIndex: exerciseIndex)
+            },
+            onFocusExercise: {
+                guard let exId = log.workoutExercise.exerciseId else { return }
+                currentVM.setPrimaryExercise(exerciseId: exId)
+            },
+            onToggleSuperset: {
+                guard let exId = log.workoutExercise.exerciseId else { return }
+                currentVM.toggleSupersetExercise(exerciseId: exId)
+            },
+            onEndSupersetRound: { currentVM.endSupersetRound() },
+            onMarkCompleted: {
+                guard let exId = log.workoutExercise.exerciseId else { return }
+                currentVM.markExerciseCompleted(exerciseId: exId)
+            },
+            onChangePlanSlot: {
+                guard let slotId else { return }
+                resolveSlotSelection = ResolveSlotWE(
+                    workoutExerciseId: log.workoutExercise.id,
+                    templateSlotId: slotId,
+                    isSwapExercise: true
+                )
+            },
+            onRemove: {
+                removeExerciseAtListIndex(exerciseIndex, rowId: log.workoutExercise.id)
+            }
+        )
+    }
+
+    private func setupFields(for log: ExerciseLog) -> [ExerciseSetupField] {
+        ExerciseSetupResolver.fields(
+            planFields: log.workoutExercise.configurationFields,
+            libraryOptions: libraryExercise(for: log)?.configurationOptions ?? []
+        )
+    }
+
+    @ViewBuilder
+    private func setupPickerRow(log: ExerciseLog, exerciseIndex: Int) -> some View {
+        let fields = setupFields(for: log)
+        if !fields.isEmpty {
+            WorkoutSetupPickerRow(
+                fields: fields,
+                values: inlineConfiguration(for: log),
+                onSelect: { field, value in
+                    var draft = draftStore.configurationByLogId[log.id] ?? [:]
+                    if value.isEmpty {
+                        draft[field] = ""
+                    } else {
+                        draft[field] = value
+                    }
+                    draftStore.configurationByLogId[log.id] = draft
+                }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func exerciseNotesAndRestSection(log: ExerciseLog, exerciseIndex: Int) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TextField("Notes for this exercise", text: Binding(
+                get: {
+                    guard let logs = currentVM.currentSession?.exerciseLogs,
+                          logs.indices.contains(exerciseIndex)
+                    else { return "" }
+                    return logs[exerciseIndex].notes
+                },
+                set: { newText in
+                    guard let logs = currentVM.currentSession?.exerciseLogs,
+                          logs.indices.contains(exerciseIndex)
+                    else { return }
+                    currentVM.setExerciseLogNotes(at: exerciseIndex, notes: newText)
+                }
+            ), axis: .vertical)
+            .lineLimit(2...4)
+            .textFieldStyle(.roundedBorder)
+            .font(.subheadline)
+            .textInputAutocapitalization(.sentences)
+
+            Text("Use the microphone key on the keyboard to dictate notes.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+
+            sessionRestOverrideEditor(exerciseIndex: exerciseIndex, log: log)
+
+            if !log.workoutExercise.recommendedConfigBySet.isEmpty {
+                recommendedConfigurationRow(for: log.workoutExercise, includeListRowInsets: false)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    /// Prescribed reps for a strength row. Cardio rows describe themselves through their
+    /// prescription summary instead.
+    private func repGoalText(for log: ExerciseLog) -> String? {
+        guard !CardioWorkoutExerciseHelpers.isCardioLoggingRow(
+            log.workoutExercise,
+            exercises: dataVM.globalExercises
+        ) else { return nil }
+        let reps = log.workoutExercise.recommendedReps.trimmingCharacters(in: .whitespacesAndNewlines)
+        return reps.isEmpty ? nil : reps
+    }
+
+    /// "Target 4 × 8-12" for the focused exercise header.
+    private func planTargetText(for log: ExerciseLog) -> String? {
+        guard let reps = repGoalText(for: log) else { return nil }
+        let sets = log.workoutExercise.recommendedSets
+        guard sets > 0 else { return "Target \(reps) reps" }
+        return "Target \(sets) × \(reps)"
     }
 
     private func exerciseProgressTint(for log: ExerciseLog) -> Color {
@@ -2188,10 +2332,19 @@ struct CurrentWorkoutPullUpSheet: View {
                     }
                 )
             }
-            HStack {
+            HStack(spacing: 8) {
                 Text("Next set")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
+                if let repGoal = repGoalText(for: log) {
+                    Text("Goal \(repGoal)")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .frame(minHeight: 20)
+                        .background(Color.secondary.opacity(0.12), in: Capsule())
+                        .accessibilityLabel("Rep goal from your plan, \(repGoal) reps")
+                }
                 Spacer(minLength: 0)
                 Text(bwMode ? "Reps first — optional +/− load" : "Tap ✓ to log, or edit first")
                     .font(.caption2)
@@ -2646,65 +2799,100 @@ struct CurrentWorkoutPullUpSheet: View {
            editingSetExerciseIndex == exerciseIndex,
            editingSetIndex == setIndex {
             let fieldPadding = EdgeInsets(top: 7, leading: 9, bottom: 7, trailing: 9)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Edit set \(chronologicalSetNumber)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                if set.dropSegments.isEmpty {
-                    Picker("Type", selection: $editSetType) {
-                        Text(ExerciseSetType.working.logPickerLabel).tag(ExerciseSetType.working)
-                        Text(ExerciseSetType.warmup.logPickerLabel).tag(ExerciseSetType.warmup)
-                        Text(ExerciseSetType.amrap.logPickerLabel).tag(ExerciseSetType.amrap)
-                        Text(ExerciseSetType.failure.logPickerLabel).tag(ExerciseSetType.failure)
-                        Text(ExerciseSetType.timed.logPickerLabel).tag(ExerciseSetType.timed)
-                    }
-                    .pickerStyle(.segmented)
-                    if editSetType == .timed {
-                        Text("Reps = hold seconds. Weight = optional added load (display units).")
+            VStack(alignment: .leading, spacing: 8) {
+                // Fields sit in their own container so the keyboard-dismiss tap gesture never
+                // competes with the Cancel and Confirm targets below it.
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Edit set \(chronologicalSetNumber)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    if set.dropSegments.isEmpty {
+                        Picker("Type", selection: $editSetType) {
+                            Text(ExerciseSetType.working.logPickerLabel).tag(ExerciseSetType.working)
+                            Text(ExerciseSetType.warmup.logPickerLabel).tag(ExerciseSetType.warmup)
+                            Text(ExerciseSetType.amrap.logPickerLabel).tag(ExerciseSetType.amrap)
+                            Text(ExerciseSetType.failure.logPickerLabel).tag(ExerciseSetType.failure)
+                            Text(ExerciseSetType.timed.logPickerLabel).tag(ExerciseSetType.timed)
+                        }
+                        .pickerStyle(.segmented)
+                        if editSetType == .timed {
+                            Text("Reps = hold seconds. Weight = optional added load (display units).")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Text("Drop set — type stays Drop; edit loads in full log if needed.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
-                } else {
-                    Text("Drop set — type stays Drop; edit loads in full log if needed.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                HStack(spacing: 8) {
-                    TextField("Wt", value: Binding(
-                        get: { editWeightDisplay },
-                        set: { editWeightDisplay = clampSignedNetDisplayForUser($0) }
-                    ), format: .number.precision(.fractionLength(0...2)))
-                    .keyboardType(.decimalPad)
-                    .focused($numericFieldFocus, equals: .editWeight)
-                    .multilineTextAlignment(.trailing)
-                    .frame(minWidth: 52, minHeight: 36)
-                    .padding(fieldPadding)
-                    .background(Color(.systemGray5))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    Text(userPreferences.weightDisplayUnit.shortLabel)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text("×")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                    TextField("Reps", value: $editReps, format: .number)
-                        .keyboardType(.numberPad)
-                        .focused($numericFieldFocus, equals: .editReps)
-                        .multilineTextAlignment(.center)
-                        .frame(minWidth: 44, minHeight: 36)
+                    HStack(spacing: 8) {
+                        TextField("Wt", value: Binding(
+                            get: { editWeightDisplay },
+                            set: { editWeightDisplay = clampSignedNetDisplayForUser($0) }
+                        ), format: .number.precision(.fractionLength(0...2)))
+                        .keyboardType(.decimalPad)
+                        .focused($numericFieldFocus, equals: .editWeight)
+                        .multilineTextAlignment(.trailing)
+                        .frame(minWidth: 52, minHeight: 36)
                         .padding(fieldPadding)
                         .background(Color(.systemGray5))
                         .clipShape(RoundedRectangle(cornerRadius: 8))
+                        Text(userPreferences.weightDisplayUnit.shortLabel)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text("×")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                        TextField("Reps", value: $editReps, format: .number)
+                            .keyboardType(.numberPad)
+                            .focused($numericFieldFocus, equals: .editReps)
+                            .multilineTextAlignment(.center)
+                            .frame(minWidth: 44, minHeight: 36)
+                            .padding(fieldPadding)
+                            .background(Color(.systemGray5))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        Spacer(minLength: 0)
+                    }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    switch numericFieldFocus {
+                    case .editWeight, .editReps:
+                        fitlogDismissKeyboard()
+                        numericFieldFocus = nil
+                    default:
+                        break
+                    }
+                }
+
+                HStack(spacing: 16) {
+                    Button(role: .cancel) {
+                        cancelEditingSet()
+                    } label: {
+                        Label("Cancel", systemImage: "xmark.circle.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(
+                        InlineLogSetAccessibility.cancelEditSetLabel(setNumber: chronologicalSetNumber)
+                    )
+                    .accessibilityHint(InlineLogSetAccessibility.cancelEditSetHint)
+                    Spacer(minLength: 8)
                     Button {
                         fitlogDismissKeyboard()
                         numericFieldFocus = nil
                         confirmEditingSet()
                     } label: {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(.green)
+                        Label("Save", systemImage: "checkmark.circle.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .foregroundStyle(editReps <= 0 ? Color.secondary : Color.green)
                     .disabled(editReps <= 0)
                     .accessibilityLabel(
                         InlineLogSetAccessibility.confirmEditSetLabel(setNumber: chronologicalSetNumber)
@@ -2714,25 +2902,9 @@ struct CurrentWorkoutPullUpSheet: View {
                             ? InlineLogSetAccessibility.confirmDisabledHint
                             : InlineLogSetAccessibility.confirmEditSetHint
                     )
-                    Button("Cancel") {
-                        fitlogDismissKeyboard()
-                        numericFieldFocus = nil
-                        clearEditingSet()
-                    }
-                    .font(.caption)
                 }
             }
             .padding(8)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                switch numericFieldFocus {
-                case .editWeight, .editReps:
-                    fitlogDismissKeyboard()
-                    numericFieldFocus = nil
-                default:
-                    break
-                }
-            }
             .background(Color(.systemGray6))
             .clipShape(RoundedRectangle(cornerRadius: 10))
         } else {
@@ -2840,10 +3012,20 @@ struct CurrentWorkoutPullUpSheet: View {
         clearEditingSet()
     }
 
+    /// Leaves edit mode even with dirty fields — Cancel must always be an exit.
+    private func cancelEditingSet() {
+        fitlogDismissKeyboard()
+        numericFieldFocus = nil
+        clearEditingSet()
+    }
+
     private func clearEditingSet() {
         editingSetExerciseIndex = nil
         editingSetIndex = nil
         editingSetId = nil
+        editWeightDisplay = 0
+        editReps = 0
+        editSetType = .working
     }
 
     private func clearEditingSetIfNeeded(setId: UUID) {
@@ -2925,8 +3107,10 @@ struct CurrentWorkoutPullUpSheet: View {
 
     private func setProgressIndicatorStrip(log: ExerciseLog) -> some View {
         let rec = log.workoutExercise.recommendedSets
-        let done = log.loggedSets.count
+        let done = log.workingSetCount
+        let workingSets = log.loggedSets.filter(\.countsTowardRecommendedSets)
         let slots = max(1, max(rec, done))
+        let warmups = log.warmupSetCount
         return HStack(spacing: 10) {
             Text("Plan")
                 .font(.caption.weight(.semibold))
@@ -2938,13 +3122,21 @@ struct CurrentWorkoutPullUpSheet: View {
                         .fill(filled ? Color.accentColor : Color.secondary.opacity(0.18))
                         .frame(width: 11, height: 11)
                         .contextMenu {
-                            if i < log.loggedSets.count {
-                                let s = log.loggedSets[i]
+                            if i < workingSets.count {
+                                let s = workingSets[i]
                                 Text(s.weightRepsDisplaySummary(displayUnit: userPreferences.weightDisplayUnit))
                             }
                         }
-                        .accessibilityLabel(filled ? "Set \(i + 1) logged" : "Set \(i + 1) pending")
+                        .accessibilityLabel(filled ? "Work set \(i + 1) logged" : "Work set \(i + 1) pending")
                 }
+            }
+            if warmups > 0 {
+                Text(WorkoutSetProgressCopy.warmupMarker(count: warmups))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(
+                        warmups == 1 ? "1 warm-up set logged" : "\(warmups) warm-up sets logged"
+                    )
             }
         }
     }
@@ -3379,6 +3571,10 @@ struct CurrentWorkoutPullUpSheet: View {
         return session.completedExerciseIds.contains(id)
     }
 
+    private var isSupersetRoundActive: Bool {
+        ActiveExerciseRound.isSupersetRound(currentVM.currentSession?.activeExerciseIds ?? [])
+    }
+
     private func isPrimaryExercise(_ log: ExerciseLog) -> Bool {
         guard let session = currentVM.currentSession,
               let id = log.workoutExercise.exerciseId else { return false }
@@ -3417,8 +3613,11 @@ struct CurrentWorkoutPullUpSheet: View {
         }
     }
 
+    /// Only offers removal when a round actually exists — a lone focused exercise is not a superset.
     private func statusSupersetToggleTitle(for log: ExerciseLog) -> String {
-        isExerciseActive(log) ? "Remove from superset" : "Add to superset"
+        isSupersetRoundActive && isExerciseActive(log)
+            ? "Remove from superset round"
+            : "Add to superset round"
     }
 }
 

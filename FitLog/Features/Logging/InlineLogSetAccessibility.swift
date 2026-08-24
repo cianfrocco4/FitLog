@@ -70,6 +70,14 @@ enum InlineLogSetAccessibility {
         "Saves changes to this set"
     }
 
+    static func cancelEditSetLabel(setNumber: Int) -> String {
+        "Cancel editing set \(setNumber)"
+    }
+
+    static var cancelEditSetHint: String {
+        "Discards your changes and keeps the set as it was"
+    }
+
     static var confirmDropSegmentLabel: String {
         "Save drop segment"
     }

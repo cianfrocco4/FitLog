@@ -1089,6 +1089,22 @@ struct ExerciseLog: Identifiable, Codable {
     }
 }
 
+extension ExerciseLog {
+    /// Sets that advance progress toward `recommendedSets`.
+    var workingSetCount: Int {
+        loggedSets.filter(\.countsTowardRecommendedSets).count
+    }
+
+    var warmupSetCount: Int {
+        loggedSets.filter { $0.setType == .warmup }.count
+    }
+
+    /// True when the prescribed work sets are all in.
+    var meetsRecommendedSets: Bool {
+        workingSetCount >= max(1, workoutExercise.recommendedSets)
+    }
+}
+
 struct WorkoutSession: Identifiable, Codable {
     let id: UUID
     var workout: Workout
@@ -1222,6 +1238,14 @@ extension LoggedSet {
     /// Cardio sets that count toward weekly cardio volume summaries.
     var countsTowardCardioTotals: Bool {
         cardioMetrics != nil && setType != .warmup && setType != .intervalRest
+    }
+
+    /// Progress against `recommendedSets`. Warm-ups are preparation, not prescribed work.
+    ///
+    /// Deliberately diverges from `countsTowardVolumeTotals`, which also excludes `.timed`:
+    /// a plank is a prescribed set that contributes no tonnage. Keep the two separate.
+    var countsTowardRecommendedSets: Bool {
+        cardioMetrics == nil && setType != .warmup
     }
 
     /// Human-readable summary of configuration (e.g. "Grip: Narrow, Seat: 2") using field names from the workout exercise.

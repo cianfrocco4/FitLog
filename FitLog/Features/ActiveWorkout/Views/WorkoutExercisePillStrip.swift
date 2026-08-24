@@ -15,6 +15,8 @@ struct WorkoutExercisePillStrip: View {
     let isExerciseCompleted: (ExerciseLog) -> Bool
     let isExerciseActive: (ExerciseLog) -> Bool
     let supersetLetter: (ExerciseLog) -> String?
+    /// Prescribed reps for strength rows, nil for cardio (the caller knows the modality).
+    var repGoal: ((ExerciseLog) -> String?)? = nil
     var onSelectExercise: ((Int) -> Void)? = nil
     var onAddExercise: (() -> Void)? = nil
     var onQuickSwap: ((Int) -> Void)? = nil
@@ -58,12 +60,15 @@ struct WorkoutExercisePillStrip: View {
                 }
             }
             if activeExerciseIdsCount > 1 {
-                Text("Blue outline = superset round. Rest after the last letter in the group.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal)
+                Label(
+                    "Superset: blue outlined exercises run back to back. Rest starts after the last letter.",
+                    systemImage: "bolt.horizontal"
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
             }
         }
         .padding(.vertical, 6)
@@ -74,7 +79,7 @@ struct WorkoutExercisePillStrip: View {
         let isSelected = expandedExerciseIndex == index
         let name = abbreviatedName(for: log.workoutExercise)
         let rec = log.workoutExercise.recommendedSets
-        let done = log.loggedSets.count
+        let done = log.workingSetCount
         let isPlaceholder = log.workoutExercise.isSlotPlaceholder
         let isCompleted = isExerciseCompleted(log)
         let inSuperset = isExerciseActive(log) && activeExerciseIdsCount > 1
@@ -134,7 +139,7 @@ struct WorkoutExercisePillStrip: View {
             }
             if log.workoutExercise.exerciseId != nil, let onToggleSuperset {
                 Button(
-                    inSuperset ? "Remove from superset" : "Add to superset",
+                    inSuperset ? "Remove from superset round" : "Add to superset round",
                     systemImage: "bolt.horizontal"
                 ) { onToggleSuperset(index) }
             }
@@ -145,7 +150,16 @@ struct WorkoutExercisePillStrip: View {
                 Button("Remove", systemImage: "trash", role: .destructive) { onRemoveExercise(index) }
             }
         }
-        .accessibilityLabel(accessibilityPillLabel(name: name, done: done, rec: rec, isPlaceholder: isPlaceholder, letter: letter))
+        .accessibilityLabel(
+            accessibilityPillLabel(
+                name: name,
+                done: done,
+                rec: rec,
+                isPlaceholder: isPlaceholder,
+                letter: letter,
+                repGoal: repGoal?(log)
+            )
+        )
         .accessibilityHint(isSelected ? "Currently selected exercise" : "Double tap to log sets for this exercise")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
@@ -162,13 +176,21 @@ struct WorkoutExercisePillStrip: View {
         .accessibilityHidden(true)
     }
 
-    private func accessibilityPillLabel(name: String, done: Int, rec: Int, isPlaceholder: Bool, letter: String?) -> String {
+    private func accessibilityPillLabel(
+        name: String,
+        done: Int,
+        rec: Int,
+        isPlaceholder: Bool,
+        letter: String?,
+        repGoal: String?
+    ) -> String {
         var parts: [String] = []
-        if let letter { parts.append("Superset \(letter)") }
+        if let letter { parts.append("Superset \(letter) of the round") }
         parts.append(name)
         if isPlaceholder { parts.append("needs an exercise") }
-        else if rec > 0 { parts.append("\(done) of \(rec) sets") }
-        else if done > 0 { parts.append("\(done) sets logged") }
+        else if rec > 0 { parts.append("\(done) of \(rec) work sets") }
+        else if done > 0 { parts.append("\(done) work sets logged") }
+        if !isPlaceholder, let repGoal, !repGoal.isEmpty { parts.append("goal \(repGoal) reps") }
         return parts.joined(separator: ", ")
     }
 

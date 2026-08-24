@@ -111,6 +111,7 @@ final class DataManager {
             preloadFullExerciseLibrary()
         }
         preloadCardioExerciseLibraryIfNeeded()
+        seedExerciseSetupOptionsIfNeeded()
 
         migrateLegacyCustomExercises()
         backfillStrengthExerciseMetadataIfNeeded()
@@ -1284,6 +1285,17 @@ final class DataManager {
         if changed { saveExercises() }
     }
 
+    /// One-time backfill of default setup options (grip, attachment, foot position) onto
+    /// bundled machines. Only fills empty option lists, so user edits survive.
+    func seedExerciseSetupOptionsIfNeeded() {
+        let key = ExerciseSetupOptionSeed.completedUserDefaultsKey
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        if ExerciseSetupOptionSeed.merge(into: &globalExercises) {
+            saveExercises()
+        }
+        UserDefaults.standard.set(true, forKey: key)
+    }
+
     /// Idempotent merge of bundled cardio catalog by stable seed UUIDs.
     func preloadCardioExerciseLibraryIfNeeded() {
         let key = CardioExerciseSeed.completedUserDefaultsKey
@@ -1357,6 +1369,7 @@ final class DataManager {
         for index in globalExercises.indices {
             StrengthExerciseMetadataCatalog.apply(to: &globalExercises[index])
         }
+        ExerciseSetupOptionSeed.merge(into: &globalExercises)
         saveExercises()
     }
 

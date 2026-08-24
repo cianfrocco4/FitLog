@@ -54,7 +54,7 @@ struct ExerciseDetailView: View {
                         }
 
                         if ex.modality == .strength || ex.modality == .hybrid {
-                            ExerciseFormGuideCompactView(exercise: ex) {
+                            ExerciseFormGuideCompactView(exercise: ex, idleStyle: .poster) {
                                 showFormGuideSheet = true
                             }
 

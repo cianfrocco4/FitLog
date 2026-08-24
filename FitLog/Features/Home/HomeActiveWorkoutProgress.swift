@@ -13,12 +13,11 @@ enum HomeActiveWorkoutProgress {
         logs.filter { !$0.workoutExercise.isSlotPlaceholder }.count
     }
 
-    /// Exercises that meet or exceed their recommended set count via logged sets.
+    /// Exercises whose prescribed work sets are all logged. Warm-ups do not count.
     static func completedExerciseCount(in logs: [ExerciseLog]) -> Int {
         logs.filter { log in
             guard !log.workoutExercise.isSlotPlaceholder else { return false }
-            let target = max(1, log.workoutExercise.recommendedSets)
-            return log.loggedSets.count >= target
+            return log.meetsRecommendedSets
         }.count
     }
 

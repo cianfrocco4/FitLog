@@ -427,8 +427,11 @@ final class CurrentWorkoutSessionViewModel {
         )
         mutableSession.workout.exercises.append(we)
         mutableSession.exerciseLogs.append(ExerciseLog(id: UUID(), workoutExercise: we, loggedSets: []))
-        if let exId = we.exerciseId, !mutableSession.activeExerciseIds.contains(exId) {
-            mutableSession.activeExerciseIds.append(exId)
+        if let exId = we.exerciseId {
+            mutableSession.activeExerciseIds = ActiveExerciseRound.afterAddingExerciseToWorkout(
+                exId,
+                in: mutableSession.activeExerciseIds
+            )
         }
         currentSession = mutableSession
         recordWorkoutActivity()
@@ -1100,9 +1103,11 @@ final class CurrentWorkoutSessionViewModel {
         let i = min(max(0, setIndex), sets.count)
         sets.insert(set, at: i)
         session.exerciseLogs[exerciseIndex].loggedSets = sets
-        if let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exerciseId,
-           !session.activeExerciseIds.contains(exId) {
-            session.activeExerciseIds.insert(exId, at: 0)
+        if let exId = session.exerciseLogs[exerciseIndex].workoutExercise.exerciseId {
+            session.activeExerciseIds = ActiveExerciseRound.makingPrimary(
+                exId,
+                in: session.activeExerciseIds
+            )
         }
         currentSession = session
         recordWorkoutActivity()
@@ -1209,29 +1214,34 @@ final class CurrentWorkoutSessionViewModel {
 
     // MARK: - Exercise status helpers (current / superset)
 
-    /// Mark the given exercise as the primary current exercise and ensure it's active.
+    /// Focus the given exercise. Does not join it to a superset round.
     func setPrimaryExercise(exerciseId: UUID) {
         guard var session = currentSession else { return }
-        // Ensure in active list
-        if !session.activeExerciseIds.contains(exerciseId) {
-            session.activeExerciseIds.append(exerciseId)
-        }
-        // Move to front to make it primary
-        session.activeExerciseIds.removeAll { $0 == exerciseId }
-        session.activeExerciseIds.insert(exerciseId, at: 0)
+        session.activeExerciseIds = ActiveExerciseRound.makingPrimary(
+            exerciseId,
+            in: session.activeExerciseIds
+        )
         currentSession = session
         recordWorkoutActivity()
         saveActiveSession()
     }
 
-    /// Toggle this exercise in the superset list (activeExerciseIds) without changing primary.
+    /// Add or remove this exercise from the superset round. The only path that grows the round.
     func toggleSupersetExercise(exerciseId: UUID) {
         guard var session = currentSession else { return }
-        if let idx = session.activeExerciseIds.firstIndex(of: exerciseId) {
-            session.activeExerciseIds.remove(at: idx)
-        } else {
-            session.activeExerciseIds.append(exerciseId)
-        }
+        session.activeExerciseIds = ActiveExerciseRound.togglingSupersetMember(
+            exerciseId,
+            in: session.activeExerciseIds
+        )
+        currentSession = session
+        recordWorkoutActivity()
+        saveActiveSession()
+    }
+
+    /// Collapse a superset round back to the current exercise.
+    func endSupersetRound() {
+        guard var session = currentSession, ActiveExerciseRound.isSupersetRound(session.activeExerciseIds) else { return }
+        session.activeExerciseIds = ActiveExerciseRound.endingSupersetRound(in: session.activeExerciseIds)
         currentSession = session
         recordWorkoutActivity()
         saveActiveSession()

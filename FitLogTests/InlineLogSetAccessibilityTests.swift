@@ -113,4 +113,12 @@ struct InlineLogSetAccessibilityTests {
         #expect(InlineLogSetAccessibility.confirmDropSegmentLabel == "Save drop segment")
         #expect(InlineLogSetAccessibility.confirmDropSegmentHint == "Saves this drop segment")
     }
+
+    @Test func cancelEditCopy_namesTheSetAndPromisesNoChange() {
+        #expect(InlineLogSetAccessibility.cancelEditSetLabel(setNumber: 2) == "Cancel editing set 2")
+        #expect(
+            InlineLogSetAccessibility.cancelEditSetHint
+                == "Discards your changes and keeps the set as it was"
+        )
+    }
 }

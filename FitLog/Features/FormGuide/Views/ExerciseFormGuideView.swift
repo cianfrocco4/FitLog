@@ -7,11 +7,21 @@
 
 import SwiftUI
 
+/// How the form guide presents itself before the video is playing.
+enum ExerciseFormGuideIdleStyle {
+    /// One short row. For dense lists such as active-workout logging.
+    case row
+    /// Large tappable poster. For detail screens where media can own the space.
+    case poster
+}
+
 struct ExerciseFormGuideCompactView: View {
     let exercise: Exercise
+    /// Height of the expanded player, and of the poster when `idleStyle` is `.poster`.
     var height: CGFloat = 220
-    /// When false, shows a thumbnail / button until the user opts in (avoids autoplay + audio route).
+    /// When false, stays idle until the user opts in (avoids autoplay + audio route).
     var shouldAutoPlay: Bool = false
+    var idleStyle: ExerciseFormGuideIdleStyle = .row
     var onTap: (() -> Void)?
 
     @Environment(ExerciseFormGuideService.self) private var formGuideService
@@ -37,91 +47,102 @@ struct ExerciseFormGuideCompactView: View {
                 gender: userPreferences.formGuideGender,
                 angle: userPreferences.formGuideAngle
             ) {
-                VStack(alignment: .leading, spacing: 8) {
-                    if showInlineVideo || (shouldAutoPlay && !reduceMotion) {
-                        ZStack(alignment: .bottomLeading) {
-                            ExerciseFormVideoPlayer(
-                                video: video,
-                                requestHeaders: formGuideService.streamRequestHeaders(),
-                                shouldAutoPlay: true
-                            )
-                            .frame(maxWidth: .infinity)
-                            .frame(height: height)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                            HStack(spacing: 6) {
-                                Image(systemName: "figure.strengthtraining.traditional")
-                                Text("Form guide")
-                                    .font(.caption.weight(.semibold))
-                            }
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(.black.opacity(0.45), in: Capsule())
-                            .padding(10)
+                if showInlineVideo {
+                    expandedPlayer(video: video)
+                } else {
+                    let reveal = {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showInlineVideo = true
                         }
-                    } else {
-                        formGuideThumbnailButton(video: video, guide: resolvedGuide)
                     }
-                    HStack(spacing: 8) {
-                        if !showInlineVideo && !(shouldAutoPlay && !reduceMotion) {
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    showInlineVideo = true
-                                }
-                            } label: {
-                                Label("Show form video", systemImage: "play.circle")
-                                    .font(.caption.weight(.semibold))
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .accessibilityHint("Plays a muted demonstration without interrupting your music")
-                        }
-                        if onTap != nil {
-                            Button("Full guide") {
-                                onTap?()
-                            }
-                            .font(.caption.weight(.semibold))
-                            .accessibilityHint("Opens the full form guide sheet")
-                        }
+                    switch idleStyle {
+                    case .row:
+                        collapsedRow(
+                            thumbnailURL: video.ogImageURL,
+                            title: "Form video",
+                            subtitle: resolvedGuide.keyCue ?? resolvedGuide.steps.first,
+                            action: reveal,
+                            accessibilityLabel: "Show form video for \(exercise.name)",
+                            accessibilityHint: "Plays a muted demonstration without interrupting your music"
+                        )
+                    case .poster:
+                        posterButton(video: video, guide: resolvedGuide, action: reveal)
                     }
                 }
             } else if let resolvedGuide, onTap != nil {
-                Button {
-                    onTap?()
-                } label: {
-                    stepsOnlyPlaceholder(for: resolvedGuide)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Form tips for \(exercise.name)")
-                .accessibilityHint("Double tap to open full form guide")
-            } else if isLoading || serviceLoadState == .loading {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.secondary.opacity(0.12))
-                    .frame(height: height)
-                    .overlay {
-                        ProgressView()
+                switch idleStyle {
+                case .row:
+                    collapsedRow(
+                        thumbnailURL: nil,
+                        title: "Form tips",
+                        subtitle: resolvedGuide.keyCue ?? resolvedGuide.steps.first,
+                        action: { onTap?() },
+                        accessibilityLabel: "Form tips for \(exercise.name)",
+                        accessibilityHint: "Opens the full form guide"
+                    )
+                case .poster:
+                    Button {
+                        onTap?()
+                    } label: {
+                        stepsOnlyPlaceholder(for: resolvedGuide)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Form tips for \(exercise.name)")
+                    .accessibilityHint("Double tap to open full form guide")
+                }
+            } else if isLoading || serviceLoadState == .loading {
+                switch idleStyle {
+                case .row:
+                    compactStatusRow {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel("Loading form guide")
+                        Text("Loading form guide…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                case .poster:
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.secondary.opacity(0.12))
+                        .frame(height: height)
+                        .overlay { ProgressView() }
+                }
             } else if let loadError {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.secondary.opacity(0.08))
-                    .frame(height: height)
-                    .overlay {
-                        VStack(spacing: 6) {
-                            Image(systemName: "play.rectangle.on.rectangle")
-                                .font(.title3)
-                                .foregroundStyle(.secondary)
-                            Text(loadError)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 12)
-                        }
+                switch idleStyle {
+                case .row:
+                    compactStatusRow {
+                        Image(systemName: "play.slash")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(loadError)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
                     }
                     .accessibilityLabel(loadError)
+                case .poster:
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.secondary.opacity(0.08))
+                        .frame(height: height)
+                        .overlay {
+                            VStack(spacing: 6) {
+                                Image(systemName: "play.rectangle.on.rectangle")
+                                    .font(.title3)
+                                    .foregroundStyle(.secondary)
+                                Text(loadError)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 12)
+                            }
+                        }
+                        .accessibilityLabel(loadError)
+                }
             }
         }
         .task(id: exercise.id) {
+            // A collapsed default keeps the logging list short; autoplay stays opt-in.
+            showInlineVideo = shouldAutoPlay && !reduceMotion
             await loadGuideIfNeeded()
         }
         .onChange(of: serviceLoadState) { _, newState in
@@ -129,13 +150,121 @@ struct ExerciseFormGuideCompactView: View {
         }
     }
 
-    @ViewBuilder
-    private func formGuideThumbnailButton(video: ExerciseFormGuideVideo, guide: ExerciseFormGuide) -> some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                showInlineVideo = true
+    private func expandedPlayer(video: ExerciseFormGuideVideo) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .topTrailing) {
+                ExerciseFormVideoPlayer(
+                    video: video,
+                    requestHeaders: formGuideService.streamRequestHeaders(),
+                    shouldAutoPlay: true
+                )
+                .frame(maxWidth: .infinity)
+                .frame(height: height)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showInlineVideo = false
+                    }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, .black.opacity(0.45))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Hide form video")
+                .accessibilityHint("Stops the demonstration and collapses it")
             }
-        } label: {
+            if onTap != nil {
+                Button("Full guide") {
+                    onTap?()
+                }
+                .font(.caption.weight(.semibold))
+                .frame(minHeight: 32)
+                .accessibilityHint("Opens the full form guide sheet")
+            }
+        }
+    }
+
+    /// Single-row idle presentation: thumbnail, label, and an optional cue.
+    private func collapsedRow(
+        thumbnailURL: URL?,
+        title: String,
+        subtitle: String?,
+        action: @escaping () -> Void,
+        accessibilityLabel: String,
+        accessibilityHint: String
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                collapsedThumbnail(url: thumbnailURL)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityHint(accessibilityHint)
+    }
+
+    @ViewBuilder
+    private func collapsedThumbnail(url: URL?) -> some View {
+        ZStack {
+            if let url {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().scaledToFill()
+                    default:
+                        Color.secondary.opacity(0.15)
+                    }
+                }
+                Image(systemName: "play.circle.fill")
+                    .font(.body)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(Color.white, Color.black.opacity(0.35))
+            } else {
+                Color.secondary.opacity(0.12)
+                Image(systemName: "figure.strengthtraining.traditional")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 52, height: 36)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityHidden(true)
+    }
+
+    private func compactStatusRow<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 8, content: content)
+            .frame(minHeight: 36)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func posterButton(
+        video: ExerciseFormGuideVideo,
+        guide: ExerciseFormGuide,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
             ZStack {
                 if let imageURL = video.ogImageURL {
                     AsyncImage(url: imageURL) { phase in
@@ -705,6 +834,35 @@ private enum ExerciseFormGuidePreviewData {
     .environmentObject(UserPreferences())
     .padding()
     .preferredColorScheme(.dark)
+}
+
+#Preview("Compact — expanded player") {
+    ExerciseFormGuideCompactView(
+        exercise: ExerciseFormGuidePreviewData.squat,
+        shouldAutoPlay: true
+    )
+    .environment(ExerciseFormGuidePreviewData.previewService(withGuide: true))
+    .environmentObject(UserPreferences())
+    .padding()
+}
+
+#Preview("Compact — unavailable") {
+    ExerciseFormGuideCompactView(
+        exercise: ExerciseFormGuidePreviewData.squat
+    )
+    .environment(ExerciseFormGuidePreviewData.previewService(withGuide: false))
+    .environmentObject(UserPreferences())
+    .padding()
+}
+
+#Preview("Poster idle style") {
+    ExerciseFormGuideCompactView(
+        exercise: ExerciseFormGuidePreviewData.squat,
+        idleStyle: .poster
+    ) {}
+    .environment(ExerciseFormGuidePreviewData.previewService(withGuide: true))
+    .environmentObject(UserPreferences())
+    .padding()
 }
 
 #Preview("Info button") {

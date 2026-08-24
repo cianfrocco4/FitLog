@@ -29,7 +29,7 @@ struct CurrentWorkoutCollapsedBar: View {
 
     private var primarySetProgressLine: String? {
         guard let log = primaryExerciseLog else { return nil }
-        return "\(log.loggedSets.count)/\(log.workoutExercise.recommendedSets) sets"
+        return "\(log.workingSetCount)/\(log.workoutExercise.recommendedSets) sets"
     }
 
     var body: some View {
