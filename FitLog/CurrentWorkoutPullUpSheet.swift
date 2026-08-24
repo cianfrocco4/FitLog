@@ -491,37 +491,66 @@ struct CurrentWorkoutPullUpSheet: View {
     private func supersetRoundSwitcher(exerciseIndex: Int, logs: [ExerciseLog]) -> some View {
         let indices = supersetRoundIndices(in: logs)
         if indices.count > 1, indices.contains(exerciseIndex) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(indices, id: \.self) { idx in
-                        let log = logs[idx]
-                        let letter = supersetLetter(for: log) ?? "?"
-                        let isCurrent = idx == exerciseIndex
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                expandedExerciseIndex = idx
-                            }
-                            if let exId = log.workoutExercise.exerciseId {
-                                currentVM.setPrimaryExercise(exerciseId: exId)
-                            }
-                        } label: {
-                            Text(letter)
-                                .font(.subheadline.weight(.bold))
-                                .frame(minWidth: 36, minHeight: 36)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Label("Superset", systemImage: "bolt.horizontal")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    Button("End") {
+                        currentVM.endSupersetRound()
+                    }
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                    .frame(minHeight: 32)
+                    .accessibilityLabel("End superset round")
+                    .accessibilityHint("Keeps only the current exercise active and restores normal rest")
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(indices, id: \.self) { idx in
+                            let log = logs[idx]
+                            let letter = supersetLetter(for: log) ?? "?"
+                            let name = dataVM.displayName(for: log.workoutExercise)
+                            let isCurrent = idx == exerciseIndex
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    expandedExerciseIndex = idx
+                                }
+                                if let exId = log.workoutExercise.exerciseId {
+                                    currentVM.setPrimaryExercise(exerciseId: exId)
+                                }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Text(letter)
+                                        .font(.caption.weight(.bold))
+                                    Text(supersetSwitcherName(name))
+                                        .font(.caption.weight(isCurrent ? .semibold : .regular))
+                                        .lineLimit(1)
+                                }
+                                .padding(.horizontal, 12)
+                                .frame(minHeight: 36)
                                 .background(isCurrent ? Color.accentColor : Color.blue.opacity(0.15))
                                 .foregroundStyle(isCurrent ? Color.white : Color.primary)
-                                .clipShape(Circle())
+                                .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Superset \(letter), \(name)")
+                            .accessibilityHint("Switches logging to this exercise in the round")
+                            .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Superset exercise \(letter)")
-                        .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
                     }
+                    .padding(.horizontal, 4)
                 }
-                .padding(.horizontal, 4)
             }
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("Superset round switcher")
+            .accessibilityLabel("Superset round")
         }
+    }
+
+    private func supersetSwitcherName(_ name: String) -> String {
+        name.count <= 16 ? name : String(name.prefix(14)) + "…"
     }
 
     @ViewBuilder
@@ -719,11 +748,16 @@ struct CurrentWorkoutPullUpSheet: View {
                                                                         swapSheetExerciseIndex = focusIndex
                                                                     }
                                                                     Divider()
-                                                                    Button("Set as current") {
+                                                                    Button("Focus this exercise", systemImage: "scope") {
                                                                         currentVM.setPrimaryExercise(exerciseId: exId)
                                                                     }
-                                                                    Button(statusSupersetToggleTitle(for: log)) {
+                                                                    Button(statusSupersetToggleTitle(for: log), systemImage: "bolt.horizontal") {
                                                                         currentVM.toggleSupersetExercise(exerciseId: exId)
+                                                                    }
+                                                                    if isSupersetRoundActive {
+                                                                        Button("End superset round", systemImage: "bolt.horizontal.circle") {
+                                                                            currentVM.endSupersetRound()
+                                                                        }
                                                                     }
                                                                 Button("Mark completed") {
                                                                     currentVM.markExerciseCompleted(exerciseId: exId)
@@ -1844,12 +1878,19 @@ struct CurrentWorkoutPullUpSheet: View {
                         .font(.headline)
                         .multilineTextAlignment(.leading)
                     if let letter = supersetLetter(for: log) {
-                        Text(letter)
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(.white)
-                            .frame(minWidth: 20, minHeight: 20)
-                            .background(Circle().fill(Color.blue.gradient))
-                            .accessibilityLabel("Superset \(letter)")
+                        HStack(spacing: 3) {
+                            Image(systemName: "bolt.horizontal")
+                                .font(.caption2.weight(.bold))
+                            Text(letter)
+                                .font(.caption2.weight(.bold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .frame(minHeight: 20)
+                        .background(Capsule().fill(Color.blue.gradient))
+                        .accessibilityLabel(
+                            "Superset \(letter), \(dataVM.displayName(for: log.workoutExercise)). Part of a round; rest comes after the last exercise."
+                        )
                     }
                     if let libraryExercise = libraryExercise(for: log),
                        libraryExercise.modality != .cardio,
@@ -3379,6 +3420,10 @@ struct CurrentWorkoutPullUpSheet: View {
         return session.completedExerciseIds.contains(id)
     }
 
+    private var isSupersetRoundActive: Bool {
+        ActiveExerciseRound.isSupersetRound(currentVM.currentSession?.activeExerciseIds ?? [])
+    }
+
     private func isPrimaryExercise(_ log: ExerciseLog) -> Bool {
         guard let session = currentVM.currentSession,
               let id = log.workoutExercise.exerciseId else { return false }
@@ -3417,8 +3462,11 @@ struct CurrentWorkoutPullUpSheet: View {
         }
     }
 
+    /// Only offers removal when a round actually exists — a lone focused exercise is not a superset.
     private func statusSupersetToggleTitle(for log: ExerciseLog) -> String {
-        isExerciseActive(log) ? "Remove from superset" : "Add to superset"
+        isSupersetRoundActive && isExerciseActive(log)
+            ? "Remove from superset round"
+            : "Add to superset round"
     }
 }
 

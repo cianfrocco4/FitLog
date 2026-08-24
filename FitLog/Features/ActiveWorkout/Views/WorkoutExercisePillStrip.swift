@@ -58,12 +58,15 @@ struct WorkoutExercisePillStrip: View {
                 }
             }
             if activeExerciseIdsCount > 1 {
-                Text("Blue outline = superset round. Rest after the last letter in the group.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal)
+                Label(
+                    "Superset: blue outlined exercises run back to back. Rest starts after the last letter.",
+                    systemImage: "bolt.horizontal"
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
             }
         }
         .padding(.vertical, 6)
@@ -134,7 +137,7 @@ struct WorkoutExercisePillStrip: View {
             }
             if log.workoutExercise.exerciseId != nil, let onToggleSuperset {
                 Button(
-                    inSuperset ? "Remove from superset" : "Add to superset",
+                    inSuperset ? "Remove from superset round" : "Add to superset round",
                     systemImage: "bolt.horizontal"
                 ) { onToggleSuperset(index) }
             }
@@ -164,7 +167,7 @@ struct WorkoutExercisePillStrip: View {
 
     private func accessibilityPillLabel(name: String, done: Int, rec: Int, isPlaceholder: Bool, letter: String?) -> String {
         var parts: [String] = []
-        if let letter { parts.append("Superset \(letter)") }
+        if let letter { parts.append("Superset \(letter) of the round") }
         parts.append(name)
         if isPlaceholder { parts.append("needs an exercise") }
         else if rec > 0 { parts.append("\(done) of \(rec) sets") }
