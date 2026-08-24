@@ -56,10 +56,12 @@ extension Notification.Name {
     static let fitlogOpenHistorySession = Notification.Name("fitlogOpenHistorySession")
     /// Opens Home → Readiness detail (e.g. readiness widget tap).
     static let fitlogOpenReadinessDetail = Notification.Name("fitlogOpenReadinessDetail")
+    /// Home presents the start-workout picker (`fitlog://quick-log` when no session is active).
+    static let fitlogPresentStartWorkout = Notification.Name("fitlogPresentStartWorkout")
 }
 
 enum FitLogDeepLink: Equatable {
-    /// Opens Home and presents new-workout / current-workout pull-up.
+    /// Opens Home and presents the start-workout sheet, or the live logging sheet if a session is active.
     case quickLog
     /// Opens the app to Home without starting a log flow (e.g. empty readiness widget).
     case open

@@ -229,7 +229,7 @@ struct MainTabView: View {
                 if currentVM.isInProgress {
                     showCurrentWorkoutPullUp = true
                 } else {
-                    NotificationCenter.default.post(name: .fitlogPresentNewWorkout, object: nil)
+                    NotificationCenter.default.post(name: .fitlogPresentStartWorkout, object: nil)
                 }
             case .open:
                 rootTab = .home

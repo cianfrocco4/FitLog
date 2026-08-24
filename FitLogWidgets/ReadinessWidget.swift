@@ -9,6 +9,7 @@ import WidgetKit
 private enum ReadinessWidgetDeepLink {
     static let readiness = URL(string: "fitlog://readiness")!
     static let openApp = URL(string: "fitlog://open")!
+    static let quickLog = URL(string: "fitlog://quick-log")!
 }
 
 struct ReadinessWidgetEntry: TimelineEntry {
@@ -62,67 +63,78 @@ struct ReadinessWidgetView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Readiness")
-                    .font(.caption.weight(.semibold))
-                Spacer()
-                if let score = entry.score {
-                    Text("\(score)")
-                        .font(.title2.weight(.bold).monospacedDigit())
-                } else if hasReadinessSnapshot {
-                    Text("—")
-                        .font(.title2.weight(.bold))
-                        .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Readiness")
+                        .font(.caption.weight(.semibold))
+                    Spacer()
+                    if let score = entry.score {
+                        Text("\(score)")
+                            .font(.title2.weight(.bold).monospacedDigit())
+                    } else if hasReadinessSnapshot {
+                        Text("—")
+                            .font(.title2.weight(.bold))
+                            .accessibilityHidden(true)
+                    }
                 }
-            }
-            if hasReadinessSnapshot {
-                if let bandTitle = entry.bandTitle {
-                    Text(bandTitle)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                if let plan = entry.planTitle {
-                    Label(plan, systemImage: "calendar")
-                        .font(.caption2)
-                        .lineLimit(1)
-                }
-                if let summary = entry.summary {
-                    Text(summary)
+                if hasReadinessSnapshot {
+                    if let bandTitle = entry.bandTitle {
+                        Text(bandTitle)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    if let plan = entry.planTitle {
+                        Label(plan, systemImage: "calendar")
+                            .font(.caption2)
+                            .lineLimit(1)
+                    }
+                    if let summary = entry.summary {
+                        Text(summary)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                } else {
+                    Text("Open Workout Log AI")
+                        .font(.caption.weight(.semibold))
+                    Text(emptyStateGuidance)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
-                }
-            } else {
-                Text("Open Workout Log AI")
-                    .font(.caption.weight(.semibold))
-                Text(emptyStateGuidance)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                if showsEmptyStatePlanLine, let plan = entry.planTitle {
-                    Label(plan, systemImage: "calendar")
-                        .font(.caption2)
-                        .lineLimit(1)
+                    if showsEmptyStatePlanLine, let plan = entry.planTitle {
+                        Label(plan, systemImage: "calendar")
+                            .font(.caption2)
+                            .lineLimit(1)
+                    }
                 }
             }
-            Spacer(minLength: 0)
-            Label(
-                hasReadinessSnapshot ? "Open readiness" : "Open app",
-                systemImage: hasReadinessSnapshot ? "heart.text.square" : "arrow.up.forward.app"
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(readinessAccessibilityLabel)
+            .accessibilityHint(
+                hasReadinessSnapshot
+                    ? "Opens Workout Log AI to readiness details"
+                    : emptyStateAccessibilityHint
             )
-            .font(.caption2.weight(.semibold))
+
+            Spacer(minLength: 0)
+
+            startWorkoutLink
         }
         .widgetURL(hasReadinessSnapshot ? ReadinessWidgetDeepLink.readiness : ReadinessWidgetDeepLink.openApp)
         .containerBackground(for: .widget) {
             Color(.systemBackground)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(readinessAccessibilityLabel)
-        .accessibilityHint(
-            hasReadinessSnapshot
-                ? "Opens Workout Log AI to readiness details"
-                : emptyStateAccessibilityHint
-        )
+    }
+
+    private var startWorkoutLink: some View {
+        Link(destination: ReadinessWidgetDeepLink.quickLog) {
+            Label("Start workout", systemImage: "play.fill")
+                .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .accessibilityLabel("Start workout")
+        .accessibilityHint("Opens Workout Log AI to start or continue a workout")
     }
 
     /// Avoid asking users to refresh a plan that is already visible from the App Group payload.
@@ -173,7 +185,31 @@ struct ReadinessWidget: Widget {
             ReadinessWidgetView(entry: entry)
         }
         .configurationDisplayName("Readiness")
-        .description("Today's readiness score, plan, and a shortcut into the app.")
+        .description("Today's readiness score, plan, and a Start workout shortcut.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }
+}
+
+#Preview("Small — with score", as: .systemSmall) {
+    ReadinessWidget()
+} timeline: {
+    ReadinessWidgetEntry(
+        date: Date(),
+        score: 72,
+        bandTitle: "Good",
+        summary: "Good readiness",
+        planTitle: "Push A"
+    )
+}
+
+#Preview("Medium — empty", as: .systemMedium) {
+    ReadinessWidget()
+} timeline: {
+    ReadinessWidgetEntry(
+        date: Date(),
+        score: nil,
+        bandTitle: nil,
+        summary: nil,
+        planTitle: "Push A"
+    )
 }

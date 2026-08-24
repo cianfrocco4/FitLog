@@ -9,10 +9,10 @@ import SwiftUI
 
 struct HomeStartWorkoutSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(DataManager.self) var dataVM
 
     let todayPlan: ResolvedScheduleDay
     let scheduledWorkout: Workout?
+    var isTodayPlanCompleted: Bool = false
     let recentWorkouts: [Workout]
     let lastCompletedDates: [UUID: Date]
     let onStartScheduled: () -> Void
@@ -39,12 +39,27 @@ struct HomeStartWorkoutSheet: View {
                                     Text(scheduled.name)
                                         .font(.subheadline)
                                         .foregroundStyle(.secondary)
+                                    if isTodayPlanCompleted {
+                                        Text("Done today — tap to start again")
+                                            .font(.caption)
+                                            .foregroundStyle(FitlogPalette.success)
+                                    }
                                 }
                             }
                         }
-                        .accessibilityHint("Starts today's scheduled workout")
+                        .accessibilityLabel(
+                            HomeStartWorkoutSheetCopy.scheduledAccessibilityLabel(
+                                workoutName: scheduled.name,
+                                isCompletedToday: isTodayPlanCompleted
+                            )
+                        )
+                        .accessibilityHint(
+                            HomeStartWorkoutSheetCopy.scheduledAccessibilityHint(
+                                isCompletedToday: isTodayPlanCompleted
+                            )
+                        )
                     } header: {
-                        Text("Recommended")
+                        Text(HomeStartWorkoutSheetCopy.scheduledSectionHeader(isCompletedToday: isTodayPlanCompleted))
                     }
                 }
 
@@ -111,4 +126,51 @@ struct HomeStartWorkoutSheet: View {
         }
         .presentationDetents([.medium, .large])
     }
+}
+
+enum HomeStartWorkoutSheetCopy {
+    static func scheduledSectionHeader(isCompletedToday: Bool) -> String {
+        isCompletedToday ? "Logged today" : "Recommended"
+    }
+
+    static func scheduledAccessibilityLabel(workoutName: String, isCompletedToday: Bool) -> String {
+        if isCompletedToday {
+            return "Today's plan, \(workoutName), done today"
+        }
+        return "Today's plan, \(workoutName)"
+    }
+
+    static func scheduledAccessibilityHint(isCompletedToday: Bool) -> String {
+        isCompletedToday
+            ? "Starts this workout again as a new session"
+            : "Starts today's scheduled workout"
+    }
+}
+
+#Preview("With plan") {
+    HomeStartWorkoutSheet(
+        todayPlan: .unscheduled,
+        scheduledWorkout: nil,
+        recentWorkouts: [],
+        lastCompletedDates: [:],
+        onStartScheduled: {},
+        onStartLibrary: { _ in },
+        onNewWorkout: {},
+        onNewFromTemplate: {}
+    )
+}
+
+#Preview("Logged today") {
+    HomeStartWorkoutSheet(
+        todayPlan: .unscheduled,
+        scheduledWorkout: nil,
+        isTodayPlanCompleted: true,
+        recentWorkouts: [],
+        lastCompletedDates: [:],
+        onStartScheduled: {},
+        onStartLibrary: { _ in },
+        onNewWorkout: {},
+        onNewFromTemplate: {}
+    )
+    .preferredColorScheme(.dark)
 }

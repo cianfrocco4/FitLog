@@ -11,6 +11,7 @@ struct FitLogDeepLinkTests {
 
     @Test func parsesQuickLog() {
         #expect(FitLogDeepLink(url: URL(string: "fitlog://quick-log")!) == .quickLog)
+        #expect(FitLogDeepLink(url: URL(string: "fitlog://QUICK-LOG")!) == .quickLog)
     }
 
     @Test func parsesOpenAndHome() {

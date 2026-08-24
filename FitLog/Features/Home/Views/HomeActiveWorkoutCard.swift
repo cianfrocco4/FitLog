@@ -50,6 +50,10 @@ struct HomeActiveWorkoutCard: View {
         loggedSetCount == 0
     }
 
+    private var isReadyToFinish: Bool {
+        HomeActiveWorkoutProgress.isReadyToFinish(in: session?.exerciseLogs ?? [])
+    }
+
     private var activeWorkoutOpenAccessibilityLabel: String {
         var parts = ["Workout in progress"]
         if let name = session?.workout.name, !name.isEmpty {
@@ -62,6 +66,9 @@ struct HomeActiveWorkoutCard: View {
         }
         if totalExerciseCount > 0 {
             parts.append("\(completedExerciseCount) of \(totalExerciseCount) exercises")
+        }
+        if isReadyToFinish {
+            parts.append(HomeActiveWorkoutProgress.readyToFinishMessage())
         }
         return parts.joined(separator: ", ")
     }
@@ -127,6 +134,11 @@ struct HomeActiveWorkoutCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
+            } else if isReadyToFinish {
+                Text(HomeActiveWorkoutProgress.readyToFinishMessage())
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(FitlogPalette.success)
+                    .accessibilityHidden(true)
             }
 
             HStack(spacing: 10) {
@@ -158,26 +170,8 @@ struct HomeActiveWorkoutCard: View {
                     )
                 )
 
-                Button(action: onOpen) {
-                    Label("Log Sets", systemImage: "arrow.up.circle")
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(FitlogPalette.success)
-                .accessibilityLabel("Log Sets")
-                .accessibilityHint("Opens the workout sheet to record sets")
-
-                Button(role: .destructive, action: onFinish) {
-                    Label("Finish", systemImage: "checkmark.circle")
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityLabel("Finish workout")
-                .accessibilityHint("Starts finish checks; saves to history if you confirm")
+                logSetsButton
+                finishWorkoutButton
             }
             .padding(.top, 4)
         }
@@ -192,5 +186,45 @@ struct HomeActiveWorkoutCard: View {
             }
         }
         .sensoryFeedback(.impact(weight: .medium), trigger: pauseResumeHapticTick)
+    }
+
+    @ViewBuilder
+    private var logSetsButton: some View {
+        let label = Label("Log Sets", systemImage: "arrow.up.circle")
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .frame(maxWidth: .infinity)
+        if isReadyToFinish {
+            Button(action: onOpen) { label }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Log Sets")
+                .accessibilityHint("Opens the workout sheet to record sets")
+        } else {
+            Button(action: onOpen) { label }
+                .buttonStyle(.borderedProminent)
+                .tint(FitlogPalette.success)
+                .accessibilityLabel("Log Sets")
+                .accessibilityHint("Opens the workout sheet to record sets")
+        }
+    }
+
+    @ViewBuilder
+    private var finishWorkoutButton: some View {
+        let label = Label("Finish", systemImage: "checkmark.circle")
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .frame(maxWidth: .infinity)
+        if isReadyToFinish {
+            Button(action: onFinish) { label }
+                .buttonStyle(.borderedProminent)
+                .tint(FitlogPalette.success)
+                .accessibilityLabel("Finish workout")
+                .accessibilityHint("All planned sets are logged. Starts finish checks; saves to history if you confirm")
+        } else {
+            Button(role: .destructive, action: onFinish) { label }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Finish workout")
+                .accessibilityHint("Starts finish checks; saves to history if you confirm")
+        }
     }
 }

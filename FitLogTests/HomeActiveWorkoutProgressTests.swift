@@ -33,6 +33,51 @@ import Testing
         #expect(HomeActiveWorkoutProgress.completedExerciseCount(in: logs) == 0)
     }
 
+    @Test func isReadyToFinish_requiresEveryCountableExercise() {
+        let incomplete = [
+            workingLog(sets: 3, recommended: 3),
+            workingLog(sets: 2, recommended: 3)
+        ]
+        #expect(!HomeActiveWorkoutProgress.isReadyToFinish(in: incomplete))
+
+        let complete = [
+            workingLog(sets: 3, recommended: 3),
+            workingLog(sets: 4, recommended: 3),
+            placeholderLog()
+        ]
+        #expect(HomeActiveWorkoutProgress.isReadyToFinish(in: complete))
+        #expect(!HomeActiveWorkoutProgress.isReadyToFinish(in: []))
+        #expect(!HomeActiveWorkoutProgress.isReadyToFinish(in: [placeholderLog()]))
+    }
+
+    @Test func restCompleteAnnouncement_switchesToFinishWhenReady() {
+        #expect(
+            HomeActiveWorkoutProgress.restCompleteAnnouncement(
+                nextExerciseName: "Bench Press",
+                readyToFinish: false
+            ) == "Rest over — Next up: Bench Press"
+        )
+        #expect(
+            HomeActiveWorkoutProgress.restCompleteAnnouncement(
+                nextExerciseName: nil,
+                readyToFinish: false
+            ) == "Rest over — time for your next set."
+        )
+        #expect(
+            HomeActiveWorkoutProgress.restCompleteAnnouncement(
+                nextExerciseName: "Bench Press",
+                readyToFinish: true
+            ) == "Rest over — all planned sets logged. Finish when you're ready."
+        )
+    }
+
+    @Test func readyToFinishMessage_isStable() {
+        #expect(
+            HomeActiveWorkoutProgress.readyToFinishMessage()
+                == "All planned sets logged — Finish when you're ready"
+        )
+    }
+
     private func workingLog(sets: Int, recommended: Int) -> ExerciseLog {
         let exercise = Exercise(id: UUID(), name: "Bench Press", description: "", targetedMuscles: [.chest])
         let logged: [LoggedSet] = (0..<sets).map { _ in

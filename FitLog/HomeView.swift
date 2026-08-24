@@ -729,6 +729,12 @@ struct HomeView: View {
                 HomeStartWorkoutSheet(
                     todayPlan: cachedTodayPlan,
                     scheduledWorkout: scheduledWorkoutForToday,
+                    isTodayPlanCompleted: {
+                        if case .workout(let ref) = cachedTodayPlan {
+                            return isPlannedWorkoutCompletedToday(plan: ref)
+                        }
+                        return false
+                    }(),
                     recentWorkouts: recentQuickStartWorkouts,
                     lastCompletedDates: recentWorkoutLastDoneDates,
                     onStartScheduled: {
@@ -747,6 +753,9 @@ struct HomeView: View {
                     }
                 )
                 .environment(dataVM)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fitlogPresentStartWorkout)) { _ in
+                showStartWorkoutSheet = true
             }
             .sheet(isPresented: $showNewWorkout, onDismiss: {
                 newWorkoutLaunchHint = nil

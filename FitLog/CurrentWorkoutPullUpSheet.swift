@@ -850,6 +850,7 @@ struct CurrentWorkoutPullUpSheet: View {
 
                 unresolvedSlotsBanner
                 restCompleteNextUpBanner
+                readyToFinishBanner
 
                 if let logs = currentVM.currentSession?.exerciseLogs, !logs.isEmpty {
                     WorkoutExercisePillStrip(
@@ -921,8 +922,13 @@ struct CurrentWorkoutPullUpSheet: View {
                         handleFinishTap()
                     }
                     .fontWeight(.semibold)
+                    .foregroundStyle(isReadyToFinish ? FitlogPalette.success : Color.accentColor)
                     .accessibilityLabel("Finish workout")
-                    .accessibilityHint("Starts finish checks; saves to history if you confirm")
+                    .accessibilityHint(
+                        isReadyToFinish
+                            ? "All planned sets are logged. Starts finish checks; saves to history if you confirm"
+                            : "Starts finish checks; saves to history if you confirm"
+                    )
                 }
             }
             .sheet(item: $logSetSheetSelection) { selection in
@@ -1391,7 +1397,10 @@ struct CurrentWorkoutPullUpSheet: View {
             else { return nil }
             return dataVM.displayName(for: logs[idx].workoutExercise)
         }()
-        let message = name.map { "Rest over — Next up: \($0)" } ?? "Rest over — time for your next set."
+        let message = HomeActiveWorkoutProgress.restCompleteAnnouncement(
+            nextExerciseName: name,
+            readyToFinish: isReadyToFinish
+        )
         restCompleteBannerMessage = message
         AccessibilityNotification.Announcement(message).post()
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
@@ -2888,6 +2897,18 @@ struct CurrentWorkoutPullUpSheet: View {
         }
     }
 
+
+    private var isReadyToFinish: Bool {
+        HomeActiveWorkoutProgress.isReadyToFinish(in: currentVM.currentSession?.exerciseLogs ?? [])
+    }
+
+    @ViewBuilder
+    private var readyToFinishBanner: some View {
+        if isReadyToFinish {
+            WorkoutReadyToFinishBanner(onFinish: handleFinishTap)
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
 
     @ViewBuilder
     private var restCompleteNextUpBanner: some View {

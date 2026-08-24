@@ -26,4 +26,25 @@ enum HomeActiveWorkoutProgress {
         guard total > 0 else { return 0 }
         return Double(completed) / Double(total)
     }
+
+    /// True when every countable exercise has met its recommended set count.
+    static func isReadyToFinish(in logs: [ExerciseLog]) -> Bool {
+        let total = countableExerciseCount(in: logs)
+        guard total > 0 else { return false }
+        return completedExerciseCount(in: logs) >= total
+    }
+
+    static func readyToFinishMessage() -> String {
+        "All planned sets logged — Finish when you're ready"
+    }
+
+    static func restCompleteAnnouncement(nextExerciseName: String?, readyToFinish: Bool) -> String {
+        if readyToFinish {
+            return "Rest over — all planned sets logged. Finish when you're ready."
+        }
+        if let nextExerciseName, !nextExerciseName.isEmpty {
+            return "Rest over — Next up: \(nextExerciseName)"
+        }
+        return "Rest over — time for your next set."
+    }
 }
