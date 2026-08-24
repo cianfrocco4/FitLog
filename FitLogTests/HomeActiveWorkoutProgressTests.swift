@@ -33,16 +33,62 @@ import Testing
         #expect(HomeActiveWorkoutProgress.completedExerciseCount(in: logs) == 0)
     }
 
+    @Test func warmupsDoNotAdvanceTheTarget() {
+        let log = log(setTypes: [.warmup, .warmup, .working, .working, .working], recommended: 3)
+        #expect(log.workingSetCount == 3)
+        #expect(log.warmupSetCount == 2)
+        #expect(log.meetsRecommendedSets)
+        #expect(HomeActiveWorkoutProgress.completedExerciseCount(in: [log]) == 1)
+    }
+
+    @Test func warmupsOnly_isNoProgress() {
+        let log = log(setTypes: [.warmup, .warmup], recommended: 3)
+        #expect(log.workingSetCount == 0)
+        #expect(log.meetsRecommendedSets == false)
+        #expect(HomeActiveWorkoutProgress.completedExerciseCount(in: [log]) == 0)
+    }
+
+    @Test func timedHoldsCountTowardTheTarget() {
+        // A plank is a prescribed set even though it contributes no tonnage.
+        let log = log(setTypes: [.timed, .timed, .timed], recommended: 3)
+        #expect(log.workingSetCount == 3)
+        #expect(log.meetsRecommendedSets)
+    }
+
+    @Test func failureAndAmrapSetsCountTowardTheTarget() {
+        let log = log(setTypes: [.working, .amrap, .failure], recommended: 3)
+        #expect(log.workingSetCount == 3)
+        #expect(log.meetsRecommendedSets)
+    }
+
+    @Test func warmupProgressCopy_keepsWarmupsVisible() {
+        #expect(WorkoutSetProgressCopy.warmupMarker(count: 0).isEmpty)
+        #expect(WorkoutSetProgressCopy.warmupMarker(count: 1) == "+1 warm-up")
+        #expect(WorkoutSetProgressCopy.warmupMarker(count: 3) == "+3 warm-ups")
+        #expect(
+            WorkoutSetProgressCopy.workSetProgressLabel(done: 1, target: 3, warmups: 2)
+                == "1 of 3 work sets, plus 2 warm-up sets"
+        )
+        #expect(
+            WorkoutSetProgressCopy.workSetProgressLabel(done: 2, target: 3, warmups: 0)
+                == "2 of 3 work sets"
+        )
+    }
+
     private func workingLog(sets: Int, recommended: Int) -> ExerciseLog {
+        log(setTypes: Array(repeating: .working, count: sets), recommended: recommended)
+    }
+
+    private func log(setTypes: [ExerciseSetType], recommended: Int) -> ExerciseLog {
         let exercise = Exercise(id: UUID(), name: "Bench Press", description: "", targetedMuscles: [.chest])
-        let logged: [LoggedSet] = (0..<sets).map { _ in
+        let logged: [LoggedSet] = setTypes.map { type in
             LoggedSet(
                 id: UUID(),
                 weight: 135,
                 reps: 8,
                 restTime: 0,
                 timestamp: Date(),
-                setType: .working
+                setType: type
             )
         }
         return ExerciseLog(

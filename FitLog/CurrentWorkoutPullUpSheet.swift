@@ -1467,7 +1467,7 @@ struct CurrentWorkoutPullUpSheet: View {
         let primaryLog = logs[primaryIndex]
         let we = primaryLog.workoutExercise
         guard !we.isSlotPlaceholder, we.recommendedSets > 0,
-              primaryLog.loggedSets.count >= we.recommendedSets
+              primaryLog.workingSetCount >= we.recommendedSets
         else {
             applyAutoExpandForPrimaryExercise()
             return
@@ -1479,7 +1479,7 @@ struct CurrentWorkoutPullUpSheet: View {
             guard !log.workoutExercise.isSlotPlaceholder, let eid = log.workoutExercise.exerciseId else { return false }
             if currentVM.currentSession?.completedExerciseIds.contains(eid) == true { return false }
             let rec = log.workoutExercise.recommendedSets
-            return rec == 0 || log.loggedSets.count < rec
+            return rec == 0 || log.workingSetCount < rec
         }) {
             expandedExerciseIndex = nextIndex
             if let nextEid = logs[nextIndex].workoutExercise.exerciseId {
@@ -1787,6 +1787,9 @@ struct CurrentWorkoutPullUpSheet: View {
             rpe: rpeVal
         )
         guard didLog else { return }
+        // Warm-up, AMRAP, failure and timed are exceptions, not defaults: the chip returns to
+        // Work so the next quick-log does not silently repeat the exception.
+        draftStore.setTypeByLogId[logId] = .working
         syncInlineDraftAfterLog(for: logId, exerciseIndex: exerciseIndex)
         triggerHighlightForLastSet(exerciseIndex: exerciseIndex)
         inlineLogSuccessTick += 1
@@ -1884,9 +1887,10 @@ struct CurrentWorkoutPullUpSheet: View {
     @ViewBuilder
     private func exerciseCollapsedHeader(log: ExerciseLog, isExpanded: Bool) -> some View {
         let rec = log.workoutExercise.recommendedSets
+        let done = log.workingSetCount
         let progress: Double = {
-            guard rec > 0 else { return log.loggedSets.isEmpty ? 0 : 1 }
-            return min(1, Double(log.loggedSets.count) / Double(rec))
+            guard rec > 0 else { return done == 0 ? 0 : 1 }
+            return min(1, Double(done) / Double(rec))
         }()
 
         HStack(alignment: .center, spacing: 12) {
@@ -1927,7 +1931,7 @@ struct CurrentWorkoutPullUpSheet: View {
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 4) {
-                let countStr = rec > 0 ? "\(log.loggedSets.count)/\(rec)" : "\(log.loggedSets.count)"
+                let countStr = rec > 0 ? "\(done)/\(rec)" : "\(done)"
                 Text(countStr)
                     .font(.subheadline.weight(.semibold))
                     .monospacedDigit()
@@ -1935,6 +1939,19 @@ struct CurrentWorkoutPullUpSheet: View {
                     .padding(.vertical, 4)
                     .background(Color.secondary.opacity(0.12))
                     .clipShape(Capsule())
+                    .accessibilityLabel(
+                        WorkoutSetProgressCopy.workSetProgressLabel(
+                            done: done,
+                            target: rec,
+                            warmups: log.warmupSetCount
+                        )
+                    )
+                if log.warmupSetCount > 0 {
+                    Text(WorkoutSetProgressCopy.warmupMarker(count: log.warmupSetCount))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                }
                 statusDot(for: log)
             }
             if !isExpanded {
@@ -3047,8 +3064,10 @@ struct CurrentWorkoutPullUpSheet: View {
 
     private func setProgressIndicatorStrip(log: ExerciseLog) -> some View {
         let rec = log.workoutExercise.recommendedSets
-        let done = log.loggedSets.count
+        let done = log.workingSetCount
+        let workingSets = log.loggedSets.filter(\.countsTowardRecommendedSets)
         let slots = max(1, max(rec, done))
+        let warmups = log.warmupSetCount
         return HStack(spacing: 10) {
             Text("Plan")
                 .font(.caption.weight(.semibold))
@@ -3060,13 +3079,21 @@ struct CurrentWorkoutPullUpSheet: View {
                         .fill(filled ? Color.accentColor : Color.secondary.opacity(0.18))
                         .frame(width: 11, height: 11)
                         .contextMenu {
-                            if i < log.loggedSets.count {
-                                let s = log.loggedSets[i]
+                            if i < workingSets.count {
+                                let s = workingSets[i]
                                 Text(s.weightRepsDisplaySummary(displayUnit: userPreferences.weightDisplayUnit))
                             }
                         }
-                        .accessibilityLabel(filled ? "Set \(i + 1) logged" : "Set \(i + 1) pending")
+                        .accessibilityLabel(filled ? "Work set \(i + 1) logged" : "Work set \(i + 1) pending")
                 }
+            }
+            if warmups > 0 {
+                Text(WorkoutSetProgressCopy.warmupMarker(count: warmups))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(
+                        warmups == 1 ? "1 warm-up set logged" : "\(warmups) warm-up sets logged"
+                    )
             }
         }
     }

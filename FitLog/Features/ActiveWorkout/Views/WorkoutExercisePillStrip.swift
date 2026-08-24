@@ -79,7 +79,7 @@ struct WorkoutExercisePillStrip: View {
         let isSelected = expandedExerciseIndex == index
         let name = abbreviatedName(for: log.workoutExercise)
         let rec = log.workoutExercise.recommendedSets
-        let done = log.loggedSets.count
+        let done = log.workingSetCount
         let isPlaceholder = log.workoutExercise.isSlotPlaceholder
         let isCompleted = isExerciseCompleted(log)
         let inSuperset = isExerciseActive(log) && activeExerciseIdsCount > 1
@@ -188,8 +188,8 @@ struct WorkoutExercisePillStrip: View {
         if let letter { parts.append("Superset \(letter) of the round") }
         parts.append(name)
         if isPlaceholder { parts.append("needs an exercise") }
-        else if rec > 0 { parts.append("\(done) of \(rec) sets") }
-        else if done > 0 { parts.append("\(done) sets logged") }
+        else if rec > 0 { parts.append("\(done) of \(rec) work sets") }
+        else if done > 0 { parts.append("\(done) work sets logged") }
         if !isPlaceholder, let repGoal, !repGoal.isEmpty { parts.append("goal \(repGoal) reps") }
         return parts.joined(separator: ", ")
     }
