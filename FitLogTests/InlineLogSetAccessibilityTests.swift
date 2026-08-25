@@ -94,6 +94,19 @@ struct InlineLogSetAccessibilityTests {
         #expect(message == "Logged drop, Curl, 40 lb, 12 reps")
     }
 
+    @Test func loggedSetAnnouncement_appendsProgressNote() {
+        let message = InlineLogSetAccessibility.loggedSetAnnouncement(
+            exerciseName: "Bench Press",
+            bodyweightMode: false,
+            displayWeight: 135,
+            reps: 8,
+            unitLabel: "lb",
+            progressNote: "2 of 3 work sets",
+            formatWeight: { "\(Int($0))" }
+        )
+        #expect(message == "Logged set, Bench Press, 135 lb, 8 reps, 2 of 3 work sets")
+    }
+
     @Test func loggedSetAnnouncement_bodyweightMode_includesNetLoad() {
         let message = InlineLogSetAccessibility.loggedSetAnnouncement(
             exerciseName: "Pull-Up",

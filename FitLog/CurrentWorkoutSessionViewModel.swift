@@ -91,6 +91,22 @@ final class CurrentWorkoutSessionViewModel {
     var primaryActiveExerciseId: UUID? {
         currentSession?.activeExerciseIds.first
     }
+
+    /// Index of the primary active exercise in `currentSession.exerciseLogs`.
+    var primaryExerciseLogIndex: Int? {
+        guard let session = currentSession, let id = primaryActiveExerciseId else { return nil }
+        return session.exerciseLogs.firstIndex { $0.workoutExercise.exerciseId == id }
+    }
+
+    /// Next logging target after the current primary (or a specific row).
+    func nextUpTarget(currentIndex: Int? = nil) -> ActiveWorkoutNextUp.Target {
+        guard let session = currentSession else { return .unknown }
+        return ActiveWorkoutNextUp.resolve(
+            logs: session.exerciseLogs,
+            currentIndex: currentIndex ?? primaryExerciseLogIndex,
+            displayName: { dataManager.displayName(for: $0) }
+        )
+    }
     
     init(dataManager: DataManager) {
         self.dataManager = dataManager
@@ -958,7 +974,8 @@ final class CurrentWorkoutSessionViewModel {
         Task { @MainActor in
             RestTimerLiveActivityCoordinator.shared.syncRestCountdown(
                 remainingSeconds: remainingRestTime,
-                workoutName: workoutTitle
+                workoutName: workoutTitle,
+                headline: RestTimerNextUpCopy.headline(for: nextUpTarget())
             )
         }
 
@@ -977,7 +994,8 @@ final class CurrentWorkoutSessionViewModel {
                 if remaining > 0 {
                     RestTimerLiveActivityCoordinator.shared.syncRestCountdown(
                         remainingSeconds: remaining,
-                        workoutName: title
+                        workoutName: title,
+                        headline: RestTimerNextUpCopy.headline(for: self.nextUpTarget())
                     )
                 } else {
                     self.restEpoch &+= 1
@@ -1040,7 +1058,8 @@ final class CurrentWorkoutSessionViewModel {
         Task { @MainActor in
             RestTimerLiveActivityCoordinator.shared.syncRestCountdown(
                 remainingSeconds: capped,
-                workoutName: title
+                workoutName: title,
+                headline: RestTimerNextUpCopy.headline(for: nextUpTarget())
             )
         }
     }
@@ -1053,13 +1072,17 @@ final class CurrentWorkoutSessionViewModel {
     }
     
     private func scheduleRestNotification(seconds: Int) {
+        guard seconds > 0 else {
+            clearRestCompletionNotification()
+            return
+        }
         let center = UNUserNotificationCenter.current()
         let id = Self.restCompleteNotificationIdentifier
         center.removePendingNotificationRequests(withIdentifiers: [id])
 
         let content = UNMutableNotificationContent()
         content.title = "Rest Over! 💪"
-        content.body = "Time for the next set"
+        content.body = RestTimerNextUpCopy.notificationBody(for: nextUpTarget())
         content.sound = .default
         
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: TimeInterval(seconds), repeats: false)

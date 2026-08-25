@@ -29,7 +29,25 @@ struct CurrentWorkoutCollapsedBar: View {
 
     private var primarySetProgressLine: String? {
         guard let log = primaryExerciseLog else { return nil }
-        return "\(log.workingSetCount)/\(log.workoutExercise.recommendedSets) sets"
+        return WorkoutSetProgressCopy.compactWorkSetProgress(
+            done: log.workingSetCount,
+            target: log.workoutExercise.recommendedSets,
+            warmups: log.warmupSetCount
+        )
+    }
+
+    private var restOrNowBadgeTitle: String {
+        if currentVM.remainingRestTime > 0 {
+            return "\(currentVM.remainingRestTime)s"
+        }
+        if ActiveWorkoutNextUp.isReadyToFinish(in: currentVM.currentSession?.exerciseLogs ?? []) {
+            return "Finish"
+        }
+        return "Now"
+    }
+
+    private var restOrNowBadgeIsRest: Bool {
+        currentVM.remainingRestTime > 0
     }
 
     var body: some View {
@@ -68,23 +86,14 @@ struct CurrentWorkoutCollapsedBar: View {
                                 }
                             }
                             Spacer()
-                            if currentVM.remainingRestTime > 0 {
-                                Text("\(currentVM.remainingRestTime)s")
-                                    .font(.subheadline.weight(.semibold))
-                                    .monospacedDigit()
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .background(FitlogPalette.caution)
-                                    .foregroundStyle(.white)
-                                    .clipShape(Capsule())
-                            } else {
-                                Text("Now")
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .background(FitlogPalette.success)
-                                    .foregroundStyle(.white)
-                                    .clipShape(Capsule())
-                            }
+                            Text(restOrNowBadgeTitle)
+                                .font(.subheadline.weight(.semibold))
+                                .monospacedDigit()
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(restOrNowBadgeIsRest ? FitlogPalette.caution : FitlogPalette.success)
+                                .foregroundStyle(.white)
+                                .clipShape(Capsule())
                         }
                         .padding()
                     }

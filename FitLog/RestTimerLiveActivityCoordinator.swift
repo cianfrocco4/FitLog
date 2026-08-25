@@ -19,7 +19,7 @@ final class RestTimerLiveActivityCoordinator {
     private var activity: Activity<RestTimerActivityAttributes>?
     #endif
 
-    func syncRestCountdown(remainingSeconds: Int, workoutName: String) {
+    func syncRestCountdown(remainingSeconds: Int, workoutName: String, headline: String = RestTimerNextUpCopy.defaultHeadline) {
         #if canImport(ActivityKit)
         guard #available(iOS 16.2, *) else { return }
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
@@ -29,7 +29,7 @@ final class RestTimerLiveActivityCoordinator {
         }
         let state = RestTimerActivityAttributes.ContentState(
             remainingSeconds: remainingSeconds,
-            headline: "Rest between sets"
+            headline: headline
         )
         if let existing = activity {
             Task { @MainActor in

@@ -94,6 +94,7 @@ enum InlineLogSetAccessibility {
         reps: Int,
         unitLabel: String,
         isDropSegment: Bool = false,
+        progressNote: String? = nil,
         formatWeight: (Double) -> String = WeightStoreConversion.formatDisplay
     ) -> String {
         let trimmedName = exerciseName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -120,6 +121,13 @@ enum InlineLogSetAccessibility {
 
         if reps > 0 {
             parts.append("\(reps) \(reps == 1 ? "rep" : "reps")")
+        }
+
+        if let progressNote {
+            let trimmedNote = progressNote.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedNote.isEmpty {
+                parts.append(trimmedNote)
+            }
         }
 
         return parts.joined(separator: ", ")

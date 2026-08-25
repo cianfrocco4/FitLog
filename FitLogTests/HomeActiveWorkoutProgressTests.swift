@@ -75,6 +75,17 @@ import Testing
         )
     }
 
+    @Test func compactCollapsedBarCopy_keepsWorkAndWarmupsDistinct() {
+        #expect(WorkoutSetProgressCopy.compactWorkSetProgress(done: 0, target: 0, warmups: 0) == nil)
+        #expect(WorkoutSetProgressCopy.compactWorkSetProgress(done: 2, target: 3, warmups: 0) == "2/3 work")
+        #expect(
+            WorkoutSetProgressCopy.compactWorkSetProgress(done: 1, target: 3, warmups: 2)
+                == "1/3 work +2 warm-ups"
+        )
+        #expect(WorkoutSetProgressCopy.compactWorkSetProgress(done: 2, target: 0, warmups: 0) == "2 work")
+        #expect(WorkoutSetProgressCopy.compactWorkSetProgress(done: 0, target: 0, warmups: 1) == "+1 warm-up")
+    }
+
     private func workingLog(sets: Int, recommended: Int) -> ExerciseLog {
         log(setTypes: Array(repeating: .working, count: sets), recommended: recommended)
     }

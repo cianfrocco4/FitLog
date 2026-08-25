@@ -22,4 +22,19 @@ enum WorkoutSetProgressCopy {
         }
         return label
     }
+
+    /// Short line for the collapsed workout bar. `nil` when there is nothing to show.
+    static func compactWorkSetProgress(done: Int, target: Int, warmups: Int) -> String? {
+        if done == 0, target == 0, warmups == 0 { return nil }
+        var parts: [String] = []
+        if target > 0 {
+            parts.append("\(done)/\(target) work")
+        } else if done > 0 {
+            parts.append("\(done) work")
+        }
+        if warmups > 0 {
+            parts.append(warmupMarker(count: warmups))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
 }

@@ -1706,7 +1706,8 @@ struct CurrentWorkoutPullUpSheet: View {
                 displayWeight: wDisplay,
                 reps: r,
                 unitLabel: unitLabel,
-                isDropSegment: true
+                isDropSegment: true,
+                exerciseIndex: exerciseIndex
             )
             draftStore.setTypeByLogId[logId] = .working
             return
@@ -1737,7 +1738,8 @@ struct CurrentWorkoutPullUpSheet: View {
             displayWeight: wDisplay,
             reps: r,
             unitLabel: unitLabel,
-            isDropSegment: false
+            isDropSegment: false,
+            exerciseIndex: exerciseIndex
         )
         // Show "Add drop" affordance for ~5 seconds (Task 14)
         dropPromptLogId = logId
@@ -1753,15 +1755,25 @@ struct CurrentWorkoutPullUpSheet: View {
         displayWeight: Double,
         reps: Int,
         unitLabel: String,
-        isDropSegment: Bool
+        isDropSegment: Bool,
+        exerciseIndex: Int
     ) {
+        let updatedLog = currentVM.currentSession?.exerciseLogs[safe: exerciseIndex]
+        let done = updatedLog?.workingSetCount ?? 0
+        let recommended = updatedLog?.workoutExercise.recommendedSets ?? 0
+        let progressNote = ActiveWorkoutNextUp.loggedSetProgressNote(
+            target: currentVM.nextUpTarget(currentIndex: exerciseIndex),
+            done: done,
+            recommended: recommended
+        )
         let message = InlineLogSetAccessibility.loggedSetAnnouncement(
             exerciseName: exerciseName,
             bodyweightMode: bodyweightMode,
             displayWeight: displayWeight,
             reps: reps,
             unitLabel: unitLabel,
-            isDropSegment: isDropSegment
+            isDropSegment: isDropSegment,
+            progressNote: progressNote
         )
         AccessibilityNotification.Announcement(message).post()
     }
