@@ -91,6 +91,22 @@ final class CurrentWorkoutSessionViewModel {
     var primaryActiveExerciseId: UUID? {
         currentSession?.activeExerciseIds.first
     }
+
+    /// Index of the primary active exercise in `currentSession.exerciseLogs`.
+    var primaryExerciseLogIndex: Int? {
+        guard let session = currentSession, let id = primaryActiveExerciseId else { return nil }
+        return session.exerciseLogs.firstIndex { $0.workoutExercise.exerciseId == id }
+    }
+
+    /// Next logging target after the current primary (or a specific row).
+    func nextUpTarget(currentIndex: Int? = nil) -> ActiveWorkoutNextUp.Target {
+        guard let session = currentSession else { return .unknown }
+        return ActiveWorkoutNextUp.resolve(
+            logs: session.exerciseLogs,
+            currentIndex: currentIndex ?? primaryExerciseLogIndex,
+            displayName: { dataManager.displayName(for: $0) }
+        )
+    }
     
     init(dataManager: DataManager) {
         self.dataManager = dataManager
@@ -866,6 +882,8 @@ final class CurrentWorkoutSessionViewModel {
         // Once we log a set again, it is no longer considered explicitly completed.
         session.completedExerciseIds.removeAll { $0 == exId }
 
+        promoteNextExerciseIfCurrentCompleted(in: &session, currentIndex: exerciseIndex)
+
         currentSession = session
         recentPersonalRecordEvent = prioritizedPREvent(from: prEvents)
         recordWorkoutActivity()
@@ -1226,6 +1244,18 @@ final class CurrentWorkoutSessionViewModel {
         saveActiveSession()
     }
 
+    /// After prescribed work sets are logged, rest is for the next station — move focus now, not when rest ends.
+    private func promoteNextExerciseIfCurrentCompleted(in session: inout WorkoutSession, currentIndex: Int) {
+        guard let nextId = ActiveWorkoutFocusAdvance.nextPrimaryExerciseId(
+            logs: session.exerciseLogs,
+            currentIndex: currentIndex
+        ) else { return }
+        session.activeExerciseIds = ActiveExerciseRound.makingPrimary(
+            nextId,
+            in: session.activeExerciseIds
+        )
+    }
+
     /// Add or remove this exercise from the superset round. The only path that grows the round.
     func toggleSupersetExercise(exerciseId: UUID) {
         guard var session = currentSession else { return }
@@ -1399,6 +1429,7 @@ final class CurrentWorkoutSessionViewModel {
 
         session.exerciseLogs[exerciseIndex].loggedSets.append(set)
         activateExerciseIfNeeded(exerciseId: exId, session: &session)
+        promoteNextExerciseIfCurrentCompleted(in: &session, currentIndex: exerciseIndex)
         let exerciseName = dataManager.displayName(for: session.exerciseLogs[exerciseIndex].workoutExercise)
         let prEvents = dataManager.prStore.updateIfPR(
             set: set,

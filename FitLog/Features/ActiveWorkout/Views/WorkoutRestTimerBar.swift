@@ -13,6 +13,7 @@ import UIKit
 struct WorkoutRestTimerBar: View {
     let remainingSeconds: Int
     let totalSeconds: Int
+    var nextUpSubtitle: String = WorkoutRestTimerBarCopy.subtitle(for: .unknown)
     let onAdjust: (Int) -> Void
     let onSkip: () -> Void
 
@@ -48,16 +49,17 @@ struct WorkoutRestTimerBar: View {
             }
             .frame(width: 52, height: 52)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Rest timer")
+            .accessibilityLabel("Rest timer, \(nextUpSubtitle)")
             .accessibilityValue("\(remainingSeconds) seconds remaining")
+            .accessibilityHint("Swipe left or right to add or subtract 15 seconds")
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Rest")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                Text("Swipe left or right to add or subtract 15 seconds")
+                Text(nextUpSubtitle)
                     .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -137,6 +139,18 @@ struct WorkoutRestTimerBar: View {
     WorkoutRestTimerBar(
         remainingSeconds: 45,
         totalSeconds: 90,
+        nextUpSubtitle: WorkoutRestTimerBarCopy.subtitle(for: .sameExercise(name: "Bench Press")),
+        onAdjust: { _ in },
+        onSkip: {}
+    )
+    .padding()
+}
+
+#Preview("Up next exercise") {
+    WorkoutRestTimerBar(
+        remainingSeconds: 60,
+        totalSeconds: 90,
+        nextUpSubtitle: WorkoutRestTimerBarCopy.subtitle(for: .nextExercise(name: "Barbell Row")),
         onAdjust: { _ in },
         onSkip: {}
     )
@@ -147,6 +161,7 @@ struct WorkoutRestTimerBar: View {
     WorkoutRestTimerBar(
         remainingSeconds: 8,
         totalSeconds: 90,
+        nextUpSubtitle: WorkoutRestTimerBarCopy.subtitle(for: .readyToFinish),
         onAdjust: { _ in },
         onSkip: {}
     )

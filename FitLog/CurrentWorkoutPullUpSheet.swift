@@ -802,6 +802,7 @@ struct CurrentWorkoutPullUpSheet: View {
                     WorkoutRestTimerBar(
                         remainingSeconds: currentVM.remainingRestTime,
                         totalSeconds: max(currentVM.restCountdownTotalSeconds, currentVM.remainingRestTime),
+                        nextUpSubtitle: WorkoutRestTimerBarCopy.subtitle(for: currentVM.nextUpTarget()),
                         onAdjust: { currentVM.adjustRestCountdown(by: $0) },
                         onSkip: { currentVM.cancelRestTimer() }
                     )
@@ -1120,6 +1121,9 @@ struct CurrentWorkoutPullUpSheet: View {
             .onChange(of: currentVM.showRestCompleteAlert) { _, isShowing in
                 guard isShowing else { return }
                 handleRestCompleteAutoAdvance()
+            }
+            .onChange(of: currentVM.primaryActiveExerciseId) { _, _ in
+                applyAutoExpandForPrimaryExercise()
             }
             .onChange(of: sheetDetent) { _, newDetent in
                 if newDetent == FitlogWorkoutSheetDetent.expanded {

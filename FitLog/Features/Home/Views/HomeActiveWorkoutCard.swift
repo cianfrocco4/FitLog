@@ -50,6 +50,14 @@ struct HomeActiveWorkoutCard: View {
         loggedSetCount == 0
     }
 
+    private var restRemainingSeconds: Int {
+        currentVM.remainingRestTime
+    }
+
+    private var nextUpSubtitle: String? {
+        WorkoutRestTimerBarCopy.namedSubtitle(for: currentVM.nextUpTarget())
+    }
+
     private var activeWorkoutOpenAccessibilityLabel: String {
         var parts = ["Workout in progress"]
         if let name = session?.workout.name, !name.isEmpty {
@@ -59,6 +67,12 @@ struct HomeActiveWorkoutCard: View {
         parts.append(currentVM.workoutElapsedFormatted)
         if currentVM.isWorkoutPaused {
             parts.append("Paused")
+        }
+        if restRemainingSeconds > 0 {
+            parts.append(WorkoutRestTimerBarCopy.restCountdownLabel(seconds: restRemainingSeconds))
+            if let nextUpSubtitle {
+                parts.append(nextUpSubtitle)
+            }
         }
         if totalExerciseCount > 0 {
             parts.append("\(completedExerciseCount) of \(totalExerciseCount) exercises")
@@ -94,6 +108,12 @@ struct HomeActiveWorkoutCard: View {
                         HStack(spacing: 8) {
                             Text(currentVM.workoutElapsedFormatted)
                                 .font(.subheadline.weight(.medium).monospacedDigit())
+                            if restRemainingSeconds > 0 {
+                                Text(WorkoutRestTimerBarCopy.restCountdownLabel(seconds: restRemainingSeconds))
+                                    .font(.caption.weight(.semibold).monospacedDigit())
+                                    .foregroundStyle(FitlogPalette.caution)
+                                    .accessibilityHidden(true)
+                            }
                             if currentVM.isWorkoutPaused {
                                 Text("Paused")
                                     .font(.caption.weight(.semibold))
