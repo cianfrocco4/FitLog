@@ -177,6 +177,9 @@ struct MainTabView: View {
             dataVM.reconcileSkippedCycleTrainingDays()
         }
         .onAppear {
+            if RestCompleteNotification.consumePendingOpenLogging(), currentVM.isInProgress {
+                showCurrentWorkoutPullUp = true
+            }
             if FitLogUITestLaunch.isActive {
                 applyUITestStoreHarnessIfNeeded()
                 if FitLogUITestLaunch.shouldForceOnboarding {
@@ -220,6 +223,10 @@ struct MainTabView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .fitlogStartPendingSpotlight)) { _ in
             startPendingSpotlight()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .fitlogOpenWorkoutLogging)) { _ in
+            guard currentVM.isInProgress else { return }
+            showCurrentWorkoutPullUp = true
         }
         .onOpenURL { url in
             guard let link = FitLogDeepLink(url: url) else { return }

@@ -55,6 +55,8 @@ struct FitLogApp: App {
         _dataVM = State(wrappedValue: dm)
         _currentVM = State(wrappedValue: vm)
         _migrationError = State(wrappedValue: migError)
+
+        FitLogUserNotificationDelegate.install()
     }
 
     var body: some Scene {

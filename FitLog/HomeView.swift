@@ -297,6 +297,33 @@ struct HomeView: View {
         cachedTodayCompletedRefs.contains(plan.cacheKey)
     }
 
+    private var todayLoggedRecap: HomeTodayLoggedSession.Recap? {
+        HomeTodayLoggedSession.recap(from: dataVM.completedSessions)
+    }
+
+    private var shouldShowTodayLoggedCard: Bool {
+        let planId: UUID?
+        if case .workout(let ref) = cachedTodayPlan {
+            planId = ref.libraryWorkoutId
+        } else {
+            planId = nil
+        }
+        return HomeTodayLoggedSession.shouldShowStandaloneCard(
+            recap: todayLoggedRecap,
+            isInProgress: currentVM.isInProgress,
+            isFirstRunHome: isFirstRunHome,
+            todayPlanLibraryWorkoutId: planId
+        )
+    }
+
+    private func openHistorySession(_ sessionId: UUID) {
+        rootTabSelection?.wrappedValue = .history
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            NotificationCenter.default.post(name: .fitlogOpenHistorySession, object: sessionId)
+        }
+    }
+
     private func startWorkoutFromLibrary(_ library: Workout) {
         startWorkoutFeedbackSerial += 1
         let toStart = library.hasFlexibleSlots ? dataVM.sessionInstance(from: library) : library
@@ -418,6 +445,14 @@ struct HomeView: View {
                     onOpen: { openCurrentWorkoutSheet?() },
                     onFinish: handleHomeFinishTap
                 )
+                .listRowInsets(homeDashboardListInsets)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            } else if shouldShowTodayLoggedCard, let recap = todayLoggedRecap {
+                HomeTodayLoggedCard(recap: recap) {
+                    openHistorySession(recap.id)
+                }
                 .listRowInsets(homeDashboardListInsets)
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
@@ -1305,6 +1340,11 @@ struct HomeView: View {
                         onResumeCompletedToday: { resumeTodayPlanFromLastCompletedSession(workout) },
                         openActiveWorkout: { openCurrentWorkoutSheet?() },
                         onViewWorkoutDetail: { todayPlanDetailRoute = .plannedWorkout(id) },
+                        onViewInHistory: {
+                            if let session = dataVM.mostRecentCompletedSessionToday(forLibraryWorkoutId: id) {
+                                openHistorySession(session.id)
+                            }
+                        },
                         detailLabel: "View workout"
                     )
                     Button {
@@ -1583,6 +1623,7 @@ private struct TodayWorkoutCard: View {
     let onResumeCompletedToday: () -> Void
     let openActiveWorkout: () -> Void
     let onViewWorkoutDetail: () -> Void
+    var onViewInHistory: (() -> Void)? = nil
     let detailLabel: String
 
     var body: some View {
@@ -1640,6 +1681,18 @@ private struct TodayWorkoutCard: View {
                 .buttonStyle(.bordered)
                 .accessibilityLabel("Start fresh instead")
                 .accessibilityHint("Starts this plan as a new session without prior sets")
+                if let onViewInHistory {
+                    Button(action: onViewInHistory) {
+                        Label("View in History", systemImage: "chart.bar.doc.horizontal")
+                            .font(.subheadline.weight(.medium))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier(FitLogA11yID.homeViewInHistory)
+                    .accessibilityLabel("View in History")
+                    .accessibilityHint("Opens today’s \(title) session in History")
+                    .accessibilityAddTraits(.isButton)
+                }
             } else {
                 primaryDetailRow(
                     primaryTitle: "Start workout",

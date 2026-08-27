@@ -82,7 +82,7 @@ final class CurrentWorkoutSessionViewModel {
     private var inactivityNotificationIdentifier: String?
 
     /// Fixed id so the scheduled \"rest over\" notification can be cancelled when the user skips rest or ends the workout.
-    private static let restCompleteNotificationIdentifier = "com.fitlog.restTimer.complete"
+    private static let restCompleteNotificationIdentifier = RestCompleteNotification.identifier
     
     var isInProgress: Bool { currentSession != nil && currentSession?.endTime == nil }
     var isWorkoutPaused: Bool { workoutPausedAt != nil }
@@ -1061,6 +1061,7 @@ final class CurrentWorkoutSessionViewModel {
         content.title = "Rest Over! 💪"
         content.body = "Time for the next set"
         content.sound = .default
+        content.userInfo = [RestCompleteNotification.userInfoOpenLoggingKey: true]
         
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: TimeInterval(seconds), repeats: false)
         let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)

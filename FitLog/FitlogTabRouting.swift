@@ -56,6 +56,8 @@ extension Notification.Name {
     static let fitlogOpenHistorySession = Notification.Name("fitlogOpenHistorySession")
     /// Opens Home → Readiness detail (e.g. readiness widget tap).
     static let fitlogOpenReadinessDetail = Notification.Name("fitlogOpenReadinessDetail")
+    /// Opens the in-progress workout sheet (rest-complete notification tap).
+    static let fitlogOpenWorkoutLogging = Notification.Name("fitlogOpenWorkoutLogging")
 }
 
 enum FitLogDeepLink: Equatable {

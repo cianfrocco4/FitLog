@@ -102,6 +102,22 @@ struct LogSetView: View {
         return session.exerciseLogs[exerciseIndex].workoutExercise
     }
 
+    private var previousSessionWorkingSets: [LoggedSet] {
+        guard let id = workoutExercise?.exerciseId else { return [] }
+        return Array(
+            ProgressionAdvisor.lastWorkingSets(
+                forExerciseId: id,
+                from: dataVM.completedSessions,
+                limit: 3
+            )
+        )
+    }
+
+    private var storedDraftWeightForPreviousStrip: Double {
+        let display = bodyweightMode ? displayNetLoad : weight
+        return WeightStoreConversion.storedPounds(displayValue: display, unit: displayUnit)
+    }
+
     private var isSupersetContext: Bool {
         supersetPosition != nil
     }
@@ -233,6 +249,20 @@ struct LogSetView: View {
     private var strengthLogForm: some View {
         NavigationStack {
             Form {
+                if !previousSessionWorkingSets.isEmpty {
+                    Section("Last time") {
+                        PreviousSessionStrip(
+                            sets: previousSessionWorkingSets,
+                            draftWeight: storedDraftWeightForPreviousStrip,
+                            draftReps: reps,
+                            unit: displayUnit,
+                            onSelectSet: { applyLoggedSetToDraft($0) }
+                        )
+                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                        .accessibilityElement(children: .contain)
+                    }
+                }
+
                 Section("Log Set") {
                     Toggle("Bodyweight mode (reps first)", isOn: $bodyweightMode)
                         .onChange(of: bodyweightMode) { _, on in
@@ -588,6 +618,48 @@ struct LogSetView: View {
         }
     }
 
+    /// Fills the log-set form from a prior (or just-logged) set. Used by Last time pills and prefill.
+    private func applyLoggedSetToDraft(_ set: LoggedSet) {
+        let displayW = WeightStoreConversion.displayValue(storedPounds: set.weight, unit: displayUnit)
+        if bodyweightMode {
+            syncBodyweightFieldsFromNet(clampSignedNet(displayW))
+            weight = 0
+        } else {
+            weight = clampDisplay(displayW)
+        }
+        reps = set.reps
+        restTime = set.restTime
+        switch set.setType {
+        case .warmup, .dropSet:
+            setTypeChoice = .working
+        default:
+            setTypeChoice = set.setType
+        }
+        if !set.configuration.isEmpty {
+            configValues = set.configuration
+        }
+        if !set.dropSegments.isEmpty {
+            dropSetEnabled = true
+            dropRows = set.dropSegments.map {
+                EditableDropRow(
+                    weight: clampDisplay(
+                        WeightStoreConversion.displayValue(storedPounds: $0.weight, unit: displayUnit)
+                    ),
+                    reps: $0.reps
+                )
+            }
+        } else {
+            dropSetEnabled = false
+            dropRows = []
+        }
+        if let r = set.rpe {
+            let rounded = Int(r.rounded())
+            rpeChoice = (6...10).contains(rounded) ? rounded : nil
+        } else {
+            rpeChoice = nil
+        }
+    }
+
     private func prefillFromRecentSet() {
         guard
             let session = sessionVM.currentSession,
@@ -599,40 +671,7 @@ struct LogSetView: View {
 
         // Prefer the most recent set from the current session for this exercise.
         if let lastInSession = currentLog.loggedSets.last {
-            weight = clampDisplay(
-                WeightStoreConversion.displayValue(storedPounds: lastInSession.weight, unit: displayUnit)
-            )
-            reps = lastInSession.reps
-            restTime = lastInSession.restTime
-            switch lastInSession.setType {
-            case .warmup, .dropSet:
-                setTypeChoice = .working
-            default:
-                setTypeChoice = lastInSession.setType
-            }
-            if !lastInSession.configuration.isEmpty {
-                configValues = lastInSession.configuration
-            }
-            if !lastInSession.dropSegments.isEmpty {
-                dropSetEnabled = true
-                dropRows = lastInSession.dropSegments.map {
-                    EditableDropRow(
-                        weight: clampDisplay(
-                            WeightStoreConversion.displayValue(storedPounds: $0.weight, unit: displayUnit)
-                        ),
-                        reps: $0.reps
-                    )
-                }
-            } else {
-                dropSetEnabled = false
-                dropRows = []
-            }
-            if let r = lastInSession.rpe {
-                let rounded = Int(r.rounded())
-                rpeChoice = (6...10).contains(rounded) ? rounded : nil
-            } else {
-                rpeChoice = nil
-            }
+            applyLoggedSetToDraft(lastInSession)
             restOverride = nil
             if isSupersetContext && !autoRestAfterSet {
                 restTime = 0
@@ -659,38 +698,7 @@ struct LogSetView: View {
         }
 
         if let recent = latestSet {
-            weight = clampDisplay(
-                WeightStoreConversion.displayValue(storedPounds: recent.weight, unit: displayUnit)
-            )
-            reps = recent.reps
-            restTime = recent.restTime
-            switch recent.setType {
-            case .warmup, .dropSet:
-                setTypeChoice = .working
-            default:
-                setTypeChoice = recent.setType
-            }
-            if !recent.configuration.isEmpty { configValues = recent.configuration }
-            if !recent.dropSegments.isEmpty {
-                dropSetEnabled = true
-                dropRows = recent.dropSegments.map {
-                    EditableDropRow(
-                        weight: clampDisplay(
-                            WeightStoreConversion.displayValue(storedPounds: $0.weight, unit: displayUnit)
-                        ),
-                        reps: $0.reps
-                    )
-                }
-            } else {
-                dropSetEnabled = false
-                dropRows = []
-            }
-            if let r = recent.rpe {
-                let rounded = Int(r.rounded())
-                rpeChoice = (6...10).contains(rounded) ? rounded : nil
-            } else {
-                rpeChoice = nil
-            }
+            applyLoggedSetToDraft(recent)
         } else {
             restTime = currentLog.workoutExercise.defaultRestTime
 
