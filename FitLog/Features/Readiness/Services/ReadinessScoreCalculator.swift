@@ -153,22 +153,24 @@ enum ReadinessScoreCalculator {
     private static func scoreTrainingLoad(recent: Int, typical: Double) -> ReadinessComponent? {
         let weight = componentWeights[.trainingLoad, default: 0]
         let typicalSafe = max(typical, 1)
+        let typicalRounded = max(1, Int(typicalSafe.rounded()))
         let ratio = Double(recent) / typicalSafe
+        let comparison = "\(recent) hard sets in the last 72 hours, vs a typical \(typicalRounded)"
         let score: Double
         let detail: String
         switch ratio {
         case ..<0.5:
             score = 85
-            detail = "Light recent training load (\(recent) hard sets in 72h)."
+            detail = "Light training load: \(comparison)."
         case 0.5..<1.2:
             score = 75
-            detail = "Normal training load (\(recent) hard sets in 72h)."
+            detail = "Normal training load: \(comparison)."
         case 1.2..<1.8:
             score = 55
-            detail = "Elevated training load (\(recent) hard sets in 72h) — fatigue may linger."
+            detail = "Elevated training load: \(comparison) — fatigue may linger."
         default:
             score = 35
-            detail = "High training load (\(recent) hard sets in 72h) — prioritize recovery."
+            detail = "High training load: \(comparison) — prioritize recovery."
         }
         return ReadinessComponent(kind: .trainingLoad, score: score, weight: weight, detail: detail, isAvailable: true)
     }

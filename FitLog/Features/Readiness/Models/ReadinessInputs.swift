@@ -21,7 +21,7 @@ struct ReadinessInputs: Equatable, Sendable {
     /// Fraction of sleep in deep + REM (0...1) when available.
     var restorativeSleepFraction: Double?
 
-    /// Hard sets logged in the last 72 hours.
+    /// Hard sets logged in the last 72 hours (working / drop / failure / AMRAP with reps).
     var recentHardSets: Int
     /// Typical hard sets in a 72h window from the last 28 days.
     var typicalHardSets72h: Double

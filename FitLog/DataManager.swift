@@ -1487,7 +1487,8 @@ final class DataManager {
         return completedSessions.filter { ($0.endTime ?? Date()) > sevenDaysAgo }.count
     }
 
-    /// Hard working sets in the last 72 hours and a typical 72h baseline for readiness scoring.
+    /// Hard sets in the last 72 hours and a typical 72h baseline for readiness scoring.
+    /// Uses `LoggedSet.countsTowardVolumeTotals` (working / drop / failure / AMRAP with reps; excludes warm-up, timed holds, and cardio).
     func trainingLoadMetrics(now: Date = Date()) -> (recentHardSets: Int, typicalHardSets72h: Double) {
         let windowSeconds: TimeInterval = 72 * 60 * 60
         let baselineWindowSeconds: TimeInterval = 28 * 24 * 60 * 60
@@ -1495,10 +1496,7 @@ final class DataManager {
         let baselineCutoff = now.addingTimeInterval(-baselineWindowSeconds)
 
         func hardSets(in session: WorkoutSession) -> Int {
-            session.exerciseLogs.flatMap(\.loggedSets).filter { set in
-                guard set.setType != .warmup else { return false }
-                return set.reps > 0
-            }.count
+            session.exerciseLogs.flatMap(\.loggedSets).filter(\.countsTowardVolumeTotals).count
         }
 
         let recentHardSets = completedSessions
