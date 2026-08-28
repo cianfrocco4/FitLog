@@ -86,19 +86,7 @@ struct ReadinessDetailView: View {
 
                 Section("How it's calculated") {
                     ForEach(score.components) { component in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Label(component.kind.displayTitle, systemImage: component.kind.systemImage)
-                                .font(.headline)
-                            Text(component.detail)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                            if component.isAvailable {
-                                Text("Component score: \(Int(component.score.rounded()))/100")
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-                        .padding(.vertical, 2)
+                        ReadinessComponentRow(component: component)
                     }
                     Text("Readiness combines HRV vs your baseline, resting heart rate, sleep duration, and recent training load. It is not medical advice.")
                         .font(.caption)
@@ -153,6 +141,78 @@ struct ReadinessDetailView: View {
     }
 }
 
-#Preview {
+private struct ReadinessComponentRow: View {
+    let component: ReadinessComponent
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(component.kind.displayTitle, systemImage: component.kind.systemImage)
+                .font(.headline)
+            Text(component.detail)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            if component.isAvailable {
+                Text("Component score: \(Int(component.score.rounded()))/100")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            if let explanation = component.kind.methodologyExplanation {
+                Text(explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 2)
+                    .accessibilityLabel("How \(component.kind.displayTitle.lowercased()) is calculated")
+                    .accessibilityValue(explanation)
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+#Preview("Training load — normal") {
+    List {
+        ReadinessComponentRow(
+            component: ReadinessComponent(
+                kind: .trainingLoad,
+                score: 75,
+                weight: 0.15,
+                detail: "Normal training load: 10 hard sets in the last 72 hours, vs a typical 12.",
+                isAvailable: true
+            )
+        )
+    }
+}
+
+#Preview("Training load — high, dark") {
+    List {
+        ReadinessComponentRow(
+            component: ReadinessComponent(
+                kind: .trainingLoad,
+                score: 35,
+                weight: 0.15,
+                detail: "High training load: 28 hard sets in the last 72 hours, vs a typical 12 — prioritize recovery.",
+                isAvailable: true
+            )
+        )
+    }
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Sleep component") {
+    List {
+        ReadinessComponentRow(
+            component: ReadinessComponent(
+                kind: .sleep,
+                score: 85,
+                weight: 0.30,
+                detail: "You slept 7h 30m — solid recovery duration.",
+                isAvailable: true
+            )
+        )
+    }
+}
+
+#Preview("Trend empty") {
     ReadinessTrendChartView(scores: [])
 }
