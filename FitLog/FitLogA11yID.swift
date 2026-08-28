@@ -12,4 +12,5 @@ enum FitLogA11yID {
     static let fromTemplate = "fitlog.fromTemplate"
     static let createWorkout = "fitlog.createWorkout"
     static let quickStartPushA = "fitlog.quickStart.pushA"
+    static let historyTodayLogged = "fitlog.history.todayLogged"
 }

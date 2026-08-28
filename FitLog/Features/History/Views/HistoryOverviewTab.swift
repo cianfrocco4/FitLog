@@ -8,6 +8,7 @@ import Charts
 
 struct HistoryOverviewTab: View {
     @Environment(DataManager.self) private var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
     @Environment(EntitlementStore.self) private var entitlementStore
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -31,6 +32,7 @@ struct HistoryOverviewTab: View {
 
     var body: some View {
         Group {
+            todayLoggedSection
             kpiSection
             if entitlementStore.hasAccess(to: .unlimitedHistory) {
                 heatmapSection
@@ -58,6 +60,28 @@ struct HistoryOverviewTab: View {
                 .font(.subheadline)
                 .padding()
                 .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    @ViewBuilder
+    private var todayLoggedSection: some View {
+        if let recap = HistoryTodayLoggedRecap.recap(from: dataVM.completedSessions),
+           let session = dataVM.completedSessions.first(where: { $0.id == recap.id }) {
+            Section {
+                NavigationLink {
+                    SessionDetailView(session: session)
+                        .environment(dataVM)
+                        .environment(currentVM)
+                } label: {
+                    HistoryTodayLoggedCard(recap: recap)
+                }
+            } header: {
+                Text("Today")
+            } footer: {
+                Text("Saved to History as soon as you finished.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
         }
     }
 

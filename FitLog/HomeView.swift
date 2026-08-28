@@ -371,6 +371,7 @@ struct HomeView: View {
             isLoading: readinessVM.isLoading,
             healthConnectState: readinessVM.connectState,
             showPremiumTrendsCTA: !entitlementStore.isPremium && readinessVM.todayScore != nil,
+            lastTrainedLine: ReadinessLastTrainedCopy.line(from: dataVM.completedSessions),
             onTap: { showReadinessDetail = true },
             onConnectHealth: connectAppleHealthFromHome,
             onUnlockTrends: {

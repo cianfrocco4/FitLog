@@ -11,6 +11,8 @@ struct ReadinessCardView: View {
     var healthConnectState: ReadinessHealthConnectState = .hidden
     /// Free-user soft CTA; tap opens Premium (no auto sheet).
     var showPremiumTrendsCTA: Bool = false
+    /// Latest completed session recap, e.g. “Last trained today · Push A”.
+    var lastTrainedLine: String? = nil
     var onTap: () -> Void
     var onConnectHealth: (() -> Void)?
     var onUnlockTrends: (() -> Void)?
@@ -38,6 +40,12 @@ struct ReadinessCardView: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.leading)
+                        }
+                        if let lastTrainedLine {
+                            Text(lastTrainedLine)
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
                         }
                     }
                     Spacer(minLength: 0)
@@ -108,10 +116,20 @@ struct ReadinessCardView: View {
 
     private var readinessAccessibilityLabel: String {
         if isLoading {
+            if let lastTrainedLine {
+                return "Updating readiness. \(lastTrainedLine)."
+            }
             return "Updating readiness"
         }
         if let score {
-            return "Readiness score \(score.score) out of 100. \(score.band.displayTitle)."
+            var label = "Readiness score \(score.score) out of 100. \(score.band.displayTitle)."
+            if let lastTrainedLine {
+                label += " \(lastTrainedLine)."
+            }
+            return label
+        }
+        if let lastTrainedLine {
+            return "Readiness score unavailable. \(lastTrainedLine)."
         }
         return "Readiness score unavailable"
     }
@@ -124,6 +142,24 @@ struct ReadinessCardView: View {
         default: return .green
         }
     }
+}
+
+#Preview("Last trained") {
+    ReadinessCardView(
+        score: ReadinessScore(
+            id: UUID(),
+            dayKey: "2026-08-28",
+            computedAt: Date(),
+            score: 72,
+            band: .good,
+            summary: "Good readiness (72/100). You're recovered enough for a solid training day.",
+            components: []
+        ),
+        isLoading: false,
+        lastTrainedLine: "Last trained today · Push A",
+        onTap: {}
+    )
+    .padding()
 }
 
 #Preview("Connect") {

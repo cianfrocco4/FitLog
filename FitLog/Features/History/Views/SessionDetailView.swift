@@ -155,6 +155,14 @@ struct SessionDetailView: View {
                 } header: {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(dataVM.displayName(for: log.workoutExercise))
+                        if let lastWorking = SessionLastWorkingSetCopy.line(
+                            for: log,
+                            unit: userPreferences.weightDisplayUnit
+                        ) {
+                            Text(lastWorking)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                         if let slotLabel = HistoryView.templateSlotCaption(for: log, session: session, dataVM: dataVM) {
                             Text("From plan: \(slotLabel)")
                                 .font(.caption)
