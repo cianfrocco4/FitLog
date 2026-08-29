@@ -17,11 +17,21 @@ struct ReadinessWidgetEntry: TimelineEntry {
     let bandTitle: String?
     let summary: String?
     let planTitle: String?
+    let lastSessionTitle: String?
+    let lastSessionSubtitle: String?
 }
 
 struct ReadinessWidgetProvider: TimelineProvider {
     func placeholder(in context: Context) -> ReadinessWidgetEntry {
-        ReadinessWidgetEntry(date: Date(), score: 72, bandTitle: "Good", summary: "Good readiness", planTitle: "Upper body")
+        ReadinessWidgetEntry(
+            date: Date(),
+            score: 72,
+            bandTitle: "Good",
+            summary: "Good readiness",
+            planTitle: "Upper body",
+            lastSessionTitle: "Zone 2",
+            lastSessionSubtitle: "Today · 45 min"
+        )
     }
 
     func getSnapshot(in context: Context, completion: @escaping (ReadinessWidgetEntry) -> Void) {
@@ -41,7 +51,9 @@ struct ReadinessWidgetProvider: TimelineProvider {
             score: payload?.readinessScore,
             bandTitle: payload?.readinessBandTitle,
             summary: payload?.readinessSummary,
-            planTitle: payload?.todayPlanTitle
+            planTitle: payload?.todayPlanTitle,
+            lastSessionTitle: payload?.lastSessionTitle,
+            lastSessionSubtitle: payload?.lastSessionSubtitle
         )
     }
 }
@@ -86,11 +98,17 @@ struct ReadinessWidgetView: View {
                         .font(.caption2)
                         .lineLimit(1)
                 }
+                if let lastTitle = entry.lastSessionTitle {
+                    Label(lastSessionLine(title: lastTitle, subtitle: entry.lastSessionSubtitle), systemImage: "checkmark.circle")
+                        .font(.caption2)
+                        .lineLimit(1)
+                        .accessibilityLabel(lastSessionAccessibilityLabel(title: lastTitle, subtitle: entry.lastSessionSubtitle))
+                }
                 if let summary = entry.summary {
                     Text(summary)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                        .lineLimit(widgetFamily == .systemSmall && entry.lastSessionTitle != nil ? 1 : 2)
                 }
             } else {
                 Text("Open Workout Log AI")
@@ -103,6 +121,12 @@ struct ReadinessWidgetView: View {
                     Label(plan, systemImage: "calendar")
                         .font(.caption2)
                         .lineLimit(1)
+                }
+                if let lastTitle = entry.lastSessionTitle {
+                    Label(lastSessionLine(title: lastTitle, subtitle: entry.lastSessionSubtitle), systemImage: "checkmark.circle")
+                        .font(.caption2)
+                        .lineLimit(1)
+                        .accessibilityLabel(lastSessionAccessibilityLabel(title: lastTitle, subtitle: entry.lastSessionSubtitle))
                 }
             }
             Spacer(minLength: 0)
@@ -148,6 +172,9 @@ struct ReadinessWidgetView: View {
             if let plan = entry.planTitle {
                 parts.append("Today's plan: \(plan)")
             }
+            if let lastTitle = entry.lastSessionTitle {
+                parts.append(lastSessionAccessibilityLabel(title: lastTitle, subtitle: entry.lastSessionSubtitle))
+            }
             return parts.joined(separator: ", ")
         }
 
@@ -161,7 +188,24 @@ struct ReadinessWidgetView: View {
         if let plan = entry.planTitle {
             parts.append("Today's plan: \(plan)")
         }
+        if let lastTitle = entry.lastSessionTitle {
+            parts.append(lastSessionAccessibilityLabel(title: lastTitle, subtitle: entry.lastSessionSubtitle))
+        }
         return parts.joined(separator: ", ")
+    }
+
+    private func lastSessionLine(title: String, subtitle: String?) -> String {
+        if let subtitle, !subtitle.isEmpty {
+            return "\(title) · \(subtitle)"
+        }
+        return title
+    }
+
+    private func lastSessionAccessibilityLabel(title: String, subtitle: String?) -> String {
+        if let subtitle, !subtitle.isEmpty {
+            return "Last workout \(title), \(subtitle)"
+        }
+        return "Last workout \(title)"
     }
 }
 
@@ -173,7 +217,36 @@ struct ReadinessWidget: Widget {
             ReadinessWidgetView(entry: entry)
         }
         .configurationDisplayName("Readiness")
-        .description("Today's readiness score, plan, and a shortcut into the app.")
+        .description("Today's readiness score, plan, last workout, and a shortcut into the app.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }
+}
+
+#Preview("Last session — small") {
+    ReadinessWidgetView(
+        entry: ReadinessWidgetEntry(
+            date: Date(),
+            score: 72,
+            bandTitle: "Good",
+            summary: "Good readiness for a solid training day.",
+            planTitle: "Rest day",
+            lastSessionTitle: "Zone 2",
+            lastSessionSubtitle: "Today · 45 min"
+        )
+    )
+}
+
+#Preview("Last session — medium dark") {
+    ReadinessWidgetView(
+        entry: ReadinessWidgetEntry(
+            date: Date(),
+            score: 58,
+            bandTitle: "Moderate",
+            summary: "Moderate readiness based on training load.",
+            planTitle: "Push A",
+            lastSessionTitle: "Push A",
+            lastSessionSubtitle: "Yesterday · 52 min"
+        )
+    )
+    .preferredColorScheme(.dark)
 }

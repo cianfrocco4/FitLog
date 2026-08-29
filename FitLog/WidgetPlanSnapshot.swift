@@ -11,11 +11,17 @@ extension DataManager {
         let dayKey = TrainingProgramState.dayKey(for: Date())
         let score = readiness ?? readinessStore.load(dayKey: dayKey)
         let planTitle = todayPlanTitle ?? resolvedTodayPlanTitle()
+        let lastSession = LastCompletedSessionCopy.widgetLines(
+            sessions: completedSessions,
+            exercises: globalExercises
+        )
         let payload = WidgetSnapshotStore.Payload(
             readinessScore: score?.score,
             readinessSummary: score?.summary,
             readinessBandTitle: score?.band.displayTitle,
             todayPlanTitle: planTitle,
+            lastSessionTitle: lastSession?.title,
+            lastSessionSubtitle: lastSession?.subtitle,
             updatedAt: Date()
         )
         if WidgetSnapshotStore.writeIfChanged(payload) {

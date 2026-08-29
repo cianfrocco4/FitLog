@@ -16,6 +16,10 @@ enum WidgetSnapshotStore {
         var readinessSummary: String?
         var readinessBandTitle: String?
         var todayPlanTitle: String?
+        /// Most recent completed session name (finish → widget, no Premium gate).
+        var lastSessionTitle: String? = nil
+        /// e.g. "Today · 45 min"
+        var lastSessionSubtitle: String? = nil
         var updatedAt: Date
     }
 
@@ -55,7 +59,9 @@ enum WidgetSnapshotStore {
             readinessScore: payload.readinessScore,
             readinessSummary: payload.readinessSummary,
             readinessBandTitle: payload.readinessBandTitle,
-            todayPlanTitle: payload.todayPlanTitle
+            todayPlanTitle: payload.todayPlanTitle,
+            lastSessionTitle: payload.lastSessionTitle,
+            lastSessionSubtitle: payload.lastSessionSubtitle
         )
     }
 
@@ -64,5 +70,7 @@ enum WidgetSnapshotStore {
         var readinessSummary: String?
         var readinessBandTitle: String?
         var todayPlanTitle: String?
+        var lastSessionTitle: String?
+        var lastSessionSubtitle: String?
     }
 }

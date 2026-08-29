@@ -1408,6 +1408,7 @@ final class DataManager {
             persistenceFailureReporter.report("Could not save workout history. This session may be missing after you quit the app.")
         }
         reconcileSkippedCycleTrainingDays()
+        publishWidgetSnapshot()
     }
 
     /// Template for a new live session from a **completed** session (library + flexible slots when possible).
@@ -1440,6 +1441,7 @@ final class DataManager {
             return false
         }
         reconcileSkippedCycleTrainingDays()
+        publishWidgetSnapshot()
         return true
     }
 
@@ -1457,6 +1459,7 @@ final class DataManager {
             return false
         }
         reconcileSkippedCycleTrainingDays()
+        publishWidgetSnapshot()
         return true
     }
 

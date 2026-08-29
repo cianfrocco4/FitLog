@@ -49,12 +49,27 @@ struct HistoryExploreTab: View {
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
+                                if let latestSession = sessions.max(by: {
+                                    ($0.endTime ?? $0.startTime) < ($1.endTime ?? $1.startTime)
+                                }),
+                                   let recap = LastCompletedSessionCopy.exploreRecap(
+                                    latestSession: latestSession,
+                                    exercises: dataVM.globalExercises,
+                                    unit: userPreferences.weightDisplayUnit
+                                   ) {
+                                    Text(recap)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .accessibilityLabel(recap)
+                                }
                             }
                             Spacer()
                             Text("\(sessions.count) session\(sessions.count == 1 ? "" : "s")")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityHint("Opens history for this workout")
                     }
                 }
             }
