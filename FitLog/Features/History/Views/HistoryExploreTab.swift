@@ -80,6 +80,7 @@ struct HistoryExploreTab: View {
                         allSessionsSorted: viewModel.allSessionsSorted
                     )
                         .environment(dataVM)
+                        .environment(currentVM)
                         .environmentObject(userPreferences)
                     ) {
                         VStack(alignment: .leading, spacing: 4) {
@@ -97,7 +98,20 @@ struct HistoryExploreTab: View {
                             }
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            if let last = ExerciseHistoryLastWorkingCopy.exploreLine(
+                                exerciseId: stat.id,
+                                sessions: viewModel.sessionsInDateRange,
+                                unit: userPreferences.weightDisplayUnit
+                            ) {
+                                Text(last)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityLabel(last)
+                            }
                         }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityHint("Opens history for this exercise")
+                        .accessibilityAddTraits(.isButton)
                     }
                 }
             }

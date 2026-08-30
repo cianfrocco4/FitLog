@@ -456,6 +456,8 @@ struct WorkoutCompletionSummaryView: View {
     var onDone: () -> Void
     /// When set, shows a “View in History” action that opens this session in History.
     var onViewInHistory: (() -> Void)? = nil
+    /// When set, shows “Start this workout again” after finish (new session, History intact).
+    var onStartAgain: (() -> Void)? = nil
     @EnvironmentObject var userPreferences: UserPreferences
     @State private var appearHapticTick = 0
     #if canImport(UIKit)
@@ -499,21 +501,43 @@ struct WorkoutCompletionSummaryView: View {
                     }
                 }
 
-                if let onViewInHistory {
+                if onViewInHistory != nil || onStartAgain != nil {
                     Section {
-                        Button {
-                            onViewInHistory()
-                        } label: {
-                            Label("View in History", systemImage: "chart.bar.doc.horizontal")
-                                .fontWeight(.semibold)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .accessibilityLabel("View in History")
-                        .accessibilityHint(
-                            WorkoutCompletionNavigation.viewInHistoryAccessibilityHint(
-                                workoutName: summary.workoutName
+                        if let onViewInHistory {
+                            Button {
+                                onViewInHistory()
+                            } label: {
+                                Label("View in History", systemImage: "chart.bar.doc.horizontal")
+                                    .fontWeight(.semibold)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .accessibilityLabel("View in History")
+                            .accessibilityHint(
+                                WorkoutCompletionNavigation.viewInHistoryAccessibilityHint(
+                                    workoutName: summary.workoutName
+                                )
                             )
-                        )
+                        }
+                        if let onStartAgain {
+                            Button {
+                                onStartAgain()
+                            } label: {
+                                Label("Start this workout again", systemImage: "play.fill")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .accessibilityIdentifier(FitLogA11yID.completionStartAgain)
+                            .accessibilityLabel("Start this workout again")
+                            .accessibilityHint(
+                                WorkoutCompletionNavigation.startAgainAccessibilityHint(
+                                    workoutName: summary.workoutName
+                                )
+                            )
+                            .accessibilityAddTraits(.isButton)
+                        }
+                    } footer: {
+                        if onStartAgain != nil {
+                            Text("Starts a new session from this workout. The finished entry stays in History.")
+                        }
                     }
                 }
 

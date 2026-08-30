@@ -41,4 +41,13 @@ struct WorkoutCompletionNavigationTests {
         let hint = WorkoutCompletionNavigation.viewInHistoryAccessibilityHint(workoutName: "Pull Day")
         #expect(hint == "Opens Pull Day in History")
     }
+
+    @Test func startAgainDismissSkipsPostWorkoutPaywall() {
+        #expect(!WorkoutCompletionNavigation.shouldOfferPostWorkoutPaywall(after: .startAgain))
+    }
+
+    @Test func startAgainHintNamesWorkout() {
+        let hint = WorkoutCompletionNavigation.startAgainAccessibilityHint(workoutName: "Zone 2")
+        #expect(hint == "Starts a new Zone 2 session. The finished entry stays in History.")
+    }
 }

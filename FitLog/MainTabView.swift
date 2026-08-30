@@ -28,6 +28,7 @@ struct MainTabView: View {
     @State private var spotlightAnchors: [SpotlightTarget: CGRect] = [:]
     @State private var pendingFirstRunSheet = false
     @State private var didApplyUITestHarness = false
+    @State private var pendingCompletionStartReplace: PendingWorkoutReplace?
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -131,10 +132,21 @@ struct MainTabView: View {
                 },
                 onViewInHistory: {
                     dismissWorkoutCompletion(summary: summary, kind: .viewInHistory)
+                },
+                onStartAgain: {
+                    dismissWorkoutCompletion(summary: summary, kind: .startAgain)
+                    startFreshAfterCompletion(sessionID: summary.id)
                 }
             )
             .environmentObject(userPreferences)
         }
+        .workoutReplaceConflictConfirmation(
+            currentVM: currentVM,
+            pending: $pendingCompletionStartReplace,
+            onAfterReplace: {
+                showCurrentWorkoutPullUp = true
+            }
+        )
         .sheet(isPresented: $showPostWorkoutPaywall) {
             PaywallView(
                 triggerFeature: .aiCoach,
@@ -305,6 +317,19 @@ struct MainTabView: View {
             hasProgram: dataVM.dynamicProgramState != nil,
             hasWorkouts: !dataVM.userWorkouts.isEmpty,
             workoutInProgress: currentVM.isInProgress
+        )
+    }
+
+    private func startFreshAfterCompletion(sessionID: UUID) {
+        guard let session = dataVM.completedSessions.first(where: { $0.id == sessionID }) else { return }
+        HistoryStartFreshWorkout.start(
+            from: session,
+            dataVM: dataVM,
+            currentVM: currentVM,
+            openCurrentWorkoutSheet: {
+                showCurrentWorkoutPullUp = true
+            },
+            setPendingReplace: { pendingCompletionStartReplace = $0 }
         )
     }
 

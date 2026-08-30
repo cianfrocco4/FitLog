@@ -8,13 +8,16 @@ import Charts
 
 struct ExerciseHistoryDetailView: View {
     @Environment(DataManager.self) var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @Environment(EntitlementStore.self) private var entitlementStore
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
     @EnvironmentObject var userPreferences: UserPreferences
     let exerciseId: UUID
     let rangeSessions: [WorkoutSession]
     let allSessionsSorted: [WorkoutSession]
     @State private var dataScope: ExerciseHistoryDataScope = .selectedRange
     @State private var showPaywall = false
+    @State private var pendingStartFreshReplace: PendingWorkoutReplace?
     /// Bumps when a Premium-only scope is rejected so the segmented picker resyncs visually.
     @State private var dataScopePickerEpoch = 0
 
@@ -120,6 +123,10 @@ struct ExerciseHistoryDetailView: View {
                         : "Every session that included this exercise (no date limit)."
                 )
                 .font(.caption2)
+            }
+
+            if let latest = sessionLogs.first {
+                lastWorkingRecapSection(session: latest.session, log: latest.log)
             }
 
             if !progressionSeries.isEmpty {
@@ -274,12 +281,62 @@ struct ExerciseHistoryDetailView: View {
         }
         .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .workoutReplaceConflictConfirmation(
+            currentVM: currentVM,
+            pending: $pendingStartFreshReplace,
+            onAfterReplace: { openCurrentWorkoutSheet?() }
+        )
         .sheet(isPresented: $showPaywall) {
             PaywallView(
                 triggerFeature: .unlimitedHistory,
                 analyticsSource: "exercise_history_all_time"
             )
             .environment(entitlementStore)
+        }
+    }
+
+    @ViewBuilder
+    private func lastWorkingRecapSection(session: WorkoutSession, log: ExerciseLog) -> some View {
+        let canStart = HistoryStartFreshWorkout.sourceWorkout(
+            session: session,
+            library: dataVM.userWorkouts
+        ) != nil
+        Section {
+            if let recap = ExerciseHistoryLastWorkingCopy.recap(
+                session: session,
+                log: log,
+                unit: userPreferences.weightDisplayUnit
+            ) {
+                Text(recap)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(recap)
+            }
+            if canStart {
+                Button {
+                    HistoryStartFreshWorkout.start(
+                        from: session,
+                        dataVM: dataVM,
+                        currentVM: currentVM,
+                        openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+                        setPendingReplace: { pendingStartFreshReplace = $0 }
+                    )
+                } label: {
+                    Label("Start this workout", systemImage: "play.fill")
+                }
+                .accessibilityIdentifier(FitLogA11yID.historyStartThisWorkout)
+                .accessibilityLabel("Start this workout")
+                .accessibilityHint(
+                    "Starts a new session from \(session.workout.name) so you can repeat it without going back to Home"
+                )
+                .accessibilityAddTraits(.isButton)
+            }
+        } header: {
+            Text("Last session")
+        } footer: {
+            if canStart {
+                Text("Repeats the workout that last included this exercise. The finished entry stays in History.")
+            }
         }
     }
 }
