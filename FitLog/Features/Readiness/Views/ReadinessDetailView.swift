@@ -11,13 +11,16 @@ private enum ReadinessHealthAppLink {
 
 struct ReadinessDetailView: View {
     @Environment(DataManager.self) private var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
     @Environment(EntitlementStore.self) private var entitlementStore
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
     @EnvironmentObject private var userPreferences: UserPreferences
     @Bindable var viewModel: ReadinessViewModel
     let dayKey: String
 
     @State private var showPaywall = false
     @State private var trendDays = 30
+    @State private var pendingStartFreshReplace: PendingWorkoutReplace?
 
     var body: some View {
         List {
@@ -84,6 +87,8 @@ struct ReadinessDetailView: View {
                     .padding(.vertical, 4)
                 }
 
+                lastSessionSection
+
                 Section("How it's calculated") {
                     ForEach(score.components) { component in
                         ReadinessComponentRow(component: component)
@@ -118,15 +123,22 @@ struct ReadinessDetailView: View {
                 Section {
                     ProgressView("Loading readiness…")
                 }
+                lastSessionSection
             } else {
                 Section {
                     Text(viewModel.errorMessage ?? "Readiness data is unavailable.")
                         .foregroundStyle(.secondary)
                 }
+                lastSessionSection
             }
         }
         .navigationTitle("Readiness")
         .navigationBarTitleDisplayMode(.inline)
+        .workoutReplaceConflictConfirmation(
+            currentVM: currentVM,
+            pending: $pendingStartFreshReplace,
+            onAfterReplace: { openCurrentWorkoutSheet?() }
+        )
         .task {
             await viewModel.refresh(dataVM: dataVM, dayKey: dayKey, userPreferences: userPreferences)
             viewModel.loadTrend(dataVM: dataVM, days: trendDays, endingDayKey: dayKey)
@@ -137,6 +149,57 @@ struct ReadinessDetailView: View {
         .sheet(isPresented: $showPaywall) {
             PaywallView(triggerFeature: .readinessTrends, analyticsSource: "readiness_detail_trends")
                 .environment(entitlementStore)
+        }
+    }
+
+    @ViewBuilder
+    private var lastSessionSection: some View {
+        if let session = ReadinessDetailLastSession.mostRecentCompleted(in: dataVM.completedSessions) {
+            let canStart = HistoryStartFreshWorkout.sourceWorkout(
+                session: session,
+                library: dataVM.userWorkouts
+            ) != nil
+            Section {
+                Text(ReadinessDetailLastSession.recapLine(session: session))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(ReadinessDetailLastSession.recapLine(session: session))
+                if let detail = ReadinessDetailLastSession.detailLine(
+                    session: session,
+                    exercises: dataVM.globalExercises,
+                    unit: userPreferences.weightDisplayUnit
+                ) {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .accessibilityLabel(detail)
+                }
+                if canStart {
+                    Button {
+                        HistoryStartFreshWorkout.start(
+                            from: session,
+                            dataVM: dataVM,
+                            currentVM: currentVM,
+                            openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+                            setPendingReplace: { pendingStartFreshReplace = $0 }
+                        )
+                    } label: {
+                        Label("Start this workout", systemImage: "play.fill")
+                    }
+                    .accessibilityIdentifier(FitLogA11yID.readinessStartThisWorkout)
+                    .accessibilityLabel("Start this workout")
+                    .accessibilityHint(
+                        "Starts a new session from \(session.workout.name) so you can repeat it without going back to Home"
+                    )
+                    .accessibilityAddTraits(.isButton)
+                }
+            } header: {
+                Text("Last session")
+            } footer: {
+                if canStart {
+                    Text("Repeats your last logged workout. The finished entry stays in History.")
+                }
+            }
         }
     }
 }

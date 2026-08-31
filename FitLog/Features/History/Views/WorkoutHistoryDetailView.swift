@@ -35,6 +35,7 @@ struct WorkoutHistoryDetailView: View {
 
     var body: some View {
         List {
+            startThisWorkoutSection
             if durationTrendPoints.count >= 2 {
                 Section {
                     HistoryChartCard(title: "Session duration trend") {
@@ -128,5 +129,33 @@ struct WorkoutHistoryDetailView: View {
             pending: $pendingStartAgainReplace,
             onAfterReplace: { openCurrentWorkoutSheet?() }
         )
+    }
+
+    @ViewBuilder
+    private var startThisWorkoutSection: some View {
+        if let session = sortedSessions.first,
+           HistoryStartFreshWorkout.sourceWorkout(session: session, library: dataVM.userWorkouts) != nil {
+            Section {
+                Button {
+                    HistoryStartFreshWorkout.start(
+                        from: session,
+                        dataVM: dataVM,
+                        currentVM: currentVM,
+                        openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+                        setPendingReplace: { pendingStartAgainReplace = $0 }
+                    )
+                } label: {
+                    Label("Start this workout", systemImage: "play.fill")
+                }
+                .accessibilityIdentifier(FitLogA11yID.historyStartThisWorkout)
+                .accessibilityLabel("Start this workout")
+                .accessibilityHint(
+                    "Starts a new session from \(workoutName) so you can repeat it without going back to Home"
+                )
+                .accessibilityAddTraits(.isButton)
+            } footer: {
+                Text("Starts a new session from this workout. Finished logs stay in History.")
+            }
+        }
     }
 }

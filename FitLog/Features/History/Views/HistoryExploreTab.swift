@@ -122,11 +122,24 @@ struct HistoryExploreTab: View {
                         sessions: viewModel.sessionsInDateRange
                     )
                         .environment(dataVM)
+                        .environment(currentVM)
                         .environmentObject(userPreferences)
                     ) {
                         HStack {
-                            Text(stat.name)
-                                .font(.headline)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(stat.name)
+                                    .font(.headline)
+                                if let lastWorking = MuscleGroupLastSessionCopy.exploreLine(
+                                    muscleGroupName: stat.name,
+                                    sessions: viewModel.sessionsInDateRange,
+                                    unit: userPreferences.weightDisplayUnit,
+                                    resolve: { dataVM.resolveExercise(for: $0) }
+                                ) {
+                                    Text(lastWorking)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                             Spacer()
                             VStack(alignment: .trailing, spacing: 2) {
                                 Text("\(stat.sessions) session\(stat.sessions == 1 ? "" : "s")")

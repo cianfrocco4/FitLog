@@ -8,9 +8,12 @@ import Charts
 
 struct MuscleGroupHistoryDetailView: View {
     @Environment(DataManager.self) var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
     @EnvironmentObject var userPreferences: UserPreferences
     let muscleGroupName: String
     let sessions: [WorkoutSession]
+    @State private var pendingStartFreshReplace: PendingWorkoutReplace?
 
     private var sessionLogs: [(session: WorkoutSession, logs: [ExerciseLog])] {
         sessions.compactMap { session in
@@ -43,6 +46,7 @@ struct MuscleGroupHistoryDetailView: View {
 
     var body: some View {
         List {
+            lastSessionSection
             if muscleVolumeTrendPoints.count >= 2 {
                 Section {
                     HistoryChartCard(title: "Volume per session (\(volumeUnit))") {
@@ -134,5 +138,61 @@ struct MuscleGroupHistoryDetailView: View {
         }
         .navigationTitle(muscleGroupName)
         .navigationBarTitleDisplayMode(.inline)
+        .workoutReplaceConflictConfirmation(
+            currentVM: currentVM,
+            pending: $pendingStartFreshReplace,
+            onAfterReplace: { openCurrentWorkoutSheet?() }
+        )
+    }
+
+    @ViewBuilder
+    private var lastSessionSection: some View {
+        if let latest = MuscleGroupLastSessionCopy.latest(
+            muscleGroupName: muscleGroupName,
+            in: sessions,
+            resolve: { dataVM.resolveExercise(for: $0) }
+        ) {
+            let canStart = HistoryStartFreshWorkout.sourceWorkout(
+                session: latest.session,
+                library: dataVM.userWorkouts
+            ) != nil
+            Section {
+                if let recap = MuscleGroupLastSessionCopy.recap(
+                    session: latest.session,
+                    logs: latest.logs,
+                    unit: userPreferences.weightDisplayUnit
+                ) {
+                    Text(recap)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel(recap)
+                }
+                if canStart {
+                    Button {
+                        HistoryStartFreshWorkout.start(
+                            from: latest.session,
+                            dataVM: dataVM,
+                            currentVM: currentVM,
+                            openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+                            setPendingReplace: { pendingStartFreshReplace = $0 }
+                        )
+                    } label: {
+                        Label("Start this workout", systemImage: "play.fill")
+                    }
+                    .accessibilityIdentifier(FitLogA11yID.historyStartThisWorkout)
+                    .accessibilityLabel("Start this workout")
+                    .accessibilityHint(
+                        "Starts a new session from \(latest.session.workout.name) so you can repeat it without going back to Home"
+                    )
+                    .accessibilityAddTraits(.isButton)
+                }
+            } header: {
+                Text("Last session")
+            } footer: {
+                if canStart {
+                    Text("Repeats the workout that last trained this muscle group. The finished entry stays in History.")
+                }
+            }
+        }
     }
 }
