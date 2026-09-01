@@ -1589,11 +1589,20 @@ final class DataManager {
 
     /// Most recent completion date for sessions tied to a library workout id.
     func lastCompletedDate(forLibraryWorkoutId libraryId: UUID) -> Date? {
-        completedSessions.compactMap { session -> Date? in
-            guard let end = session.endTime else { return nil }
-            if session.sessionPlanOrigin?.libraryWorkoutId == libraryId { return end }
-            return nil
-        }.max()
+        lastCompletedSession(forLibraryWorkoutId: libraryId)?.endTime
+    }
+
+    /// Most recent completed session for a library workout (plan origin, or legacy matching workout id).
+    func lastCompletedSession(forLibraryWorkoutId libraryId: UUID) -> WorkoutSession? {
+        let planRef = WorkoutPlanRef.workout(libraryId)
+        return completedSessions
+            .filter { session in
+                guard session.endTime != nil else { return false }
+                if session.sessionPlanOrigin == planRef { return true }
+                if session.sessionPlanOrigin == nil, session.workout.id == libraryId { return true }
+                return false
+            }
+            .max(by: { ($0.endTime ?? $0.startTime) < ($1.endTime ?? $1.startTime) })
     }
 
     /// Unique library workout ids from recent completed sessions, most recent first.

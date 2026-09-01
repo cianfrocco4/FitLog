@@ -10,6 +10,7 @@ import SwiftUI
 struct HomeStartWorkoutSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(DataManager.self) var dataVM
+    @EnvironmentObject var userPreferences: UserPreferences
 
     let todayPlan: ResolvedScheduleDay
     let scheduledWorkout: Workout?
@@ -39,10 +40,16 @@ struct HomeStartWorkoutSheet: View {
                                     Text(scheduled.name)
                                         .font(.subheadline)
                                         .foregroundStyle(.secondary)
+                                    if let recap = lastWorkingLine(for: scheduled.id) {
+                                        Text(recap)
+                                            .font(.caption)
+                                            .foregroundStyle(.tertiary)
+                                    }
                                 }
                             }
                         }
                         .accessibilityHint("Starts today's scheduled workout")
+                        .accessibilityLabel(todayPlanAccessibilityLabel(scheduled))
                     } header: {
                         Text("Recommended")
                     }
@@ -66,9 +73,16 @@ struct HomeStartWorkoutSheet: View {
                                         Text(HomeWorkoutFormatting.lastDoneLabel(for: lastCompletedDates[workout.id]))
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
+                                        if let recap = lastWorkingLine(for: workout.id) {
+                                            Text(recap)
+                                                .font(.caption2)
+                                                .foregroundStyle(.tertiary)
+                                        }
                                     }
                                 }
                             }
+                            .accessibilityLabel(recentWorkoutAccessibilityLabel(workout))
+                            .accessibilityHint("Starts this workout as a new session")
                         }
                     } header: {
                         Text("Recent")
@@ -110,5 +124,29 @@ struct HomeStartWorkoutSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private func lastWorkingLine(for libraryId: UUID) -> String? {
+        guard let session = dataVM.lastCompletedSession(forLibraryWorkoutId: libraryId) else { return nil }
+        return LastSessionWorkingRecap.compactLine(from: session, weightUnit: userPreferences.weightDisplayUnit)
+    }
+
+    private func todayPlanAccessibilityLabel(_ scheduled: Workout) -> String {
+        var parts = ["Today's plan", scheduled.name]
+        if let recap = lastWorkingLine(for: scheduled.id) {
+            parts.append(recap)
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    private func recentWorkoutAccessibilityLabel(_ workout: Workout) -> String {
+        var parts = [
+            workout.name,
+            HomeWorkoutFormatting.lastDoneLabel(for: lastCompletedDates[workout.id])
+        ]
+        if let recap = lastWorkingLine(for: workout.id) {
+            parts.append(recap)
+        }
+        return parts.joined(separator: ", ")
     }
 }

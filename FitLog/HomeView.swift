@@ -101,6 +101,19 @@ struct HomeView: View {
         })
     }
 
+    private var recentWorkoutLastWorkingLines: [UUID: String] {
+        let unit = userPreferences.weightDisplayUnit
+        var result: [UUID: String] = [:]
+        for workout in recentQuickStartWorkouts {
+            guard let session = dataVM.lastCompletedSession(forLibraryWorkoutId: workout.id),
+                  let line = LastSessionWorkingRecap.compactLine(from: session, weightUnit: unit) else {
+                continue
+            }
+            result[workout.id] = line
+        }
+        return result
+    }
+
     private var shouldShowCardioGetStartedCard: Bool {
         !userPreferences.dismissedCardioGetStartedBanner && !dataVM.hasLoggedCardio()
     }
@@ -497,6 +510,7 @@ struct HomeView: View {
                     HomeRecentWorkoutsRow(
                         workouts: recentQuickStartWorkouts,
                         lastCompletedDates: recentWorkoutLastDoneDates,
+                        lastWorkingLines: recentWorkoutLastWorkingLines,
                         onStart: startWorkoutFromLibrary
                     )
                     .listRowInsets(homeDashboardListInsets)
@@ -747,6 +761,7 @@ struct HomeView: View {
                     }
                 )
                 .environment(dataVM)
+                .environmentObject(userPreferences)
             }
             .sheet(isPresented: $showNewWorkout, onDismiss: {
                 newWorkoutLaunchHint = nil

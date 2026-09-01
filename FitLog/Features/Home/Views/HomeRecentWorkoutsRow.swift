@@ -10,6 +10,7 @@ import SwiftUI
 struct HomeRecentWorkoutsRow: View {
     let workouts: [Workout]
     let lastCompletedDates: [UUID: Date]
+    var lastWorkingLines: [UUID: String] = [:]
     let onStart: (Workout) -> Void
 
     var body: some View {
@@ -27,7 +28,8 @@ struct HomeRecentWorkoutsRow: View {
                         } label: {
                             HomeRecentWorkoutChip(
                                 workout: workout,
-                                lastDone: lastCompletedDates[workout.id]
+                                lastDone: lastCompletedDates[workout.id],
+                                lastWorkingLine: lastWorkingLines[workout.id]
                             )
                         }
                         .buttonStyle(.plain)
@@ -50,6 +52,7 @@ struct HomeRecentWorkoutsRow: View {
 private struct HomeRecentWorkoutChip: View {
     let workout: Workout
     let lastDone: Date?
+    var lastWorkingLine: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -66,6 +69,12 @@ private struct HomeRecentWorkoutChip: View {
             Text(HomeWorkoutFormatting.lastDoneLabel(for: lastDone))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+            if let lastWorkingLine {
+                Text(lastWorkingLine)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
             Text("\(workout.exercises.count) exercises")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
@@ -79,7 +88,15 @@ private struct HomeRecentWorkoutChip: View {
                 .frame(width: 4)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(workout.name), \(HomeWorkoutFormatting.lastDoneLabel(for: lastDone))")
+        .accessibilityLabel(chipAccessibilityLabel)
+    }
+
+    private var chipAccessibilityLabel: String {
+        var parts = [workout.name, HomeWorkoutFormatting.lastDoneLabel(for: lastDone)]
+        if let lastWorkingLine {
+            parts.append(lastWorkingLine)
+        }
+        return parts.joined(separator: ", ")
     }
 }
 

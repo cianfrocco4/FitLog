@@ -25,7 +25,9 @@ struct PlanCalendarView: View {
     @Environment(DataManager.self) var dataVM
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var aiService: AIService
+    @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
 
     @State private var visibleMonth: Date = Date()
     @State private var weekStripWeekOffset: Int = 0
@@ -195,6 +197,8 @@ struct PlanCalendarView: View {
                     .environment(dataVM)
                     .environment(currentVM)
                     .environmentObject(aiService)
+                    .environmentObject(userPreferences)
+                    .environment(\.openCurrentWorkoutSheet, openCurrentWorkoutSheet)
             }
             .sheet(item: Binding(
                 get: { weekEditAnchor.map { WeekSheetItem(anchor: $0) } },
@@ -774,7 +778,9 @@ struct DayPlanSheet: View {
     @Environment(DataManager.self) var dataVM
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var aiService: AIService
+    @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
 
     let date: Date
 
@@ -807,6 +813,37 @@ struct DayPlanSheet: View {
                         Label("Off / unscheduled", systemImage: "circle.dashed")
                     case .workout(let ref):
                         Label(dataVM.planLabel(for: ref), systemImage: "dumbbell")
+                    }
+                }
+
+                if let recap = lastSessionRecap {
+                    Section("Last time") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(recap.detailLine)
+                                .font(.subheadline.weight(.semibold))
+                            if !recap.durationLine.isEmpty, recap.durationLine != recap.compactLine {
+                                Text(recap.durationLine)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text(HomeWorkoutFormatting.lastDoneLabel(for: recap.endedAt))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel(lastTimeAccessibilityLabel(recap))
+                    }
+                }
+
+                if let startable = startableLibraryWorkout {
+                    Section("Train") {
+                        Button {
+                            startAssignedLibraryWorkout(startable)
+                        } label: {
+                            Label("Start this workout", systemImage: "play.fill")
+                        }
+                        .accessibilityIdentifier(FitLogA11yID.planStartThisWorkout)
+                        .accessibilityHint("Starts this workout as a new session and opens logging")
                     }
                 }
 
@@ -863,22 +900,6 @@ struct DayPlanSheet: View {
 
                 if calendar.startOfDay(for: date) >= calendar.startOfDay(for: Date()) {
                     Section("Actions") {
-                        if case .workout(let ref) = dataVM.resolvedScheduleDay(for: date, calendar: calendar),
-                           let w = dataVM.workout(id: ref.libraryWorkoutId) {
-                            Button("Start workout") {
-                                let session = w.hasFlexibleSlots ? dataVM.sessionInstance(from: w) : w
-                                switch currentVM.resolveStartingWorkout(session, sessionPlanOrigin: .workout(w.id)) {
-                                case .performStart:
-                                    currentVM.startWorkout(session, sessionPlanOrigin: .workout(w.id))
-                                    dismiss()
-                                case .noOpAlreadyActive:
-                                    dismiss()
-                                case .needsReplaceConfirmation(let p):
-                                    pendingWorkoutReplace = p
-                                }
-                            }
-                        }
-
                         Picker("Swap to workout", selection: $swapPlanRef) {
                             Text("Choose…").tag(nil as WorkoutPlanRef?)
                             Section("Library") {
@@ -937,7 +958,10 @@ struct DayPlanSheet: View {
             .workoutReplaceConflictConfirmation(
                 currentVM: currentVM,
                 pending: $pendingWorkoutReplace,
-                onAfterReplace: { dismiss() }
+                onAfterReplace: {
+                    dismiss()
+                    openCurrentWorkoutSheet?()
+                }
             )
             .onAppear {
                 if let o = dataVM.trainingProgram.dayOverrides[dayKey], o.intent == .workout {
@@ -1074,6 +1098,62 @@ struct DayPlanSheet: View {
             return ref.libraryWorkoutId
         default:
             return nil
+        }
+    }
+
+    private var startableLibraryWorkout: Workout? {
+        let resolved = dataVM.resolvedScheduleDay(for: date, calendar: calendar)
+        if case .workout(let ref) = resolved,
+           let planned = dataVM.workout(id: ref.libraryWorkoutId),
+           !planned.exercises.isEmpty {
+            return planned
+        }
+        if let done = dataVM.primaryCompletedSession(on: date, calendar: calendar) {
+            if let originId = done.sessionPlanOrigin?.libraryWorkoutId,
+               let fromOrigin = dataVM.workout(id: originId),
+               !fromOrigin.exercises.isEmpty {
+                return fromOrigin
+            }
+            if let fromSnapshot = dataVM.workout(id: done.workout.id), !fromSnapshot.exercises.isEmpty {
+                return fromSnapshot
+            }
+        }
+        return nil
+    }
+
+    private var lastSessionRecap: LastSessionWorkingRecap.Recap? {
+        let unit = userPreferences.weightDisplayUnit
+        if let startable = startableLibraryWorkout,
+           let session = dataVM.lastCompletedSession(forLibraryWorkoutId: startable.id) {
+            return LastSessionWorkingRecap.make(from: session, weightUnit: unit)
+        }
+        if let done = dataVM.primaryCompletedSession(on: date, calendar: calendar) {
+            return LastSessionWorkingRecap.make(from: done, weightUnit: unit)
+        }
+        return nil
+    }
+
+    private func lastTimeAccessibilityLabel(_ recap: LastSessionWorkingRecap.Recap) -> String {
+        var parts = ["Last time", recap.detailLine]
+        if !recap.durationLine.isEmpty, recap.durationLine != recap.compactLine {
+            parts.append(recap.durationLine)
+        }
+        parts.append(HomeWorkoutFormatting.lastDoneLabel(for: recap.endedAt))
+        return parts.joined(separator: ", ")
+    }
+
+    private func startAssignedLibraryWorkout(_ workout: Workout) {
+        let session = workout.hasFlexibleSlots ? dataVM.sessionInstance(from: workout) : workout
+        switch currentVM.resolveStartingWorkout(session, sessionPlanOrigin: .workout(workout.id)) {
+        case .performStart:
+            currentVM.startWorkout(session, sessionPlanOrigin: .workout(workout.id))
+            dismiss()
+            openCurrentWorkoutSheet?()
+        case .noOpAlreadyActive:
+            dismiss()
+            openCurrentWorkoutSheet?()
+        case .needsReplaceConfirmation(let pending):
+            pendingWorkoutReplace = pending
         }
     }
 

@@ -21,6 +21,7 @@ struct HomeProgramWeekSession: Identifiable, Equatable {
 
 struct HomeProgramSummaryCard: View {
     @Environment(DataManager.self) var dataVM
+    @EnvironmentObject var userPreferences: UserPreferences
 
     let state: DynamicProgramState
     let onOpenDetail: () -> Void
@@ -177,6 +178,12 @@ struct HomeProgramSummaryCard: View {
                     .font(.subheadline.weight(session.isToday ? .semibold : .regular))
                     .foregroundStyle(session.isRest || session.isUnscheduled ? .secondary : .primary)
                     .lineLimit(1)
+                if let recap = lastWorkingLine(for: session) {
+                    Text(recap)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 if session.isToday, !session.isRest, !session.isUnscheduled {
                     Text("Today")
                         .font(.caption2.weight(.medium))
@@ -190,9 +197,16 @@ struct HomeProgramSummaryCard: View {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.green)
                     .accessibilityLabel("Completed")
+                if let workout = libraryWorkout(for: session) {
+                    Button("Again") {
+                        onStartWorkout(workout)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .accessibilityHint("Starts this workout again as a new session")
+                }
             } else if session.isToday,
-                      let libraryId = session.libraryWorkoutId,
-                      let workout = dataVM.userWorkouts.first(where: { $0.id == libraryId }) {
+                      let workout = libraryWorkout(for: session) {
                 Button("Start") {
                     onStartWorkout(workout)
                 }
@@ -323,6 +337,22 @@ struct HomeProgramSummaryCard: View {
         }
         .frame(width: 44, height: 44)
         .accessibilityLabel("\(completed) of \(planned) sessions completed in this block")
+    }
+
+    private func libraryWorkout(for session: HomeProgramWeekSession) -> Workout? {
+        guard let libraryId = session.libraryWorkoutId else { return nil }
+        return dataVM.userWorkouts.first(where: { $0.id == libraryId })
+    }
+
+    private func lastWorkingLine(for session: HomeProgramWeekSession) -> String? {
+        guard let libraryId = session.libraryWorkoutId,
+              let completed = dataVM.lastCompletedSession(forLibraryWorkoutId: libraryId) else {
+            return nil
+        }
+        return LastSessionWorkingRecap.compactLine(
+            from: completed,
+            weightUnit: userPreferences.weightDisplayUnit
+        )
     }
 }
 
