@@ -52,8 +52,10 @@ struct WorkoutPlanView: View {
     let currentVM: CurrentWorkoutSessionViewModel
     @Environment(DataManager.self) var dataVM
     @EnvironmentObject var aiService: AIService
+    @EnvironmentObject var userPreferences: UserPreferences
     @Environment(EntitlementStore.self) private var entitlementStore
     @Environment(\.openPullUpToExerciseLogIndex) private var openPullUpToExerciseLogIndex
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
     @Environment(\.undoManager) private var undoManager
     @State private var addExercisePresentation: AddExerciseSheetMode?
     @State private var showRenameAlert = false
@@ -171,6 +173,9 @@ struct WorkoutPlanView: View {
                         ) {
                             pendingWorkoutReplace = $0
                         }
+                        if currentVM.isInProgress {
+                            openCurrentWorkoutSheet?()
+                        }
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -180,7 +185,9 @@ struct WorkoutPlanView: View {
                 .accessibilityHint(
                     isThisLibrarySessionActive
                         ? "Starts finish checks; saves to history if you confirm"
-                        : "Starts this workout as your active session"
+                        : (workout.exercises.isEmpty
+                            ? "Add at least one exercise before starting"
+                            : "Starts this workout and opens logging")
                 )
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -228,7 +235,11 @@ struct WorkoutPlanView: View {
                 dataVM.renameWorkout(workout, newName: newWorkoutName)
             }
         }
-        .workoutReplaceConflictConfirmation(currentVM: currentVM, pending: $pendingWorkoutReplace)
+        .workoutReplaceConflictConfirmation(
+            currentVM: currentVM,
+            pending: $pendingWorkoutReplace,
+            onAfterReplace: { openCurrentWorkoutSheet?() }
+        )
         .navigationDestination(item: $openSlotEditorNavigation) { nav in
             FlexibleSlotEditorView(workoutId: workout.id, slotId: nav.id, autoFocusLabelOnAppear: true)
                 .environment(dataVM)
@@ -530,6 +541,13 @@ struct WorkoutPlanView: View {
             }
             LabeledContent("Exercises", value: "\(workout.exercises.count)")
             LabeledContent("Planned sets (sum)", value: "\(workoutTotalRecommendedSets)")
+            if let recap = LibraryWorkoutLastSessionCopy.recap(
+                forLibraryWorkoutId: workout.id,
+                sessions: dataVM.completedSessions,
+                weightUnit: userPreferences.weightDisplayUnit
+            ) {
+                LibraryWorkoutLastSessionRecapView(recap: recap)
+            }
             if workout.workoutKind == .strength || workout.workoutKind == .hybrid {
                 LabeledContent("Top muscles (by sets)", value: workoutPrimaryMuscleSummary)
             }

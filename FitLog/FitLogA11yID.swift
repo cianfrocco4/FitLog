@@ -12,4 +12,8 @@ enum FitLogA11yID {
     static let fromTemplate = "fitlog.fromTemplate"
     static let createWorkout = "fitlog.createWorkout"
     static let quickStartPushA = "fitlog.quickStart.pushA"
+    /// Last-session recap on a saved workout, Personal Records, or exercise detail.
+    static let libraryWorkoutLastSession = "fitlog.libraryWorkout.lastSession"
+    static let personalRecordStartWorkout = "fitlog.personalRecord.startWorkout"
+    static let exerciseDetailStartWorkout = "fitlog.exerciseDetail.startWorkout"
 }

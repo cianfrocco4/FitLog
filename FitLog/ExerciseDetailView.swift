@@ -9,11 +9,13 @@ import SwiftUI
 
 struct ExerciseDetailView: View {
     @Environment(DataManager.self) var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var aiService: AIService
     @Environment(EntitlementStore.self) private var entitlementStore
     @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(ExerciseFormGuideService.self) private var formGuideService
     @Environment(\.dismiss) var dismiss
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
     let exerciseId: UUID
     @State private var showEditSheet = false
     @State private var showLocalRenameSheet = false
@@ -21,6 +23,7 @@ struct ExerciseDetailView: View {
     @State private var formTipsLoading = false
     @State private var showFormGuideSheet = false
     @State private var showSubstitutionSheet = false
+    @State private var pendingWorkoutReplace: PendingWorkoutReplace?
 
     private var exercise: Exercise? {
         dataVM.globalExercises.first { $0.id == exerciseId }
@@ -52,6 +55,8 @@ struct ExerciseDetailView: View {
                             Text(ex.targetedMuscles.map(\.rawValue).joined(separator: ", "))
                                 .font(.subheadline)
                         }
+
+                        exerciseLastSessionRecap(for: ex)
 
                         if ex.modality == .strength || ex.modality == .hybrid {
                             ExerciseFormGuideCompactView(exercise: ex, idleStyle: .poster) {
@@ -167,6 +172,11 @@ struct ExerciseDetailView: View {
                     .environment(dataVM)
                     .environment(entitlementStore)
                 }
+                .workoutReplaceConflictConfirmation(
+                    currentVM: currentVM,
+                    pending: $pendingWorkoutReplace,
+                    onAfterReplace: { openCurrentWorkoutSheet?() }
+                )
             } else {
                 ContentUnavailableView(
                     "Exercise removed",
@@ -176,6 +186,59 @@ struct ExerciseDetailView: View {
                 .onAppear { dismiss() }
             }
         }
+    }
+
+    @ViewBuilder
+    private func exerciseLastSessionRecap(for ex: Exercise) -> some View {
+        let recap = LibraryWorkoutLastSessionCopy.recap(
+            forExerciseId: ex.id,
+            sessions: dataVM.completedSessions,
+            weightUnit: userPreferences.weightDisplayUnit
+        )
+        let workout = LibraryWorkoutLastSessionCopy.libraryWorkoutToStart(
+            forExerciseId: ex.id,
+            library: dataVM.userWorkouts,
+            sessions: dataVM.completedSessions
+        )
+        if recap != nil || workout != nil {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Last session")
+                    .font(.headline)
+                if let recap {
+                    LibraryWorkoutLastSessionRecapView(
+                        recap: recap,
+                        startTitle: workout.map { "Start \($0.name)" },
+                        startAccessibilityIdentifier: FitLogA11yID.exerciseDetailStartWorkout,
+                        onStart: workout == nil ? nil : {
+                            if let workout {
+                                startLibraryWorkout(workout)
+                            }
+                        }
+                    )
+                } else if let workout {
+                    Button("Start \(workout.name)") {
+                        startLibraryWorkout(workout)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .accessibilityHint("Starts this saved workout and opens logging")
+                    .accessibilityIdentifier(FitLogA11yID.exerciseDetailStartWorkout)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+    }
+
+    private func startLibraryWorkout(_ workout: Workout) {
+        startLibraryWorkoutOpeningLogSheet(
+            workout,
+            dataVM: dataVM,
+            currentVM: currentVM,
+            openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+            setPendingReplace: { pendingWorkoutReplace = $0 }
+        )
     }
 
     private func loadFormTips(for ex: Exercise) async {
