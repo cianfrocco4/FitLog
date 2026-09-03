@@ -9,9 +9,13 @@ struct HistoryView: View {
     @Environment(DataManager.self) private var dataVM
     @Environment(EntitlementStore.self) private var entitlementStore
     @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
     @State private var viewModel = HistoryViewModel()
     @State private var isSearchPresented = false
     @State private var openedHistorySessionID: UUID?
+    @State private var pendingStartFreshReplace: PendingWorkoutReplace?
+    @State private var startFreshTrigger = 0
 
     private var sessionsContentRevision: Int {
         HistoryAggregator.contentRevision(for: dataVM.completedSessions)
@@ -20,6 +24,19 @@ struct HistoryView: View {
     var body: some View {
         NavigationStack {
             List {
+                if let recap = lastSessionRecap {
+                    Section {
+                        LastCompletedSessionRecapBlock(
+                            recap: recap,
+                            startTitle: "Start this workout",
+                            recapIdentifier: FitLogA11yID.historyTabLastSession,
+                            startIdentifier: FitLogA11yID.historyTabStartThisWorkout,
+                            startProminent: true,
+                            onStart: canStartLastSession ? { startLastSession() } : nil
+                        )
+                    }
+                }
+
                 Section {
                     Picker("Section", selection: $viewModel.mainTab) {
                         ForEach(HistoryMainTab.allCases) { tab in
@@ -95,7 +112,45 @@ struct HistoryView: View {
                 viewModel.recompute(dataVM: dataVM)
                 loadTabDataIfNeeded()
             }
+            .workoutReplaceConflictConfirmation(
+                currentVM: currentVM,
+                pending: $pendingStartFreshReplace,
+                onAfterReplace: { openCurrentWorkoutSheet?() }
+            )
+            .sensoryFeedback(.impact, trigger: startFreshTrigger)
         }
+    }
+
+    private var latestCompletedSession: WorkoutSession? {
+        LastCompletedSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions)
+    }
+
+    private var lastSessionRecap: LastCompletedSessionWorkingCopy.Recap? {
+        guard let session = latestCompletedSession else { return nil }
+        return LastCompletedSessionWorkingCopy.recap(
+            from: session,
+            weightUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
+    private var canStartLastSession: Bool {
+        guard let session = latestCompletedSession else { return false }
+        return LastCompletedSessionWorkingCopy.sourceWorkout(
+            session: session,
+            library: dataVM.userWorkouts
+        ) != nil
+    }
+
+    private func startLastSession() {
+        guard let session = latestCompletedSession else { return }
+        startFreshTrigger += 1
+        LastCompletedSessionWorkingCopy.startFresh(
+            from: session,
+            dataVM: dataVM,
+            currentVM: currentVM,
+            openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+            setPendingReplace: { pendingStartFreshReplace = $0 }
+        )
     }
 
     private func openHistorySession(id: UUID) {

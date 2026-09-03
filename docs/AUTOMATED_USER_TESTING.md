@@ -241,6 +241,12 @@ Stable IDs (also spoken labels where noted):
 | `fitlog.fromTemplate` | Empty Home “From template” |
 | `fitlog.createWorkout` | New-workout sheet **Create** |
 | `fitlog.quickStart.pushA` | Quick-start template **Push A** |
+| `fitlog.historyTab.lastSession` | History tab last-session recap (all subtabs) |
+| `fitlog.historyTab.startThisWorkout` | History tab **Start this workout** (fresh session) |
+| `fitlog.weeklyInsight.lastSession` | Home week-in-review last-session recap |
+| `fitlog.weeklyInsight.startWorkout` | Home week-in-review **Start this workout** |
+
+Exercise Library Recent/Favorites rows speak “Last working {load}”. Context menu **Start {workout}** starts a new session (not a unique identifier — labels vary by workout name).
 
 Prefer these IDs in new UI tests. Keep `.accessibilityLabel` / `.accessibilityHint` for VoiceOver.
 

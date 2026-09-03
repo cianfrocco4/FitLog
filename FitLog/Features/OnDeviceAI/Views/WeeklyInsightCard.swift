@@ -9,9 +9,34 @@ struct WeeklyInsightCard: View {
     @Environment(DataManager.self) private var dataVM
     @EnvironmentObject private var aiService: AIService
     @Environment(EntitlementStore.self) private var entitlementStore
+    @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
 
     @State private var viewModel = InsightsViewModel()
+    @State private var pendingStartReplace: PendingWorkoutReplace?
+    @State private var startWorkoutTrigger = 0
     var readinessTrendSummaries: [String] = []
+
+    private var lastSession: WorkoutSession? {
+        LastCompletedSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions)
+    }
+
+    private var lastSessionRecap: LastCompletedSessionWorkingCopy.Recap? {
+        guard let session = lastSession else { return nil }
+        return LastCompletedSessionWorkingCopy.recap(
+            from: session,
+            weightUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
+    private var canStartLastSession: Bool {
+        guard let session = lastSession else { return false }
+        return LastCompletedSessionWorkingCopy.sourceWorkout(
+            session: session,
+            library: dataVM.userWorkouts
+        ) != nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -21,7 +46,7 @@ struct WeeklyInsightCard: View {
                 Spacer()
                 if viewModel.isLoading {
                     ProgressView()
-                } else {
+                } else if entitlementStore.isPremium {
                     Button("Refresh") {
                         Task {
                             await viewModel.regenerate(
@@ -35,6 +60,18 @@ struct WeeklyInsightCard: View {
                     .font(.caption.weight(.semibold))
                     .accessibilityHint("Regenerates this week's insight")
                 }
+            }
+
+            if let recap = lastSessionRecap {
+                LastCompletedSessionRecapBlock(
+                    recap: recap,
+                    startTitle: "Start this workout",
+                    recapIdentifier: FitLogA11yID.weeklyInsightLastSession,
+                    startIdentifier: FitLogA11yID.weeklyInsightStartWorkout,
+                    startProminent: false,
+                    onStart: canStartLastSession ? { startLastSession() } : nil
+                )
+                Divider()
             }
 
             if let insight = viewModel.insight {
@@ -98,7 +135,25 @@ struct WeeklyInsightCard: View {
             PaywallView(triggerFeature: .aiCoach, analyticsSource: "weekly_insight")
                 .environment(entitlementStore)
         }
+        .workoutReplaceConflictConfirmation(
+            currentVM: currentVM,
+            pending: $pendingStartReplace,
+            onAfterReplace: { openCurrentWorkoutSheet?() }
+        )
+        .sensoryFeedback(.impact, trigger: startWorkoutTrigger)
         .accessibilityElement(children: .contain)
+    }
+
+    private func startLastSession() {
+        guard let session = lastSession else { return }
+        startWorkoutTrigger += 1
+        LastCompletedSessionWorkingCopy.startFresh(
+            from: session,
+            dataVM: dataVM,
+            currentVM: currentVM,
+            openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+            setPendingReplace: { pendingStartReplace = $0 }
+        )
     }
 
     private func bulletBlock(title: String, items: [String], systemImage: String) -> some View {

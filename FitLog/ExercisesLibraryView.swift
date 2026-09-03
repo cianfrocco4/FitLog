@@ -43,6 +43,9 @@ struct ExercisesLibraryView: View {
     @Environment(DataManager.self) var dataVM
     @EnvironmentObject private var aiService: AIService
     @Environment(ExerciseFormGuideService.self) private var formGuideService
+    @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
     @State private var showAddSheet = false
     @State private var exerciseToEdit: EditableExerciseItem?
     @State private var exerciseToRenameLocally: LocalRenameExerciseItem?
@@ -51,6 +54,8 @@ struct ExercisesLibraryView: View {
     @State private var modalityFilter: ExerciseLibraryModalityFilter = .all
     @State private var browseMode: ExerciseLibraryBrowseMode = .byCategory
     @State private var favoriteIds: Set<UUID> = []
+    @State private var pendingStartReplace: PendingWorkoutReplace?
+    @State private var startWorkoutTrigger = 0
 
     private var searchQuery: String {
         searchText.trimmingCharacters(in: .whitespaces)
@@ -202,13 +207,19 @@ struct ExercisesLibraryView: View {
         .onAppear {
             favoriteIds = ExercisePickerPersistence.loadFavorites()
         }
+        .workoutReplaceConflictConfirmation(
+            currentVM: currentVM,
+            pending: $pendingStartReplace,
+            onAfterReplace: { openCurrentWorkoutSheet?() }
+        )
+        .sensoryFeedback(.impact, trigger: startWorkoutTrigger)
     }
 
     private var listFlat: some View {
         List {
             Section {
                 ForEach(flatSorted) { ex in
-                    libraryRow(ex)
+                    libraryRow(ex, showLastWorking: false)
                 }
             }
         }
@@ -220,7 +231,7 @@ struct ExercisesLibraryView: View {
                 if !favoriteExercises.isEmpty {
                     Section(header: Text("Favorites")) {
                         ForEach(favoriteExercises) { ex in
-                            libraryRow(ex)
+                            libraryRow(ex, showLastWorking: true)
                         }
                     }
                     .id("favorites")
@@ -228,7 +239,7 @@ struct ExercisesLibraryView: View {
                 if !recentExercises.isEmpty {
                     Section(header: Text("Recent")) {
                         ForEach(recentExercises) { ex in
-                            libraryRow(ex)
+                            libraryRow(ex, showLastWorking: true)
                         }
                     }
                     .id("recent")
@@ -237,7 +248,7 @@ struct ExercisesLibraryView: View {
                     ForEach(cardioActivitySections, id: \.0) { activity, list in
                         Section {
                             ForEach(list) { ex in
-                                libraryRow(ex)
+                                libraryRow(ex, showLastWorking: false)
                             }
                         } header: {
                             ExerciseLibraryActivityHeader(activity: activity)
@@ -250,7 +261,7 @@ struct ExercisesLibraryView: View {
                             ForEach(musclePairs, id: \.0.id) { muscle, list in
                                 Section {
                                     ForEach(list) { ex in
-                                        libraryRow(ex)
+                                        libraryRow(ex, showLastWorking: false)
                                     }
                                 } header: {
                                     ExerciseLibraryMuscleGroupHeader(name: muscle.rawValue)
@@ -273,7 +284,14 @@ struct ExercisesLibraryView: View {
     }
 
     @ViewBuilder
-    private func libraryRow(_ ex: Exercise) -> some View {
+    private func libraryRow(_ ex: Exercise, showLastWorking: Bool) -> some View {
+        let lastWorking = showLastWorking
+            ? LastCompletedSessionWorkingCopy.recap(
+                forExerciseId: ex.id,
+                sessions: dataVM.completedSessions,
+                weightUnit: userPreferences.weightDisplayUnit
+            )
+            : nil
         HStack(spacing: 0) {
             NavigationLink {
                 ExerciseDetailView(exerciseId: ex.id)
@@ -282,10 +300,18 @@ struct ExercisesLibraryView: View {
                     if formGuideService.isConfigured, ex.modality != .cardio {
                         ExerciseFormGuideLibraryThumbnail(exercise: ex)
                     }
-                    HStack(spacing: 8) {
-                        Text(dataVM.resolvedDisplayName(for: ex))
-                        Spacer(minLength: 8)
-                        statusBadges(for: ex)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Text(dataVM.resolvedDisplayName(for: ex))
+                            Spacer(minLength: 8)
+                            statusBadges(for: ex)
+                        }
+                        if let lastWorking {
+                            Text(lastWorking.loadLine)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .accessibilityLabel("Last working \(lastWorking.loadLine)")
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -302,6 +328,8 @@ struct ExercisesLibraryView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(favoriteIds.contains(ex.id) ? "Remove from favorites" : "Add to favorites")
+            .accessibilityHint("Marks this exercise as a favorite in the library")
             .padding(.leading, 4)
         }
         .contextMenu {
@@ -353,6 +381,24 @@ struct ExercisesLibraryView: View {
 
     @ViewBuilder
     private func contextMenuButtons(for ex: Exercise) -> some View {
+        if let workout = LastCompletedSessionWorkingCopy.libraryWorkoutToStart(
+            forExerciseId: ex.id,
+            library: dataVM.userWorkouts,
+            sessions: dataVM.completedSessions
+        ) {
+            Button {
+                startWorkoutTrigger += 1
+                LastCompletedSessionWorkingCopy.startLibraryWorkout(
+                    workout,
+                    dataVM: dataVM,
+                    currentVM: currentVM,
+                    openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+                    setPendingReplace: { pendingStartReplace = $0 }
+                )
+            } label: {
+                Label("Start \(workout.name)", systemImage: "play.fill")
+            }
+        }
         if !ex.isCustom {
             Button {
                 exerciseToRenameLocally = LocalRenameExerciseItem(exercise: ex)

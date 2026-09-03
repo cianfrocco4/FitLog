@@ -12,4 +12,10 @@ enum FitLogA11yID {
     static let fromTemplate = "fitlog.fromTemplate"
     static let createWorkout = "fitlog.createWorkout"
     static let quickStartPushA = "fitlog.quickStart.pushA"
+    /// Last completed session recap at the top of the History tab (all subtabs).
+    static let historyTabLastSession = "fitlog.historyTab.lastSession"
+    static let historyTabStartThisWorkout = "fitlog.historyTab.startThisWorkout"
+    /// Last session recap inside Home week-in-review (free + Premium).
+    static let weeklyInsightLastSession = "fitlog.weeklyInsight.lastSession"
+    static let weeklyInsightStartWorkout = "fitlog.weeklyInsight.startWorkout"
 }
