@@ -14,12 +14,33 @@ struct MoreTabRootView: View {
     @EnvironmentObject var authVM: AuthViewModel
     @Environment(EntitlementStore.self) private var entitlementStore
 
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
+
     @State private var showEraseDataConfirm = false
     @State private var showDeleteAccountConfirm = false
+    @State private var pendingStartFreshReplace: PendingWorkoutReplace?
+    @State private var startFreshTrigger = 0
 
     var body: some View {
         NavigationStack {
             List {
+                if let recap = lastSessionRecap {
+                    Section {
+                        HubLastSessionRecapBlock(
+                            recap: recap,
+                            startTitle: "Start this workout",
+                            recapIdentifier: FitLogA11yID.moreTabLastSession,
+                            startIdentifier: FitLogA11yID.moreTabStartThisWorkout,
+                            startProminent: true,
+                            onStart: canStartLastSession ? { startLastSession() } : nil
+                        )
+                    } header: {
+                        Text("Train again")
+                    } footer: {
+                        Text("Starts a new session from your last workout. The History entry stays saved.")
+                    }
+                }
+
                 NavigationLink {
                     PersonalRecordsView()
                         .environment(dataVM)
@@ -105,6 +126,12 @@ struct MoreTabRootView: View {
             }
             .navigationTitle("More")
             .navigationBarTitleDisplayMode(.large)
+            .workoutReplaceConflictConfirmation(
+                currentVM: currentVM,
+                pending: $pendingStartFreshReplace,
+                onAfterReplace: { openCurrentWorkoutSheet?() }
+            )
+            .sensoryFeedback(.impact, trigger: startFreshTrigger)
             .deleteAccountConfirmation(isPresented: $showDeleteAccountConfirm) {
                 Task {
                     await authVM.deleteAccount(
@@ -130,5 +157,37 @@ struct MoreTabRootView: View {
                 Text("This permanently removes workouts, history, programs, Coach chats, readiness history, body metrics, and progress photos from this device. Workouts already written to Apple Health stay in Health until you delete them there. Export a backup first if you need one.")
             }
         }
+    }
+
+    private var latestCompletedSession: WorkoutSession? {
+        HubLastSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions)
+    }
+
+    private var lastSessionRecap: HubLastSessionWorkingCopy.Recap? {
+        guard let session = latestCompletedSession else { return nil }
+        return HubLastSessionWorkingCopy.recap(
+            from: session,
+            weightUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
+    private var canStartLastSession: Bool {
+        guard let session = latestCompletedSession else { return false }
+        return HubLastSessionWorkingCopy.sourceWorkout(
+            session: session,
+            library: dataVM.userWorkouts
+        ) != nil
+    }
+
+    private func startLastSession() {
+        guard let session = latestCompletedSession else { return }
+        startFreshTrigger += 1
+        HubLastSessionWorkingCopy.startFresh(
+            from: session,
+            dataVM: dataVM,
+            currentVM: currentVM,
+            openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+            setPendingReplace: { pendingStartFreshReplace = $0 }
+        )
     }
 }

@@ -11,7 +11,9 @@ struct ActiveProgramDetailView: View {
     @Environment(DataManager.self) private var dataVM
     @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
     @EnvironmentObject private var aiService: AIService
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
 
     @State private var nameDraft: String = ""
     @State private var sessionsPerWeek: Int = 3
@@ -21,6 +23,8 @@ struct ActiveProgramDetailView: View {
     @State private var showRemoveConfirm = false
     @State private var builderHydration: DynamicProgramState?
     @State private var showHydratedBuilder = false
+    @State private var pendingStartFreshReplace: PendingWorkoutReplace?
+    @State private var startFreshTrigger = 0
 
     private var calendar: Calendar { .current }
 
@@ -74,6 +78,12 @@ struct ActiveProgramDetailView: View {
                         .environmentObject(aiService)
                 }
             }
+            .workoutReplaceConflictConfirmation(
+                currentVM: currentVM,
+                pending: $pendingStartFreshReplace,
+                onAfterReplace: { openCurrentWorkoutSheet?() }
+            )
+            .sensoryFeedback(.impact, trigger: startFreshTrigger)
         }
     }
 
@@ -86,6 +96,23 @@ struct ActiveProgramDetailView: View {
         let sessionProgress = dataVM.dynamicProgramBlockSessionProgress(calendar: calendar)
 
         Form {
+            if let recap = lastSessionRecap {
+                Section {
+                    HubLastSessionRecapBlock(
+                        recap: recap,
+                        startTitle: "Start this workout",
+                        recapIdentifier: FitLogA11yID.programDetailLastSession,
+                        startIdentifier: FitLogA11yID.programDetailStartThisWorkout,
+                        startProminent: true,
+                        onStart: canStartLastSession ? { startLastSession() } : nil
+                    )
+                } header: {
+                    Text("Last session")
+                } footer: {
+                    Text("Starts a new session from your last workout. The History entry stays saved.")
+                }
+            }
+
             Section {
                 TextField("Program name", text: $nameDraft)
                     .font(.headline)
@@ -422,6 +449,38 @@ struct ActiveProgramDetailView: View {
                 .padding(4)
         }
         .frame(width: 52, height: 52)
+    }
+
+    private var latestCompletedSession: WorkoutSession? {
+        HubLastSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions)
+    }
+
+    private var lastSessionRecap: HubLastSessionWorkingCopy.Recap? {
+        guard let session = latestCompletedSession else { return nil }
+        return HubLastSessionWorkingCopy.recap(
+            from: session,
+            weightUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
+    private var canStartLastSession: Bool {
+        guard let session = latestCompletedSession else { return false }
+        return HubLastSessionWorkingCopy.sourceWorkout(
+            session: session,
+            library: dataVM.userWorkouts
+        ) != nil
+    }
+
+    private func startLastSession() {
+        guard let session = latestCompletedSession else { return }
+        startFreshTrigger += 1
+        HubLastSessionWorkingCopy.startFresh(
+            from: session,
+            dataVM: dataVM,
+            currentVM: currentVM,
+            openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+            setPendingReplace: { pendingStartFreshReplace = $0 }
+        )
     }
 }
 

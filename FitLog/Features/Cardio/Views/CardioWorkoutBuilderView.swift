@@ -9,13 +9,18 @@ import SwiftUI
 
 struct CardioWorkoutBuilderView: View {
     @Environment(DataManager.self) var dataVM
+    @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
 
     @State private var viewModel: CardioWorkoutBuilderViewModel
     @State private var showTemplatePicker = false
     @State private var showExercisePicker = false
     @State private var editingRow: CardioRowEditItem?
     @State private var pendingTemplate: CardioWorkoutTemplate?
+    @State private var pendingStartFreshReplace: PendingWorkoutReplace?
+    @State private var startFreshTrigger = 0
 
     private struct CardioRowEditItem: Identifiable {
         let id: UUID
@@ -41,6 +46,38 @@ struct CardioWorkoutBuilderView: View {
             } footer: {
                 Text("Add cardio exercises and configure targets. Strength rows can be added from the workout plan after saving.")
                     .font(.caption)
+            }
+
+            if lastSessionRecap != nil || canStartCurrentWorkout {
+                Section {
+                    if let recap = lastSessionRecap {
+                        HubLastSessionRecapBlock(
+                            recap: recap,
+                            startTitle: "Start this workout",
+                            recapIdentifier: FitLogA11yID.cardioBuilderLastSession,
+                            startIdentifier: FitLogA11yID.cardioBuilderStartWorkout,
+                            startProminent: true,
+                            onStart: canStartCurrentWorkout ? { startCurrentWorkout() } : nil
+                        )
+                    } else if canStartCurrentWorkout {
+                        Button {
+                            startCurrentWorkout()
+                        } label: {
+                            Label("Start this workout", systemImage: "play.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityLabel("Start this workout")
+                        .accessibilityHint("Starts a new session from this cardio workout and opens logging.")
+                        .accessibilityIdentifier(FitLogA11yID.cardioBuilderStartWorkout)
+                        .accessibilityAddTraits(.isButton)
+                    }
+                } header: {
+                    Text("Last time")
+                } footer: {
+                    Text("Starts a new session from this cardio workout. History stays saved.")
+                }
             }
 
             Section {
@@ -123,6 +160,15 @@ struct CardioWorkoutBuilderView: View {
             )
             .environment(dataVM)
         }
+        .workoutReplaceConflictConfirmation(
+            currentVM: currentVM,
+            pending: $pendingStartFreshReplace,
+            onAfterReplace: {
+                dismiss()
+                openCurrentWorkoutSheet?()
+            }
+        )
+        .sensoryFeedback(.impact, trigger: startFreshTrigger)
         .alert("Replace exercises?", isPresented: Binding(
             get: { viewModel.replaceTemplateWarning != nil },
             set: { if !$0 { viewModel.replaceTemplateWarning = nil } }
@@ -165,5 +211,35 @@ struct CardioWorkoutBuilderView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityHint("Opens prescription editor")
+    }
+
+    private var lastSessionRecap: HubLastSessionWorkingCopy.Recap? {
+        HubLastSessionWorkingCopy.recap(
+            forLibraryWorkoutId: viewModel.workoutId,
+            sessions: dataVM.completedSessions,
+            weightUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
+    private var canStartCurrentWorkout: Bool {
+        guard let workout = dataVM.workout(id: viewModel.workoutId) else { return false }
+        return !workout.exercises.isEmpty
+    }
+
+    private func startCurrentWorkout() {
+        guard let workout = dataVM.workout(id: viewModel.workoutId),
+              !workout.exercises.isEmpty else { return }
+        startFreshTrigger += 1
+        HubLastSessionWorkingCopy.startLibraryWorkout(
+            workout,
+            dataVM: dataVM,
+            currentVM: currentVM,
+            originHint: .workout(workout.id),
+            openCurrentWorkoutSheet: {
+                dismiss()
+                openCurrentWorkoutSheet?()
+            },
+            setPendingReplace: { pendingStartFreshReplace = $0 }
+        )
     }
 }
