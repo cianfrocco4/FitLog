@@ -15,6 +15,8 @@ struct AIChatView: View {
     @Environment(EntitlementStore.self) private var entitlementStore
     @Environment(\.fitlogCoachDeepLink) private var coachDeepLink
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
+    @Environment(\.openCurrentWorkoutSheet) private var openCurrentWorkoutSheet
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var viewModel = CoachChatViewModel()
     @FocusState private var isComposerFocused: Bool
@@ -23,10 +25,16 @@ struct AIChatView: View {
     @State private var showHistory = false
     @State private var showContextSheet = false
     @State private var showPaywall = false
+    @State private var pendingStartFreshReplace: PendingWorkoutReplace?
+    @State private var startFreshTrigger = 0
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                if let recap = lastSessionRecap {
+                    lastSessionCard(recap)
+                }
+
                 if shouldShowCoachPremiumBanner {
                     premiumRequiredBanner
                 } else if entitlementStore.isPremium, !aiService.isConfigured {
@@ -93,6 +101,7 @@ struct AIChatView: View {
                     .environment(dataVM)
                     .environment(currentVM)
                     .environmentObject(aiService)
+                    .environmentObject(userPreferences)
                     .environment(\.fitlogRootTabSelection, rootTabSelection)
                     .environment(\.fitlogAISplitCoachPrefill, programBuilderPrefill)
             }
@@ -116,6 +125,12 @@ struct AIChatView: View {
                 )
                 .environment(entitlementStore)
             }
+            .workoutReplaceConflictConfirmation(
+                currentVM: currentVM,
+                pending: $pendingStartFreshReplace,
+                onAfterReplace: { openCurrentWorkoutSheet?() }
+            )
+            .sensoryFeedback(.impact, trigger: startFreshTrigger)
             .onAppear {
                 viewModel.bootstrap(dataVM: dataVM)
             }
@@ -216,6 +231,60 @@ struct AIChatView: View {
             rootTabSelection?.wrappedValue = .home
         }
         viewModel.markActionApplied(actionID: action.id, messageID: messageID)
+    }
+
+    // MARK: - Last session (ungated)
+
+    private var latestCompletedSession: WorkoutSession? {
+        EntryLastSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions)
+    }
+
+    private var lastSessionRecap: EntryLastSessionWorkingCopy.Recap? {
+        guard let session = latestCompletedSession else { return nil }
+        return EntryLastSessionWorkingCopy.recap(
+            from: session,
+            weightUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
+    private var canStartLastSession: Bool {
+        guard let session = latestCompletedSession else { return false }
+        return EntryLastSessionWorkingCopy.sourceWorkout(
+            session: session,
+            library: dataVM.userWorkouts
+        ) != nil
+    }
+
+    private func lastSessionCard(_ recap: EntryLastSessionWorkingCopy.Recap) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            EntryLastSessionRecapBlock(
+                recap: recap,
+                startTitle: "Start this workout",
+                recapIdentifier: FitLogA11yID.coachTabLastSession,
+                startIdentifier: FitLogA11yID.coachTabStartThisWorkout,
+                startProminent: true,
+                onStart: canStartLastSession ? { startLastSession() } : nil
+            )
+            Text("Coach stays Premium. You can still start yesterday's workout from here.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(FitlogPalette.subtleFill)
+    }
+
+    private func startLastSession() {
+        guard let session = latestCompletedSession else { return }
+        startFreshTrigger += 1
+        EntryLastSessionWorkingCopy.startFresh(
+            from: session,
+            dataVM: dataVM,
+            currentVM: currentVM,
+            openCurrentWorkoutSheet: openCurrentWorkoutSheet,
+            setPendingReplace: { pendingStartFreshReplace = $0 }
+        )
     }
 
     // MARK: - Empty state
