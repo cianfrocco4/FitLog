@@ -5,6 +5,7 @@
 //  Always-visible weekly activity strip with goal progress ring.
 //
 
+import SwiftData
 import SwiftUI
 
 struct HomeWeekStripView: View {
@@ -52,6 +53,13 @@ struct HomeWeekStripView: View {
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(weekStripAccessibilityLabel)
+
+            GlanceLastSessionHost(
+                recapIdentifier: FitLogA11yID.homeWeekStripLastSession,
+                startIdentifier: FitLogA11yID.homeWeekStripStartThisWorkout,
+                caption: "Repeat yesterday from Home. History stays saved.",
+                startProminent: true
+            )
         }
     }
 
@@ -157,6 +165,18 @@ private struct HomeWeekDayColumn: View {
 }
 
 #if DEBUG
+@MainActor
+private enum HomeWeekStripPreviewData {
+    static func dataManager() -> DataManager {
+        let schema = Schema(versionedSchema: FitLogSchemaV6.self)
+        let container = try! ModelContainer(
+            for: schema,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        return DataManager(modelContainer: container)
+    }
+}
+
 #Preview("Week strip") {
     let cal = Calendar.current
     let today = Date()
@@ -164,6 +184,7 @@ private struct HomeWeekDayColumn: View {
         guard let d = cal.date(byAdding: .day, value: offset - 3, to: today) else { return nil }
         return (d, cal.component(.weekday, from: d), offset % 2 == 0)
     }
+    let dataVM = HomeWeekStripPreviewData.dataManager()
     return HomeWeekStripView(
         glance: DataManager.WeekAtAGlance(
             isoWeekKey: "2026-W21",
@@ -174,5 +195,8 @@ private struct HomeWeekDayColumn: View {
         streakDays: 4
     )
     .padding()
+    .environment(dataVM)
+    .environment(CurrentWorkoutSessionViewModel(dataManager: dataVM))
+    .environmentObject(UserPreferences())
 }
 #endif

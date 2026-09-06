@@ -5,12 +5,14 @@
 //  Subscription status, restore/refresh, and App User ID for developer comp access.
 //
 
+import SwiftData
 import SwiftUI
 import StoreKit
 import UIKit
 
 struct SubscriptionSettingsView: View {
     @Environment(EntitlementStore.self) private var entitlementStore
+    @Environment(DataManager.self) private var dataVM
     @EnvironmentObject private var authVM: AuthViewModel
 
     @State private var showPaywall = false
@@ -19,6 +21,17 @@ struct SubscriptionSettingsView: View {
 
     var body: some View {
         Form {
+            if GlanceLastSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions) != nil {
+                Section {
+                    GlanceLastSessionHost(
+                        recapIdentifier: FitLogA11yID.subscriptionSettingsLastSession,
+                        startIdentifier: FitLogA11yID.subscriptionSettingsStartThisWorkout,
+                        caption: "You can train without opening Premium. Upgrade stays below.",
+                        startProminent: true
+                    )
+                }
+            }
+
             Section {
                 HStack {
                     Label("Premium", systemImage: entitlementStore.isPremium ? "checkmark.seal.fill" : "lock.fill")
@@ -206,19 +219,41 @@ struct SubscriptionSettingsView: View {
     }
 }
 
+#if DEBUG
+@MainActor
+private enum SubscriptionSettingsPreviewData {
+    static func dataManager() -> DataManager {
+        let schema = Schema(versionedSchema: FitLogSchemaV6.self)
+        let container = try! ModelContainer(
+            for: schema,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        return DataManager(modelContainer: container)
+    }
+}
+#endif
+
 #Preview("Subscription settings") {
+    let dataVM = SubscriptionSettingsPreviewData.dataManager()
     NavigationStack {
         SubscriptionSettingsView()
             .environment(EntitlementStore())
+            .environment(dataVM)
+            .environment(CurrentWorkoutSessionViewModel(dataManager: dataVM))
             .environmentObject(AuthViewModel())
+            .environmentObject(UserPreferences())
     }
 }
 
 #Preview("Subscription settings Dark") {
+    let dataVM = SubscriptionSettingsPreviewData.dataManager()
     NavigationStack {
         SubscriptionSettingsView()
             .environment(EntitlementStore())
+            .environment(dataVM)
+            .environment(CurrentWorkoutSessionViewModel(dataManager: dataVM))
             .environmentObject(AuthViewModel())
+            .environmentObject(UserPreferences())
     }
     .preferredColorScheme(.dark)
 }

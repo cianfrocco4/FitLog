@@ -12,6 +12,7 @@ struct ProgramTemplateGalleryView: View {
     @EnvironmentObject private var aiService: AIService
     @Environment(DataManager.self) private var dataManager
     @Environment(EntitlementStore.self) private var entitlementStore
+    @Environment(\.dismiss) private var dismiss
 
     @State private var selectedCategory: ProgramTemplateGoalCategory?
     @State private var customizingTemplate: CuratedProgramTemplate?
@@ -28,6 +29,13 @@ struct ProgramTemplateGalleryView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 categoryFilters
+                GlanceLastSessionHost(
+                    recapIdentifier: FitLogA11yID.programGalleryLastSession,
+                    startIdentifier: FitLogA11yID.programGalleryStartThisWorkout,
+                    caption: "Train last session first. Come back here if you still want a new program.",
+                    startProminent: true,
+                    onStartedWithoutReplace: { dismiss() }
+                )
                 templateGrid
             }
             .padding(.horizontal, 16)
