@@ -14,29 +14,48 @@ struct ProgressPhotosView: View {
     @State private var showCompare = false
     private let gridColumns = [GridItem(.adaptive(minimum: 104), spacing: 8)]
 
+    private var hasLastCompletedSession: Bool {
+        NestLastSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions) != nil
+    }
+
     var body: some View {
         ScrollView {
-            if dataVM.progressPhotoRecords.isEmpty {
-                ContentUnavailableView(
-                    "No progress photos",
-                    systemImage: "photo.on.rectangle.angled",
-                    description: Text("Add dated photos to compare how you look over time.")
-                )
-                .padding(.top, 48)
-            } else {
-                LazyVGrid(columns: gridColumns, spacing: 8) {
-                    ForEach(dataVM.progressPhotoRecords) { rec in
-                        photoCell(rec)
-                            .contextMenu {
-                                Button(role: .destructive) {
-                                    dataVM.deleteProgressPhoto(id: rec.id)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                            }
-                    }
+            VStack(alignment: .leading, spacing: 16) {
+                if hasLastCompletedSession {
+                    NestLastSessionHost(
+                        recapIdentifier: FitLogA11yID.progressPhotosLastSession,
+                        startIdentifier: FitLogA11yID.progressPhotosStartThisWorkout,
+                        caption: "Repeat yesterday without going back to Home. History stays saved.",
+                        startProminent: true
+                    )
+                    .padding(.horizontal)
+                    .padding(.top, 8)
                 }
-                .padding()
+
+                if dataVM.progressPhotoRecords.isEmpty {
+                    ContentUnavailableView(
+                        "No progress photos",
+                        systemImage: "photo.on.rectangle.angled",
+                        description: Text("Add dated photos to compare how you look over time.")
+                    )
+                    .padding(.top, hasLastCompletedSession ? 8 : 48)
+                    .frame(maxWidth: .infinity)
+                } else {
+                    LazyVGrid(columns: gridColumns, spacing: 8) {
+                        ForEach(dataVM.progressPhotoRecords) { rec in
+                            photoCell(rec)
+                                .contextMenu {
+                                    Button(role: .destructive) {
+                                        dataVM.deleteProgressPhoto(id: rec.id)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom)
+                }
             }
         }
         .navigationTitle("Progress photos")

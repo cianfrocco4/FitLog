@@ -24,6 +24,17 @@ struct BodyMeasurementsView: View {
 
     var body: some View {
         List {
+            if NestLastSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions) != nil {
+                Section {
+                    NestLastSessionHost(
+                        recapIdentifier: FitLogA11yID.bodyMeasurementsLastSession,
+                        startIdentifier: FitLogA11yID.bodyMeasurementsStartThisWorkout,
+                        caption: "Repeat yesterday without going back to Home. History stays saved.",
+                        startProminent: true
+                    )
+                }
+            }
+
             if let healthBanner {
                 Section {
                     Text(healthBanner)

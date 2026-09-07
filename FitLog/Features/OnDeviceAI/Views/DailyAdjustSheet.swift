@@ -19,6 +19,19 @@ struct DailyAdjustSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                if NestLastSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions) != nil {
+                    Section {
+                        NestLastSessionHost(
+                            recapIdentifier: FitLogA11yID.dailyAdjustLastSession,
+                            startIdentifier: FitLogA11yID.dailyAdjustStartThisWorkout,
+                            caption: "You can train without opening Premium. Adjust today stays below.",
+                            startProminent: true,
+                            onStartedWithoutReplace: { dismiss() },
+                            onAfterReplace: { dismiss() }
+                        )
+                    }
+                }
+
                 if let note = viewModel.availabilityNote {
                     Section {
                         Label(note, systemImage: "sparkles")
