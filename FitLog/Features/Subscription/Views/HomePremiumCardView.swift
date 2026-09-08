@@ -5,6 +5,7 @@
 //  Dismissible Home teaser for Premium discoverability.
 //
 
+import SwiftData
 import SwiftUI
 
 struct HomePremiumCardView: View {
@@ -35,6 +36,13 @@ struct HomePremiumCardView: View {
                 .accessibilityHint("Hides this card permanently")
             }
 
+            RailLastSessionHost(
+                recapIdentifier: FitLogA11yID.homePremiumCardLastSession,
+                startIdentifier: FitLogA11yID.homePremiumCardStartThisWorkout,
+                caption: "Start yesterday's workout without leaving Home. See Premium is unchanged.",
+                startProminent: false
+            )
+
             HStack(spacing: 12) {
                 Button("See Premium", action: onSeePremium)
                     .buttonStyle(.borderedProminent)
@@ -52,7 +60,45 @@ struct HomePremiumCardView: View {
     }
 }
 
-#Preview {
+#if DEBUG
+@MainActor
+private enum HomePremiumCardPreviewData {
+    static func dataManager() -> DataManager {
+        let schema = Schema(versionedSchema: FitLogSchemaV6.self)
+        let container = try! ModelContainer(
+            for: schema,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        return DataManager(modelContainer: container)
+    }
+}
+
+#Preview("Light") {
+    let dataVM = HomePremiumCardPreviewData.dataManager()
     HomePremiumCardView(onSeePremium: {}, onRemindLater: {}, onDismiss: {})
+        .environment(dataVM)
+        .environment(CurrentWorkoutSessionViewModel(dataManager: dataVM))
+        .environmentObject(UserPreferences())
         .padding()
 }
+
+#Preview("Dark") {
+    let dataVM = HomePremiumCardPreviewData.dataManager()
+    HomePremiumCardView(onSeePremium: {}, onRemindLater: {}, onDismiss: {})
+        .environment(dataVM)
+        .environment(CurrentWorkoutSessionViewModel(dataManager: dataVM))
+        .environmentObject(UserPreferences())
+        .padding()
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Large Type") {
+    let dataVM = HomePremiumCardPreviewData.dataManager()
+    HomePremiumCardView(onSeePremium: {}, onRemindLater: {}, onDismiss: {})
+        .environment(dataVM)
+        .environment(CurrentWorkoutSessionViewModel(dataManager: dataVM))
+        .environmentObject(UserPreferences())
+        .padding()
+        .dynamicTypeSize(.accessibility2)
+}
+#endif

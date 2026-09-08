@@ -23,6 +23,17 @@ struct DataAndIntegrationsView: View {
     var body: some View {
         @Bindable var dm = dataVM
         return Form {
+            if RailLastSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions) != nil {
+                Section {
+                    RailLastSessionHost(
+                        recapIdentifier: FitLogA11yID.dataIntegrationsLastSession,
+                        startIdentifier: FitLogA11yID.dataIntegrationsStartThisWorkout,
+                        caption: "Repeat yesterday without going back to Home. History stays saved. Export still needs Premium.",
+                        startProminent: true
+                    )
+                }
+            }
+
             Section("Units") {
                 Picker("Weight display", selection: $userPreferences.weightDisplayUnit) {
                     ForEach(WeightDisplayUnit.allCases) { u in
