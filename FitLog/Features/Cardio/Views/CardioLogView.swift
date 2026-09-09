@@ -59,6 +59,10 @@ struct CardioLogView: View {
                 CardioPrescriptionRowView(prescription: rx, exercise: resolvedExercise)
             }
 
+            if let fill = lastCardioFill {
+                lastDurationStrip(fill)
+            }
+
             activeTimerSection
 
             CardioIntervalTimelineView(loggedSets: loggedSets)
@@ -68,6 +72,75 @@ struct CardioLogView: View {
         .sensoryFeedback(.success, trigger: intervalHapticTrigger)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Cardio logging for \(resolvedExercise?.name ?? "exercise")")
+    }
+
+    private var lastCardioFill: DraftLastSessionWorkingCopy.CardioLastFill? {
+        var ids = Set<UUID>()
+        if let eid = workoutExercise?.exerciseId { ids.insert(eid) }
+        if let sid = workoutExercise?.snapshot?.exerciseId { ids.insert(sid) }
+        return DraftLastSessionWorkingCopy.lastCardioFill(
+            matchingExerciseIds: ids,
+            in: dataVM.completedSessions,
+            preferredWorkoutId: sessionVM.currentSession?.workout.id
+        )
+    }
+
+    private func lastDurationStrip(_ fill: DraftLastSessionWorkingCopy.CardioLastFill) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Last time")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityAddTraits(.isHeader)
+            Text("\(fill.lastDoneLine) · \(fill.summaryLine)")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(fill.accessibilityLabel)
+                .accessibilityIdentifier(FitLogA11yID.cardioLogLastDuration)
+            Button {
+                applyLastCardioFill(fill)
+            } label: {
+                Label("Use last time", systemImage: "clock.arrow.circlepath")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .tint(FitlogPalette.chartSecondary)
+            .accessibilityLabel("Use last time")
+            .accessibilityHint("Fills manual duration from \(fill.summaryLine). You can edit before logging.")
+            .accessibilityIdentifier(FitLogA11yID.cardioLogUseLastTime)
+            .accessibilityAddTraits(.isButton)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func applyLastCardioFill(_ fill: DraftLastSessionWorkingCopy.CardioLastFill) {
+        let minutes = fill.durationSec / 60
+        let seconds = fill.durationSec % 60
+        manualMinutes = minutes > 0 ? "\(minutes)" : ""
+        manualSeconds = seconds > 0 ? "\(seconds)" : ""
+        if minutes == 0, seconds == 0 {
+            manualSeconds = "0"
+        }
+        if let meters = fill.distanceM, meters > 0 {
+            let km = meters / 1000
+            manualDistanceKm = km == floor(km) ? "\(Int(km))" : String(format: "%.2f", km)
+            manualDistanceM = meters
+        } else {
+            manualDistanceKm = ""
+            manualDistanceM = 0
+        }
+        if let hr = fill.avgHeartRate, hr > 0 {
+            manualHeartRate = "\(hr)"
+        } else {
+            manualHeartRate = ""
+        }
+        if let cal = fill.calories, cal > 0 {
+            manualCalories = cal == floor(cal) ? "\(Int(cal))" : String(format: "%.0f", cal)
+        } else {
+            manualCalories = ""
+        }
+        showManualSection = true
+        intervalHapticTrigger += 1
     }
 
     @ViewBuilder

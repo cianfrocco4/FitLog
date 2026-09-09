@@ -23,6 +23,7 @@ struct NewWorkoutSheet: View {
     @Environment(DataManager.self) var dataVM
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var aiService: AIService
+    @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.dismiss) var dismiss
 
     /// Set when presenting from Home (e.g. after onboarding).
@@ -88,6 +89,19 @@ struct NewWorkoutSheet: View {
 
     private var guidedForm: some View {
         Form {
+            if DraftLastSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions) != nil {
+                Section {
+                    DraftLastSessionHost(
+                        recapIdentifier: FitLogA11yID.newWorkoutSheetLastSession,
+                        startIdentifier: FitLogA11yID.newWorkoutSheetStartThisWorkout,
+                        caption: "Repeat yesterday instead of creating a new workout. History stays saved.",
+                        startProminent: true,
+                        onStartedWithoutReplace: { dismiss() },
+                        onAfterReplace: { dismiss() }
+                    )
+                }
+            }
+
             Section {
                 Picker("Workout type", selection: $kindTab) {
                     Text("Strength").tag(NewWorkoutKindTab.strength)
@@ -217,6 +231,16 @@ struct NewWorkoutSheet: View {
                                     .foregroundStyle(.secondary)
                                     .lineLimit(2)
                                     .multilineTextAlignment(.leading)
+                                if let lastDuration = DraftLastSessionWorkingCopy.lastCardioDurationLine(
+                                    matchingTemplateName: tpl.name,
+                                    in: dataVM.completedSessions
+                                ) {
+                                    Text(lastDuration)
+                                        .font(.caption2.weight(.medium))
+                                        .foregroundStyle(FitlogPalette.chartSecondary)
+                                        .lineLimit(2)
+                                        .accessibilityLabel(lastDuration)
+                                }
                             }
                             .frame(width: 148, alignment: .leading)
                             .padding(12)
@@ -224,6 +248,13 @@ struct NewWorkoutSheet: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
                         .buttonStyle(.plain)
+                        .accessibilityHint(
+                            DraftLastSessionWorkingCopy.lastCardioDurationLine(
+                                matchingTemplateName: tpl.name,
+                                in: dataVM.completedSessions
+                            ).map { "Creates this cardio workout from a template. \($0)" }
+                                ?? "Creates a cardio workout from this template"
+                        )
                     }
                 }
                 .padding(.vertical, 4)

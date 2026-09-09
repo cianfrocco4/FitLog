@@ -10,9 +10,14 @@ struct CardioTemplatePickerView: View {
     let onSelect: (CardioWorkoutTemplate) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(DataManager.self) private var dataVM
 
     var body: some View {
         List(templates) { template in
+            let lastDuration = DraftLastSessionWorkingCopy.lastCardioDurationLine(
+                matchingTemplateName: template.name,
+                in: dataVM.completedSessions
+            )
             Button {
                 onSelect(template)
                 dismiss()
@@ -36,10 +41,23 @@ struct CardioTemplatePickerView: View {
                     Text("\(template.rows.count) exercise\(template.rows.count == 1 ? "" : "s")")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
+                    if let lastDuration {
+                        Text(lastDuration)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(FitlogPalette.chartSecondary)
+                            .accessibilityIdentifier(FitLogA11yID.cardioTemplatePickerLastDuration)
+                    }
                 }
                 .padding(.vertical, 4)
             }
-            .accessibilityHint("Applies this cardio template to the workout")
+            .accessibilityHint(
+                lastDuration.map { "Applies this cardio template to the workout. \($0)" }
+                    ?? "Applies this cardio template to the workout"
+            )
+            .accessibilityLabel(
+                lastDuration.map { "\(template.name). \(template.subtitle). \($0)" }
+                    ?? "\(template.name). \(template.subtitle)"
+            )
         }
         .navigationTitle("Templates")
         .navigationBarTitleDisplayMode(.inline)

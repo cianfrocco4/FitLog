@@ -106,6 +106,7 @@ struct CardioWorkoutBuilderView: View {
                             "This workout already has exercises. Applying the template will replace them."
                     }
                 }
+                .environment(dataVM)
             }
         }
         .sheet(isPresented: $showExercisePicker) {
