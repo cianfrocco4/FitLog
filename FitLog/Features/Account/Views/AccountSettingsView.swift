@@ -57,6 +57,17 @@ struct AccountSettingsView: View {
 
     var body: some View {
         List {
+            if PulseLastSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions) != nil {
+                Section {
+                    PulseLastSessionHost(
+                        recapIdentifier: FitLogA11yID.accountSettingsLastSession,
+                        startIdentifier: FitLogA11yID.accountSettingsStartThisWorkout,
+                        caption: "Repeat yesterday without going back to Home. History stays saved. Sign out and Delete Account are unchanged.",
+                        startProminent: true
+                    )
+                }
+            }
+
             Section {
                 LabeledContent("Sign-in") {
                     Text("Sign in with Apple")
@@ -125,6 +136,7 @@ private enum AccountSettingsPreviewData {
             .environment(dataVM)
             .environment(CurrentWorkoutSessionViewModel(dataManager: dataVM))
             .environmentObject(AuthViewModel())
+            .environmentObject(UserPreferences())
             .environment(EntitlementStore())
     }
 }
@@ -136,6 +148,7 @@ private enum AccountSettingsPreviewData {
             .environment(dataVM)
             .environment(CurrentWorkoutSessionViewModel(dataManager: dataVM))
             .environmentObject(AuthViewModel())
+            .environmentObject(UserPreferences())
             .environment(EntitlementStore())
     }
     .preferredColorScheme(.dark)
@@ -148,6 +161,7 @@ private enum AccountSettingsPreviewData {
             .environment(dataVM)
             .environment(CurrentWorkoutSessionViewModel(dataManager: dataVM))
             .environmentObject(AuthViewModel())
+            .environmentObject(UserPreferences())
             .environment(EntitlementStore())
     }
     .dynamicTypeSize(.accessibility2)

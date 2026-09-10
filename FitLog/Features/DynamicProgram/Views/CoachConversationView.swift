@@ -5,6 +5,7 @@
 //  Main Guided Coach conversational program builder UI.
 //
 
+import SwiftData
 import SwiftUI
 
 struct CoachConversationView: View {
@@ -202,6 +203,15 @@ struct CoachConversationView: View {
             } else if let blueprint = coachVM.blueprint {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
+                        if PulseLastSessionWorkingCopy.latestCompletedSession(in: dataManager.completedSessions) != nil {
+                            PulseLastSessionHost(
+                                recapIdentifier: FitLogA11yID.coachPlanPreviewLastSession,
+                                startIdentifier: FitLogA11yID.coachPlanPreviewStartThisWorkout,
+                                caption: "Train yesterday while you finish this plan. History stays saved. Building a program still needs Premium when gated.",
+                                startProminent: true
+                            )
+                        }
+
                         DisclosureGroup(isExpanded: $coachVM.showCoachNotes) {
                             VStack(alignment: .leading, spacing: 10) {
                                 ForEach(coachVM.messages.filter { msg in
@@ -386,8 +396,18 @@ struct CoachConversationView: View {
 }
 
 #Preview {
+    let schema = Schema(versionedSchema: FitLogSchemaV6.self)
+    let container = try! ModelContainer(
+        for: schema,
+        configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+    )
+    let data = DataManager(modelContainer: container)
     NavigationStack {
         CoachConversationView(coachVM: CoachConversationViewModel(builderViewModel: DynamicProgramBuilderViewModel()))
     }
+    .environmentObject(AIService(apiKey: nil, baseURL: nil))
+    .environmentObject(UserPreferences())
+    .environment(data)
+    .environment(CurrentWorkoutSessionViewModel(dataManager: data))
     .environment(EntitlementStore())
 }

@@ -446,6 +446,17 @@ struct DynamicProgramBuilderView: View {
 
     private var essentialsStep: some View {
         Form {
+            if PulseLastSessionWorkingCopy.latestCompletedSession(in: dataManager.completedSessions) != nil {
+                Section {
+                    PulseLastSessionHost(
+                        recapIdentifier: FitLogA11yID.programBuilderWizardLastSession,
+                        startIdentifier: FitLogA11yID.programBuilderWizardStartThisWorkout,
+                        caption: "Repeat yesterday without leaving Custom build. History stays saved.",
+                        startProminent: true
+                    )
+                }
+            }
+
             if !hidesBuilderModePicker {
                 Section {
                     Picker("Program build style", selection: $viewModel.builderMode) {
@@ -1067,6 +1078,8 @@ struct DynamicProgramBuilderView: View {
         DynamicProgramBuilderView(viewModel: vm)
     }
     .environmentObject(AIService(apiKey: nil, baseURL: nil))
+    .environmentObject(UserPreferences())
     .environment(data)
+    .environment(CurrentWorkoutSessionViewModel(dataManager: data))
     .environment(EntitlementStore())
 }
