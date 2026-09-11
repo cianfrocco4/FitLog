@@ -16,12 +16,26 @@ struct CoachConversationHistorySheet: View {
     let onNewChat: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(DataManager.self) private var dataVM
     @State private var renameTarget: CoachConversationSummary?
     @State private var renameDraft = ""
 
     var body: some View {
         NavigationStack {
             List {
+                if BeaconLastSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions) != nil {
+                    Section {
+                        BeaconLastSessionHost(
+                            recapIdentifier: FitLogA11yID.coachChatHistoryLastSession,
+                            startIdentifier: FitLogA11yID.coachChatHistoryStartThisWorkout,
+                            caption: "Train yesterday without generating a Coach reply. History stays saved. Premium chat is unchanged.",
+                            startProminent: true,
+                            onStartedWithoutReplace: { dismiss() },
+                            onAfterReplace: { dismiss() }
+                        )
+                    }
+                }
+
                 if conversations.isEmpty {
                     ContentUnavailableView(
                         "No past chats",

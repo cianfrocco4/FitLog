@@ -72,6 +72,19 @@ struct NewExerciseSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                if BeaconLastSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions) != nil {
+                    Section {
+                        BeaconLastSessionHost(
+                            recapIdentifier: FitLogA11yID.newExerciseSheetLastSession,
+                            startIdentifier: FitLogA11yID.newExerciseSheetStartThisWorkout,
+                            caption: "Repeat yesterday instead of creating another exercise. History stays saved.",
+                            startProminent: true,
+                            onStartedWithoutReplace: { dismiss() },
+                            onAfterReplace: { dismiss() }
+                        )
+                    }
+                }
+
                 Section {
                     Picker("Exercise type", selection: $creationKind) {
                         ForEach(ExerciseCreationKind.allCases) { kind in

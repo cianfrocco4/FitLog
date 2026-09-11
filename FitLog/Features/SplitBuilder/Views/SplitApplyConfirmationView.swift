@@ -32,6 +32,17 @@ struct SplitApplyConfirmationView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
+                    if BeaconLastSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions) != nil {
+                        BeaconLastSessionHost(
+                            recapIdentifier: FitLogA11yID.applySplitLastSession,
+                            startIdentifier: FitLogA11yID.applySplitStartThisWorkout,
+                            caption: "Train yesterday before this Plan change. History stays saved. Apply still saves the new cycle.",
+                            startProminent: true,
+                            onStartedWithoutReplace: { onCancel() },
+                            onAfterReplace: { onCancel() }
+                        )
+                    }
+
                     summarySection
                     anchorDateSection
                     conflictDiffSection
