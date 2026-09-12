@@ -38,6 +38,18 @@ struct EditExerciseSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                if FlintLastSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions) != nil {
+                    Section {
+                        FlintLastSessionHost(
+                            recapIdentifier: FitLogA11yID.editExerciseSheetLastSession,
+                            startIdentifier: FitLogA11yID.editExerciseSheetStartThisWorkout,
+                            caption: "Repeat yesterday instead of editing this exercise. History stays saved.",
+                            startProminent: true,
+                            onStartedWithoutReplace: { dismiss() },
+                            onAfterReplace: { dismiss() }
+                        )
+                    }
+                }
                 exerciseInfoSection
                 muscleGroupsSection
                 setupOptionsSection

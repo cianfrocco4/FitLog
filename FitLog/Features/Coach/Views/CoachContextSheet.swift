@@ -9,11 +9,24 @@ import SwiftUI
 
 struct CoachContextSheet: View {
     let summary: CoachContextSummary
+    @Environment(DataManager.self) private var dataVM
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             List {
+                if FlintLastSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions) != nil {
+                    Section {
+                        FlintLastSessionHost(
+                            recapIdentifier: FitLogA11yID.coachContextLastSession,
+                            startIdentifier: FitLogA11yID.coachContextStartThisWorkout,
+                            caption: "Train yesterday without sending Coach this snapshot. History stays saved. Premium chat is unchanged.",
+                            startProminent: true,
+                            onStartedWithoutReplace: { dismiss() },
+                            onAfterReplace: { dismiss() }
+                        )
+                    }
+                }
                 Section("Today's plan") {
                     Text(summary.todayPlan)
                 }

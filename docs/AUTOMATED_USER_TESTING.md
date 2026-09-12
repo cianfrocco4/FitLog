@@ -241,6 +241,12 @@ Stable IDs (also spoken labels where noted):
 | `fitlog.fromTemplate` | Empty Home “From template” |
 | `fitlog.createWorkout` | New-workout sheet **Create** |
 | `fitlog.quickStart.pushA` | Quick-start template **Push A** |
+| `fitlog.formGuideSheet.lastSession` | Form Guide last-session recap |
+| `fitlog.formGuideSheet.startThisWorkout` | Form Guide **Start this workout** |
+| `fitlog.coachContext.lastSession` | Coach context last-session recap |
+| `fitlog.coachContext.startThisWorkout` | Coach context **Start this workout** |
+| `fitlog.editExerciseSheet.lastSession` | Edit Exercise last-session recap |
+| `fitlog.editExerciseSheet.startThisWorkout` | Edit Exercise **Start this workout** |
 
 Prefer these IDs in new UI tests. Keep `.accessibilityLabel` / `.accessibilityHint` for VoiceOver.
 

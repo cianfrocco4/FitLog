@@ -5,6 +5,7 @@
 //  Reusable compact and expanded form guide UI.
 //
 
+import SwiftData
 import SwiftUI
 
 /// How the form guide presents itself before the video is playing.
@@ -411,6 +412,7 @@ struct ExerciseFormGuideSheet: View {
     @EnvironmentObject private var aiService: AIService
     @Environment(EntitlementStore.self) private var entitlementStore
     @EnvironmentObject private var userPreferences: UserPreferences
+    @Environment(DataManager.self) private var dataVM
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -430,6 +432,16 @@ struct ExerciseFormGuideSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    if FlintLastSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions) != nil {
+                        FlintLastSessionHost(
+                            recapIdentifier: FitLogA11yID.formGuideSheetLastSession,
+                            startIdentifier: FitLogA11yID.formGuideSheetStartThisWorkout,
+                            caption: "Repeat yesterday instead of staying on this form clip. History stays saved.",
+                            startProminent: true,
+                            onStartedWithoutReplace: { dismiss() },
+                            onAfterReplace: { dismiss() }
+                        )
+                    }
                     videoSection
                     wrongVideoAlternativesSection
                     keyCueSection
@@ -815,6 +827,16 @@ private enum ExerciseFormGuidePreviewData {
         }
         return service
     }
+
+    @MainActor
+    static func dataManager() -> DataManager {
+        let schema = Schema(versionedSchema: FitLogSchemaV6.self)
+        let container = try! ModelContainer(
+            for: schema,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        return DataManager(modelContainer: container)
+    }
 }
 
 #Preview("Compact — with guide") {
@@ -866,18 +888,26 @@ private enum ExerciseFormGuidePreviewData {
 }
 
 #Preview("Info button") {
+    let dataVM = ExerciseFormGuidePreviewData.dataManager()
     ExerciseFormGuideInfoButton(exercise: ExerciseFormGuidePreviewData.squat)
         .environment(ExerciseFormGuidePreviewData.previewService(withGuide: true))
         .environmentObject(AIService(apiKey: nil, baseURL: OpenAIConfig.aiBaseURL, model: OpenAIConfig.aiModel))
         .environmentObject(UserPreferences())
+        .environment(dataVM)
+        .environment(CurrentWorkoutSessionViewModel(dataManager: dataVM))
+        .environment(EntitlementStore())
         .padding()
 }
 
 #Preview("Sheet — loaded") {
+    let dataVM = ExerciseFormGuidePreviewData.dataManager()
     ExerciseFormGuideSheet(exercise: ExerciseFormGuidePreviewData.squat)
         .environment(ExerciseFormGuidePreviewData.previewService(withGuide: true))
         .environmentObject(AIService(apiKey: nil, baseURL: OpenAIConfig.aiBaseURL, model: OpenAIConfig.aiModel))
         .environmentObject(UserPreferences())
+        .environment(dataVM)
+        .environment(CurrentWorkoutSessionViewModel(dataManager: dataVM))
+        .environment(EntitlementStore())
 }
 
 #Preview("Library thumbnail") {
