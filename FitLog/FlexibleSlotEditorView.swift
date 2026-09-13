@@ -9,6 +9,7 @@ import SwiftUI
 
 struct FlexibleSlotEditorView: View {
     @Environment(DataManager.self) var dataVM
+    @Environment(\.dismiss) private var dismiss
     let workoutId: UUID
     let slotId: UUID
     /// When true (e.g. just added open slot), focus the label field after load.
@@ -80,6 +81,18 @@ struct FlexibleSlotEditorView: View {
 
     private var slotEditorForm: some View {
         Form {
+            if QuillLastSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions) != nil {
+                Section {
+                    QuillLastSessionHost(
+                        recapIdentifier: FitLogA11yID.flexibleSlotEditorLastSession,
+                        startIdentifier: FitLogA11yID.flexibleSlotEditorStartThisWorkout,
+                        caption: "Repeat yesterday instead of finishing this slot. History stays saved.",
+                        startProminent: true,
+                        onStartedWithoutReplace: { dismiss() },
+                        onAfterReplace: { dismiss() }
+                    )
+                }
+            }
             slotLabelSection
             slotMusclesSection
             slotMetadataSection

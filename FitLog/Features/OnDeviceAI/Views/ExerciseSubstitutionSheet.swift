@@ -19,6 +19,18 @@ struct ExerciseSubstitutionSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                if QuillLastSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions) != nil {
+                    Section {
+                        QuillLastSessionHost(
+                            recapIdentifier: FitLogA11yID.exerciseSubstitutionLastSession,
+                            startIdentifier: FitLogA11yID.exerciseSubstitutionStartThisWorkout,
+                            caption: "Repeat yesterday instead of swapping this exercise. History stays saved.",
+                            startProminent: true,
+                            onStartedWithoutReplace: { dismiss() },
+                            onAfterReplace: { dismiss() }
+                        )
+                    }
+                }
                 Section {
                     Text("Suggestions for \(source.name)")
                         .font(.subheadline)

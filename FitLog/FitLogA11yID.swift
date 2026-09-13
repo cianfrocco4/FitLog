@@ -12,4 +12,11 @@ enum FitLogA11yID {
     static let fromTemplate = "fitlog.fromTemplate"
     static let createWorkout = "fitlog.createWorkout"
     static let quickStartPushA = "fitlog.quickStart.pushA"
+
+    static let exerciseSubstitutionLastSession = "fitlog.exerciseSubstitution.lastSession"
+    static let exerciseSubstitutionStartThisWorkout = "fitlog.exerciseSubstitution.startThisWorkout"
+    static let flexibleSlotEditorLastSession = "fitlog.flexibleSlotEditor.lastSession"
+    static let flexibleSlotEditorStartThisWorkout = "fitlog.flexibleSlotEditor.startThisWorkout"
+    static let cardioExercisePickerLastSession = "fitlog.cardioExercisePicker.lastSession"
+    static let cardioExercisePickerStartThisWorkout = "fitlog.cardioExercisePicker.startThisWorkout"
 }

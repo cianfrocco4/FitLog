@@ -35,6 +35,18 @@ struct CardioExercisePickerSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                if QuillLastSessionWorkingCopy.latestCompletedSession(in: dataVM.completedSessions) != nil {
+                    Section {
+                        QuillLastSessionHost(
+                            recapIdentifier: FitLogA11yID.cardioExercisePickerLastSession,
+                            startIdentifier: FitLogA11yID.cardioExercisePickerStartThisWorkout,
+                            caption: "Repeat yesterday instead of adding cardio here. History stays saved.",
+                            startProminent: true,
+                            onStartedWithoutReplace: { dismiss() },
+                            onAfterReplace: { dismiss() }
+                        )
+                    }
+                }
                 ForEach(CardioExerciseCategoryGrouping.activitySections(exercises: filtered) { dataVM.resolvedDisplayName(for: $0) }, id: \.0) { activity, list in
                     Section {
                         ForEach(list) { ex in
