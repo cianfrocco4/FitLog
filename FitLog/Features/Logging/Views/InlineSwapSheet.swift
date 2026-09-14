@@ -20,11 +20,13 @@ struct InlineSwapSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
     @State private var searchText = ""
     @State private var pendingSwapExercise: Exercise?
     @State private var showSwapClearsSetsConfirm = false
     @State private var showCreateCustom = false
     @State private var setupSelection: [String: String] = [:]
+    @State private var lastLoadByExerciseId: [UUID: String] = [:]
 
     private var hasLoggedSets: Bool { !exerciseLog.loggedSets.isEmpty }
 
@@ -134,6 +136,10 @@ struct InlineSwapSheet: View {
                         prompt: "Search exercises")
             .onAppear {
                 if setupSelection.isEmpty { setupSelection = setupValues }
+                lastLoadByExerciseId = PickerLastWorkingLoad.captionsByExerciseId(
+                    from: dataVM.completedSessions,
+                    displayUnit: userPreferences.weightDisplayUnit
+                )
             }
             .navigationTitle(setupFields.isEmpty ? "Swap exercise" : "Setup or swap")
             .navigationBarTitleDisplayMode(.inline)
@@ -178,12 +184,14 @@ struct InlineSwapSheet: View {
         let score = baselineExercise.map {
             ExerciseSwapSimilarity.score(candidate: exercise, baseline: $0, slotMuscleMatch: false)
         }
+        let lastLoad = lastLoadByExerciseId[exercise.id]
+        let displayName = displayNames[exercise.id] ?? exercise.name
         Button {
             requestSwap(to: exercise)
         } label: {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(displayNames[exercise.id] ?? exercise.name)
+                    Text(displayName)
                         .fontWeight(.medium)
                     if let baseline = baselineExercise {
                         Text(ExerciseSwapSimilarity.matchSummary(
@@ -200,6 +208,12 @@ struct InlineSwapSheet: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                    }
+                    if let lastLoad {
+                        Text(lastLoad)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier(FitLogA11yID.inlineSwap.lastLoad)
                     }
                 }
                 Spacer(minLength: 8)
@@ -218,7 +232,15 @@ struct InlineSwapSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Swap to \(displayNames[exercise.id] ?? exercise.name)")
+        .accessibilityLabel(swapAccessibilityLabel(displayName: displayName, lastLoad: lastLoad))
+        .accessibilityHint("Replaces the current exercise with this one.")
+    }
+
+    private func swapAccessibilityLabel(displayName: String, lastLoad: String?) -> String {
+        if let lastLoad {
+            return "Swap to \(displayName), \(lastLoad)"
+        }
+        return "Swap to \(displayName)"
     }
 
     private func requestSwap(to exercise: Exercise) {

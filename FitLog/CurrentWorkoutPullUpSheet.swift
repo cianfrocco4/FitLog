@@ -970,6 +970,8 @@ struct CurrentWorkoutPullUpSheet: View {
                     ) { newExercise in
                         currentVM.swapExercise(atIndex: sel.index, to: newExercise)
                     }
+                    .environment(dataVM)
+                    .environmentObject(userPreferences)
                 }
             }
             .sheet(isPresented: $showQuickAddExercise) {
@@ -987,6 +989,7 @@ struct CurrentWorkoutPullUpSheet: View {
                         }
                     )
                     .environmentObject(aiService)
+                    .environmentObject(userPreferences)
                 }
             }
             .onChange(of: showQuickAddExercise) { _, isPresented in
