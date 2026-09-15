@@ -10,6 +10,7 @@ import SwiftUI
 struct SlotLibraryPickerSheet: View {
     @Environment(DataManager.self) var dataVM
     @EnvironmentObject private var aiService: AIService
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
 
     let slot: SplitBuilderEditableSlot
@@ -17,6 +18,13 @@ struct SlotLibraryPickerSheet: View {
 
     @State private var searchText = ""
     @State private var showNewExercise = false
+
+    private var lastLoadByExerciseId: [UUID: String] {
+        CedarLastWorkingLoad.captionsByExerciseId(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
 
     private var scoredExercises: [(exercise: Exercise, score: Int)] {
         let slotMuscles = Set(slot.targetMuscleNames.compactMap { MuscleGroup(rawValue: $0) })
@@ -116,6 +124,7 @@ struct SlotLibraryPickerSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .accessibilityHint("Closes without changing the slot.")
                 }
             }
             .sheet(isPresented: $showNewExercise) {
@@ -125,12 +134,14 @@ struct SlotLibraryPickerSheet: View {
                 }
                 .environment(dataVM)
                 .environmentObject(aiService)
+                .environmentObject(userPreferences)
             }
         }
     }
 
     @ViewBuilder
     private func exerciseRow(_ exercise: Exercise) -> some View {
+        let lastLoad = lastLoadByExerciseId[exercise.id]
         Button {
             onSelect(exercise)
             dismiss()
@@ -144,8 +155,26 @@ struct SlotLibraryPickerSheet: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                if let lastLoad {
+                    Text(lastLoad)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(FitLogA11yID.slotLibraryPicker.lastLoad)
+                }
             }
         }
+        .accessibilityLabel(slotPickerAccessibilityLabel(for: exercise, lastLoad: lastLoad))
+        .accessibilityHint("Selects this exercise for the slot.")
+    }
+
+    private func slotPickerAccessibilityLabel(for exercise: Exercise, lastLoad: String?) -> String {
+        var parts = [dataVM.resolvedDisplayName(for: exercise)]
+        if !exercise.targetedMuscles.isEmpty {
+            parts.append(exercise.targetedMuscles.map { $0.rawValue.capitalized }.joined(separator: ", "))
+        }
+        if let lastLoad { parts.append(lastLoad) }
+        return parts.joined(separator: ", ")
     }
 }
 

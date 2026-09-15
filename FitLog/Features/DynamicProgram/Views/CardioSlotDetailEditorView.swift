@@ -19,6 +19,24 @@ struct CardioSlotDetailEditorView: View {
         targetDurationSec: 30 * 60,
         targetZone: .zone2
     )
+    @State private var lastDurationSec: Int?
+    @State private var editorResetToken = 0
+
+    private var lastDurationCaption: String? {
+        guard let lastDurationSec else { return nil }
+        return "Last \(CardioMetricsCalculator.formatDuration(seconds: lastDurationSec))"
+    }
+
+    private var lastDurationMatchesPrescription: Bool {
+        guard let lastDurationSec else { return false }
+        return prescription.targetDurationSec == lastDurationSec
+    }
+
+    private var canApplyLastDuration: Bool {
+        lastDurationSec != nil
+            && prescription.kind != .intervals
+            && !lastDurationMatchesPrescription
+    }
 
     private var workingSlot: SplitBuilderEditableSlot {
         draftSlot ?? slot
@@ -51,8 +69,29 @@ struct CardioSlotDetailEditorView: View {
                     }
                 }
 
+                if let lastDurationCaption {
+                    Section {
+                        Text(lastDurationCaption)
+                            .font(.body.weight(.medium))
+                            .accessibilityIdentifier(FitLogA11yID.cardioSlotEditor.lastDuration)
+                            .accessibilityLabel(lastDurationCaption)
+                        if canApplyLastDuration {
+                            Button("Use last duration") {
+                                applyLastDuration()
+                            }
+                            .accessibilityIdentifier(FitLogA11yID.cardioSlotEditor.useLastDuration)
+                            .accessibilityHint("Fills the duration target from your last logged cardio for this exercise.")
+                        }
+                    } header: {
+                        Text("Last session")
+                    } footer: {
+                        Text("Duration from your last completed cardio log for this exercise.")
+                    }
+                }
+
                 Section("Prescription") {
                     CardioIntervalEditorView(prescription: $prescription, embedInParentForm: true)
+                        .id(editorResetToken)
                 }
             }
             .navigationTitle("Cardio slot")
@@ -60,6 +99,7 @@ struct CardioSlotDetailEditorView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .accessibilityHint("Closes without saving slot changes.")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
@@ -70,6 +110,7 @@ struct CardioSlotDetailEditorView: View {
                         dismiss()
                     }
                     .fontWeight(.semibold)
+                    .accessibilityHint("Saves the cardio prescription to this slot.")
                 }
             }
             .onAppear {
@@ -81,6 +122,10 @@ struct CardioSlotDetailEditorView: View {
                     loaded.notes = slotNotes
                 }
                 prescription = loaded
+                refreshLastDuration()
+            }
+            .onChange(of: workingSlot.suggestedExerciseOverrideId) { _, _ in
+                refreshLastDuration()
             }
             .sheet(isPresented: $showCardioLibrary) {
                 CardioExercisePickerSheet { exercise in
@@ -120,5 +165,22 @@ struct CardioSlotDetailEditorView: View {
             s.reps = "cardio"
         }
         draftSlot = s
+    }
+
+    private func refreshLastDuration() {
+        guard let id = workingSlot.suggestedExerciseOverrideId else {
+            lastDurationSec = nil
+            return
+        }
+        lastDurationSec = CedarLastWorkingLoad.lastCardioDurationSec(
+            for: id,
+            from: dataManager.completedSessions
+        )
+    }
+
+    private func applyLastDuration() {
+        guard let lastDurationSec else { return }
+        prescription = CedarLastWorkingLoad.applyingLastDuration(lastDurationSec, to: prescription)
+        editorResetToken += 1
     }
 }
