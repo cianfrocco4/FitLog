@@ -10,6 +10,7 @@ import SwiftUI
 struct ManualBlockEditorView: View {
     @Bindable var viewModel: DynamicProgramBuilderViewModel
     @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
     @State private var showImportRotationSheet = false
 
     var body: some View {
@@ -47,6 +48,7 @@ struct ManualBlockEditorView: View {
                 onCancel: { showImportRotationSheet = false }
             )
             .environment(dataManager)
+            .environmentObject(userPreferences)
         }
     }
 }
@@ -59,7 +61,25 @@ struct ImportRotationFromWorkoutSheet: View {
     let onCancel: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
     @State private var query = ""
+
+    private var lastLoadByWorkoutId: [UUID: String] {
+        let sessions = dataManager.completedSessions
+        let unit = userPreferences.weightDisplayUnit
+        var result: [UUID: String] = [:]
+        for workout in workouts {
+            if let caption = WillowLastWorkingLoad.caption(
+                forWorkout: workout,
+                from: sessions,
+                displayUnit: unit
+            ) {
+                result[workout.id] = caption
+            }
+        }
+        return result
+    }
 
     private var filtered: [Workout] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -78,6 +98,7 @@ struct ImportRotationFromWorkoutSheet: View {
                     )
                 } else {
                     ForEach(filtered) { w in
+                        let lastLoad = lastLoadByWorkoutId[w.id]
                         Button {
                             onSelect(w)
                             dismiss()
@@ -88,9 +109,15 @@ struct ImportRotationFromWorkoutSheet: View {
                                 Text("\(w.exercises.count) exercises")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+                                if let lastLoad {
+                                    Text(lastLoad)
+                                        .font(.caption.weight(.medium))
+                                        .foregroundStyle(.secondary)
+                                        .accessibilityIdentifier(FitLogA11yID.importRotation.lastLoad)
+                                }
                             }
                         }
-                        .accessibilityLabel("\(w.name), \(w.exercises.count) exercises")
+                        .accessibilityLabel(importRotationAccessibilityLabel(for: w, lastLoad: lastLoad))
                         .accessibilityHint("Replaces the current block’s rotation with this workout’s exercises.")
                     }
                 }
@@ -108,5 +135,11 @@ struct ImportRotationFromWorkoutSheet: View {
                 }
             }
         }
+    }
+
+    private func importRotationAccessibilityLabel(for workout: Workout, lastLoad: String?) -> String {
+        var parts = [workout.name, "\(workout.exercises.count) exercises"]
+        if let lastLoad { parts.append(lastLoad) }
+        return parts.joined(separator: ", ")
     }
 }

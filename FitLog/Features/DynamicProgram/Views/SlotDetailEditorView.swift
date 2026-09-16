@@ -12,11 +12,36 @@ struct SlotDetailEditorView: View {
     let partnerCandidates: [SlotGroupingEditorView.PartnerCandidate]
     @Environment(DataManager.self) private var dataManager
     @EnvironmentObject private var aiService: AIService
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
 
     @State private var showLibraryPicker = false
     @State private var showSubstitutionPicker = false
     @State private var equipmentDraft = ""
+
+    private var lastStrengthFill: WillowLastWorkingLoad.LastStrengthFill? {
+        guard let id = slot.suggestedExerciseOverrideId else { return nil }
+        return WillowLastWorkingLoad.lastStrengthFill(
+            for: id,
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
+    private var lastSessionCaption: String? {
+        guard let id = slot.suggestedExerciseOverrideId else { return nil }
+        return WillowLastWorkingLoad.caption(
+            for: id,
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
+    private var canApplyLastStrength: Bool {
+        guard !slot.isWarmUp, let fill = lastStrengthFill else { return false }
+        guard fill.caption == lastSessionCaption else { return false }
+        return !WillowLastWorkingLoad.slotMatchesLastStrength(slot, fill: fill)
+    }
 
     var body: some View {
         NavigationStack {
@@ -37,6 +62,28 @@ struct SlotDetailEditorView: View {
                         set: { v in var s = slot; s.isWarmUp = v; slot = s }
                     ))
                     .accessibilityHint("Marks this row as warm-up work before heavier sets.")
+                }
+
+                if let lastSessionCaption {
+                    Section {
+                        Text(lastSessionCaption)
+                            .font(.body.weight(.medium))
+                            .accessibilityIdentifier(FitLogA11yID.slotDetailEditor.lastLoad)
+                            .accessibilityLabel(lastSessionCaption)
+                        if canApplyLastStrength {
+                            Button("Use last load") {
+                                if let fill = lastStrengthFill {
+                                    slot = WillowLastWorkingLoad.applying(fill, to: slot)
+                                }
+                            }
+                            .accessibilityIdentifier(FitLogA11yID.slotDetailEditor.useLastLoad)
+                            .accessibilityHint("Fills sets, reps, and rest from your last working sets for this exercise.")
+                        }
+                    } header: {
+                        Text("Last session")
+                    } footer: {
+                        Text("Working load from your last completed log for this exercise. Warm-ups are skipped.")
+                    }
                 }
 
                 Section("Prescription") {
@@ -183,6 +230,7 @@ struct SlotDetailEditorView: View {
                 }
                 .environment(dataManager)
                 .environmentObject(aiService)
+                .environmentObject(userPreferences)
             }
             .sheet(isPresented: $showSubstitutionPicker) {
                 ExerciseSlotPickerSheet(slot: slot) { ex in
@@ -195,6 +243,7 @@ struct SlotDetailEditorView: View {
                 }
                 .environment(dataManager)
                 .environmentObject(aiService)
+                .environmentObject(userPreferences)
             }
         }
     }

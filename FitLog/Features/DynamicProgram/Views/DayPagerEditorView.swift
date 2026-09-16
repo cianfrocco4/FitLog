@@ -20,6 +20,7 @@ struct DayPagerEditorView: View {
 
     @Environment(DataManager.self) private var dataManager
     @EnvironmentObject private var aiService: AIService
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var selectedDayIndex = 0
     @State private var slotDetailTarget: SlotEditorTarget?
@@ -30,6 +31,13 @@ struct DayPagerEditorView: View {
         let dayId: UUID
         let slotId: UUID
         var id: String { "\(dayId.uuidString)|\(slotId.uuidString)" }
+    }
+
+    private var lastLoadByExerciseId: [UUID: String] {
+        WillowLastWorkingLoad.captionsByExerciseId(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
     }
 
     var body: some View {
@@ -188,6 +196,7 @@ struct DayPagerEditorView: View {
         if let slotBinding = bindingForSlot(day: day, slotId: slotId) {
             let slot = slotBinding.wrappedValue
             let title = slot.label.isEmpty ? "Untitled slot" : slot.label
+            let lastLoad = slot.suggestedExerciseOverrideId.flatMap { lastLoadByExerciseId[$0] }
             HStack(spacing: 4) {
                 Button {
                     slotDetailTarget = SlotEditorTarget(dayId: day.wrappedValue.id, slotId: slotId)
@@ -200,6 +209,12 @@ struct DayPagerEditorView: View {
                             Text("\(slot.sets)×\(slot.reps)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            if let lastLoad {
+                                Text(lastLoad)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityIdentifier(FitLogA11yID.dayPagerSlot.lastLoad)
+                            }
                             if let exercise = slot.suggestedExerciseName, !exercise.isEmpty {
                                 Text(exercise)
                                     .font(.caption2)
@@ -215,7 +230,7 @@ struct DayPagerEditorView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(title), \(slot.sets) sets")
+                .accessibilityLabel(dayPagerSlotAccessibilityLabel(title: title, slot: slot, lastLoad: lastLoad))
                 .accessibilityHint("Opens the slot editor")
 
                 Button {
@@ -269,8 +284,15 @@ struct DayPagerEditorView: View {
                 )
                 .environment(dataManager)
                 .environmentObject(aiService)
+                .environmentObject(userPreferences)
             }
         }
+    }
+
+    private func dayPagerSlotAccessibilityLabel(title: String, slot: SplitBuilderEditableSlot, lastLoad: String?) -> String {
+        var parts = [title, "\(slot.sets) sets"]
+        if let lastLoad { parts.append(lastLoad) }
+        return parts.joined(separator: ", ")
     }
 
     private func appendDay() {
@@ -443,5 +465,6 @@ private struct DayVolumeIndicatorView: View {
         onStructuralChange: {},
         onSlotFieldChange: {}
     )
+    .environmentObject(UserPreferences())
     .padding()
 }

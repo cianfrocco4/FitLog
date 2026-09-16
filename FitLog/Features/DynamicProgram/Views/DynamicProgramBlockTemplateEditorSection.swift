@@ -25,6 +25,7 @@ struct DynamicProgramBlockTemplateEditorSection: View {
 
     @Environment(DataManager.self) private var dataManager
     @EnvironmentObject private var aiService: AIService
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var slotDetailTarget: LegacySlotEditorTarget?
     @State private var slotLibraryTarget: LegacySlotEditorTarget?
@@ -33,6 +34,13 @@ struct DynamicProgramBlockTemplateEditorSection: View {
         let dayId: UUID
         let slotId: UUID
         var id: String { "\(dayId.uuidString)|\(slotId.uuidString)" }
+    }
+
+    private var lastLoadByExerciseId: [UUID: String] {
+        WillowLastWorkingLoad.captionsByExerciseId(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
     }
 
     var body: some View {
@@ -102,6 +110,7 @@ struct DynamicProgramBlockTemplateEditorSection: View {
                     )
                     .environment(dataManager)
                     .environmentObject(aiService)
+                    .environmentObject(userPreferences)
                 }
             }
         }
@@ -121,6 +130,7 @@ struct DynamicProgramBlockTemplateEditorSection: View {
                         slotLibraryTarget = nil
                     }
                     .environment(dataManager)
+                    .environmentObject(userPreferences)
                 } else {
                     ExerciseSlotPickerSheet(slot: slotBinding.wrappedValue) { exercise in
                         var s = slotBinding.wrappedValue
@@ -136,6 +146,7 @@ struct DynamicProgramBlockTemplateEditorSection: View {
                     }
                     .environment(dataManager)
                     .environmentObject(aiService)
+                    .environmentObject(userPreferences)
                 }
             }
         }
@@ -269,6 +280,13 @@ struct DynamicProgramBlockTemplateEditorSection: View {
 
             CardioPrescriptionRowView(prescription: prescription, exercise: exercise)
 
+            if let lastLoad = slotBinding.wrappedValue.suggestedExerciseOverrideId.flatMap({ lastLoadByExerciseId[$0] }) {
+                Text(lastLoad)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier(FitLogA11yID.blockTemplateSlot.lastLoad)
+            }
+
             Text(slotBinding.wrappedValue.suggestedExerciseName ?? "Pick a cardio exercise")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -280,7 +298,7 @@ struct DynamicProgramBlockTemplateEditorSection: View {
                 .fill(FitlogPalette.chartSecondary.opacity(0.08))
         )
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Cardio slot, \(slotBinding.wrappedValue.label)")
+        .accessibilityLabel(cardioTemplateSlotAccessibilityLabel(slot: slotBinding.wrappedValue))
     }
 
     private func strengthTemplateSlotRow(
@@ -304,6 +322,12 @@ struct DynamicProgramBlockTemplateEditorSection: View {
                 set: { var s = slotBinding.wrappedValue; s.reps = $0; slotBinding.wrappedValue = s }
             ))
             .accessibilityLabel("Reps range")
+            if let lastLoad = slotBinding.wrappedValue.suggestedExerciseOverrideId.flatMap({ lastLoadByExerciseId[$0] }) {
+                Text(lastLoad)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier(FitLogA11yID.blockTemplateSlot.lastLoad)
+            }
             Text(slotBinding.wrappedValue.suggestedExerciseName ?? "Exercise from library when saved")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -330,6 +354,14 @@ struct DynamicProgramBlockTemplateEditorSection: View {
                 onSlotFieldChange()
             }
         )
+    }
+
+    private func cardioTemplateSlotAccessibilityLabel(slot: SplitBuilderEditableSlot) -> String {
+        var parts = ["Cardio slot", slot.label]
+        if let lastLoad = slot.suggestedExerciseOverrideId.flatMap({ lastLoadByExerciseId[$0] }) {
+            parts.append(lastLoad)
+        }
+        return parts.filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
     private func partnerCandidates(for day: SplitBuilderEditableDay, excluding slotId: UUID) -> [SlotGroupingEditorView.PartnerCandidate] {

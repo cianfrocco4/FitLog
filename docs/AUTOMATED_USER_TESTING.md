@@ -241,6 +241,11 @@ Stable IDs (also spoken labels where noted):
 | `fitlog.fromTemplate` | Empty Home “From template” |
 | `fitlog.createWorkout` | New-workout sheet **Create** |
 | `fitlog.quickStart.pushA` | Quick-start template **Push A** |
+| `fitlog.slotDetailEditor.lastLoad` | Strength slot editor last working load caption |
+| `fitlog.slotDetailEditor.useLastLoad` | Strength slot editor **Use last load** |
+| `fitlog.dayPagerSlot.lastLoad` | Program day-pager slot last working load / last cardio duration caption |
+| `fitlog.blockTemplateSlot.lastLoad` | Legacy block-template slot last working load / last cardio duration caption |
+| `fitlog.importRotation.lastLoad` | Import-rotation workout last working load / last cardio duration caption |
 
 Prefer these IDs in new UI tests. Keep `.accessibilityLabel` / `.accessibilityHint` for VoiceOver.
 
