@@ -987,6 +987,7 @@ struct CurrentWorkoutPullUpSheet: View {
                         }
                     )
                     .environmentObject(aiService)
+                    .environmentObject(userPreferences)
                 }
             }
             .onChange(of: showQuickAddExercise) { _, isPresented in

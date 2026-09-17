@@ -8,11 +8,19 @@ import SwiftUI
 /// Picker limited to cardio and hybrid library exercises.
 struct CardioExercisePickerSheet: View {
     @Environment(DataManager.self) var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
 
     let onSelect: (Exercise) -> Void
 
     @State private var searchText = ""
+
+    private var lastLoadByExerciseId: [UUID: String] {
+        MapleLastWorkingLoad.captionsByExerciseId(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
 
     private var cardioExercises: [Exercise] {
         dataVM.globalExercises
@@ -38,24 +46,7 @@ struct CardioExercisePickerSheet: View {
                 ForEach(CardioExerciseCategoryGrouping.activitySections(exercises: filtered) { dataVM.resolvedDisplayName(for: $0) }, id: \.0) { activity, list in
                     Section {
                         ForEach(list) { ex in
-                            Button {
-                                onSelect(ex)
-                                dismiss()
-                            } label: {
-                                HStack {
-                                    Image(systemName: activity.systemImage)
-                                        .foregroundStyle(FitlogPalette.chartSecondary)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(dataVM.resolvedDisplayName(for: ex))
-                                            .foregroundStyle(.primary)
-                                        if ex.modality == .hybrid {
-                                            Text("Hybrid")
-                                                .font(.caption2)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                }
-                            }
+                            cardioPickerRow(ex, activity: activity)
                         }
                     } header: {
                         Text(activity.displayName)
@@ -68,8 +59,50 @@ struct CardioExercisePickerSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .accessibilityHint("Closes without adding a cardio exercise.")
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func cardioPickerRow(_ ex: Exercise, activity: CardioActivityKind) -> some View {
+        let lastLoad = lastLoadByExerciseId[ex.id]
+        Button {
+            onSelect(ex)
+            dismiss()
+        } label: {
+            HStack {
+                Image(systemName: activity.systemImage)
+                    .foregroundStyle(FitlogPalette.chartSecondary)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(dataVM.resolvedDisplayName(for: ex))
+                        .foregroundStyle(.primary)
+                    if ex.modality == .hybrid {
+                        Text("Hybrid")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let lastLoad {
+                        Text(lastLoad)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier(FitLogA11yID.cardioExercisePicker.lastLoad)
+                    }
+                }
+            }
+        }
+        .accessibilityLabel(cardioPickerAccessibilityLabel(for: ex, lastLoad: lastLoad))
+        .accessibilityHint("Adds this cardio exercise to the workout.")
+    }
+
+    private func cardioPickerAccessibilityLabel(for ex: Exercise, lastLoad: String?) -> String {
+        var parts = [dataVM.resolvedDisplayName(for: ex)]
+        if ex.modality == .hybrid {
+            parts.append("Hybrid")
+        }
+        if let lastLoad { parts.append(lastLoad) }
+        return parts.joined(separator: ", ")
     }
 }

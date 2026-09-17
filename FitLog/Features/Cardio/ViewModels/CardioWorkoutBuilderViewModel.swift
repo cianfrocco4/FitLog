@@ -68,7 +68,14 @@ final class CardioWorkoutBuilderViewModel {
 
     func addExercise(_ exercise: Exercise, prescription: CardioPrescription? = nil) {
         guard let w = workout else { return }
-        let rx = prescription ?? defaultPrescription(for: exercise)
+        var rx = prescription ?? defaultPrescription(for: exercise)
+        if prescription == nil,
+           let sec = MapleLastWorkingLoad.lastCardioDurationSec(
+               for: exercise.id,
+               from: dataManager.completedSessions
+           ) {
+            rx = MapleLastWorkingLoad.applyingLastDuration(sec, to: rx)
+        }
         _ = dataManager.addCardioExercise(to: w, exercise: exercise, prescription: rx)
         dataManager.refreshWorkoutKind(workoutId: workoutId)
     }

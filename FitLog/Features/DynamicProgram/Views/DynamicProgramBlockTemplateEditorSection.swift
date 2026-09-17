@@ -25,6 +25,7 @@ struct DynamicProgramBlockTemplateEditorSection: View {
 
     @Environment(DataManager.self) private var dataManager
     @EnvironmentObject private var aiService: AIService
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var slotDetailTarget: LegacySlotEditorTarget?
     @State private var slotLibraryTarget: LegacySlotEditorTarget?
@@ -95,6 +96,7 @@ struct DynamicProgramBlockTemplateEditorSection: View {
                 if slotBinding.wrappedValue.modality == .cardio {
                     CardioSlotDetailEditorView(slot: slotBinding)
                         .environment(dataManager)
+                        .environmentObject(userPreferences)
                 } else {
                     SlotDetailEditorView(
                         slot: slotBinding,
@@ -121,6 +123,7 @@ struct DynamicProgramBlockTemplateEditorSection: View {
                         slotLibraryTarget = nil
                     }
                     .environment(dataManager)
+                    .environmentObject(userPreferences)
                 } else {
                     ExerciseSlotPickerSheet(slot: slotBinding.wrappedValue) { exercise in
                         var s = slotBinding.wrappedValue

@@ -9,6 +9,7 @@ import SwiftUI
 
 struct FlexibleSlotEditorView: View {
     @Environment(DataManager.self) var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
     let workoutId: UUID
     let slotId: UUID
     /// When true (e.g. just added open slot), focus the label field after load.
@@ -59,6 +60,7 @@ struct FlexibleSlotEditorView: View {
             .sheet(isPresented: $showExercisePicker) {
                 DefaultExercisePickerSheet(selectedExerciseId: $defaultExerciseId)
                     .environment(dataVM)
+                    .environmentObject(userPreferences)
                     .onDisappear {
                         persistFromState()
                     }
@@ -232,9 +234,17 @@ struct FlexibleSlotEditorView: View {
 
 private struct DefaultExercisePickerSheet: View {
     @Environment(DataManager.self) var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
     @Binding var selectedExerciseId: UUID?
     @State private var search = ""
+
+    private var lastLoadByExerciseId: [UUID: String] {
+        MapleLastWorkingLoad.captionsByExerciseId(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
 
     private var filteredExercises: [Exercise] {
         let sorted = dataVM.globalExercises.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -253,12 +263,7 @@ private struct DefaultExercisePickerSheet: View {
                     dismiss()
                 }
                 ForEach(filteredExercises) { ex in
-                    Button {
-                        selectedExerciseId = ex.id
-                        dismiss()
-                    } label: {
-                        Text(dataVM.resolvedDisplayName(for: ex))
-                    }
+                    defaultExerciseRow(ex)
                 }
             }
             .searchable(text: $search, prompt: "Search exercises")
@@ -267,8 +272,37 @@ private struct DefaultExercisePickerSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .accessibilityHint("Closes without changing the default exercise.")
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func defaultExerciseRow(_ ex: Exercise) -> some View {
+        let lastLoad = lastLoadByExerciseId[ex.id]
+        Button {
+            selectedExerciseId = ex.id
+            dismiss()
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(dataVM.resolvedDisplayName(for: ex))
+                    .foregroundStyle(.primary)
+                if let lastLoad {
+                    Text(lastLoad)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(FitLogA11yID.defaultExercisePicker.lastLoad)
+                }
+            }
+        }
+        .accessibilityLabel(defaultExerciseAccessibilityLabel(for: ex, lastLoad: lastLoad))
+        .accessibilityHint("Sets this as the slot default. You can still change it when you train.")
+    }
+
+    private func defaultExerciseAccessibilityLabel(for ex: Exercise, lastLoad: String?) -> String {
+        var parts = [dataVM.resolvedDisplayName(for: ex)]
+        if let lastLoad { parts.append(lastLoad) }
+        return parts.joined(separator: ", ")
     }
 }

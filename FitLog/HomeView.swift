@@ -756,6 +756,7 @@ struct HomeView: View {
                     .environment(dataVM)
                     .environment(currentVM)
                     .environmentObject(aiService)
+                    .environmentObject(userPreferences)
             }
             .onReceive(NotificationCenter.default.publisher(for: .fitlogPresentNewWorkout)) { output in
                 if let hint = output.object as? NewWorkoutLaunchHint {
@@ -912,6 +913,7 @@ struct HomeView: View {
                         dataVM: dataVM
                     )
                     .environmentObject(aiService)
+                    .environmentObject(userPreferences)
                 }
             }
             .onChange(of: showHomeFinisherQuickAdd) { _, isPresented in

@@ -20,6 +20,7 @@ struct DayPagerEditorView: View {
 
     @Environment(DataManager.self) private var dataManager
     @EnvironmentObject private var aiService: AIService
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var selectedDayIndex = 0
     @State private var slotDetailTarget: SlotEditorTarget?
@@ -262,6 +263,7 @@ struct DayPagerEditorView: View {
             if slotBinding.wrappedValue.modality == .cardio {
                 CardioSlotDetailEditorView(slot: slotBinding)
                     .environment(dataManager)
+                    .environmentObject(userPreferences)
             } else {
                 SlotDetailEditorView(
                     slot: slotBinding,
@@ -443,5 +445,6 @@ private struct DayVolumeIndicatorView: View {
         onStructuralChange: {},
         onSlotFieldChange: {}
     )
+    .environmentObject(UserPreferences())
     .padding()
 }

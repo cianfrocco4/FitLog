@@ -10,6 +10,7 @@ import SwiftUI
 struct CardioSlotDetailEditorView: View {
     @Binding var slot: SplitBuilderEditableSlot
     @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
 
     @State private var showCardioLibrary = false
@@ -95,6 +96,7 @@ struct CardioSlotDetailEditorView: View {
                     showCardioLibrary = false
                 }
                 .environment(dataManager)
+                .environmentObject(userPreferences)
             }
         }
     }

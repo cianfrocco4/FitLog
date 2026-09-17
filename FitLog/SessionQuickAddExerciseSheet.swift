@@ -20,6 +20,7 @@ struct SessionQuickAddExerciseSheet: View {
     /// Appends a flexible slot to the in-progress session / library.
     var onAddTemplateSlot: (() -> Void)? = nil
     @EnvironmentObject var aiService: AIService
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
 
     @State private var searchText = ""
@@ -241,15 +242,22 @@ struct SessionQuickAddExerciseSheet: View {
             }
             .sheet(isPresented: $showCardioExercisePicker) {
                 CardioExercisePickerSheet { exercise in
-                    let prescription = CardioPrescription(
+                    var prescription = CardioPrescription(
                         kind: .steadyState,
                         targetDurationSec: 20 * 60,
                         targetZone: .zone2
                     )
+                    if let sec = MapleLastWorkingLoad.lastCardioDurationSec(
+                        for: exercise.id,
+                        from: dataVM.completedSessions
+                    ) {
+                        prescription = MapleLastWorkingLoad.applyingLastDuration(sec, to: prescription)
+                    }
                     currentVM.appendCardioExerciseToSession(exercise: exercise, prescription: prescription)
                     dismiss()
                 }
                 .environment(dataVM)
+                .environmentObject(userPreferences)
             }
             .alert(
                 "No cardio exercises",

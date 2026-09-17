@@ -23,6 +23,7 @@ struct NewWorkoutSheet: View {
     @Environment(DataManager.self) var dataVM
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var aiService: AIService
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) var dismiss
 
     /// Set when presenting from Home (e.g. after onboarding).
@@ -54,6 +55,7 @@ struct NewWorkoutSheet: View {
                 if let cardioId = cardioBuilderWorkoutId {
                     CardioWorkoutBuilderView(workoutId: cardioId, dataManager: dataVM)
                         .environment(dataVM)
+                        .environmentObject(userPreferences)
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) {
                                 Button("Close") { dismiss() }

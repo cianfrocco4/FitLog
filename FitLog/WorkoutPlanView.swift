@@ -52,6 +52,7 @@ struct WorkoutPlanView: View {
     let currentVM: CurrentWorkoutSessionViewModel
     @Environment(DataManager.self) var dataVM
     @EnvironmentObject var aiService: AIService
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(EntitlementStore.self) private var entitlementStore
     @Environment(\.openPullUpToExerciseLogIndex) private var openPullUpToExerciseLogIndex
     @Environment(\.undoManager) private var undoManager
@@ -232,6 +233,7 @@ struct WorkoutPlanView: View {
         .navigationDestination(item: $openSlotEditorNavigation) { nav in
             FlexibleSlotEditorView(workoutId: workout.id, slotId: nav.id, autoFocusLabelOnAppear: true)
                 .environment(dataVM)
+                .environmentObject(userPreferences)
                 .onDisappear {
                     if openSlotEditorNavigation?.id == nav.id {
                         openSlotEditorNavigation = nil
@@ -254,11 +256,18 @@ struct WorkoutPlanView: View {
             NavigationStack {
                 CardioWorkoutBuilderView(workoutId: workout.id, dataManager: dataVM)
                     .environment(dataVM)
+                    .environmentObject(userPreferences)
             }
         }
         .sheet(isPresented: $showCardioExercisePicker) {
             CardioExercisePickerSheet { exercise in
-                let rx = defaultCardioPrescription(for: exercise)
+                var rx = defaultCardioPrescription(for: exercise)
+                if let sec = MapleLastWorkingLoad.lastCardioDurationSec(
+                    for: exercise.id,
+                    from: dataVM.completedSessions
+                ) {
+                    rx = MapleLastWorkingLoad.applyingLastDuration(sec, to: rx)
+                }
                 _ = dataVM.addCardioExercise(to: workout, exercise: exercise, prescription: rx)
                 if let updated = dataVM.workout(id: workout.id) {
                     workout = updated
@@ -266,6 +275,7 @@ struct WorkoutPlanView: View {
                 }
             }
             .environment(dataVM)
+            .environmentObject(userPreferences)
         }
         .sheet(item: $cardioPrescriptionEdit) { item in
             CardioRowPrescriptionEditorSheet(
@@ -350,6 +360,7 @@ struct WorkoutPlanView: View {
                     dataVM: dataVM
                 )
                 .environmentObject(aiService)
+                .environmentObject(userPreferences)
             }
         }
         .onChange(of: showPlanFinisherQuickAdd) { _, isPresented in
@@ -661,6 +672,7 @@ struct WorkoutPlanView: View {
             NavigationLink {
                 FlexibleSlotEditorView(workoutId: workout.id, slotId: slotId)
                     .environment(dataVM)
+                    .environmentObject(userPreferences)
             } label: {
                 flexibleRowLabel(we, progression: progression)
             }

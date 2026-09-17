@@ -9,6 +9,7 @@ import SwiftUI
 
 struct CardioWorkoutBuilderView: View {
     @Environment(DataManager.self) var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
 
     @State private var viewModel: CardioWorkoutBuilderViewModel
@@ -113,6 +114,7 @@ struct CardioWorkoutBuilderView: View {
                 viewModel.addExercise(exercise)
             }
             .environment(dataVM)
+            .environmentObject(userPreferences)
         }
         .sheet(item: $editingRow) { item in
             CardioRowPrescriptionEditorSheet(
@@ -122,6 +124,7 @@ struct CardioWorkoutBuilderView: View {
                 prescription: item.prescription
             )
             .environment(dataVM)
+            .environmentObject(userPreferences)
         }
         .alert("Replace exercises?", isPresented: Binding(
             get: { viewModel.replaceTemplateWarning != nil },
@@ -146,6 +149,13 @@ struct CardioWorkoutBuilderView: View {
     private func cardioBuilderRow(_ row: WorkoutExercise) -> some View {
         let exercise = row.exerciseId.flatMap { id in dataVM.globalExercises.first { $0.id == id } }
         let prescription = row.effectiveCardioPrescription ?? CardioPrescription()
+        let lastLoad = exercise.flatMap { ex in
+            MapleLastWorkingLoad.caption(
+                for: ex.id,
+                from: dataVM.completedSessions,
+                displayUnit: userPreferences.weightDisplayUnit
+            )
+        }
         Button {
             editingRow = CardioRowEditItem(
                 id: row.id,
@@ -158,12 +168,25 @@ struct CardioWorkoutBuilderView: View {
                     .font(.headline)
                     .foregroundStyle(.primary)
                 CardioPrescriptionRowView(prescription: prescription, exercise: exercise)
+                if let lastLoad {
+                    Text(lastLoad)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(FitLogA11yID.cardioBuilder.lastLoad)
+                }
                 Text("Tap to edit prescription")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .accessibilityLabel(cardioBuilderAccessibilityLabel(name: dataVM.displayName(for: row), lastLoad: lastLoad))
         .accessibilityHint("Opens prescription editor")
+    }
+
+    private func cardioBuilderAccessibilityLabel(name: String, lastLoad: String?) -> String {
+        var parts = [name]
+        if let lastLoad { parts.append(lastLoad) }
+        return parts.joined(separator: ", ")
     }
 }
