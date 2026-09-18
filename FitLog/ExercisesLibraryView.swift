@@ -42,6 +42,7 @@ enum ExerciseLibraryBrowseMode: String, CaseIterable {
 struct ExercisesLibraryView: View {
     @Environment(DataManager.self) var dataVM
     @EnvironmentObject private var aiService: AIService
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(ExerciseFormGuideService.self) private var formGuideService
     @State private var showAddSheet = false
     @State private var exerciseToEdit: EditableExerciseItem?
@@ -139,6 +140,13 @@ struct ExercisesLibraryView: View {
         browseMode == .byCategory && !useFlatList
             && (modalityFilter == .cardio || modalityFilter == .hybrid)
             && !cardioActivitySections.isEmpty
+    }
+
+    private var lastLoadByExerciseId: [UUID: String] {
+        AspenLastWorkingLoad.captionsByExerciseId(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
     }
 
     var body: some View {
@@ -283,7 +291,15 @@ struct ExercisesLibraryView: View {
                         ExerciseFormGuideLibraryThumbnail(exercise: ex)
                     }
                     HStack(spacing: 8) {
-                        Text(dataVM.resolvedDisplayName(for: ex))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(dataVM.resolvedDisplayName(for: ex))
+                            if let lastLoad = lastLoadByExerciseId[ex.id] {
+                                Text(lastLoad)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityIdentifier(FitLogA11yID.exerciseLibrary.lastLoad)
+                            }
+                        }
                         Spacer(minLength: 8)
                         statusBadges(for: ex)
                     }
@@ -292,6 +308,7 @@ struct ExercisesLibraryView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(libraryRowAccessibilityLabel(for: ex))
             Button {
                 toggleFavorite(ex.id)
             } label: {
@@ -307,6 +324,14 @@ struct ExercisesLibraryView: View {
         .contextMenu {
             contextMenuButtons(for: ex)
         }
+    }
+
+    private func libraryRowAccessibilityLabel(for ex: Exercise) -> String {
+        var parts = [dataVM.resolvedDisplayName(for: ex)]
+        if let lastLoad = lastLoadByExerciseId[ex.id] {
+            parts.append(lastLoad)
+        }
+        return parts.joined(separator: ", ")
     }
 
     @ViewBuilder

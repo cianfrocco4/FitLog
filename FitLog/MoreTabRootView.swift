@@ -42,6 +42,8 @@ struct MoreTabRootView: View {
                 }
                 NavigationLink {
                     ExercisesLibraryView()
+                        .environment(dataVM)
+                        .environmentObject(userPreferences)
                 } label: {
                     Label("Exercise Library", systemImage: "books.vertical")
                 }

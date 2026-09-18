@@ -930,10 +930,18 @@ private struct ExercisePickerView: View {
     var onExerciseChosen: ((Exercise) -> Void)? = nil
     var navigationTitleText: String = "Select Exercise"
     @Environment(DataManager.self) var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) var dismiss
     @State private var searchText = ""
     @State private var favoriteIds: Set<UUID> = []
     @State private var recentIds: [UUID] = []
+
+    private var lastLoadByExerciseId: [UUID: String] {
+        AspenLastWorkingLoad.captionsByExerciseId(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
 
     private var filtered: [Exercise] {
         let q = searchText.trimmingCharacters(in: .whitespaces)
@@ -1019,6 +1027,7 @@ private struct ExercisePickerView: View {
     @ViewBuilder
     private func exerciseRows(_ list: [Exercise], showFavorite: Bool) -> some View {
         ForEach(list) { ex in
+            let lastLoad = lastLoadByExerciseId[ex.id]
             Button {
                 if let onExerciseChosen {
                     onExerciseChosen(ex)
@@ -1028,7 +1037,15 @@ private struct ExercisePickerView: View {
                 }
             } label: {
                 HStack {
-                    Text(dataVM.resolvedDisplayName(for: ex))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(dataVM.resolvedDisplayName(for: ex))
+                        if let lastLoad {
+                            Text(lastLoad)
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier(FitLogA11yID.planExercisePicker.lastLoad)
+                        }
+                    }
                     Spacer()
                     if showFavorite {
                         Button {
@@ -1046,7 +1063,19 @@ private struct ExercisePickerView: View {
                     }
                 }
             }
+            .accessibilityLabel(planPickerAccessibilityLabel(for: ex, lastLoad: lastLoad))
+            .accessibilityHint(
+                onExerciseChosen == nil
+                    ? "Selects this exercise"
+                    : "Adds this exercise to the workout"
+            )
         }
+    }
+
+    private func planPickerAccessibilityLabel(for ex: Exercise, lastLoad: String?) -> String {
+        var parts = [dataVM.resolvedDisplayName(for: ex)]
+        if let lastLoad { parts.append(lastLoad) }
+        return parts.joined(separator: ", ")
     }
 
     private func toggleFavorite(_ id: UUID) {
@@ -1142,17 +1171,27 @@ private struct PlanQuickAddExerciseSheet: View {
     }
 
     private func addExerciseQuick(_ ex: Exercise) {
-        let def = ExercisePrescriptionMemory.rememberedSetsAndReps(for: ex.id) ?? (3, "8-12")
-        let config = Array(repeating: [String: String](), count: def.sets)
         guard let lib = dataVM.workout(id: workoutId) else { return }
-        if let we = dataVM.addExercise(
-            to: lib,
-            exercise: ex,
-            recommendedSets: def.sets,
-            recommendedReps: def.reps,
-            configurationFields: [],
-            recommendedConfigBySet: config
-        ) {
+        let added: WorkoutExercise?
+        if ex.modality == .cardio {
+            let rx = AspenLastWorkingLoad.prescriptionFillingLastDuration(
+                for: ex,
+                from: dataVM.completedSessions
+            )
+            added = dataVM.addCardioExercise(to: lib, exercise: ex, prescription: rx)
+        } else {
+            let def = ExercisePrescriptionMemory.rememberedSetsAndReps(for: ex.id) ?? (3, "8-12")
+            let config = Array(repeating: [String: String](), count: def.sets)
+            added = dataVM.addExercise(
+                to: lib,
+                exercise: ex,
+                recommendedSets: def.sets,
+                recommendedReps: def.reps,
+                configurationFields: [],
+                recommendedConfigBySet: config
+            )
+        }
+        if let we = added {
             ExercisePickerPersistence.recordRecent(exerciseId: ex.id)
             syncLibraryIfNeeded()
             toast = PlanQuickAddExerciseToast(
@@ -1391,11 +1430,19 @@ private struct AISuggestExercisesFillSheet: View {
     @Environment(DataManager.self) var dataVM
     @Environment(EntitlementStore.self) private var entitlementStore
     @EnvironmentObject var aiService: AIService
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
 
     @State private var suggestions: [(exercise: Exercise, sets: Int, reps: String)] = []
     @State private var loading = true
     @State private var errorMessage: String?
+
+    private var lastLoadByExerciseId: [UUID: String] {
+        AspenLastWorkingLoad.captionsByExerciseId(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -1426,6 +1473,7 @@ private struct AISuggestExercisesFillSheet: View {
                                 .foregroundStyle(.secondary)
                         }
                         ForEach(suggestions, id: \.exercise.id) { item in
+                            let lastLoad = lastLoadByExerciseId[item.exercise.id]
                             Button {
                                 addOne(item)
                             } label: {
@@ -1435,8 +1483,15 @@ private struct AISuggestExercisesFillSheet: View {
                                     Text("\(item.sets) sets × \(item.reps)")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
+                                    if let lastLoad {
+                                        Text(lastLoad)
+                                            .font(.caption.weight(.medium))
+                                            .foregroundStyle(.secondary)
+                                            .accessibilityIdentifier(FitLogA11yID.planSuggest.lastLoad)
+                                    }
                                 }
                             }
+                            .accessibilityLabel(suggestAccessibilityLabel(item, lastLoad: lastLoad))
                         }
                         Section {
                             Button("Add all") {
@@ -1461,6 +1516,18 @@ private struct AISuggestExercisesFillSheet: View {
                 await load()
             }
         }
+    }
+
+    private func suggestAccessibilityLabel(
+        _ item: (exercise: Exercise, sets: Int, reps: String),
+        lastLoad: String?
+    ) -> String {
+        var parts = [
+            dataVM.resolvedDisplayName(for: item.exercise),
+            "\(item.sets) sets × \(item.reps)"
+        ]
+        if let lastLoad { parts.append(lastLoad) }
+        return parts.joined(separator: ", ")
     }
 
     private func addOne(_ item: (exercise: Exercise, sets: Int, reps: String)) {
