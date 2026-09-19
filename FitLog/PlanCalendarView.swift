@@ -25,6 +25,7 @@ struct PlanCalendarView: View {
     @Environment(DataManager.self) var dataVM
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var aiService: AIService
+    @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
 
     @State private var visibleMonth: Date = Date()
@@ -195,6 +196,7 @@ struct PlanCalendarView: View {
                     .environment(dataVM)
                     .environment(currentVM)
                     .environmentObject(aiService)
+                    .environmentObject(userPreferences)
             }
             .sheet(item: Binding(
                 get: { weekEditAnchor.map { WeekSheetItem(anchor: $0) } },
@@ -774,9 +776,17 @@ struct DayPlanSheet: View {
     @Environment(DataManager.self) var dataVM
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var aiService: AIService
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
 
     let date: Date
+
+    private var lastLoadByExerciseId: [UUID: String] {
+        BirchLastWorkingLoad.captionsByExerciseId(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
 
     @State private var swapPlanRef: WorkoutPlanRef?
     @State private var pendingWorkoutReplace: PendingWorkoutReplace?
@@ -1085,6 +1095,7 @@ struct DayPlanSheet: View {
         let isCardio = row.effectiveCardioPrescription != nil
             || resolvedModality == .cardio
             || resolvedModality == .hybrid
+        let lastLoad = row.exerciseId.flatMap { lastLoadByExerciseId[$0] }
 
         if isCardio, let rx = row.effectiveCardioPrescription {
             let exercise = row.exerciseId.flatMap { id in dataVM.globalExercises.first { $0.id == id } }
@@ -1092,27 +1103,58 @@ struct DayPlanSheet: View {
                 HStack(spacing: 6) {
                     Image(systemName: "figure.run")
                         .foregroundStyle(FitlogPalette.chartSecondary)
-                    Text(dataVM.displayName(for: row))
-                        .font(.subheadline.weight(.semibold))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(dataVM.displayName(for: row))
+                            .font(.subheadline.weight(.semibold))
+                        if let lastLoad {
+                            Text(lastLoad)
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier(FitLogA11yID.dayPlanExercise.lastLoad)
+                        }
+                    }
                 }
                 CardioPrescriptionRowView(prescription: rx, exercise: exercise)
             }
             .padding(.vertical, 4)
             .listRowBackground(FitlogPalette.chartSecondary.opacity(0.08))
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("Cardio, \(dataVM.displayName(for: row)), \(CardioMetricsCalculator.prescriptionSummary(rx))")
+            .accessibilityLabel(dayPlanAccessibilityLabel(
+                name: dataVM.displayName(for: row),
+                lastLoad: lastLoad,
+                trailing: "Cardio, \(CardioMetricsCalculator.prescriptionSummary(rx))"
+            ))
         } else {
             HStack {
-                Text(dataVM.displayName(for: row))
-                    .font(.subheadline.weight(.semibold))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(dataVM.displayName(for: row))
+                        .font(.subheadline.weight(.semibold))
+                    if let lastLoad {
+                        Text(lastLoad)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier(FitLogA11yID.dayPlanExercise.lastLoad)
+                    }
+                }
                 Spacer()
                 Text("\(row.recommendedSets)×\(row.recommendedReps)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(dataVM.displayName(for: row)), \(row.recommendedSets) sets, \(row.recommendedReps) reps")
+            .accessibilityLabel(dayPlanAccessibilityLabel(
+                name: dataVM.displayName(for: row),
+                lastLoad: lastLoad,
+                trailing: "\(row.recommendedSets) sets, \(row.recommendedReps) reps"
+            ))
         }
+    }
+
+    private func dayPlanAccessibilityLabel(name: String, lastLoad: String?, trailing: String) -> String {
+        var parts = [name]
+        if let lastLoad { parts.append(lastLoad) }
+        parts.append(trailing)
+        return parts.joined(separator: ", ")
     }
 }
 

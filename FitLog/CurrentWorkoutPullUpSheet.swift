@@ -38,8 +38,16 @@ private struct ResolveSlotExerciseSheet: View {
     var isSwapExercise: Bool = false
     @Environment(DataManager.self) var dataVM
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
+
+    private var lastLoadByExerciseId: [UUID: String] {
+        BirchLastWorkingLoad.captionsByExerciseId(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
 
     private var swappedWorkoutExercise: WorkoutExercise? {
         currentVM.currentSession?.exerciseLogs.first { $0.workoutExercise.id == workoutExerciseId }?.workoutExercise
@@ -269,12 +277,19 @@ private struct ResolveSlotExerciseSheet: View {
     }
 
     private func exerciseButton(_ ex: Exercise) -> some View {
-        Button {
+        let lastLoad = lastLoadByExerciseId[ex.id]
+        return Button {
             currentVM.resolveSlotPlaceholder(workoutExerciseId: workoutExerciseId, exercise: ex)
             dismiss()
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Text(dataVM.resolvedDisplayName(for: ex))
+                if let lastLoad {
+                    Text(lastLoad)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(FitLogA11yID.resolveSlotExercise.lastLoad)
+                }
                 if !ex.targetedMuscles.isEmpty {
                     Text(ex.targetedMuscles.map(\.rawValue).joined(separator: ", "))
                         .font(.caption)
@@ -282,10 +297,17 @@ private struct ResolveSlotExerciseSheet: View {
                 }
             }
         }
+        .accessibilityLabel(resolveSlotAccessibilityLabel(for: ex, lastLoad: lastLoad))
+        .accessibilityHint(
+            isSwapExercise
+                ? "Swaps this exercise into the current slot"
+                : "Chooses this exercise for the open slot"
+        )
     }
 
     private func swapSuggestionButton(_ ex: Exercise) -> some View {
-        Button {
+        let lastLoad = lastLoadByExerciseId[ex.id]
+        return Button {
             currentVM.resolveSlotPlaceholder(workoutExerciseId: workoutExerciseId, exercise: ex)
             dismiss()
         } label: {
@@ -300,6 +322,12 @@ private struct ResolveSlotExerciseSheet: View {
                 ))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                if let lastLoad {
+                    Text(lastLoad)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(FitLogA11yID.resolveSlotExercise.lastLoad)
+                }
                 if !ex.targetedMuscles.isEmpty {
                     Text(ex.targetedMuscles.map(\.rawValue).joined(separator: ", "))
                         .font(.caption2)
@@ -307,6 +335,14 @@ private struct ResolveSlotExerciseSheet: View {
                 }
             }
         }
+        .accessibilityLabel(resolveSlotAccessibilityLabel(for: ex, lastLoad: lastLoad))
+        .accessibilityHint("Swaps this exercise into the current slot")
+    }
+
+    private func resolveSlotAccessibilityLabel(for ex: Exercise, lastLoad: String?) -> String {
+        var parts = [dataVM.resolvedDisplayName(for: ex)]
+        if let lastLoad { parts.append(lastLoad) }
+        return parts.joined(separator: ", ")
     }
 }
 
@@ -931,6 +967,7 @@ struct CurrentWorkoutPullUpSheet: View {
                     )
                     .environment(dataVM)
                     .environment(currentVM)
+                    .environmentObject(userPreferences)
                 }
             }
             .overlay(alignment: .bottom) {
@@ -1052,17 +1089,12 @@ struct CurrentWorkoutPullUpSheet: View {
                 isPresented: $showCardioFinisherOffer,
                 titleVisibility: .visible
             ) {
-                Button("Quick 10 min") {
-                    if let template = CardioQuickAddTemplate.all.first,
-                       let exercise = template.resolveExercise(in: dataVM.globalExercises),
-                       currentVM.appendCardioExerciseToSession(exercise: exercise, prescription: template.prescription) {
-                        cardioFinisherOffered = true
-                    } else {
-                        showCardioResolveFailureAlert = true
-                    }
+                Button(cardioFinisherQuickLabel) {
+                    addCardioFinisherFromLastDuration()
                 }
-                .accessibilityLabel("Quick 10 minute cardio finisher")
-                .accessibilityHint("Adds a 10 minute zone 2 cardio exercise to this workout.")
+                .accessibilityLabel(cardioFinisherQuickLabel)
+                .accessibilityHint(cardioFinisherQuickHint)
+                .accessibilityIdentifier(FitLogA11yID.cardioFinisher.lastDuration)
                 Button("Choose exercise…") {
                     exerciseLogCountBeforeFinisherQuickAdd = currentVM.currentSession?.exerciseLogs.count
                     showQuickAddExercise = true
@@ -1189,6 +1221,49 @@ struct CurrentWorkoutPullUpSheet: View {
 
     private var resolvedExercisesWithNoSets: [String] {
         currentVM.resolvedExercisesWithNoSets()
+    }
+
+    private var cardioFinisherTemplate: CardioQuickAddTemplate? {
+        CardioQuickAddTemplate.all.first
+    }
+
+    private var cardioFinisherExercise: Exercise? {
+        cardioFinisherTemplate?.resolveExercise(in: dataVM.globalExercises)
+    }
+
+    private var cardioFinisherQuickLabel: String {
+        guard let template = cardioFinisherTemplate else { return "Quick 10 min" }
+        return BirchLastWorkingLoad.finisherQuickLabel(
+            template: template,
+            exercise: cardioFinisherExercise,
+            sessions: dataVM.completedSessions
+        )
+    }
+
+    private var cardioFinisherQuickHint: String {
+        if cardioFinisherQuickLabel == "Quick 10 min" {
+            return "Adds a 10 minute zone 2 cardio exercise to this workout."
+        }
+        return "Adds a zone 2 cardio exercise using your last logged duration. You can edit before logging."
+    }
+
+    private func addCardioFinisherFromLastDuration() {
+        guard let template = cardioFinisherTemplate,
+              let exercise = cardioFinisherExercise
+        else {
+            showCardioResolveFailureAlert = true
+            return
+        }
+        let rx = BirchLastWorkingLoad.finisherPrescription(
+            from: template,
+            exercise: exercise,
+            sessions: dataVM.completedSessions
+        )
+        if currentVM.appendCardioExerciseToSession(exercise: exercise, prescription: rx) {
+            cardioFinisherOffered = true
+        } else {
+            showCardioResolveFailureAlert = true
+        }
     }
 
     private func handleFinishTap() {
