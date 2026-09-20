@@ -11,20 +11,17 @@ enum WorkoutFocusedExerciseNavAccessibility {
     /// Spoken summary for the current exercise title + position in the session.
     static func currentExerciseAccessibilityLabel(
         exerciseTitle: String,
-        positionLabel: String
+        positionLabel: String,
+        lastLoadCaption: String? = nil
     ) -> String {
         let title = exerciseTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let position = positionLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-        switch (title.isEmpty, position.isEmpty) {
-        case (false, false):
-            return "\(title), \(position)"
-        case (false, true):
-            return title
-        case (true, false):
-            return position
-        case (true, true):
-            return "Current exercise"
-        }
+        let lastLoad = lastLoadCaption?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var parts: [String] = []
+        if !title.isEmpty { parts.append(title) }
+        if !position.isEmpty { parts.append(position) }
+        if !lastLoad.isEmpty { parts.append(lastLoad) }
+        return parts.isEmpty ? "Current exercise" : parts.joined(separator: ", ")
     }
 
     static func previousHint(canGoPrevious: Bool) -> String {

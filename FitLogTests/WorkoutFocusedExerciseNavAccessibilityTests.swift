@@ -38,6 +38,23 @@ struct WorkoutFocusedExerciseNavAccessibilityTests {
         )
     }
 
+    @Test func currentExerciseLabel_includesLastLoadWhenPresent() {
+        #expect(
+            WorkoutFocusedExerciseNavAccessibility.currentExerciseAccessibilityLabel(
+                exerciseTitle: "Bench Press",
+                positionLabel: "Exercise 2 of 5",
+                lastLoadCaption: "Last 185 lb × 8 reps"
+            ) == "Bench Press, Exercise 2 of 5, Last 185 lb × 8 reps"
+        )
+        #expect(
+            WorkoutFocusedExerciseNavAccessibility.currentExerciseAccessibilityLabel(
+                exerciseTitle: "Bench Press",
+                positionLabel: "Exercise 2 of 5",
+                lastLoadCaption: "  "
+            ) == "Bench Press, Exercise 2 of 5"
+        )
+    }
+
     @Test func previousAndNextHints_reflectAvailability() {
         #expect(
             WorkoutFocusedExerciseNavAccessibility.previousHint(canGoPrevious: true)

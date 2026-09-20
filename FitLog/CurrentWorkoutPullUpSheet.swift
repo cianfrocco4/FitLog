@@ -711,6 +711,11 @@ struct CurrentWorkoutPullUpSheet: View {
                                     WorkoutFocusedExerciseNavBar(
                                         exerciseTitle: dataVM.displayName(for: log.workoutExercise),
                                         positionLabel: "Exercise \(focusIndex + 1) of \(exerciseLogs.count)",
+                                        lastLoadCaption: OakLastWorkingLoad.caption(
+                                            for: log.workoutExercise,
+                                            from: dataVM.completedSessions,
+                                            displayUnit: userPreferences.weightDisplayUnit
+                                        ),
                                         canGoPrevious: previousFocusIndex(before: focusIndex, logs: exerciseLogs) != nil,
                                         canGoNext: nextFocusIndex(after: focusIndex, logs: exerciseLogs) != nil,
                                         onPrevious: { advanceFocusedExercise(by: -1) },

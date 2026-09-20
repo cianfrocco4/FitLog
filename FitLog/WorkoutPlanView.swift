@@ -304,20 +304,12 @@ struct WorkoutPlanView: View {
             isPresented: $showPlanCardioFinisherOffer,
             titleVisibility: .visible
         ) {
-            Button("Quick 10 min") {
-                if let template = CardioQuickAddTemplate.all.first,
-                   let exercise = template.resolveExercise(in: dataVM.globalExercises),
-                   currentVM.appendCardioExerciseToSession(exercise: exercise, prescription: template.prescription) {
-                    planCardioFinisherOffered = true
-                    if let idx = currentVM.currentSession?.exerciseLogs.indices.last {
-                        openPullUpToExerciseLogIndex?(idx)
-                    }
-                } else {
-                    showPlanCardioResolveFailureAlert = true
-                }
+            Button(planCardioFinisherQuickLabel) {
+                addPlanCardioFinisherFromLastDuration()
             }
-            .accessibilityLabel("Quick 10 minute cardio finisher")
-            .accessibilityHint("Adds a 10 minute zone 2 cardio exercise to this workout.")
+            .accessibilityLabel(planCardioFinisherQuickLabel)
+            .accessibilityHint(OakLastWorkingLoad.finisherQuickHint(label: planCardioFinisherQuickLabel))
+            .accessibilityIdentifier(FitLogA11yID.planCardioFinisher.lastDuration)
             Button("Choose exercise…") {
                 planFinisherQuickAddLogCountBefore = currentVM.currentSession?.exerciseLogs.count
                 showPlanFinisherQuickAdd = true
@@ -362,6 +354,45 @@ struct WorkoutPlanView: View {
                     openPullUpToExerciseLogIndex?(idx)
                 }
             }
+        }
+    }
+
+    private var planCardioFinisherTemplate: CardioQuickAddTemplate? {
+        CardioQuickAddTemplate.all.first
+    }
+
+    private var planCardioFinisherExercise: Exercise? {
+        planCardioFinisherTemplate?.resolveExercise(in: dataVM.globalExercises)
+    }
+
+    private var planCardioFinisherQuickLabel: String {
+        guard let template = planCardioFinisherTemplate else { return "Quick 10 min" }
+        return OakLastWorkingLoad.finisherQuickLabel(
+            template: template,
+            exercise: planCardioFinisherExercise,
+            sessions: dataVM.completedSessions
+        )
+    }
+
+    private func addPlanCardioFinisherFromLastDuration() {
+        guard let template = planCardioFinisherTemplate,
+              let exercise = planCardioFinisherExercise
+        else {
+            showPlanCardioResolveFailureAlert = true
+            return
+        }
+        let rx = OakLastWorkingLoad.finisherPrescription(
+            from: template,
+            exercise: exercise,
+            sessions: dataVM.completedSessions
+        )
+        if currentVM.appendCardioExerciseToSession(exercise: exercise, prescription: rx) {
+            planCardioFinisherOffered = true
+            if let idx = currentVM.currentSession?.exerciseLogs.indices.last {
+                openPullUpToExerciseLogIndex?(idx)
+            }
+        } else {
+            showPlanCardioResolveFailureAlert = true
         }
     }
 

@@ -293,6 +293,47 @@ struct HomeView: View {
         }
     }
 
+    private var homeCardioFinisherTemplate: CardioQuickAddTemplate? {
+        CardioQuickAddTemplate.all.first
+    }
+
+    private var homeCardioFinisherExercise: Exercise? {
+        homeCardioFinisherTemplate?.resolveExercise(in: dataVM.globalExercises)
+    }
+
+    private var homeCardioFinisherQuickLabel: String {
+        guard let template = homeCardioFinisherTemplate else { return "Quick 10 min" }
+        return OakLastWorkingLoad.finisherQuickLabel(
+            template: template,
+            exercise: homeCardioFinisherExercise,
+            sessions: dataVM.completedSessions
+        )
+    }
+
+    private func addHomeCardioFinisherFromLastDuration() {
+        guard let template = homeCardioFinisherTemplate,
+              let exercise = homeCardioFinisherExercise
+        else {
+            showCardioResolveFailureAlert = true
+            return
+        }
+        let rx = OakLastWorkingLoad.finisherPrescription(
+            from: template,
+            exercise: exercise,
+            sessions: dataVM.completedSessions
+        )
+        if currentVM.appendCardioExerciseToSession(exercise: exercise, prescription: rx) {
+            homeCardioFinisherOffered = true
+            if let idx = currentVM.currentSession?.exerciseLogs.indices.last {
+                openPullUpToExerciseLogIndex?(idx)
+            } else {
+                openCurrentWorkoutSheet?()
+            }
+        } else {
+            showCardioResolveFailureAlert = true
+        }
+    }
+
     private func isPlannedWorkoutCompletedToday(plan: WorkoutPlanRef) -> Bool {
         cachedTodayCompletedRefs.contains(plan.cacheKey)
     }
@@ -872,22 +913,12 @@ struct HomeView: View {
                 isPresented: $showHomeCardioFinisherOffer,
                 titleVisibility: .visible
             ) {
-                Button("Quick 10 min") {
-                    if let template = CardioQuickAddTemplate.all.first,
-                       let exercise = template.resolveExercise(in: dataVM.globalExercises),
-                       currentVM.appendCardioExerciseToSession(exercise: exercise, prescription: template.prescription) {
-                        homeCardioFinisherOffered = true
-                        if let idx = currentVM.currentSession?.exerciseLogs.indices.last {
-                            openPullUpToExerciseLogIndex?(idx)
-                        } else {
-                            openCurrentWorkoutSheet?()
-                        }
-                    } else {
-                        showCardioResolveFailureAlert = true
-                    }
+                Button(homeCardioFinisherQuickLabel) {
+                    addHomeCardioFinisherFromLastDuration()
                 }
-                .accessibilityLabel("Quick 10 minute cardio finisher")
-                .accessibilityHint("Adds a 10 minute zone 2 cardio exercise to this workout.")
+                .accessibilityLabel(homeCardioFinisherQuickLabel)
+                .accessibilityHint(OakLastWorkingLoad.finisherQuickHint(label: homeCardioFinisherQuickLabel))
+                .accessibilityIdentifier(FitLogA11yID.homeCardioFinisher.lastDuration)
                 Button("Choose exercise…") {
                     homeFinisherQuickAddLogCountBefore = currentVM.currentSession?.exerciseLogs.count
                     showHomeFinisherQuickAdd = true
