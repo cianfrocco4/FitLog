@@ -17,6 +17,8 @@ struct WorkoutExercisePillStrip: View {
     let supersetLetter: (ExerciseLog) -> String?
     /// Prescribed reps for strength rows, nil for cardio (the caller knows the modality).
     var repGoal: ((ExerciseLog) -> String?)? = nil
+    /// Last working load or last cardio duration from a completed session, when known.
+    var lastLoadCaption: ((ExerciseLog) -> String?)? = nil
     var onSelectExercise: ((Int) -> Void)? = nil
     var onAddExercise: (() -> Void)? = nil
     var onQuickSwap: ((Int) -> Void)? = nil
@@ -84,6 +86,7 @@ struct WorkoutExercisePillStrip: View {
         let isCompleted = isExerciseCompleted(log)
         let inSuperset = isExerciseActive(log) && activeExerciseIdsCount > 1
         let letter = supersetLetter(log)
+        let lastLoad = lastLoadCaption?(log)
 
         Button {
             withAnimation(.easeInOut(duration: 0.2)) {
@@ -91,43 +94,52 @@ struct WorkoutExercisePillStrip: View {
             }
             onSelectExercise?(index)
         } label: {
-            HStack(spacing: 4) {
-                if let letter {
-                    Text(letter)
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.blue)
-                        .frame(minWidth: 16)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    if let letter {
+                        Text(letter)
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(isSelected ? Color.accentColor : Color.blue)
+                            .frame(minWidth: 16)
+                    }
+                    Text(name)
+                        .font(.caption.weight(isSelected ? .semibold : .regular))
+                        .lineLimit(1)
+                    if isPlaceholder {
+                        Image(systemName: "square.dashed")
+                            .font(.caption2)
+                    } else if isCompleted {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(isSelected ? Color.white.opacity(0.9) : Color.green)
+                    } else if rec > 0 {
+                        Text("\(done)/\(rec)")
+                            .font(.caption2.weight(.medium))
+                            .monospacedDigit()
+                    } else if done > 0 {
+                        Text("\(done)")
+                            .font(.caption2.weight(.medium))
+                            .monospacedDigit()
+                    }
+                    if !isCompleted, rec > 0 || done > 0 {
+                        pillProgressDots(done: done, target: max(rec, done), isSelected: isSelected)
+                    }
                 }
-                Text(name)
-                    .font(.caption.weight(isSelected ? .semibold : .regular))
-                    .lineLimit(1)
-                if isPlaceholder {
-                    Image(systemName: "square.dashed")
+                if let lastLoad, !lastLoad.isEmpty {
+                    Text(lastLoad)
                         .font(.caption2)
-                } else if isCompleted {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.caption2)
-                        .foregroundStyle(isSelected ? Color.white.opacity(0.9) : Color.green)
-                } else if rec > 0 {
-                    Text("\(done)/\(rec)")
-                        .font(.caption2.weight(.medium))
-                        .monospacedDigit()
-                } else if done > 0 {
-                    Text("\(done)")
-                        .font(.caption2.weight(.medium))
-                        .monospacedDigit()
-                }
-                if !isCompleted, rec > 0 || done > 0 {
-                    pillProgressDots(done: done, target: max(rec, done), isSelected: isSelected)
+                        .lineLimit(1)
+                        .foregroundStyle(isSelected ? Color.white.opacity(0.9) : Color.secondary)
+                        .accessibilityIdentifier(FitLogA11yID.exercisePill.lastLoad)
                 }
             }
             .foregroundStyle(isSelected ? Color.white : Color.primary)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(pillBackground(isSelected: isSelected, inSuperset: inSuperset))
-            .clipShape(Capsule())
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
-                Capsule()
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .strokeBorder(inSuperset && !isSelected ? Color.blue.opacity(0.55) : Color.clear, lineWidth: 1.5)
             )
             .opacity(isCompleted && !isSelected ? 0.55 : 1)
@@ -151,13 +163,14 @@ struct WorkoutExercisePillStrip: View {
             }
         }
         .accessibilityLabel(
-            accessibilityPillLabel(
+            WorkoutExercisePillAccessibility.pillLabel(
                 name: name,
                 done: done,
                 rec: rec,
                 isPlaceholder: isPlaceholder,
                 letter: letter,
-                repGoal: repGoal?(log)
+                repGoal: repGoal?(log),
+                lastLoad: lastLoad
             )
         )
         .accessibilityHint(isSelected ? "Currently selected exercise" : "Double tap to log sets for this exercise")
@@ -176,24 +189,6 @@ struct WorkoutExercisePillStrip: View {
         .accessibilityHidden(true)
     }
 
-    private func accessibilityPillLabel(
-        name: String,
-        done: Int,
-        rec: Int,
-        isPlaceholder: Bool,
-        letter: String?,
-        repGoal: String?
-    ) -> String {
-        var parts: [String] = []
-        if let letter { parts.append("Superset \(letter) of the round") }
-        parts.append(name)
-        if isPlaceholder { parts.append("needs an exercise") }
-        else if rec > 0 { parts.append("\(done) of \(rec) work sets") }
-        else if done > 0 { parts.append("\(done) work sets logged") }
-        if !isPlaceholder, let repGoal, !repGoal.isEmpty { parts.append("goal \(repGoal) reps") }
-        return parts.joined(separator: ", ")
-    }
-
     private func abbreviatedName(for we: WorkoutExercise) -> String {
         let full = displayName(we)
         if full.count <= 14 { return full }
@@ -207,7 +202,7 @@ struct WorkoutExercisePillStrip: View {
     }
 }
 
-#Preview {
+#Preview("Pills — last load") {
     struct PreviewHost: View {
         @State private var expanded: Int? = 0
         var body: some View {
@@ -219,8 +214,30 @@ struct WorkoutExercisePillStrip: View {
                 isExerciseCompleted: { _ in false },
                 isExerciseActive: { _ in true },
                 supersetLetter: { _ in "A" },
+                lastLoadCaption: { _ in "Last 185 lb × 8 reps" },
                 onAddExercise: {}
             )
+        }
+    }
+    return PreviewHost()
+}
+
+#Preview("Pills — last load dark") {
+    struct PreviewHost: View {
+        @State private var expanded: Int? = 0
+        var body: some View {
+            WorkoutExercisePillStrip(
+                logs: [],
+                expandedExerciseIndex: $expanded,
+                activeExerciseIdsCount: 1,
+                displayName: { $0.snapshot?.nameAtTimeOfLog ?? "Exercise" },
+                isExerciseCompleted: { _ in false },
+                isExerciseActive: { _ in false },
+                supersetLetter: { _ in nil },
+                lastLoadCaption: { _ in "Last 45:00" },
+                onAddExercise: {}
+            )
+            .preferredColorScheme(.dark)
         }
     }
     return PreviewHost()

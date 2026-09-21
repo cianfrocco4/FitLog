@@ -514,6 +514,7 @@ struct CurrentWorkoutPullUpSheet: View {
                             let letter = supersetLetter(for: log) ?? "?"
                             let name = dataVM.displayName(for: log.workoutExercise)
                             let isCurrent = idx == exerciseIndex
+                            let lastLoad = PineLastWorkingLoad.caption(for: log, in: pineLastLoadByExerciseId)
                             Button {
                                 withAnimation(.easeInOut(duration: 0.2)) {
                                     expandedExerciseIndex = idx
@@ -522,21 +523,37 @@ struct CurrentWorkoutPullUpSheet: View {
                                     currentVM.setPrimaryExercise(exerciseId: exId)
                                 }
                             } label: {
-                                HStack(spacing: 6) {
-                                    Text(letter)
-                                        .font(.caption.weight(.bold))
-                                    Text(supersetSwitcherName(name))
-                                        .font(.caption.weight(isCurrent ? .semibold : .regular))
-                                        .lineLimit(1)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(spacing: 6) {
+                                        Text(letter)
+                                            .font(.caption.weight(.bold))
+                                        Text(supersetSwitcherName(name))
+                                            .font(.caption.weight(isCurrent ? .semibold : .regular))
+                                            .lineLimit(1)
+                                    }
+                                    if let lastLoad {
+                                        Text(lastLoad)
+                                            .font(.caption2)
+                                            .lineLimit(1)
+                                            .foregroundStyle(isCurrent ? Color.white.opacity(0.9) : Color.secondary)
+                                            .accessibilityIdentifier(FitLogA11yID.supersetSwitcher.lastLoad)
+                                    }
                                 }
                                 .padding(.horizontal, 12)
+                                .padding(.vertical, lastLoad == nil ? 0 : 6)
                                 .frame(minHeight: 36)
                                 .background(isCurrent ? Color.accentColor : Color.blue.opacity(0.15))
                                 .foregroundStyle(isCurrent ? Color.white : Color.primary)
-                                .clipShape(Capsule())
+                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("Superset \(letter), \(name)")
+                            .accessibilityLabel(
+                                WorkoutExercisePillAccessibility.supersetChipLabel(
+                                    letter: letter,
+                                    name: name,
+                                    lastLoad: lastLoad
+                                )
+                            )
                             .accessibilityHint("Switches logging to this exercise in the round")
                             .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
                         }
@@ -845,6 +862,7 @@ struct CurrentWorkoutPullUpSheet: View {
                         isExerciseActive: { isExerciseActive($0) },
                         supersetLetter: { supersetLetter(for: $0) },
                         repGoal: { repGoalText(for: $0) },
+                        lastLoadCaption: { PineLastWorkingLoad.caption(for: $0, in: pineLastLoadByExerciseId) },
                         onSelectExercise: { _ in
                             if sheetDetent != FitlogWorkoutSheetDetent.expanded {
                                 withAnimation(.easeInOut(duration: 0.35)) {
@@ -1295,6 +1313,14 @@ struct CurrentWorkoutPullUpSheet: View {
         currentVM.currentSession?.exerciseLogs.reduce(0) { $0 + $1.loggedSets.count } ?? 0
     }
 
+    /// Last working load / last cardio duration from completed sessions, keyed by library exercise id.
+    private var pineLastLoadByExerciseId: [UUID: String] {
+        PineLastWorkingLoad.captionsByExerciseId(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
     private var primaryExerciseLogIndex: Int? {
         guard let logs = currentVM.currentSession?.exerciseLogs,
               let primaryId = currentVM.primaryActiveExerciseId else { return nil }
@@ -1342,6 +1368,12 @@ struct CurrentWorkoutPullUpSheet: View {
                     Text("Next: \(dataVM.displayName(for: log.workoutExercise))")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
+                    if let lastLoad = PineLastWorkingLoad.caption(for: log, in: pineLastLoadByExerciseId) {
+                        Text(lastLoad)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier(FitLogA11yID.nextExerciseBanner.lastLoad)
+                    }
                     Text("Tap to log")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -1356,6 +1388,12 @@ struct CurrentWorkoutPullUpSheet: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(
+            WorkoutExercisePillAccessibility.nextExerciseBannerLabel(
+                exerciseName: dataVM.displayName(for: log.workoutExercise),
+                lastLoad: PineLastWorkingLoad.caption(for: log, in: pineLastLoadByExerciseId)
+            )
+        )
         .accessibilityHint("Expands the next exercise and scrolls to it")
     }
 
