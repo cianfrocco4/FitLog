@@ -10,6 +10,7 @@ import SwiftUI
 struct CurrentWorkoutCollapsedBar: View {
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @Environment(DataManager.self) var dataVM
+    @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.workoutChromeMetrics) private var chromeMetrics
     @Environment(\.openCurrentWorkoutSheet) private var openSheet
 
@@ -30,6 +31,26 @@ struct CurrentWorkoutCollapsedBar: View {
     private var primarySetProgressLine: String? {
         guard let log = primaryExerciseLog else { return nil }
         return "\(log.workingSetCount)/\(log.workoutExercise.recommendedSets) sets"
+    }
+
+    private var lastLoadCaption: String? {
+        guard let log = primaryExerciseLog else { return nil }
+        return SpruceLastWorkingLoad.caption(
+            for: log,
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
+    private var openLoggingAccessibilityLabel: String {
+        var parts = ["Open workout logging"]
+        if !primaryExerciseLine.isEmpty {
+            parts.append(primaryExerciseLine)
+        }
+        if let lastLoadCaption, !lastLoadCaption.isEmpty {
+            parts.append(lastLoadCaption)
+        }
+        return parts.joined(separator: ", ")
     }
 
     var body: some View {
@@ -66,6 +87,14 @@ struct CurrentWorkoutCollapsedBar: View {
                                         .font(.caption)
                                         .foregroundStyle(.tertiary)
                                 }
+                                if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                                    Text(lastLoadCaption)
+                                        .font(.caption2.weight(.medium))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.8)
+                                        .accessibilityIdentifier(FitLogA11yID.collapsedBar.lastLoad)
+                                }
                             }
                             Spacer()
                             if currentVM.remainingRestTime > 0 {
@@ -92,7 +121,7 @@ struct CurrentWorkoutCollapsedBar: View {
                     .clipShape(RoundedRectangle(cornerRadius: 20))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Open workout logging")
+                .accessibilityLabel(openLoggingAccessibilityLabel)
                 .accessibilityHint("Swipe up or tap to open exercise logging")
 
                 HStack(spacing: 8) {

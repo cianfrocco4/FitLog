@@ -13,6 +13,8 @@ import UIKit
 struct WorkoutRestTimerBar: View {
     let remainingSeconds: Int
     let totalSeconds: Int
+    /// Last working load or last cardio duration for the current exercise (optional).
+    var lastLoadCaption: String? = nil
     let onAdjust: (Int) -> Void
     let onSkip: () -> Void
 
@@ -48,13 +50,21 @@ struct WorkoutRestTimerBar: View {
             }
             .frame(width: 52, height: 52)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Rest timer")
+            .accessibilityLabel(restTimerAccessibilityLabel)
             .accessibilityValue("\(remainingSeconds) seconds remaining")
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Rest")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
+                if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                    Text(lastLoadCaption)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .accessibilityIdentifier(FitLogA11yID.restTimer.lastLoad)
+                }
                 Text("Swipe left or right to add or subtract 15 seconds")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
@@ -131,16 +141,36 @@ struct WorkoutRestTimerBar: View {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         #endif
     }
+
+    private var restTimerAccessibilityLabel: String {
+        if let lastLoadCaption, !lastLoadCaption.isEmpty {
+            return "Rest timer, \(lastLoadCaption)"
+        }
+        return "Rest timer"
+    }
 }
 
 #Preview("Rest active") {
     WorkoutRestTimerBar(
         remainingSeconds: 45,
         totalSeconds: 90,
+        lastLoadCaption: "Last 185 lb × 8 reps",
         onAdjust: { _ in },
         onSkip: {}
     )
     .padding()
+}
+
+#Preview("Rest active dark") {
+    WorkoutRestTimerBar(
+        remainingSeconds: 45,
+        totalSeconds: 90,
+        lastLoadCaption: "Last 45:00",
+        onAdjust: { _ in },
+        onSkip: {}
+    )
+    .padding()
+    .preferredColorScheme(.dark)
 }
 
 #Preview("Low time") {

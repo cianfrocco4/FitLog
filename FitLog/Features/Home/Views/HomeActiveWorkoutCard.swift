@@ -10,6 +10,7 @@ import SwiftUI
 struct HomeActiveWorkoutCard: View {
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @Environment(DataManager.self) var dataVM
+    @EnvironmentObject var userPreferences: UserPreferences
 
     let onOpen: () -> Void
     let onFinish: () -> Void
@@ -34,12 +35,24 @@ struct HomeActiveWorkoutCard: View {
         )
     }
 
-    private var currentExerciseName: String {
+    private var currentExerciseLog: ExerciseLog? {
         guard let session,
-              let primaryId = currentVM.primaryActiveExerciseId,
-              let log = session.exerciseLogs.first(where: { $0.workoutExercise.exerciseId == primaryId })
-        else { return "Getting started" }
+              let primaryId = currentVM.primaryActiveExerciseId else { return nil }
+        return session.exerciseLogs.first { $0.workoutExercise.exerciseId == primaryId }
+    }
+
+    private var currentExerciseName: String {
+        guard let log = currentExerciseLog else { return "Getting started" }
         return dataVM.displayName(for: log.workoutExercise)
+    }
+
+    private var lastLoadCaption: String? {
+        guard let log = currentExerciseLog else { return nil }
+        return SpruceLastWorkingLoad.caption(
+            for: log,
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
     }
 
     private var loggedSetCount: Int {
@@ -56,6 +69,9 @@ struct HomeActiveWorkoutCard: View {
             parts.append(name)
         }
         parts.append("Now \(currentExerciseName)")
+        if let lastLoadCaption, !lastLoadCaption.isEmpty {
+            parts.append(lastLoadCaption)
+        }
         parts.append(currentVM.workoutElapsedFormatted)
         if currentVM.isWorkoutPaused {
             parts.append("Paused")
@@ -91,6 +107,14 @@ struct HomeActiveWorkoutCard: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                        if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                            Text(lastLoadCaption)
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                                .accessibilityIdentifier(FitLogA11yID.homeActiveWorkout.lastLoad)
+                        }
                         HStack(spacing: 8) {
                             Text(currentVM.workoutElapsedFormatted)
                                 .font(.subheadline.weight(.medium).monospacedDigit())

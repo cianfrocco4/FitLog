@@ -802,6 +802,7 @@ struct CurrentWorkoutPullUpSheet: View {
                     WorkoutRestTimerBar(
                         remainingSeconds: currentVM.remainingRestTime,
                         totalSeconds: max(currentVM.restCountdownTotalSeconds, currentVM.remainingRestTime),
+                        lastLoadCaption: restTimerLastLoadCaption,
                         onAdjust: { currentVM.adjustRestCountdown(by: $0) },
                         onSkip: { currentVM.cancelRestTimer() }
                     )
@@ -1299,6 +1300,17 @@ struct CurrentWorkoutPullUpSheet: View {
         guard let logs = currentVM.currentSession?.exerciseLogs,
               let primaryId = currentVM.primaryActiveExerciseId else { return nil }
         return logs.firstIndex(where: { $0.workoutExercise.exerciseId == primaryId })
+    }
+
+    private var restTimerLastLoadCaption: String? {
+        guard let logs = currentVM.currentSession?.exerciseLogs,
+              let index = primaryExerciseLogIndex,
+              logs.indices.contains(index) else { return nil }
+        return SpruceLastWorkingLoad.caption(
+            for: logs[index],
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
     }
 
     private var expandedListFirstSetBanner: some View {
