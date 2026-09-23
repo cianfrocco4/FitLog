@@ -36,6 +36,15 @@ struct WorkoutSessionCompactChromeAccessibilityTests {
                 volumeSummary: "1,200 lb"
             ) == "Push Day, 12:34, 4 sets, 1,200 lb"
         )
+        #expect(
+            WorkoutSessionCompactChromeAccessibility.detailsToggleValue(
+                workoutName: "Push Day",
+                elapsedFormatted: "12:34",
+                setsLogged: 4,
+                volumeSummary: "1,200 lb",
+                lastLoadCaption: "Last 185 lb × 8 reps"
+            ) == "Push Day, 12:34, 4 sets, 1,200 lb, Last 185 lb × 8 reps"
+        )
     }
 
     @Test func pauseResumeCopy_matchesCollapsedBar() {

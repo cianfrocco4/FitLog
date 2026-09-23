@@ -16,6 +16,8 @@ struct WorkoutExerciseActionsBar: View {
     let showsEndSupersetRound: Bool
     /// Present only for template slots, where the plan itself can be changed.
     let canChangePlanSlot: Bool
+    /// Last working load or last cardio duration from a prior completed session.
+    var lastLoadCaption: String? = nil
     let onSwap: () -> Void
     let onRepeatLastSet: () -> Void
     let onFocusExercise: () -> Void
@@ -26,8 +28,9 @@ struct WorkoutExerciseActionsBar: View {
     let onRemove: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            Button(action: onSwap) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Button(action: onSwap) {
                 Label("Swap", systemImage: "arrow.left.arrow.right")
                     .font(.caption.weight(.semibold))
                     .padding(.horizontal, 12)
@@ -78,6 +81,16 @@ struct WorkoutExerciseActionsBar: View {
             }
             .accessibilityLabel("More actions for \(exerciseName)")
         }
+        if let lastLoadCaption, !lastLoadCaption.isEmpty {
+            Text(lastLoadCaption)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .accessibilityIdentifier(FitLogA11yID.exerciseActions.lastLoad)
+                .accessibilityLabel(lastLoadCaption)
+        }
+        }
     }
 }
 
@@ -88,6 +101,7 @@ struct WorkoutExerciseActionsBar: View {
         supersetToggleTitle: "Add to superset round",
         showsEndSupersetRound: false,
         canChangePlanSlot: true,
+        lastLoadCaption: "Last 185 lb × 8 reps",
         onSwap: {},
         onRepeatLastSet: {},
         onFocusExercise: {},
@@ -107,6 +121,7 @@ struct WorkoutExerciseActionsBar: View {
         supersetToggleTitle: "Remove from superset round",
         showsEndSupersetRound: true,
         canChangePlanSlot: false,
+        lastLoadCaption: "Last 45:00",
         onSwap: {},
         onRepeatLastSet: {},
         onFocusExercise: {},

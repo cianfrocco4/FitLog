@@ -102,6 +102,24 @@ struct LogSetView: View {
         return session.exerciseLogs[exerciseIndex].workoutExercise
     }
 
+    private var plateCalculatorLastLoadCaption: String? {
+        guard let workoutExercise else { return nil }
+        return FirLastWorkingLoad.caption(
+            for: workoutExercise,
+            from: dataVM.completedSessions,
+            displayUnit: displayUnit
+        )
+    }
+
+    private var plateCalculatorLastLoadDisplayWeight: Double? {
+        guard let workoutExercise else { return nil }
+        return FirLastWorkingLoad.lastWorkingDisplayWeight(
+            for: workoutExercise,
+            from: dataVM.completedSessions,
+            displayUnit: displayUnit
+        )
+    }
+
     private var isSupersetContext: Bool {
         supersetPosition != nil
     }
@@ -574,6 +592,8 @@ struct LogSetView: View {
                 PlateCalculatorSheet(
                     displayUnit: displayUnit,
                     suggestedTargetDisplay: suggest,
+                    lastLoadCaption: plateCalculatorLastLoadCaption,
+                    lastLoadDisplayWeight: plateCalculatorLastLoadDisplayWeight,
                     onApplyDisplayWeight: { w in
                         let c = clampDisplay(w)
                         if bodyweightMode {

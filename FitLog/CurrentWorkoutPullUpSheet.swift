@@ -816,6 +816,7 @@ struct CurrentWorkoutPullUpSheet: View {
                         isPaused: currentVM.isWorkoutPaused,
                         setsLogged: sessionLoggedSetCount,
                         volumeSummary: sessionVolumeSummary(session: session),
+                        lastLoadCaption: compactChromeLastLoadCaption,
                         detailsExpanded: $sessionChromeExpanded,
                         sessionNotes: Binding(
                             get: { currentVM.currentSession?.sessionNotes ?? "" },
@@ -1010,6 +1011,7 @@ struct CurrentWorkoutPullUpSheet: View {
                     .environment(dataVM)
             }
             .sheet(item: $plateCalculatorInlinePick) { pick in
+                let log = currentVM.currentSession?.exerciseLogs.first(where: { $0.id == pick.logId })
                 let suggest = {
                     let w = inlineNetDisplayWeight(for: pick.logId)
                     return w > 0 ? w : nil
@@ -1017,6 +1019,8 @@ struct CurrentWorkoutPullUpSheet: View {
                 PlateCalculatorSheet(
                     displayUnit: userPreferences.weightDisplayUnit,
                     suggestedTargetDisplay: suggest,
+                    lastLoadCaption: log.flatMap { lastLoadCaption(for: $0) },
+                    lastLoadDisplayWeight: log.flatMap { lastWorkingDisplayWeight(for: $0) },
                     onApplyDisplayWeight: { w in
                         let unit = userPreferences.weightDisplayUnit
                         let clamped = WeightStoreConversion.clampNonNegativeDisplay(w, unit: unit)
@@ -1299,6 +1303,29 @@ struct CurrentWorkoutPullUpSheet: View {
         guard let logs = currentVM.currentSession?.exerciseLogs,
               let primaryId = currentVM.primaryActiveExerciseId else { return nil }
         return logs.firstIndex(where: { $0.workoutExercise.exerciseId == primaryId })
+    }
+
+    private var compactChromeLastLoadCaption: String? {
+        guard let logs = currentVM.currentSession?.exerciseLogs,
+              let index = primaryExerciseLogIndex,
+              logs.indices.contains(index) else { return nil }
+        return lastLoadCaption(for: logs[index])
+    }
+
+    private func lastLoadCaption(for log: ExerciseLog) -> String? {
+        FirLastWorkingLoad.caption(
+            for: log,
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
+    private func lastWorkingDisplayWeight(for log: ExerciseLog) -> Double? {
+        FirLastWorkingLoad.lastWorkingDisplayWeight(
+            for: log,
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
     }
 
     private var expandedListFirstSetBanner: some View {
@@ -1911,6 +1938,7 @@ struct CurrentWorkoutPullUpSheet: View {
             supersetToggleTitle: statusSupersetToggleTitle(for: log),
             showsEndSupersetRound: isSupersetRoundActive,
             canChangePlanSlot: slotId != nil,
+            lastLoadCaption: lastLoadCaption(for: log),
             onSwap: { swapSheetExerciseIndex = exerciseIndex },
             onRepeatLastSet: {
                 currentVM.repeatLastSet(exerciseIndex: exerciseIndex)

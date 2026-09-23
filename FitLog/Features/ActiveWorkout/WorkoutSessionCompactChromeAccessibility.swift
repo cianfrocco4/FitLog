@@ -18,12 +18,19 @@ enum WorkoutSessionCompactChromeAccessibility {
         workoutName: String,
         elapsedFormatted: String,
         setsLogged: Int,
-        volumeSummary: String
+        volumeSummary: String,
+        lastLoadCaption: String? = nil
     ) -> String {
         var parts: [String] = [workoutName, elapsedFormatted, "\(setsLogged) sets"]
         let trimmedVolume = volumeSummary.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedVolume.isEmpty {
             parts.append(trimmedVolume)
+        }
+        if let lastLoadCaption {
+            let trimmedLast = lastLoadCaption.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedLast.isEmpty {
+                parts.append(trimmedLast)
+            }
         }
         return parts.joined(separator: ", ")
     }

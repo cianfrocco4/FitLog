@@ -13,6 +13,8 @@ struct WorkoutSessionCompactChrome: View {
     let isPaused: Bool
     let setsLogged: Int
     let volumeSummary: String
+    /// Last working load or last cardio duration for the current exercise (optional).
+    var lastLoadCaption: String? = nil
     @Binding var detailsExpanded: Bool
     let sessionNotes: Binding<String>
     let onPauseResume: () -> Void
@@ -48,6 +50,14 @@ struct WorkoutSessionCompactChrome: View {
                                         .lineLimit(1)
                                 }
                             }
+                            if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                                Text(lastLoadCaption)
+                                    .font(.caption2.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
+                                    .accessibilityIdentifier(FitLogA11yID.sessionChrome.lastLoad)
+                            }
                         }
                         Spacer(minLength: 4)
                         Image(systemName: detailsExpanded ? "chevron.up" : "chevron.down")
@@ -68,7 +78,8 @@ struct WorkoutSessionCompactChrome: View {
                         workoutName: workoutName,
                         elapsedFormatted: elapsedFormatted,
                         setsLogged: setsLogged,
-                        volumeSummary: volumeSummary
+                        volumeSummary: volumeSummary,
+                        lastLoadCaption: lastLoadCaption
                     )
                 )
                 .accessibilityHint(
@@ -111,4 +122,47 @@ struct WorkoutSessionCompactChrome: View {
         .padding(.horizontal)
         .padding(.top, 8)
     }
+}
+
+#Preview("Last load") {
+    struct Host: View {
+        @State private var expanded = false
+        @State private var notes = ""
+        var body: some View {
+            WorkoutSessionCompactChrome(
+                workoutName: "Push A",
+                elapsedFormatted: "12:34",
+                isPaused: false,
+                setsLogged: 4,
+                volumeSummary: "1,200 lb",
+                lastLoadCaption: "Last 185 lb × 8 reps",
+                detailsExpanded: $expanded,
+                sessionNotes: $notes,
+                onPauseResume: {}
+            )
+        }
+    }
+    return Host()
+}
+
+#Preview("Last cardio duration — dark") {
+    struct Host: View {
+        @State private var expanded = false
+        @State private var notes = ""
+        var body: some View {
+            WorkoutSessionCompactChrome(
+                workoutName: "Zone 2",
+                elapsedFormatted: "08:12",
+                isPaused: true,
+                setsLogged: 1,
+                volumeSummary: "",
+                lastLoadCaption: "Last 45:00",
+                detailsExpanded: $expanded,
+                sessionNotes: $notes,
+                onPauseResume: {}
+            )
+            .preferredColorScheme(.dark)
+        }
+    }
+    return Host()
 }
