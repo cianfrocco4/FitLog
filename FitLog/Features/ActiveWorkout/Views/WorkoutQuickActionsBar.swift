@@ -18,10 +18,22 @@ struct WorkoutQuickActionsBar: View {
     let onPlates: () -> Void
     let onNotes: () -> Void
     let onFullLog: () -> Void
+    /// Last working load or last cardio duration from a prior completed session.
+    var lastLoadCaption: String? = nil
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
+            if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                Text(lastLoadCaption)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .accessibilityIdentifier(FitLogA11yID.quickActions.lastLoad)
+                    .accessibilityLabel(lastLoadCaption)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
                 chip(
                     title: bodyweightMode ? "BW on" : "BW",
                     systemImage: "figure.strengthtraining.traditional",
@@ -64,6 +76,7 @@ struct WorkoutQuickActionsBar: View {
                 )
             }
             .padding(.vertical, 2)
+        }
         }
     }
 
@@ -123,7 +136,8 @@ struct WorkoutQuickActionsBar: View {
         onToggleRPE: {},
         onPlates: {},
         onNotes: {},
-        onFullLog: {}
+        onFullLog: {},
+        lastLoadCaption: "Last 185 lb × 8 reps"
     )
     .padding()
 }
@@ -138,7 +152,8 @@ struct WorkoutQuickActionsBar: View {
         onToggleRPE: {},
         onPlates: {},
         onNotes: {},
-        onFullLog: {}
+        onFullLog: {},
+        lastLoadCaption: "Last 45:00"
     )
     .padding()
     .preferredColorScheme(.dark)

@@ -912,6 +912,7 @@ struct HomeView: View {
                         dataVM: dataVM
                     )
                     .environmentObject(aiService)
+                    .environmentObject(userPreferences)
                 }
             }
             .onChange(of: showHomeFinisherQuickAdd) { _, isPresented in

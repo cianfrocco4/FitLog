@@ -987,6 +987,7 @@ struct CurrentWorkoutPullUpSheet: View {
                         }
                     )
                     .environmentObject(aiService)
+                    .environmentObject(userPreferences)
                 }
             }
             .onChange(of: showQuickAddExercise) { _, isPresented in
@@ -2386,7 +2387,12 @@ struct CurrentWorkoutPullUpSheet: View {
                         prefillReps: draftStore.repsByLogId[logId],
                         prefillBodyweightMode: bwMode
                     )
-                }
+                },
+                lastLoadCaption: HemlockLastWorkingLoad.caption(
+                    for: log,
+                    from: dataVM.completedSessions,
+                    displayUnit: unit
+                )
             )
             if bwMode {
                 HStack(alignment: .center, spacing: 6) {

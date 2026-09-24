@@ -52,6 +52,7 @@ struct WorkoutPlanView: View {
     let currentVM: CurrentWorkoutSessionViewModel
     @Environment(DataManager.self) var dataVM
     @EnvironmentObject var aiService: AIService
+    @EnvironmentObject var userPreferences: UserPreferences
     @Environment(EntitlementStore.self) private var entitlementStore
     @Environment(\.openPullUpToExerciseLogIndex) private var openPullUpToExerciseLogIndex
     @Environment(\.undoManager) private var undoManager
@@ -350,6 +351,7 @@ struct WorkoutPlanView: View {
                     dataVM: dataVM
                 )
                 .environmentObject(aiService)
+                .environmentObject(userPreferences)
             }
         }
         .onChange(of: showPlanFinisherQuickAdd) { _, isPresented in

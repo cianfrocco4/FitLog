@@ -20,6 +20,7 @@ struct SessionQuickAddExerciseSheet: View {
     /// Appends a flexible slot to the in-progress session / library.
     var onAddTemplateSlot: (() -> Void)? = nil
     @EnvironmentObject var aiService: AIService
+    @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
 
     @State private var searchText = ""
@@ -56,11 +57,18 @@ struct SessionQuickAddExerciseSheet: View {
                                         Text(template.name)
                                             .font(.subheadline.weight(.semibold))
                                             .foregroundStyle(.primary)
-                                        Text(template.subtitle)
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(2)
-                                            .multilineTextAlignment(.leading)
+                                            Text(template.subtitle)
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(2)
+                                                .multilineTextAlignment(.leading)
+                                        if let lastLoad = lastLoadCaption(forQuickCardio: template) {
+                                            Text(lastLoad)
+                                                .font(.caption2.weight(.medium))
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                                .accessibilityIdentifier(FitLogA11yID.sessionQuickAdd.lastLoad)
+                                        }
                                     }
                                     .frame(width: 132, alignment: .leading)
                                     .padding(12)
@@ -68,7 +76,7 @@ struct SessionQuickAddExerciseSheet: View {
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                                 }
                                 .buttonStyle(.plain)
-                                .accessibilityLabel("\(template.name), \(template.subtitle)")
+                                .accessibilityLabel(quickCardioAccessibilityLabel(template))
                                 .accessibilityHint("Adds this cardio template to your active workout.")
                             }
                             Button {
@@ -238,6 +246,7 @@ struct SessionQuickAddExerciseSheet: View {
                 })
                 .environment(dataVM)
                 .environmentObject(aiService)
+                .environmentObject(userPreferences)
             }
             .sheet(isPresented: $showCardioExercisePicker) {
                 CardioExercisePickerSheet { exercise in
@@ -250,6 +259,7 @@ struct SessionQuickAddExerciseSheet: View {
                     dismiss()
                 }
                 .environment(dataVM)
+                .environmentObject(userPreferences)
             }
             .alert(
                 "No cardio exercises",
@@ -367,6 +377,7 @@ struct SessionQuickAddExerciseSheet: View {
 
     @ViewBuilder
     private func exerciseButton(_ ex: Exercise, subtitle: String?) -> some View {
+        let lastLoad = lastLoadCaptions[ex.id]
         Button {
             addExercise(ex)
         } label: {
@@ -378,8 +389,42 @@ struct SessionQuickAddExerciseSheet: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                if let lastLoad, !lastLoad.isEmpty {
+                    Text(lastLoad)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(FitLogA11yID.sessionQuickAdd.lastLoad)
+                }
             }
         }
+        .accessibilityLabel(exerciseAccessibilityLabel(ex, subtitle: subtitle, lastLoad: lastLoad))
+        .accessibilityHint("Adds this exercise to your active workout.")
+    }
+
+    private var lastLoadCaptions: [UUID: String] {
+        HemlockLastWorkingLoad.captionsByExerciseId(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
+    private func lastLoadCaption(forQuickCardio template: CardioQuickAddTemplate) -> String? {
+        guard let exercise = template.resolveExercise(in: dataVM.globalExercises) else { return nil }
+        return lastLoadCaptions[exercise.id]
+    }
+
+    private func quickCardioAccessibilityLabel(_ template: CardioQuickAddTemplate) -> String {
+        if let lastLoad = lastLoadCaption(forQuickCardio: template) {
+            return "\(template.name), \(template.subtitle), \(lastLoad)"
+        }
+        return "\(template.name), \(template.subtitle)"
+    }
+
+    private func exerciseAccessibilityLabel(_ ex: Exercise, subtitle: String?, lastLoad: String?) -> String {
+        [dataVM.resolvedDisplayName(for: ex), subtitle, lastLoad]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
     }
 
     private func addExercise(_ ex: Exercise) {

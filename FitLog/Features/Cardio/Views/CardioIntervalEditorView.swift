@@ -32,6 +32,14 @@ struct CardioIntervalEditorView: View {
         .onChange(of: prescription.kind) { _, _ in
             syncPrescriptionFromFields()
         }
+        .onChange(of: prescription.targetDurationSec) { _, new in
+            if let sec = new {
+                let minutes = String(max(0, sec / 60))
+                if durationMinutesText != minutes {
+                    durationMinutesText = minutes
+                }
+            }
+        }
     }
 
     @ViewBuilder

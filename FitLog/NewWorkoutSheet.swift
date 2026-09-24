@@ -23,6 +23,7 @@ struct NewWorkoutSheet: View {
     @Environment(DataManager.self) var dataVM
     @Environment(CurrentWorkoutSessionViewModel.self) var currentVM
     @EnvironmentObject var aiService: AIService
+    @EnvironmentObject var userPreferences: UserPreferences
     @Environment(\.dismiss) var dismiss
 
     /// Set when presenting from Home (e.g. after onboarding).
@@ -63,6 +64,7 @@ struct NewWorkoutSheet: View {
                     WorkoutPlanView(workout: binding, creationFlowOnDone: { dismiss() }, currentVM: currentVM)
                         .environment(dataVM)
                         .environmentObject(aiService)
+                        .environmentObject(userPreferences)
                 } else if let pending = pendingStarterReview {
                     starterReviewView(pending)
                 } else {
