@@ -11,6 +11,8 @@ struct WorkoutSetupPickerRow: View {
     let fields: [ExerciseSetupField]
     let values: [String: String]
     let onSelect: (String, String) -> Void
+    /// Last working load or last cardio duration from a prior completed session.
+    var lastLoadCaption: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -22,6 +24,15 @@ struct WorkoutSetupPickerRow: View {
                 Text("Applies to your next set")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+            }
+            if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                Text(lastLoadCaption)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .accessibilityIdentifier(FitLogA11yID.setupPicker.lastLoad)
+                    .accessibilityLabel(lastLoadCaption)
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -112,7 +123,8 @@ struct WorkoutSetupPickerRow: View {
             ExerciseSetupField(name: "Seat", choices: [])
         ],
         values: ["Grip": "Wide"],
-        onSelect: { _, _ in }
+        onSelect: { _, _ in },
+        lastLoadCaption: "Last 185 lb × 8 reps"
     )
     .padding()
 }
@@ -121,7 +133,8 @@ struct WorkoutSetupPickerRow: View {
     WorkoutSetupPickerRow(
         fields: [ExerciseSetupField(name: "Grip", choices: ["Wide", "Medium", "Narrow"])],
         values: [:],
-        onSelect: { _, _ in }
+        onSelect: { _, _ in },
+        lastLoadCaption: "Last 45:00"
     )
     .padding()
     .preferredColorScheme(.dark)

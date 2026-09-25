@@ -11,6 +11,8 @@ struct ExercisePerformanceChart: View {
     let loggedSets: [LoggedSet]
     let unit: WeightDisplayUnit
     let suggestion: InlineProgressionTarget?
+    /// Last working load or last cardio duration from a prior completed session.
+    var lastLoadCaption: String? = nil
 
     private var workingSets: [LoggedSet] {
         loggedSets.filter { $0.setType != .warmup }
@@ -18,49 +20,62 @@ struct ExercisePerformanceChart: View {
 
     var body: some View {
         let sets = Array(workingSets.suffix(8))
-        if sets.count >= 2 {
+        let showChart = sets.count >= 2
+        let showCaption = lastLoadCaption.map { !$0.isEmpty } ?? false
+        if showChart || showCaption {
             VStack(alignment: .leading, spacing: 6) {
-                Text("This session")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                HStack(alignment: .bottom, spacing: 5) {
-                    let maxDisplay = max(
-                        sets.map { abs(WeightStoreConversion.displayValue(storedPounds: $0.weight, unit: unit)) }.max() ?? 1,
-                        1
-                    )
-                    ForEach(sets) { set in
-                        let displayW = abs(WeightStoreConversion.displayValue(storedPounds: set.weight, unit: unit))
-                        let h = max(8, CGFloat(displayW / maxDisplay) * 52)
-                        VStack(spacing: 3) {
-                            Text("\(set.reps)")
-                                .font(.system(size: 9, weight: .medium, design: .rounded))
-                                .foregroundStyle(.secondary)
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(barFill(for: set, displayW: displayW))
-                                .frame(width: 22, height: h)
-                        }
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("\(WeightStoreConversion.formatDisplay(displayW)) \(unit.shortLabel), \(set.reps) reps")
-                    }
-                    if let sug = suggestion {
-                        let displaySug = WeightStoreConversion.displayValue(storedPounds: sug.weight, unit: unit)
-                        let h = max(8, CGFloat(displaySug / maxDisplay) * 52)
-                        VStack(spacing: 3) {
-                            Text("\(sug.reps)")
-                                .font(.system(size: 9, weight: .medium, design: .rounded))
-                                .foregroundStyle(.tertiary)
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(Color.accentColor.opacity(0.22))
-                                .frame(width: 22, height: h)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .strokeBorder(Color.accentColor.opacity(0.55), style: StrokeStyle(lineWidth: 1, dash: [4]))
-                                )
-                        }
-                        .accessibilityLabel("Suggested \(WeightStoreConversion.formatDisplay(displaySug)) \(unit.shortLabel) for \(sug.reps) reps")
-                    }
+                if showCaption, let lastLoadCaption {
+                    Text(lastLoadCaption)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .accessibilityIdentifier(FitLogA11yID.performanceChart.lastLoad)
+                        .accessibilityLabel(lastLoadCaption)
                 }
-                .frame(height: 64)
+                if showChart {
+                    Text("This session")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    HStack(alignment: .bottom, spacing: 5) {
+                        let maxDisplay = max(
+                            sets.map { abs(WeightStoreConversion.displayValue(storedPounds: $0.weight, unit: unit)) }.max() ?? 1,
+                            1
+                        )
+                        ForEach(sets) { set in
+                            let displayW = abs(WeightStoreConversion.displayValue(storedPounds: set.weight, unit: unit))
+                            let h = max(8, CGFloat(displayW / maxDisplay) * 52)
+                            VStack(spacing: 3) {
+                                Text("\(set.reps)")
+                                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                                    .foregroundStyle(.secondary)
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(barFill(for: set, displayW: displayW))
+                                    .frame(width: 22, height: h)
+                            }
+                            .accessibilityElement(children: .combine)
+                            .accessibilityLabel("\(WeightStoreConversion.formatDisplay(displayW)) \(unit.shortLabel), \(set.reps) reps")
+                        }
+                        if let sug = suggestion {
+                            let displaySug = WeightStoreConversion.displayValue(storedPounds: sug.weight, unit: unit)
+                            let h = max(8, CGFloat(displaySug / maxDisplay) * 52)
+                            VStack(spacing: 3) {
+                                Text("\(sug.reps)")
+                                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                                    .foregroundStyle(.tertiary)
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(Color.accentColor.opacity(0.22))
+                                    .frame(width: 22, height: h)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 4)
+                                            .strokeBorder(Color.accentColor.opacity(0.55), style: StrokeStyle(lineWidth: 1, dash: [4]))
+                                    )
+                            }
+                            .accessibilityLabel("Suggested \(WeightStoreConversion.formatDisplay(displaySug)) \(unit.shortLabel) for \(sug.reps) reps")
+                        }
+                    }
+                    .frame(height: 64)
+                }
             }
             .padding(.top, 4)
         }
@@ -88,7 +103,8 @@ struct ExercisePerformanceChart: View {
             LoggedSet(id: UUID(), weight: 155, reps: 8, restTime: 90, timestamp: Date(), setType: .working, configuration: [:], dropSegments: [], rpe: nil),
         ],
         unit: .pounds,
-        suggestion: InlineProgressionTarget(weight: 165, reps: 8, rpe: 8, hint: "Test")
+        suggestion: InlineProgressionTarget(weight: 165, reps: 8, rpe: 8, hint: "Test"),
+        lastLoadCaption: "Last 185 lb × 8 reps"
     )
     .padding()
 }
@@ -100,7 +116,8 @@ struct ExercisePerformanceChart: View {
             LoggedSet(id: UUID(), weight: 100, reps: 5, restTime: 90, timestamp: Date(), setType: .amrap, configuration: [:], dropSegments: [], rpe: nil),
         ],
         unit: .kilograms,
-        suggestion: nil
+        suggestion: nil,
+        lastLoadCaption: "Last 100 kg × 5 reps"
     )
     .padding()
     .preferredColorScheme(.dark)

@@ -1966,7 +1966,8 @@ struct CurrentWorkoutPullUpSheet: View {
                         draft[field] = value
                     }
                     draftStore.configurationByLogId[log.id] = draft
-                }
+                },
+                lastLoadCaption: larchLastLoadCaption(for: log)
             )
         }
     }
@@ -2149,6 +2150,15 @@ struct CurrentWorkoutPullUpSheet: View {
             return "\(Int(volDisplay)) \(unit)"
         }
         return String(format: "%.1f %@", volDisplay, unit)
+    }
+
+    /// Last completed working load or cardio duration for the focused exercise.
+    private func larchLastLoadCaption(for log: ExerciseLog) -> String? {
+        LarchLastWorkingLoad.caption(
+            for: log,
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
     }
 
     private func inlineSetTypeBinding(logId: UUID) -> Binding<ExerciseSetType> {
@@ -2352,7 +2362,8 @@ struct CurrentWorkoutPullUpSheet: View {
             }
             WorkoutQuickSetTypeBar(
                 selection: inlineSetTypeBinding(logId: logId),
-                dropSetEnabled: !log.loggedSets.isEmpty
+                dropSetEnabled: !log.loggedSets.isEmpty,
+                lastLoadCaption: larchLastLoadCaption(for: log)
             )
             WorkoutQuickActionsBar(
                 bodyweightMode: bwMode,
@@ -3199,7 +3210,8 @@ struct CurrentWorkoutPullUpSheet: View {
             ExercisePerformanceChart(
                 loggedSets: log.loggedSets,
                 unit: userPreferences.weightDisplayUnit,
-                suggestion: chartSuggestion
+                suggestion: chartSuggestion,
+                lastLoadCaption: larchLastLoadCaption(for: log)
             )
 
             if let previousLog {
