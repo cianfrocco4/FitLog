@@ -19,3 +19,11 @@ AuthKey_*.p8
 
 # Persistent simulated-user SwiftData (local / Actions cache; do not commit)
 living-users/
+
+# NFL model cache, local env, and Anthony's graded-bet ledger
+nfl-model/.cache/
+nfl-model/.venv/
+nfl-model/ledger.csv
+__pycache__/
+.pytest_cache/
+*.pyc

@@ -53,3 +53,7 @@ See [docs/AUTOMATED_USER_TESTING.md](docs/AUTOMATED_USER_TESTING.md). Xcode/work
 - Cloud AI features require Premium and send workout context to the configured proxy
 - Privacy Policy and Terms of Use (Apple Standard EULA) are linked in-app (paywall, More → Subscription, More → Legal & Support)
 - See [PRIVACY_POLICY.md](PRIVACY_POLICY.md) and [docs/APP_STORE_COMPLIANCE.md](docs/APP_STORE_COMPLIANCE.md).
+
+## NFL betting model
+
+Straight bets and 2- or 3-leg parlays for DraftKings live in [nfl-model/README.md](nfl-model/README.md). The iOS app is unchanged. The tool suggests stakes. It does not place bets.
