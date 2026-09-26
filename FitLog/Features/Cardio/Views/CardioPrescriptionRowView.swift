@@ -9,6 +9,18 @@ import SwiftUI
 struct CardioPrescriptionRowView: View {
     let prescription: CardioPrescription
     var exercise: Exercise?
+    /// Last working load or last cardio duration from a prior completed session.
+    var lastLoadCaption: String? = nil
+
+    private var accessibilitySummary: String {
+        var parts = [
+            "Cardio prescription, \(prescription.kind.displayName), \(CardioMetricsCalculator.prescriptionSummary(prescription))"
+        ]
+        if let lastLoadCaption, !lastLoadCaption.isEmpty {
+            parts.append(lastLoadCaption)
+        }
+        return parts.joined(separator: ", ")
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -31,10 +43,19 @@ struct CardioPrescriptionRowView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                    Text(lastLoadCaption)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .accessibilityIdentifier(FitLogA11yID.cardioPrescriptionRow.lastLoad)
+                        .accessibilityLabel(lastLoadCaption)
+                }
             }
             Spacer(minLength: 0)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Cardio prescription, \(prescription.kind.displayName), \(CardioMetricsCalculator.prescriptionSummary(prescription))")
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(accessibilitySummary)
     }
 }

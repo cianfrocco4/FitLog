@@ -7,18 +7,29 @@ import SwiftUI
 
 struct CardioIntervalTimelineView: View {
     let loggedSets: [LoggedSet]
+    /// Last working load or last cardio duration from a prior completed session.
+    var lastLoadCaption: String? = nil
 
     private var intervalSets: [LoggedSet] {
         loggedSets.filter { $0.setType == .intervalWork || $0.setType == .intervalRest || $0.isCardioEntry }
     }
 
     var body: some View {
-        if intervalSets.isEmpty {
-            Text("Intervals will appear here as you log work and rest segments.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        } else {
-            VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
+            if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                Text(lastLoadCaption)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .accessibilityIdentifier(FitLogA11yID.cardioIntervalTimeline.lastLoad)
+                    .accessibilityLabel(lastLoadCaption)
+            }
+            if intervalSets.isEmpty {
+                Text("Intervals will appear here as you log work and rest segments.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
                 ForEach(Array(intervalSets.enumerated()), id: \.element.id) { index, set in
                     HStack(alignment: .top, spacing: 10) {
                         Circle()

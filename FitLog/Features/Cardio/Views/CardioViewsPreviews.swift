@@ -57,7 +57,8 @@ private enum CardioPreviewFixtures {
 #Preview("Prescription row — light") {
     CardioPrescriptionRowView(
         prescription: CardioPreviewFixtures.steadyPrescription,
-        exercise: CardioPreviewFixtures.sampleExercise
+        exercise: CardioPreviewFixtures.sampleExercise,
+        lastLoadCaption: "Last 45:00"
     )
     .padding()
 }
@@ -65,7 +66,8 @@ private enum CardioPreviewFixtures {
 #Preview("Prescription row — dark") {
     CardioPrescriptionRowView(
         prescription: CardioPreviewFixtures.intervalPrescription,
-        exercise: CardioPreviewFixtures.sampleExercise
+        exercise: CardioPreviewFixtures.sampleExercise,
+        lastLoadCaption: "Last 30:00"
     )
     .padding()
     .preferredColorScheme(.dark)
@@ -76,14 +78,30 @@ private enum CardioPreviewFixtures {
         elapsedSeconds: 754,
         phaseLabel: "Work",
         roundLabel: "Round 2 of 6",
-        isPaused: false
+        isPaused: false,
+        lastLoadCaption: "Last 45:00"
     )
     .padding()
 }
 
+#Preview("Live metrics strip — dark") {
+    CardioLiveMetricsStrip(
+        elapsedSeconds: 1200,
+        phaseLabel: "Steady state",
+        roundLabel: nil,
+        isPaused: true,
+        lastLoadCaption: "Last 45:00"
+    )
+    .padding()
+    .preferredColorScheme(.dark)
+}
+
 #Preview("Interval timeline") {
-    CardioIntervalTimelineView(loggedSets: CardioPreviewFixtures.loggedIntervals)
-        .padding()
+    CardioIntervalTimelineView(
+        loggedSets: CardioPreviewFixtures.loggedIntervals,
+        lastLoadCaption: "Last 45:00"
+    )
+    .padding()
 }
 
 #Preview("Completion rings") {

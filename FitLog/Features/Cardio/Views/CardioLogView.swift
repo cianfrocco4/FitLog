@@ -10,6 +10,7 @@ struct CardioLogView: View {
     let exerciseIndex: Int
     let sessionVM: CurrentWorkoutSessionViewModel
     @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var manualMinutes: String = ""
     @State private var manualSeconds: String = ""
@@ -53,15 +54,29 @@ struct CardioLogView: View {
         exerciseLog?.loggedSets ?? []
     }
 
+    /// Prior-session last working load (skips warm-ups) or last cardio duration.
+    private var lastLoadCaption: String? {
+        guard let we = workoutExercise else { return nil }
+        return PoplarLastWorkingLoad.caption(
+            for: we,
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let rx = prescription {
-                CardioPrescriptionRowView(prescription: rx, exercise: resolvedExercise)
+                CardioPrescriptionRowView(
+                    prescription: rx,
+                    exercise: resolvedExercise,
+                    lastLoadCaption: lastLoadCaption
+                )
             }
 
             activeTimerSection
 
-            CardioIntervalTimelineView(loggedSets: loggedSets)
+            CardioIntervalTimelineView(loggedSets: loggedSets, lastLoadCaption: lastLoadCaption)
 
             manualEntrySection
         }
@@ -128,7 +143,8 @@ struct CardioLogView: View {
                 elapsedSeconds: sessionVM.steadyElapsedSeconds(for: steady),
                 phaseLabel: "Steady state",
                 roundLabel: nil,
-                isPaused: steady.isPaused || sessionVM.isWorkoutPaused
+                isPaused: steady.isPaused || sessionVM.isWorkoutPaused,
+                lastLoadCaption: lastLoadCaption
             )
             HStack(spacing: 10) {
                 if steady.isPaused {
@@ -170,7 +186,8 @@ struct CardioLogView: View {
                 elapsedSeconds: interval.phaseDurationSec - remaining,
                 phaseLabel: phaseLabel,
                 roundLabel: roundLabel,
-                isPaused: interval.isPaused || sessionVM.isWorkoutPaused
+                isPaused: interval.isPaused || sessionVM.isWorkoutPaused,
+                lastLoadCaption: lastLoadCaption
             )
             HStack(spacing: 10) {
                 Button("Complete \(phaseLabel.lowercased())") {
