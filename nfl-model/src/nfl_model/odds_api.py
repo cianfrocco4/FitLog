@@ -131,7 +131,9 @@ def _request(path: str, params: dict[str, str], key: str) -> ApiPayload:
         raise OddsApiError(f"The Odds API returned HTTP {exc.code} for {path}.\n{detail}") from exc
     except urllib.error.URLError as exc:
         raise OddsApiError(f"Could not reach The Odds API ({path}): {exc.reason}") from exc
-    if not isinstance(body, list):
+    if isinstance(body, dict):
+        body = [body]
+    elif not isinstance(body, list):
         raise OddsApiError(f"Unexpected response from {path}")
     return ApiPayload(
         body=body,

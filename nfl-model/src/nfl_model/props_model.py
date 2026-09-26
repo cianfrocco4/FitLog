@@ -62,7 +62,7 @@ class PropState:
 
 
 def normalize_name(name: str) -> str:
-    text = name.lower().replace(".", " ").replace("'", "").replace("-", " ")
+    text = name.lower().replace(".", "").replace("'", "").replace("-", " ")
     text = re.sub(r"\b(jr|sr|ii|iii|iv|v)\b", " ", text)
     return " ".join(text.split())
 
@@ -183,7 +183,7 @@ def build_prop_state(stats: pd.DataFrame) -> PropState:
         name = str(row.player_display_name or "").strip()
         if not name:
             continue
-        games = int(getattr(row, "passing_yards_n") or 0) + MIN_PLAYER_GAMES
+        games = int(getattr(row, "passing_yards_n") or 0) + 1
         # _n is prior games; the exit roll includes the latest game, so count is prior + 1 when prior exists.
         means: dict[str, float] = {}
         for stat in STAT_COLUMNS:

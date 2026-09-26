@@ -564,9 +564,14 @@ def prop_leg(
 ) -> ParlayLeg:
     rho_margin = rho_team_margin if player_is_home else -rho_team_margin
     if stat == "anytime_td":
-        # Standardized latent: the side you bet wins when Z is below its win quantile.
-        cut = _inv_norm(p_win)
-        low, high = -_BOUND, cut
+        # Standardized latent is TD intensity (positively correlated with scoring).
+        # Yes/over wins on the high tail; No/under wins on the low tail.
+        if side in {"yes", "over"}:
+            cut = _inv_norm(1.0 - p_win)
+            low, high = cut, _BOUND
+        else:
+            cut = _inv_norm(p_win)
+            low, high = -_BOUND, cut
         probability = p_win
         return ParlayLeg(
             key=f"{event_id}|{stat}|{label}",
