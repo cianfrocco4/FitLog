@@ -19,6 +19,8 @@ struct WorkoutCompletionExerciseLine: Equatable, Identifiable {
     let newPRSetCount: Int
     /// Non-nil for cardio rows (duration/distance summary instead of volume).
     let cardioSummary: String?
+    /// Library exercise id so finish rows can show last working load / last cardio duration.
+    let exerciseId: UUID?
 
     init(
         id: UUID = UUID(),
@@ -26,7 +28,8 @@ struct WorkoutCompletionExerciseLine: Equatable, Identifiable {
         workingSetCount: Int,
         volumePounds: Double,
         newPRSetCount: Int,
-        cardioSummary: String? = nil
+        cardioSummary: String? = nil,
+        exerciseId: UUID? = nil
     ) {
         self.id = id
         self.exerciseName = exerciseName
@@ -34,6 +37,7 @@ struct WorkoutCompletionExerciseLine: Equatable, Identifiable {
         self.volumePounds = volumePounds
         self.newPRSetCount = newPRSetCount
         self.cardioSummary = cardioSummary
+        self.exerciseId = exerciseId
     }
 }
 
@@ -210,7 +214,8 @@ extension DataManager {
                             workingSetCount: cardioSets.count,
                             volumePounds: 0,
                             newPRSetCount: prSetCount,
-                            cardioSummary: summaryParts.isEmpty ? "\(cardioSets.count) segments" : summaryParts.joined(separator: " · ")
+                            cardioSummary: summaryParts.isEmpty ? "\(cardioSets.count) segments" : summaryParts.joined(separator: " · "),
+                            exerciseId: log.workoutExercise.exerciseId
                         )
                     )
                     continue
@@ -222,7 +227,8 @@ extension DataManager {
                         workingSetCount: workingSets.count + cardioSets.count,
                         volumePounds: volumeLb,
                         newPRSetCount: prSetCount,
-                        cardioSummary: summaryParts.isEmpty ? nil : summaryParts.joined(separator: " · ")
+                        cardioSummary: summaryParts.isEmpty ? nil : summaryParts.joined(separator: " · "),
+                        exerciseId: log.workoutExercise.exerciseId
                     )
                 )
                 continue
@@ -234,7 +240,8 @@ extension DataManager {
                         exerciseName: name,
                         workingSetCount: workingSets.count,
                         volumePounds: volumeLb,
-                        newPRSetCount: 0
+                        newPRSetCount: 0,
+                        exerciseId: nil
                     )
                 )
                 continue
@@ -267,7 +274,8 @@ extension DataManager {
                     exerciseName: name,
                     workingSetCount: workingSets.count,
                     volumePounds: volumeLb,
-                    newPRSetCount: prSetCount
+                    newPRSetCount: prSetCount,
+                    exerciseId: exId
                 )
             )
         }
@@ -456,6 +464,7 @@ struct WorkoutCompletionSummaryView: View {
     var onDone: () -> Void
     /// When set, shows a “View in History” action that opens this session in History.
     var onViewInHistory: (() -> Void)? = nil
+    @Environment(DataManager.self) var dataVM
     @EnvironmentObject var userPreferences: UserPreferences
     @State private var appearHapticTick = 0
     #if canImport(UIKit)
@@ -472,7 +481,8 @@ struct WorkoutCompletionSummaryView: View {
                             durationSeconds: summary.totalCardioDurationSeconds,
                             distanceMeters: summary.totalCardioDistanceMeters,
                             durationGoalSeconds: nil,
-                            distanceGoalMeters: nil
+                            distanceGoalMeters: nil,
+                            lastLoadCaption: lastCardioLoadCaption
                         )
                         LabeledContent("Segments", value: "\(summary.cardioSegmentCount)")
                     }
@@ -536,6 +546,15 @@ struct WorkoutCompletionSummaryView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(row.exerciseName)
                                         .font(.body.weight(.medium))
+                                    if let lastLoad = lastLoadCaption(for: row) {
+                                        Text(lastLoad)
+                                            .font(.caption2.weight(.medium))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                            .minimumScaleFactor(0.8)
+                                            .accessibilityIdentifier(FitLogA11yID.workoutCompletion.exerciseLastLoad)
+                                            .accessibilityLabel(lastLoad)
+                                    }
                                     if let cardio = row.cardioSummary {
                                         Text(cardio)
                                             .font(.caption)
@@ -624,6 +643,23 @@ struct WorkoutCompletionSummaryView: View {
             }
             #endif
         }
+    }
+
+    private var lastCardioLoadCaption: String? {
+        ElmLastWorkingLoad.lastCardioDurationCaption(
+            from: dataVM.completedSessions,
+            excludingSessionId: summary.id
+        )
+    }
+
+    private func lastLoadCaption(for row: WorkoutCompletionExerciseLine) -> String? {
+        guard let exerciseId = row.exerciseId else { return nil }
+        return ElmLastWorkingLoad.caption(
+            for: exerciseId,
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit,
+            excludingSessionId: summary.id
+        )
     }
 
     #if canImport(UIKit)

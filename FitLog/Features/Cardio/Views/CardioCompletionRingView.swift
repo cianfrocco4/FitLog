@@ -11,6 +11,8 @@ struct CardioCompletionRingView: View {
     let distanceMeters: Double
     let durationGoalSeconds: Int?
     let distanceGoalMeters: Double?
+    /// Last working load or last cardio duration from a prior completed session.
+    var lastLoadCaption: String? = nil
 
     private var hasDurationGoal: Bool {
         guard let goal = durationGoalSeconds, goal > 0 else { return false }
@@ -23,26 +25,37 @@ struct CardioCompletionRingView: View {
     }
 
     var body: some View {
-        HStack(spacing: 24) {
-            ring(
-                title: "Time",
-                value: CardioMetricsCalculator.formatDuration(seconds: durationSeconds),
-                progress: durationProgress,
-                hasGoal: hasDurationGoal,
-                color: FitlogPalette.chartSecondary
-            )
-            ring(
-                title: "Distance",
-                value: distanceMeters > 0 ? CardioMetricsCalculator.formatDistance(meters: distanceMeters) : "—",
-                progress: distanceProgress,
-                hasGoal: hasDistanceGoal,
-                color: FitlogPalette.success
-            )
+        VStack(alignment: .leading, spacing: 6) {
+            if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                Text(lastLoadCaption)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .accessibilityIdentifier(FitLogA11yID.cardioCompletionRing.lastLoad)
+                    .accessibilityHidden(true)
+            }
+            HStack(spacing: 24) {
+                ring(
+                    title: "Time",
+                    value: CardioMetricsCalculator.formatDuration(seconds: durationSeconds),
+                    progress: durationProgress,
+                    hasGoal: hasDurationGoal,
+                    color: FitlogPalette.chartSecondary
+                )
+                ring(
+                    title: "Distance",
+                    value: distanceMeters > 0 ? CardioMetricsCalculator.formatDistance(meters: distanceMeters) : "—",
+                    progress: distanceProgress,
+                    hasGoal: hasDistanceGoal,
+                    color: FitlogPalette.success
+                )
+            }
+            .frame(maxWidth: .infinity)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilitySummary)
         }
-        .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilitySummary)
     }
 
     private var accessibilitySummary: String {
@@ -58,6 +71,9 @@ struct CardioCompletionRingView: View {
         if hasDistanceGoal, let goal = distanceGoalMeters {
             let pct = Int(distanceProgress * 100)
             parts.append("distance \(pct) percent of \(CardioMetricsCalculator.formatDistance(meters: goal)) goal")
+        }
+        if let lastLoadCaption, !lastLoadCaption.isEmpty {
+            parts.append(lastLoadCaption)
         }
         return parts.joined(separator: ", ")
     }

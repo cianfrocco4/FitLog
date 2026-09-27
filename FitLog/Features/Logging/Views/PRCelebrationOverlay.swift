@@ -11,6 +11,8 @@ import SwiftUI
 struct PRCelebrationOverlay: View {
     let event: PersonalRecordEvent
     let unit: WeightDisplayUnit
+    /// Prior completed sessions so the compare sheet can show last working load.
+    var completedSessions: [WorkoutSession] = []
     let onDismiss: () -> Void
 
     @State private var isVisible = false
@@ -38,7 +40,7 @@ struct PRCelebrationOverlay: View {
         }
         .sensoryFeedback(.success, trigger: confettiTrigger)
         .sheet(isPresented: $showDetail) {
-            PRCompareSheet(event: event, unit: unit)
+            PRCompareSheet(event: event, unit: unit, lastLoadCaption: lastLoadCaption)
                 .presentationDetents([.medium])
         }
     }
@@ -97,6 +99,14 @@ struct PRCelebrationOverlay: View {
         }
     }
 
+    private var lastLoadCaption: String? {
+        ElmLastWorkingLoad.caption(
+            for: event.exerciseId,
+            from: completedSessions,
+            displayUnit: unit
+        )
+    }
+
     private func dismissOverlay() {
         withAnimation(.easeOut(duration: 0.25)) { isVisible = false }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { onDismiss() }
@@ -108,11 +118,19 @@ struct PRCelebrationOverlay: View {
 private struct PRCompareSheet: View {
     let event: PersonalRecordEvent
     let unit: WeightDisplayUnit
+    var lastLoadCaption: String? = nil
 
     var body: some View {
         NavigationStack {
             List {
                 Section {
+                    if let lastLoad = lastLoadCaption {
+                        Text(lastLoad)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier(FitLogA11yID.prCompare.lastLoad)
+                            .accessibilityLabel(lastLoad)
+                    }
                     HStack {
                         Label("New record", systemImage: "trophy.fill")
                             .foregroundStyle(.yellow)

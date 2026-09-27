@@ -133,6 +133,7 @@ struct MainTabView: View {
                     dismissWorkoutCompletion(summary: summary, kind: .viewInHistory)
                 }
             )
+            .environment(dataVM)
             .environmentObject(userPreferences)
         }
         .sheet(isPresented: $showPostWorkoutPaywall) {

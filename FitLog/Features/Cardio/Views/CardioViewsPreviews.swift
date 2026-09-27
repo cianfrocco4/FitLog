@@ -91,7 +91,8 @@ private enum CardioPreviewFixtures {
         durationSeconds: 2820,
         distanceMeters: 8500,
         durationGoalSeconds: 3600,
-        distanceGoalMeters: 10_000
+        distanceGoalMeters: 10_000,
+        lastLoadCaption: "Last 45:00"
     )
     .padding()
 }
@@ -101,7 +102,8 @@ private enum CardioPreviewFixtures {
         durationSeconds: 900,
         distanceMeters: 0,
         durationGoalSeconds: nil,
-        distanceGoalMeters: nil
+        distanceGoalMeters: nil,
+        lastLoadCaption: "Last 30:00"
     )
     .padding()
     .preferredColorScheme(.dark)

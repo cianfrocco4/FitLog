@@ -939,6 +939,7 @@ struct CurrentWorkoutPullUpSheet: View {
                         PRCelebrationOverlay(
                             event: event,
                             unit: userPreferences.weightDisplayUnit,
+                            completedSessions: dataVM.completedSessions,
                             onDismiss: { celebratedPREvent = nil }
                         )
                     }

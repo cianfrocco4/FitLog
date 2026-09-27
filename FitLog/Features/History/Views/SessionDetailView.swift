@@ -91,7 +91,11 @@ struct SessionDetailView: View {
                         durationSeconds: sessionCardio.durationSeconds,
                         distanceMeters: sessionCardio.distanceMeters,
                         durationGoalSeconds: nil,
-                        distanceGoalMeters: nil
+                        distanceGoalMeters: nil,
+                        lastLoadCaption: ElmLastWorkingLoad.lastCardioDurationCaption(
+                            from: dataVM.completedSessions,
+                            excludingSessionId: session.id
+                        )
                     )
                     LabeledContent("Segments", value: "\(sessionCardio.segmentCount)")
                 }
