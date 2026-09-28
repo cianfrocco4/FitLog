@@ -15,6 +15,8 @@ struct DynamicProgramTimelineView: View {
     var builderViewModel: DynamicProgramBuilderViewModel?
     /// Called when a balance suggestion requests AI regeneration (the timeline cannot trigger generation itself).
     var onRegenerateRequest: ((String) -> Void)?
+    /// Previews set this false so they do not need a `DataManager` environment.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     private var calendar: Calendar { .current }
 
@@ -133,6 +135,9 @@ struct DynamicProgramTimelineView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
+                        if resolvesLastLoadFromEnvironment {
+                            TimelineDayLastLoadCaption(day: day)
+                        }
                     }
                 }
             }
@@ -274,6 +279,30 @@ struct DynamicProgramTimelineView: View {
     }()
 }
 
+private struct TimelineDayLastLoadCaption: View {
+    let day: BlockWeeklyTemplate
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+
+    var body: some View {
+        if let lastLoad = AshLastWorkingLoad.caption(
+            for: day,
+            library: dataVM.globalExercises,
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            Text(lastLoad)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .accessibilityIdentifier(FitLogA11yID.programTimeline.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration from a completed session")
+        }
+    }
+}
+
 // MARK: - Timeline inline editor
 
 private struct DynamicProgramTimelineBlockEditorSection: View {
@@ -373,7 +402,8 @@ private struct DynamicProgramTimelineBlockEditorSection: View {
             defaultSessionsPerWeek: 3,
             preferredWeekdays: [2, 4, 6]
         ),
-        anchorDate: Date()
+        anchorDate: Date(),
+        resolvesLastLoadFromEnvironment: false
     )
     .padding()
 }

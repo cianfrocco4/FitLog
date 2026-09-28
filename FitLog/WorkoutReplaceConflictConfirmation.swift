@@ -13,6 +13,9 @@ struct WorkoutReplaceConflictConfirmation: ViewModifier {
     /// Called when the user cancels the dialog (not called after Continue).
     var onCancelReplace: (() -> Void)?
 
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+
     func body(content: Content) -> some View {
         content
             .confirmationDialog(
@@ -40,13 +43,26 @@ struct WorkoutReplaceConflictConfirmation: ViewModifier {
                 }
             } message: {
                 if let p = pending {
-                    let activeName = currentVM.currentSession?.workout.name ?? "your current workout"
-                    let suffix = p.resumedSession != nil
-                        ? " Your logged sets from that earlier session will be restored."
-                        : ""
-                    Text("“\(activeName)” is still in progress. Starting “\(p.workout.name)” will complete that session and save it to your history.\(suffix)")
+                    Text(replaceMessage(for: p))
+                        .accessibilityIdentifier(FitLogA11yID.workoutReplace.lastLoad)
                 }
             }
+    }
+
+    private func replaceMessage(for pending: PendingWorkoutReplace) -> String {
+        let activeName = currentVM.currentSession?.workout.name ?? "your current workout"
+        let suffix = pending.resumedSession != nil
+            ? " Your logged sets from that earlier session will be restored."
+            : ""
+        var message = "“\(activeName)” is still in progress. Starting “\(pending.workout.name)” will complete that session and save it to your history.\(suffix)"
+        if let lastLoad = AshLastWorkingLoad.caption(
+            for: pending.workout,
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            message += " \(lastLoad)."
+        }
+        return message
     }
 }
 

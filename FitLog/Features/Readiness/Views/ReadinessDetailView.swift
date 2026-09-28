@@ -101,7 +101,13 @@ struct ReadinessDetailView: View {
                             Text("90 days").tag(90)
                         }
                         .pickerStyle(.segmented)
-                        ReadinessTrendChartView(scores: viewModel.trendScores)
+                        ReadinessTrendChartView(
+                            scores: viewModel.trendScores,
+                            lastLoadCaption: AshLastWorkingLoad.newestCompletedCaption(
+                                from: dataVM.completedSessions,
+                                displayUnit: userPreferences.weightDisplayUnit
+                            )
+                        )
                             .listRowInsets(EdgeInsets())
                     } else {
                         VStack(alignment: .leading, spacing: 8) {
