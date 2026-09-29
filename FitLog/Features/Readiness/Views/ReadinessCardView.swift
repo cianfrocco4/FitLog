@@ -11,6 +11,10 @@ struct ReadinessCardView: View {
     var healthConnectState: ReadinessHealthConnectState = .hidden
     /// Free-user soft CTA; tap opens Premium (no auto sheet).
     var showPremiumTrendsCTA: Bool = false
+    /// Last working load or last cardio duration from the newest completed session.
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a `DataManager` environment.
+    var resolvesLastLoadFromEnvironment: Bool = true
     var onTap: () -> Void
     var onConnectHealth: (() -> Void)?
     var onUnlockTrends: (() -> Void)?
@@ -49,6 +53,12 @@ struct ReadinessCardView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(readinessAccessibilityLabel)
             .accessibilityHint("Opens readiness details and how your score is calculated")
+
+            if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                lastLoadLine(lastLoadCaption)
+            } else if resolvesLastLoadFromEnvironment {
+                ReadinessCardLastLoadCaption()
+            }
 
             switch healthConnectState {
             case .hidden:
@@ -116,12 +126,44 @@ struct ReadinessCardView: View {
         return "Readiness score unavailable"
     }
 
+    private func lastLoadLine(_ caption: String) -> some View {
+        Text(caption)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .accessibilityIdentifier(FitLogA11yID.readinessCard.lastLoad)
+            .accessibilityLabel(caption)
+            .accessibilityHint("Last working set or last cardio duration from a completed session")
+    }
+
     private func readinessColor(for score: Int) -> Color {
         switch score {
         case ..<45: return .orange
         case 45..<65: return .yellow
         case 65..<80: return .mint
         default: return .green
+        }
+    }
+}
+
+private struct ReadinessCardLastLoadCaption: View {
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+
+    var body: some View {
+        if let lastLoad = BeechLastWorkingLoad.newestCompletedCaption(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            Text(lastLoad)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .accessibilityIdentifier(FitLogA11yID.readinessCard.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration from a completed session")
         }
     }
 }
@@ -139,6 +181,8 @@ struct ReadinessCardView: View {
         ),
         isLoading: false,
         healthConnectState: .connect,
+        lastLoadCaption: "Last 185 lb × 8 reps",
+        resolvesLastLoadFromEnvironment: false,
         onTap: {},
         onConnectHealth: {}
     )
@@ -158,8 +202,32 @@ struct ReadinessCardView: View {
         ),
         isLoading: false,
         healthConnectState: .noData,
+        lastLoadCaption: "Last 45:00",
+        resolvesLastLoadFromEnvironment: false,
         onTap: {},
         onConnectHealth: nil
     )
     .padding()
+}
+
+#Preview("Connect — dark") {
+    ReadinessCardView(
+        score: ReadinessScore(
+            id: UUID(),
+            dayKey: "2026-06-28",
+            computedAt: Date(),
+            score: 72,
+            band: .good,
+            summary: "Good readiness (72/100). You're recovered enough for a solid training day.",
+            components: []
+        ),
+        isLoading: false,
+        healthConnectState: .connect,
+        lastLoadCaption: "Last 185 lb × 8 reps",
+        resolvesLastLoadFromEnvironment: false,
+        onTap: {},
+        onConnectHealth: {}
+    )
+    .padding()
+    .preferredColorScheme(.dark)
 }

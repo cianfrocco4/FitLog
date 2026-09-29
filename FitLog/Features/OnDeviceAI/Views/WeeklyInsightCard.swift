@@ -37,6 +37,8 @@ struct WeeklyInsightCard: View {
                 }
             }
 
+            WeeklyInsightLastLoadCaption()
+
             if let insight = viewModel.insight {
                 Text(insight.title)
                     .font(.subheadline.weight(.semibold))
@@ -110,6 +112,27 @@ struct WeeklyInsightCard: View {
                 Label(item, systemImage: systemImage)
                     .font(.caption)
             }
+        }
+    }
+}
+
+private struct WeeklyInsightLastLoadCaption: View {
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+
+    var body: some View {
+        if let lastLoad = BeechLastWorkingLoad.newestCompletedCaption(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            Text(lastLoad)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .accessibilityIdentifier(FitLogA11yID.weeklyInsight.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration from a completed session")
         }
     }
 }

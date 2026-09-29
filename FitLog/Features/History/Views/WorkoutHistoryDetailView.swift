@@ -35,6 +35,9 @@ struct WorkoutHistoryDetailView: View {
 
     var body: some View {
         List {
+            if let newest = sortedSessions.first {
+                WorkoutHistoryLastLoadCaption(workout: newest.workout)
+            }
             if durationTrendPoints.count >= 2 {
                 Section {
                     HistoryChartCard(title: "Session duration trend") {
@@ -128,5 +131,32 @@ struct WorkoutHistoryDetailView: View {
             pending: $pendingStartAgainReplace,
             onAfterReplace: { openCurrentWorkoutSheet?() }
         )
+    }
+}
+
+private struct WorkoutHistoryLastLoadCaption: View {
+    let workout: Workout
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+
+    var body: some View {
+        if let lastLoad = BeechLastWorkingLoad.caption(
+            for: workout,
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            Section {
+                Text(lastLoad)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .accessibilityIdentifier(FitLogA11yID.workoutHistory.lastLoad)
+                    .accessibilityLabel(lastLoad)
+                    .accessibilityHint("Last working set or last cardio duration from a completed session of this workout")
+            } header: {
+                Text("Last working load")
+            }
+        }
     }
 }
