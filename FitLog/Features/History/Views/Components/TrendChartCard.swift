@@ -159,9 +159,19 @@ struct CardioTrendChartCard: View {
     let showComparison: Bool
     let average: Double?
     @Binding var selectedWeek: Date?
+    /// Last cardio duration from a completed session (skips interval rest).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a `DataManager` environment.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     var body: some View {
         HistoryChartCard(title: "Cardio volume") {
+            VStack(alignment: .leading, spacing: 10) {
+            if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                lastLoadLine(lastLoadCaption)
+            } else if resolvesLastLoadFromEnvironment {
+                CardioTrendLastLoadCaption()
+            }
             if weeklyCardio.isEmpty {
                 CardioEmptyStateView(
                     title: "No cardio in this range",
@@ -248,6 +258,68 @@ struct CardioTrendChartCard: View {
                 .accessibilityChartDescriptor(CardioTrendChartAXDescriptor(weeklyCardio: weeklyCardio))
                 .accessibilityLabel("Weekly cardio minutes with distance labels")
             }
+            }
         }
     }
+
+    private func lastLoadLine(_ caption: String) -> some View {
+        Text(caption)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .accessibilityIdentifier(FitLogA11yID.cardioTrendChart.lastLoad)
+            .accessibilityLabel(caption)
+            .accessibilityHint("Last cardio duration from a completed session")
+    }
+}
+
+private struct CardioTrendLastLoadCaption: View {
+    @Environment(DataManager.self) private var dataVM
+
+    var body: some View {
+        if let lastLoad = CypressLastWorkingLoad.lastCardioDurationCaption(
+            from: dataVM.completedSessions
+        ) {
+            Text(lastLoad)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .accessibilityIdentifier(FitLogA11yID.cardioTrendChart.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last cardio duration from a completed session")
+        }
+    }
+}
+
+#Preview("Cardio trend with last duration") {
+    @Previewable @State var selectedWeek: Date?
+    CardioTrendChartCard(
+        weeklyCardio: [],
+        priorWeeklyCardio: [],
+        showComparison: false,
+        average: nil,
+        selectedWeek: $selectedWeek,
+        lastLoadCaption: "Last 45:00",
+        resolvesLastLoadFromEnvironment: false
+    )
+    .padding()
+}
+
+#Preview("Cardio trend — dark") {
+    @Previewable @State var selectedWeek: Date?
+    CardioTrendChartCard(
+        weeklyCardio: [
+            WeekCardioData(id: Date(), weekStart: Date(), minutes: 45, distanceKm: 6.2)
+        ],
+        priorWeeklyCardio: [],
+        showComparison: false,
+        average: 40,
+        selectedWeek: $selectedWeek,
+        lastLoadCaption: "Last 45:00",
+        resolvesLastLoadFromEnvironment: false
+    )
+    .padding()
+    .preferredColorScheme(.dark)
 }
