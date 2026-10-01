@@ -90,8 +90,25 @@ struct ProgramValidationResult: Equatable, Sendable {
 
 struct ProgramValidationBanner: View {
     let result: ProgramValidationResult
+    /// Last working load or last cardio duration from the newest completed session.
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a `DataManager` environment.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                lastLoadLine(lastLoadCaption)
+            } else if resolvesLastLoadFromEnvironment {
+                ProgramValidationLastLoadCaption()
+            }
+
+            validationContent
+        }
+    }
+
+    @ViewBuilder
+    private var validationContent: some View {
         if result.blockingIssues.isEmpty, result.warningIssues.isEmpty {
             Label("All checks passed", systemImage: "checkmark.circle.fill")
                 .font(.subheadline.weight(.medium))
@@ -135,6 +152,18 @@ struct ProgramValidationBanner: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel(accessibilitySummary)
         }
+    }
+
+    private func lastLoadLine(_ caption: String) -> some View {
+        Text(caption)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .accessibilityIdentifier(FitLogA11yID.programValidation.lastLoad)
+            .accessibilityLabel(caption)
+            .accessibilityHint("Last working set or last cardio duration from a completed session")
+            .accessibilityAddTraits(.isStaticText)
     }
 
     private var accessibilitySummary: String {
@@ -189,14 +218,64 @@ struct ProgramReviewSuggestionRow: View {
     }
 }
 
+private struct ProgramValidationLastLoadCaption: View {
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+
+    var body: some View {
+        if let lastLoad = RedwoodLastWorkingLoad.newestCompletedCaption(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            Text(lastLoad)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .accessibilityIdentifier(FitLogA11yID.programValidation.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration from a completed session")
+                .accessibilityAddTraits(.isStaticText)
+        }
+    }
+}
+
 #Preview("Validation banner") {
     ProgramValidationBanner(
         result: ProgramValidationResult(
             blockingIssues: ["Add a program name."],
             warningIssues: ["Empty day needs slots."]
-        )
+        ),
+        lastLoadCaption: "Last 185 lb × 8 reps",
+        resolvesLastLoadFromEnvironment: false
     )
     .padding()
+}
+
+#Preview("Validation banner — dark") {
+    ProgramValidationBanner(
+        result: ProgramValidationResult(
+            blockingIssues: [],
+            warningIssues: []
+        ),
+        lastLoadCaption: "Last 45:00",
+        resolvesLastLoadFromEnvironment: false
+    )
+    .padding()
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Validation banner — large type") {
+    ProgramValidationBanner(
+        result: ProgramValidationResult(
+            blockingIssues: ["Add a program name."],
+            warningIssues: ["Empty day needs slots."]
+        ),
+        lastLoadCaption: "Last 100 kg × 5 reps",
+        resolvesLastLoadFromEnvironment: false
+    )
+    .padding()
+    .dynamicTypeSize(.accessibility3)
 }
 
 #Preview("Suggestion row") {

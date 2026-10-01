@@ -14,6 +14,10 @@ struct ProgramCalendarPreviewView: View {
     let anchorDate: Date
     /// Per-block weekly set totals (all templates), for a subtle heat strip.
     let weeklySetTotalsByBlock: [Int]
+    /// Last working load or last cardio duration from the newest completed session.
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a `DataManager` environment.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     private var calendar: Calendar { .current }
 
@@ -40,6 +44,12 @@ struct ProgramCalendarPreviewView: View {
             Text("Calendar")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
+
+            if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                lastLoadLine(lastLoadCaption)
+            } else if resolvesLastLoadFromEnvironment {
+                ProgramCalendarPreviewLastLoadCaption()
+            }
 
             weekdayHeader
 
@@ -192,6 +202,18 @@ struct ProgramCalendarPreviewView: View {
         return "\(f), rest or off day"
     }
 
+    private func lastLoadLine(_ caption: String) -> some View {
+        Text(caption)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .accessibilityIdentifier(FitLogA11yID.programCalendarPreview.lastLoad)
+            .accessibilityLabel(caption)
+            .accessibilityHint("Last working set or last cardio duration from a completed session")
+            .accessibilityAddTraits(.isStaticText)
+    }
+
     private var volumeLegend: some View {
         HStack(spacing: 6) {
             Text("Volume strip")
@@ -224,6 +246,28 @@ struct ProgramCalendarPreviewView: View {
     ]
 }
 
+private struct ProgramCalendarPreviewLastLoadCaption: View {
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+
+    var body: some View {
+        if let lastLoad = RedwoodLastWorkingLoad.newestCompletedCaption(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            Text(lastLoad)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .accessibilityIdentifier(FitLogA11yID.programCalendarPreview.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration from a completed session")
+                .accessibilityAddTraits(.isStaticText)
+        }
+    }
+}
+
 extension ProgramCalendarPreviewView {
     /// Sums sets across all templates in each block (coarse volume proxy for the heat strip).
     static func weeklySetTotalsPerBlock(program: DynamicProgram) -> [Int] {
@@ -234,3 +278,73 @@ extension ProgramCalendarPreviewView {
         }
     }
 }
+
+#if DEBUG
+private func previewCalendarProgram() -> DynamicProgram {
+    DynamicProgram(
+        name: "Preview",
+        blocks: [
+            ProgramBlock(
+                name: "Build",
+                focus: BlockFocus(kind: .hypertrophy, emphasisLabel: "Upper"),
+                durationWeeks: 4,
+                weeklyTemplates: [
+                    BlockWeeklyTemplate(
+                        dayName: "Push",
+                        focus: "Chest",
+                        slots: [
+                            SplitBuilderEditableSlot(
+                                label: "Bench",
+                                targetMuscleNames: ["Chest"],
+                                sets: 3,
+                                reps: "8-12",
+                                suggestedExerciseName: "Barbell Bench Press"
+                            )
+                        ]
+                    )
+                ]
+            )
+        ],
+        defaultSessionsPerWeek: 3,
+        preferredWeekdays: [2, 4, 6]
+    )
+}
+
+#Preview("Calendar preview") {
+    let program = previewCalendarProgram()
+    ProgramCalendarPreviewView(
+        program: program,
+        anchorDate: Date(),
+        weeklySetTotalsByBlock: ProgramCalendarPreviewView.weeklySetTotalsPerBlock(program: program),
+        lastLoadCaption: "Last 185 lb × 8 reps",
+        resolvesLastLoadFromEnvironment: false
+    )
+    .padding()
+}
+
+#Preview("Calendar preview — dark") {
+    let program = previewCalendarProgram()
+    ProgramCalendarPreviewView(
+        program: program,
+        anchorDate: Date(),
+        weeklySetTotalsByBlock: ProgramCalendarPreviewView.weeklySetTotalsPerBlock(program: program),
+        lastLoadCaption: "Last 45:00",
+        resolvesLastLoadFromEnvironment: false
+    )
+    .padding()
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Calendar preview — large type") {
+    let program = previewCalendarProgram()
+    ProgramCalendarPreviewView(
+        program: program,
+        anchorDate: Date(),
+        weeklySetTotalsByBlock: ProgramCalendarPreviewView.weeklySetTotalsPerBlock(program: program),
+        lastLoadCaption: "Last 100 kg × 5 reps",
+        resolvesLastLoadFromEnvironment: false
+    )
+    .padding()
+    .dynamicTypeSize(.accessibility3)
+}
+#endif

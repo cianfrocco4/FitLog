@@ -11,6 +11,10 @@ struct CardioProgramConfigurationSection: View {
     @Binding var splitInput: WorkoutSplitBuilderStructuredInput
     var showPerBlockHint: Bool = false
     var onUserEdited: (() -> Void)? = nil
+    /// Last cardio duration from the newest completed session.
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a `DataManager` environment.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     private var configuration: CardioProgramConfiguration {
         CardioProgramConfiguration.fromSplitInput(splitInput)
@@ -22,6 +26,12 @@ struct CardioProgramConfigurationSection: View {
 
     var body: some View {
         Group {
+            if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                lastLoadLine(lastLoadCaption)
+            } else if resolvesLastLoadFromEnvironment {
+                CardioProgramConfigLastLoadCaption()
+            }
+
             Picker("Cardio goal", selection: cardioGoalBinding) {
                 ForEach(CardioProgramGoal.allCases) { goal in
                     Text(goal.rawValue).tag(goal.rawValue)
@@ -118,6 +128,34 @@ struct CardioProgramConfigurationSection: View {
             set: { splitInput.cardioWeeklyProgressionMinutes = $0 }
         )
     }
+
+    private func lastLoadLine(_ caption: String) -> some View {
+        Text(caption)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(FitLogA11yID.cardioProgramConfig.lastLoad)
+            .accessibilityLabel(caption)
+            .accessibilityHint("Last cardio duration from a completed session")
+            .accessibilityAddTraits(.isStaticText)
+    }
+}
+
+private struct CardioProgramConfigLastLoadCaption: View {
+    @Environment(DataManager.self) private var dataVM
+
+    var body: some View {
+        if let lastLoad = RedwoodLastWorkingLoad.lastCardioDurationCaption(
+            from: dataVM.completedSessions
+        ) {
+            Text(lastLoad)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(FitLogA11yID.cardioProgramConfig.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last cardio duration from a completed session")
+                .accessibilityAddTraits(.isStaticText)
+        }
+    }
 }
 
 struct BlockCardioOverrideSection: View {
@@ -173,3 +211,61 @@ struct BlockCardioOverrideSection: View {
         )
     }
 }
+
+#if DEBUG
+private func previewCardioSplitInput() -> WorkoutSplitBuilderStructuredInput {
+    WorkoutSplitBuilderStructuredInput(
+        primaryGoal: "Build muscle",
+        equipment: "Full gym (machines + free weights)",
+        splitPreference: "Push / Pull / Legs",
+        experienceLevel: "Intermediate",
+        sessionsPerWeek: 4,
+        preferredWeekdays: [1, 3, 5, 6],
+        limitationsNotes: "",
+        additionalNotes: "",
+        sessionDurationMinutes: 60,
+        intensityStyle: "Balanced (mix of heavy and moderate)",
+        progressionStyle: "Double progression (reps then weight)",
+        priorityMusclesOrLiftsNotes: "",
+        recoveryContextNotes: "",
+        deloadPreference: "Not specified",
+        cardioPreference: CardioProgramPreference.mixed.rawValue,
+        cardioGoal: CardioProgramGoal.generalHealth.rawValue
+    )
+}
+
+#Preview("Cardio config") {
+    @Previewable @State var input = previewCardioSplitInput()
+    Form {
+        CardioProgramConfigurationSection(
+            splitInput: $input,
+            lastLoadCaption: "Last 45:00",
+            resolvesLastLoadFromEnvironment: false
+        )
+    }
+}
+
+#Preview("Cardio config — dark") {
+    @Previewable @State var input = previewCardioSplitInput()
+    Form {
+        CardioProgramConfigurationSection(
+            splitInput: $input,
+            lastLoadCaption: "Last 30:00",
+            resolvesLastLoadFromEnvironment: false
+        )
+    }
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Cardio config — large type") {
+    @Previewable @State var input = previewCardioSplitInput()
+    Form {
+        CardioProgramConfigurationSection(
+            splitInput: $input,
+            lastLoadCaption: "Last 45:00",
+            resolvesLastLoadFromEnvironment: false
+        )
+    }
+    .dynamicTypeSize(.accessibility3)
+}
+#endif
