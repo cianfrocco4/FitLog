@@ -10,6 +10,10 @@ import SwiftUI
 struct SlotDetailEditorView: View {
     @Binding var slot: SplitBuilderEditableSlot
     let partnerCandidates: [SlotGroupingEditorView.PartnerCandidate]
+    /// Last working load or last cardio duration for this slot’s exercise.
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a `DataManager` environment.
+    var resolvesLastLoadFromEnvironment: Bool = true
     @Environment(DataManager.self) private var dataManager
     @EnvironmentObject private var aiService: AIService
     @Environment(\.dismiss) private var dismiss
@@ -31,6 +35,12 @@ struct SlotDetailEditorView: View {
                         )
                     }
                     .accessibilityHint("Opens searchable exercises scored for this slot.")
+
+                    if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                        lastLoadLine(lastLoadCaption)
+                    } else if resolvesLastLoadFromEnvironment {
+                        SlotDetailLastLoadCaption(slot: slot)
+                    }
 
                     Toggle("Warm-up slot", isOn: Binding(
                         get: { slot.isWarmUp },
@@ -196,6 +206,39 @@ struct SlotDetailEditorView: View {
                 .environment(dataManager)
                 .environmentObject(aiService)
             }
+        }
+    }
+
+    private func lastLoadLine(_ caption: String) -> some View {
+        Text(caption)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(FitLogA11yID.slotDetail.lastLoad)
+            .accessibilityLabel(caption)
+            .accessibilityHint("Last working set or last cardio duration from a completed session")
+            .accessibilityAddTraits(.isStaticText)
+    }
+}
+
+private struct SlotDetailLastLoadCaption: View {
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+    let slot: SplitBuilderEditableSlot
+
+    var body: some View {
+        if let lastLoad = SycamoreLastWorkingLoad.caption(
+            for: slot,
+            library: dataVM.globalExercises,
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            Text(lastLoad)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(FitLogA11yID.slotDetail.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration from a completed session")
+                .accessibilityAddTraits(.isStaticText)
         }
     }
 }

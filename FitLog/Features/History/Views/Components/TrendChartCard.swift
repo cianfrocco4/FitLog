@@ -25,9 +25,18 @@ struct TrendChartCard: View {
     let selectionAnnotation: (Date, Double) -> String
     let accessibilitySummary: String
     @Binding var selectedWeek: Date?
+    /// Last working load or last cardio duration from the newest completed session.
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a `DataManager` environment.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     var body: some View {
         HistoryChartCard(title: title) {
+            if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                lastLoadLine(lastLoadCaption)
+            } else if resolvesLastLoadFromEnvironment {
+                TrendChartLastLoadCaption()
+            }
             Chart {
                 chartMarks
                 averageRule
@@ -151,6 +160,40 @@ struct TrendChartCard: View {
                 }
         }
     }
+
+    private func lastLoadLine(_ caption: String) -> some View {
+        Text(caption)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .accessibilityIdentifier(FitLogA11yID.trendChart.lastLoad)
+            .accessibilityLabel(caption)
+            .accessibilityHint("Last working set or last cardio duration from a completed session")
+            .accessibilityAddTraits(.isStaticText)
+    }
+}
+
+private struct TrendChartLastLoadCaption: View {
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+
+    var body: some View {
+        if let lastLoad = SycamoreLastWorkingLoad.newestCompletedCaption(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            Text(lastLoad)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .accessibilityIdentifier(FitLogA11yID.trendChart.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration from a completed session")
+                .accessibilityAddTraits(.isStaticText)
+        }
+    }
 }
 
 struct CardioTrendChartCard: View {
@@ -251,3 +294,79 @@ struct CardioTrendChartCard: View {
         }
     }
 }
+
+#if DEBUG
+private func previewTrendWeekStarts() -> [Date] {
+    let cal = Calendar.current
+    let start = cal.date(from: DateComponents(year: 2026, month: 8, day: 3)) ?? Date()
+    return (0 ..< 6).compactMap { cal.date(byAdding: .weekOfYear, value: $0, to: start) }
+}
+
+#Preview("Trend chart") {
+    @Previewable @State var selected: Date?
+    TrendChartCard(
+        title: "Volume",
+        style: .bar(color: FitlogPalette.chartPrimary),
+        weekStarts: previewTrendWeekStarts(),
+        values: [12_000, 13_400, 11_800, 14_200, 13_100, 15_000],
+        priorWeekStarts: [],
+        priorValues: [],
+        showComparison: false,
+        average: 13_250,
+        averageLabel: "avg",
+        yAxisFormatter: { "\(Int($0))" },
+        selectionAnnotation: { _, value in "\(Int(value))" },
+        accessibilitySummary: "Weekly volume",
+        selectedWeek: $selected,
+        lastLoadCaption: "Last 185 lb × 8 reps",
+        resolvesLastLoadFromEnvironment: false
+    )
+    .padding()
+}
+
+#Preview("Trend chart — dark") {
+    @Previewable @State var selected: Date?
+    TrendChartCard(
+        title: "Volume",
+        style: .bar(color: FitlogPalette.chartPrimary),
+        weekStarts: previewTrendWeekStarts(),
+        values: [12_000, 13_400, 11_800, 14_200, 13_100, 15_000],
+        priorWeekStarts: [],
+        priorValues: [],
+        showComparison: false,
+        average: 13_250,
+        averageLabel: "avg",
+        yAxisFormatter: { "\(Int($0))" },
+        selectionAnnotation: { _, value in "\(Int(value))" },
+        accessibilitySummary: "Weekly volume",
+        selectedWeek: $selected,
+        lastLoadCaption: "Last 45:00",
+        resolvesLastLoadFromEnvironment: false
+    )
+    .padding()
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Trend chart — large type") {
+    @Previewable @State var selected: Date?
+    TrendChartCard(
+        title: "Volume",
+        style: .bar(color: FitlogPalette.chartPrimary),
+        weekStarts: previewTrendWeekStarts(),
+        values: [12_000, 13_400, 11_800, 14_200, 13_100, 15_000],
+        priorWeekStarts: [],
+        priorValues: [],
+        showComparison: false,
+        average: 13_250,
+        averageLabel: "avg",
+        yAxisFormatter: { "\(Int($0))" },
+        selectionAnnotation: { _, value in "\(Int(value))" },
+        accessibilitySummary: "Weekly volume",
+        selectedWeek: $selected,
+        lastLoadCaption: "Last 100 kg × 5 reps",
+        resolvesLastLoadFromEnvironment: false
+    )
+    .padding()
+    .dynamicTypeSize(.accessibility3)
+}
+#endif

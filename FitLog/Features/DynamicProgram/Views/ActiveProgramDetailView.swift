@@ -12,6 +12,10 @@ struct ActiveProgramDetailView: View {
     @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
     @EnvironmentObject private var aiService: AIService
     @Environment(\.dismiss) private var dismiss
+    /// Last working load or last cardio duration from the newest completed session.
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a `DataManager` environment.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     @State private var nameDraft: String = ""
     @State private var sessionsPerWeek: Int = 3
@@ -110,6 +114,12 @@ struct ActiveProgramDetailView: View {
                 }
                 LabeledContent("Planned length") {
                     Text("\(program.plannedTotalWeeks) wk · \(program.blocks.count) blocks")
+                }
+
+                if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                    lastLoadLine(lastLoadCaption)
+                } else if resolvesLastLoadFromEnvironment {
+                    ActiveProgramLastLoadCaption(program: program)
                 }
             } header: {
                 Text("Overview")
@@ -422,6 +432,54 @@ struct ActiveProgramDetailView: View {
                 .padding(4)
         }
         .frame(width: 52, height: 52)
+    }
+
+    private func lastLoadLine(_ caption: String) -> some View {
+        Text(caption)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(FitLogA11yID.activeProgram.lastLoad)
+            .accessibilityLabel(caption)
+            .accessibilityHint("Last working set or last cardio duration from a completed session")
+            .accessibilityAddTraits(.isStaticText)
+    }
+}
+
+private struct ActiveProgramLastLoadCaption: View {
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+    let program: DynamicProgram
+
+    var body: some View {
+        if let lastLoad = resolvedCaption {
+            Text(lastLoad)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(FitLogA11yID.activeProgram.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration from a completed session")
+                .accessibilityAddTraits(.isStaticText)
+        }
+    }
+
+    private var resolvedCaption: String? {
+        let unit = userPreferences.weightDisplayUnit
+        let sessions = dataVM.completedSessions
+        let library = dataVM.globalExercises
+        for block in program.blocks {
+            if let caption = SycamoreLastWorkingLoad.caption(
+                for: block,
+                library: library,
+                from: sessions,
+                displayUnit: unit
+            ) {
+                return caption
+            }
+        }
+        return SycamoreLastWorkingLoad.newestCompletedCaption(
+            from: sessions,
+            displayUnit: unit
+        )
     }
 }
 
