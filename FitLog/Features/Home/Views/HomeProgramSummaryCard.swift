@@ -27,6 +27,10 @@ struct HomeProgramSummaryCard: View {
     let onBuildNew: () -> Void
     let onOpenWorkout: (UUID) -> Void
     let onStartWorkout: (Workout) -> Void
+    /// Last working load or last cardio duration from the newest completed session.
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a `UserPreferences` environment.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     private var calendar: Calendar { .current }
 
@@ -115,6 +119,11 @@ struct HomeProgramSummaryCard: View {
                             Text("Starts \(state.anchorDate.formatted(date: .abbreviated, time: .omitted))")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                        }
+                        if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                            lastLoadLine(lastLoadCaption)
+                        } else if resolvesLastLoadFromEnvironment {
+                            HomeProgramSummaryLastLoadCaption(program: state.program)
                         }
                     }
                     Spacer(minLength: 0)
@@ -323,6 +332,54 @@ struct HomeProgramSummaryCard: View {
         }
         .frame(width: 44, height: 44)
         .accessibilityLabel("\(completed) of \(planned) sessions completed in this block")
+    }
+
+    private func lastLoadLine(_ caption: String) -> some View {
+        Text(caption)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(FitLogA11yID.homeProgramSummary.lastLoad)
+            .accessibilityLabel(caption)
+            .accessibilityHint("Last working set or last cardio duration from a completed session")
+            .accessibilityAddTraits(.isStaticText)
+    }
+}
+
+private struct HomeProgramSummaryLastLoadCaption: View {
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+    let program: DynamicProgram
+
+    var body: some View {
+        if let lastLoad = resolvedCaption {
+            Text(lastLoad)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(FitLogA11yID.homeProgramSummary.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration from a completed session")
+                .accessibilityAddTraits(.isStaticText)
+        }
+    }
+
+    private var resolvedCaption: String? {
+        let unit = userPreferences.weightDisplayUnit
+        let sessions = dataVM.completedSessions
+        let library = dataVM.globalExercises
+        for block in program.blocks {
+            if let caption = MagnoliaLastWorkingLoad.caption(
+                for: block,
+                library: library,
+                from: sessions,
+                displayUnit: unit
+            ) {
+                return caption
+            }
+        }
+        return MagnoliaLastWorkingLoad.newestCompletedCaption(
+            from: sessions,
+            displayUnit: unit
+        )
     }
 }
 

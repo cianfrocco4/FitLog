@@ -16,12 +16,22 @@ enum ProgramBuilderRoute: Hashable {
 struct ProgramBuilderEntryView: View {
     @Bindable var viewModel: DynamicProgramBuilderViewModel
     @Environment(DataManager.self) private var dataManager
+    /// Last working load or last cardio duration from the newest completed session.
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a `UserPreferences` environment.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     @State private var coachVM: CoachConversationViewModel
     @State private var highlightGuidedCoach = false
 
-    init(viewModel: DynamicProgramBuilderViewModel) {
+    init(
+        viewModel: DynamicProgramBuilderViewModel,
+        lastLoadCaption: String? = nil,
+        resolvesLastLoadFromEnvironment: Bool = true
+    ) {
         self.viewModel = viewModel
+        self.lastLoadCaption = lastLoadCaption
+        self.resolvesLastLoadFromEnvironment = resolvesLastLoadFromEnvironment
         _coachVM = State(wrappedValue: CoachConversationViewModel(builderViewModel: viewModel))
     }
 
@@ -29,6 +39,11 @@ struct ProgramBuilderEntryView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 headerSection
+                if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                    lastLoadLine(lastLoadCaption)
+                } else if resolvesLastLoadFromEnvironment {
+                    ProgramBuilderEntryLastLoadCaption()
+                }
                 pathCards
                 if highlightGuidedCoach {
                     tipBanner
@@ -186,10 +201,66 @@ struct ProgramBuilderEntryView: View {
             )
             .accessibilityLabel("Tip. New here? Guided Coach walks you through goals, schedule, and recommendations like a personal trainer.")
     }
+
+    private func lastLoadLine(_ caption: String) -> some View {
+        Text(caption)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(FitLogA11yID.programBuilderEntry.lastLoad)
+            .accessibilityLabel(caption)
+            .accessibilityHint("Last working set or last cardio duration from a completed session")
+            .accessibilityAddTraits(.isStaticText)
+    }
+}
+
+private struct ProgramBuilderEntryLastLoadCaption: View {
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+
+    var body: some View {
+        if let lastLoad = MagnoliaLastWorkingLoad.newestCompletedCaption(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            Text(lastLoad)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(FitLogA11yID.programBuilderEntry.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration from a completed session")
+                .accessibilityAddTraits(.isStaticText)
+        }
+    }
 }
 
 #Preview {
     NavigationStack {
-        ProgramBuilderEntryView(viewModel: DynamicProgramBuilderViewModel())
+        ProgramBuilderEntryView(
+            viewModel: DynamicProgramBuilderViewModel(),
+            lastLoadCaption: "Last 185 lb × 8 reps",
+            resolvesLastLoadFromEnvironment: false
+        )
     }
+}
+
+#Preview("Program builder entry — dark") {
+    NavigationStack {
+        ProgramBuilderEntryView(
+            viewModel: DynamicProgramBuilderViewModel(),
+            lastLoadCaption: "Last 45:00",
+            resolvesLastLoadFromEnvironment: false
+        )
+    }
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Program builder entry — large type") {
+    NavigationStack {
+        ProgramBuilderEntryView(
+            viewModel: DynamicProgramBuilderViewModel(),
+            lastLoadCaption: "Last 100 kg × 5 reps",
+            resolvesLastLoadFromEnvironment: false
+        )
+    }
+    .dynamicTypeSize(.accessibility3)
 }
