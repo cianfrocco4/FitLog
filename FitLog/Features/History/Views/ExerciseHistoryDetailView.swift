@@ -13,6 +13,10 @@ struct ExerciseHistoryDetailView: View {
     let exerciseId: UUID
     let rangeSessions: [WorkoutSession]
     let allSessionsSorted: [WorkoutSession]
+    /// Last working load or last cardio duration for this exercise.
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
     @State private var dataScope: ExerciseHistoryDataScope = .selectedRange
     @State private var showPaywall = false
     /// Bumps when a Premium-only scope is rejected so the segmented picker resyncs visually.
@@ -113,6 +117,11 @@ struct ExerciseHistoryDetailView: View {
                 }
                 .pickerStyle(.segmented)
                 .id(dataScopePickerEpoch)
+                if let lastLoadCaption, !lastLoadCaption.isEmpty {
+                    lastLoadLine(lastLoadCaption)
+                } else if resolvesLastLoadFromEnvironment {
+                    ExerciseHistoryLastLoadCaption(exerciseId: exerciseId, sessions: allSessionsSorted)
+                }
             } footer: {
                 Text(
                     dataScope == .selectedRange
@@ -280,6 +289,38 @@ struct ExerciseHistoryDetailView: View {
                 analyticsSource: "exercise_history_all_time"
             )
             .environment(entitlementStore)
+        }
+    }
+
+    private func lastLoadLine(_ caption: String) -> some View {
+        Text(caption)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(FitLogA11yID.exerciseHistory.lastLoad)
+            .accessibilityLabel(caption)
+            .accessibilityHint("Last working set or last cardio duration for this exercise")
+            .accessibilityAddTraits(.isStaticText)
+    }
+}
+
+private struct ExerciseHistoryLastLoadCaption: View {
+    @EnvironmentObject private var userPreferences: UserPreferences
+    let exerciseId: UUID
+    let sessions: [WorkoutSession]
+
+    var body: some View {
+        if let lastLoad = JuniperLastWorkingLoad.caption(
+            for: exerciseId,
+            from: sessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            Text(lastLoad)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(FitLogA11yID.exerciseHistory.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration for this exercise")
+                .accessibilityAddTraits(.isStaticText)
         }
     }
 }

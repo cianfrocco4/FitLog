@@ -8,6 +8,10 @@ import SwiftUI
 struct PersonalRecordsView: View {
     @Environment(DataManager.self) var dataVM
     @EnvironmentObject var userPreferences: UserPreferences
+    /// Optional last-load captions keyed by exercise id. Live UI resolves from completed sessions.
+    var lastLoadCaptionsByExerciseId: [UUID: String] = [:]
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     private var records: [ArchivedPersonalRecord] {
         dataVM.allTimePersonalRecords()
@@ -45,6 +49,11 @@ struct PersonalRecordsView: View {
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                         }
+                        if let lastLoadCaption = lastLoadCaption(for: row), !lastLoadCaption.isEmpty {
+                            lastLoadLine(lastLoadCaption)
+                        } else if resolvesLastLoadFromEnvironment {
+                            PersonalRecordsLastLoadCaption(exerciseId: row.exerciseId)
+                        }
                     }
                     .padding(.vertical, 2)
                 }
@@ -75,6 +84,42 @@ struct PersonalRecordsView: View {
             return String(format: "%d:%02d", total / 60, total % 60)
         case .maxCalories:
             return "\(Int(row.value.rounded())) kcal"
+        }
+    }
+
+    private func lastLoadCaption(for row: ArchivedPersonalRecord) -> String? {
+        lastLoadCaptionsByExerciseId[row.exerciseId]
+    }
+
+    private func lastLoadLine(_ caption: String) -> some View {
+        Text(caption)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(FitLogA11yID.personalRecords.lastLoad)
+            .accessibilityLabel(caption)
+            .accessibilityHint("Last working set or last cardio duration for this exercise")
+            .accessibilityAddTraits(.isStaticText)
+    }
+}
+
+private struct PersonalRecordsLastLoadCaption: View {
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+    let exerciseId: UUID
+
+    var body: some View {
+        if let lastLoad = JuniperLastWorkingLoad.caption(
+            for: exerciseId,
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            Text(lastLoad)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(FitLogA11yID.personalRecords.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration for this exercise")
+                .accessibilityAddTraits(.isStaticText)
         }
     }
 }

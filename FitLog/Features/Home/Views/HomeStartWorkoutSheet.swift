@@ -19,6 +19,10 @@ struct HomeStartWorkoutSheet: View {
     let onStartLibrary: (Workout) -> Void
     let onNewWorkout: () -> Void
     let onNewFromTemplate: () -> Void
+    /// Optional last-load captions keyed by library workout id.
+    var lastLoadCaptionByWorkoutId: [UUID: String] = [:]
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     var body: some View {
         NavigationStack {
@@ -39,6 +43,7 @@ struct HomeStartWorkoutSheet: View {
                                     Text(scheduled.name)
                                         .font(.subheadline)
                                         .foregroundStyle(.secondary)
+                                    lastLoadCaptionView(for: scheduled)
                                 }
                             }
                         }
@@ -66,6 +71,7 @@ struct HomeStartWorkoutSheet: View {
                                         Text(HomeWorkoutFormatting.lastDoneLabel(for: lastCompletedDates[workout.id]))
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
+                                        lastLoadCaptionView(for: workout)
                                     }
                                 }
                             }
@@ -110,5 +116,46 @@ struct HomeStartWorkoutSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    @ViewBuilder
+    private func lastLoadCaptionView(for workout: Workout) -> some View {
+        if let caption = lastLoadCaptionByWorkoutId[workout.id], !caption.isEmpty {
+            lastLoadLine(caption)
+        } else if resolvesLastLoadFromEnvironment {
+            HomeStartSheetLastLoadCaption(workout: workout)
+        }
+    }
+
+    private func lastLoadLine(_ caption: String) -> some View {
+        Text(caption)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(FitLogA11yID.homeStartSheet.lastLoad)
+            .accessibilityLabel(caption)
+            .accessibilityHint("Last working set or last cardio duration from a completed session")
+            .accessibilityAddTraits(.isStaticText)
+    }
+}
+
+private struct HomeStartSheetLastLoadCaption: View {
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+    let workout: Workout
+
+    var body: some View {
+        if let lastLoad = JuniperLastWorkingLoad.caption(
+            for: workout,
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            Text(lastLoad)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(FitLogA11yID.homeStartSheet.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration from a completed session")
+                .accessibilityAddTraits(.isStaticText)
+        }
     }
 }
