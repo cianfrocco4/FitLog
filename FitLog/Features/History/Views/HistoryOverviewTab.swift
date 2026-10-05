@@ -13,6 +13,10 @@ struct HistoryOverviewTab: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @EnvironmentObject private var userPreferences: UserPreferences
     @Bindable var viewModel: HistoryViewModel
+    /// Last working load or last cardio duration from the newest completed session.
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     @State private var showVolumeInfo = false
     @State private var showPaywall = false
@@ -63,6 +67,7 @@ struct HistoryOverviewTab: View {
 
     private var kpiSection: some View {
         Section {
+            lastLoadCaptionView
             if viewModel.sessionsInDateRange.isEmpty {
                 emptyOverviewMessage
             } else {
@@ -407,5 +412,44 @@ struct HistoryOverviewTab: View {
         let values = viewModel.weeklyCardio.map(\.minutes)
         guard !values.isEmpty else { return nil }
         return values.reduce(0, +) / Double(viewModel.weeksInSelectedRange)
+    }
+
+    @ViewBuilder
+    private var lastLoadCaptionView: some View {
+        if let lastLoadCaption, !lastLoadCaption.isEmpty {
+            lastLoadLine(lastLoadCaption)
+        } else if resolvesLastLoadFromEnvironment {
+            HistoryOverviewLastLoadCaption()
+        }
+    }
+
+    private func lastLoadLine(_ caption: String) -> some View {
+        Text(caption)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(FitLogA11yID.historyOverview.lastLoad)
+            .accessibilityLabel(caption)
+            .accessibilityHint("Last working set or last cardio duration from a completed session")
+            .accessibilityAddTraits(.isStaticText)
+    }
+}
+
+private struct HistoryOverviewLastLoadCaption: View {
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+
+    var body: some View {
+        if let lastLoad = SequoiaLastWorkingLoad.newestCompletedCaption(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            Text(lastLoad)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(FitLogA11yID.historyOverview.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration from a completed session")
+                .accessibilityAddTraits(.isStaticText)
+        }
     }
 }

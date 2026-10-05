@@ -10,6 +10,12 @@ struct HistoryExploreTab: View {
     @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
     @EnvironmentObject private var userPreferences: UserPreferences
     @Bindable var viewModel: HistoryViewModel
+    /// Last-load captions keyed by library workout id (Explore workout rows).
+    var lastLoadCaptionByWorkoutId: [UUID: String] = [:]
+    /// Last-load captions keyed by exercise id (Explore exercise rows).
+    var lastLoadCaptionByExerciseId: [UUID: String] = [:]
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     var body: some View {
         Group {
@@ -49,6 +55,7 @@ struct HistoryExploreTab: View {
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
+                                lastLoadCaptionView(forWorkoutId: workoutId)
                             }
                             Spacer()
                             Text("\(sessions.count) session\(sessions.count == 1 ? "" : "s")")
@@ -97,6 +104,7 @@ struct HistoryExploreTab: View {
                             }
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            lastLoadCaptionView(forExerciseId: stat.id)
                         }
                     }
                 }
@@ -141,6 +149,78 @@ struct HistoryExploreTab: View {
             }
         } header: {
             Text("By muscle group")
+        }
+    }
+
+    @ViewBuilder
+    private func lastLoadCaptionView(forWorkoutId workoutId: UUID) -> some View {
+        if let caption = lastLoadCaptionByWorkoutId[workoutId], !caption.isEmpty {
+            lastLoadLine(caption)
+        } else if resolvesLastLoadFromEnvironment {
+            HistoryExploreWorkoutLastLoadCaption(workoutId: workoutId)
+        }
+    }
+
+    @ViewBuilder
+    private func lastLoadCaptionView(forExerciseId exerciseId: UUID) -> some View {
+        if let caption = lastLoadCaptionByExerciseId[exerciseId], !caption.isEmpty {
+            lastLoadLine(caption)
+        } else if resolvesLastLoadFromEnvironment {
+            HistoryExploreExerciseLastLoadCaption(exerciseId: exerciseId)
+        }
+    }
+
+    private func lastLoadLine(_ caption: String) -> some View {
+        Text(caption)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(FitLogA11yID.historyExplore.lastLoad)
+            .accessibilityLabel(caption)
+            .accessibilityHint("Last working set or last cardio duration from a completed session")
+            .accessibilityAddTraits(.isStaticText)
+    }
+}
+
+private struct HistoryExploreWorkoutLastLoadCaption: View {
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+    let workoutId: UUID
+
+    var body: some View {
+        if let lastLoad = SequoiaLastWorkingLoad.caption(
+            forWorkoutId: workoutId,
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            Text(lastLoad)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(FitLogA11yID.historyExplore.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration from a completed session")
+                .accessibilityAddTraits(.isStaticText)
+        }
+    }
+}
+
+private struct HistoryExploreExerciseLastLoadCaption: View {
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+    let exerciseId: UUID
+
+    var body: some View {
+        if let lastLoad = SequoiaLastWorkingLoad.caption(
+            for: exerciseId,
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            Text(lastLoad)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(FitLogA11yID.historyExplore.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration from a completed session")
+                .accessibilityAddTraits(.isStaticText)
         }
     }
 }
