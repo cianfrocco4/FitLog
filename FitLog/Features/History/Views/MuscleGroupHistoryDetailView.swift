@@ -11,6 +11,10 @@ struct MuscleGroupHistoryDetailView: View {
     @EnvironmentObject var userPreferences: UserPreferences
     let muscleGroupName: String
     let sessions: [WorkoutSession]
+    /// Last working load or last cardio duration for this muscle group.
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     private var sessionLogs: [(session: WorkoutSession, logs: [ExerciseLog])] {
         sessions.compactMap { session in
@@ -43,6 +47,7 @@ struct MuscleGroupHistoryDetailView: View {
 
     var body: some View {
         List {
+            lastLoadCaptionView
             if muscleVolumeTrendPoints.count >= 2 {
                 Section {
                     HistoryChartCard(title: "Volume per session (\(volumeUnit))") {
@@ -134,5 +139,55 @@ struct MuscleGroupHistoryDetailView: View {
         }
         .navigationTitle(muscleGroupName)
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @ViewBuilder
+    private var lastLoadCaptionView: some View {
+        if let lastLoadCaption, !lastLoadCaption.isEmpty {
+            lastLoadLine(lastLoadCaption)
+        } else if resolvesLastLoadFromEnvironment {
+            MuscleGroupHistoryLastLoadCaption(
+                muscleGroupName: muscleGroupName,
+                sessions: sessions
+            )
+        }
+    }
+
+    private func lastLoadLine(_ caption: String) -> some View {
+        Text(caption)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(FitLogA11yID.muscleGroupHistory.lastLoad)
+            .accessibilityLabel(caption)
+            .accessibilityHint("Last working set or last cardio duration for this muscle group")
+            .accessibilityAddTraits(.isStaticText)
+    }
+}
+
+private struct MuscleGroupHistoryLastLoadCaption: View {
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+    let muscleGroupName: String
+    let sessions: [WorkoutSession]
+
+    var body: some View {
+        if let lastLoad = WalnutLastWorkingLoad.caption(
+            forMuscleGroupName: muscleGroupName,
+            from: sessions,
+            musclesByExerciseId: musclesByExerciseId,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            Text(lastLoad)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(FitLogA11yID.muscleGroupHistory.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration for this muscle group")
+                .accessibilityAddTraits(.isStaticText)
+        }
+    }
+
+    private var musclesByExerciseId: [UUID: [MuscleGroup]] {
+        Dictionary(uniqueKeysWithValues: dataVM.globalExercises.map { ($0.id, $0.targetedMuscles) })
     }
 }

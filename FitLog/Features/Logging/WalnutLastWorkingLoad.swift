@@ -1,0 +1,229 @@
+//
+//  WalnutLastWorkingLoad.swift
+//  FitLog
+//
+//  Last working load / last cardio duration for muscle-group History,
+//  cardio template picker, and the active-session reorder sheet.
+//
+
+import Foundation
+
+enum WalnutLastWorkingLoad {
+    /// Newest completed session wins. Strength working sets beat cardio on the same log.
+    static func captionsByExerciseId(
+        from sessions: [WorkoutSession],
+        displayUnit: WeightDisplayUnit,
+        excludingSessionId: UUID? = nil
+    ) -> [UUID: String] {
+        var result: [UUID: String] = [:]
+        for session in completedNewestFirst(sessions, excludingSessionId: excludingSessionId) {
+            for log in session.exerciseLogs {
+                guard let id = log.workoutExercise.exerciseId, result[id] == nil else { continue }
+                if let caption = caption(from: log, displayUnit: displayUnit) {
+                    result[id] = caption
+                }
+            }
+        }
+        return result
+    }
+
+    static func caption(
+        for exerciseId: UUID,
+        from sessions: [WorkoutSession],
+        displayUnit: WeightDisplayUnit,
+        excludingSessionId: UUID? = nil
+    ) -> String? {
+        for session in completedNewestFirst(sessions, excludingSessionId: excludingSessionId) {
+            for log in session.exerciseLogs where log.workoutExercise.exerciseId == exerciseId {
+                if let caption = caption(from: log, displayUnit: displayUnit) {
+                    return caption
+                }
+            }
+        }
+        return nil
+    }
+
+    static func caption(
+        for workoutExercise: WorkoutExercise,
+        from sessions: [WorkoutSession],
+        displayUnit: WeightDisplayUnit,
+        excludingSessionId: UUID? = nil
+    ) -> String? {
+        guard let id = workoutExercise.exerciseId else { return nil }
+        return caption(
+            for: id,
+            from: sessions,
+            displayUnit: displayUnit,
+            excludingSessionId: excludingSessionId
+        )
+    }
+
+    /// First concrete exercise on the workout that has a last working load or last cardio duration.
+    static func caption(
+        for workout: Workout,
+        from sessions: [WorkoutSession],
+        displayUnit: WeightDisplayUnit,
+        excludingSessionId: UUID? = nil
+    ) -> String? {
+        for row in workout.exercises {
+            if let caption = caption(
+                for: row,
+                from: sessions,
+                displayUnit: displayUnit,
+                excludingSessionId: excludingSessionId
+            ) {
+                return caption
+            }
+        }
+        return nil
+    }
+
+    /// Newest completed last-load among logs that target this muscle group.
+    static func caption(
+        forMuscleGroupName name: String,
+        from sessions: [WorkoutSession],
+        musclesByExerciseId: [UUID: [MuscleGroup]],
+        displayUnit: WeightDisplayUnit,
+        excludingSessionId: UUID? = nil
+    ) -> String? {
+        for session in completedNewestFirst(sessions, excludingSessionId: excludingSessionId) {
+            for log in session.exerciseLogs {
+                guard logTargetsMuscleGroup(log, name: name, musclesByExerciseId: musclesByExerciseId) else {
+                    continue
+                }
+                if let caption = caption(from: log, displayUnit: displayUnit) {
+                    return caption
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Walks already-filtered logs in newest-first order.
+    static func newestCompletedCaption(
+        fromLogsNewestFirst logs: [ExerciseLog],
+        displayUnit: WeightDisplayUnit
+    ) -> String? {
+        for log in logs {
+            if let caption = caption(from: log, displayUnit: displayUnit) {
+                return caption
+            }
+        }
+        return nil
+    }
+
+    /// Newest completed session's first working load or cardio duration (any exercise).
+    static func newestCompletedCaption(
+        from sessions: [WorkoutSession],
+        displayUnit: WeightDisplayUnit,
+        excludingSessionId: UUID? = nil
+    ) -> String? {
+        for session in completedNewestFirst(sessions, excludingSessionId: excludingSessionId) {
+            for log in session.exerciseLogs {
+                if let caption = caption(from: log, displayUnit: displayUnit) {
+                    return caption
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Last working-set weight in the user's display unit, skipping warm-ups.
+    static func lastWorkingDisplayWeight(
+        for exerciseId: UUID,
+        from sessions: [WorkoutSession],
+        displayUnit: WeightDisplayUnit,
+        excludingSessionId: UUID? = nil
+    ) -> Double? {
+        guard let set = lastWorkingSet(
+            for: exerciseId,
+            from: sessions,
+            excludingSessionId: excludingSessionId
+        ) else { return nil }
+        return WeightStoreConversion.displayValue(storedPounds: set.weight, unit: displayUnit)
+    }
+
+    /// Last cardio duration in seconds, skipping interval rest. Nil when none exists.
+    static func lastCardioDurationSec(
+        for exerciseId: UUID,
+        from sessions: [WorkoutSession],
+        excludingSessionId: UUID? = nil
+    ) -> Int? {
+        for session in completedNewestFirst(sessions, excludingSessionId: excludingSessionId) {
+            for log in session.exerciseLogs where log.workoutExercise.exerciseId == exerciseId {
+                if let sec = lastCardioDurationSec(in: log) {
+                    return sec
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Most recent cardio duration from any exercise in prior completed sessions.
+    static func lastCardioDurationCaption(
+        from sessions: [WorkoutSession],
+        excludingSessionId: UUID? = nil
+    ) -> String? {
+        for session in completedNewestFirst(sessions, excludingSessionId: excludingSessionId) {
+            for log in session.exerciseLogs {
+                if let sec = lastCardioDurationSec(in: log) {
+                    return "Last \(CardioMetricsCalculator.formatDuration(seconds: sec))"
+                }
+            }
+        }
+        return nil
+    }
+
+    // MARK: - Private
+
+    private static func completedNewestFirst(
+        _ sessions: [WorkoutSession],
+        excludingSessionId: UUID?
+    ) -> [WorkoutSession] {
+        sessions
+            .filter { $0.isCompleted && $0.id != excludingSessionId }
+            .sorted { ($0.endTime ?? $0.startTime) > ($1.endTime ?? $1.startTime) }
+    }
+
+    private static func lastWorkingSet(
+        for exerciseId: UUID,
+        from sessions: [WorkoutSession],
+        excludingSessionId: UUID?
+    ) -> LoggedSet? {
+        for session in completedNewestFirst(sessions, excludingSessionId: excludingSessionId) {
+            for log in session.exerciseLogs where log.workoutExercise.exerciseId == exerciseId {
+                if let working = log.loggedSets.first(where: { $0.countsTowardLoadPRMetrics }) {
+                    return working
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func caption(from log: ExerciseLog, displayUnit: WeightDisplayUnit) -> String? {
+        if let working = log.loggedSets.first(where: { $0.countsTowardLoadPRMetrics }) {
+            return "Last \(working.weightRepsDisplaySummary(displayUnit: displayUnit))"
+        }
+        if let sec = lastCardioDurationSec(in: log) {
+            return "Last \(CardioMetricsCalculator.formatDuration(seconds: sec))"
+        }
+        return nil
+    }
+
+    private static func lastCardioDurationSec(in log: ExerciseLog) -> Int? {
+        log.loggedSets.first(where: {
+            $0.countsTowardCardioTotals && ($0.cardioMetrics?.durationSec ?? 0) > 0
+        })?.cardioMetrics?.durationSec
+    }
+
+    private static func logTargetsMuscleGroup(
+        _ log: ExerciseLog,
+        name: String,
+        musclesByExerciseId: [UUID: [MuscleGroup]]
+    ) -> Bool {
+        guard let id = log.workoutExercise.exerciseId else { return false }
+        let muscles = musclesByExerciseId[id] ?? []
+        return muscles.contains(where: { $0.rawValue == name })
+            || (muscles.isEmpty && name == MuscleGroup.other.rawValue)
+    }
+}
