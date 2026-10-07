@@ -19,6 +19,10 @@ struct CoachPlanPreviewView: View {
     let onUpdateSchedule: (Int, Set<Int>) -> Void
     let onDiscuss: (CoachRecommendationTopic) -> Void
     let onBuild: () -> Void
+    /// Last working load or last cardio duration from a completed session.
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     @State private var programNameDraft: String = ""
     @State private var showTrainingStyle = false
@@ -35,6 +39,8 @@ struct CoachPlanPreviewView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            lastLoadCaptionView
 
             nameRow
             scheduleRow
@@ -521,6 +527,45 @@ struct CoachPlanPreviewView: View {
         }
         return opts
     }
+
+    @ViewBuilder
+    private var lastLoadCaptionView: some View {
+        if let lastLoadCaption, !lastLoadCaption.isEmpty {
+            lastLoadLine(lastLoadCaption)
+        } else if resolvesLastLoadFromEnvironment {
+            CoachPlanPreviewLastLoadCaption()
+        }
+    }
+
+    private func lastLoadLine(_ caption: String) -> some View {
+        Text(caption)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(FitLogA11yID.coachPlanPreview.lastLoad)
+            .accessibilityLabel(caption)
+            .accessibilityHint("Last working set or last cardio duration from a completed session")
+            .accessibilityAddTraits(.isStaticText)
+    }
+}
+
+private struct CoachPlanPreviewLastLoadCaption: View {
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
+
+    var body: some View {
+        if let lastLoad = ChestnutLastWorkingLoad.newestCompletedCaption(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            Text(lastLoad)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(FitLogA11yID.coachPlanPreview.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration from a completed session")
+                .accessibilityAddTraits(.isStaticText)
+        }
+    }
 }
 
 #Preview("Light") {
@@ -541,7 +586,8 @@ struct CoachPlanPreviewView: View {
             onUpdateRecommendation: { _, _ in },
             onUpdateSchedule: { _, _ in },
             onDiscuss: { _ in },
-            onBuild: {}
+            onBuild: {},
+            resolvesLastLoadFromEnvironment: false
         )
         .padding()
     }
@@ -573,7 +619,8 @@ struct CoachPlanPreviewView: View {
             onUpdateRecommendation: { _, _ in },
             onUpdateSchedule: { _, _ in },
             onDiscuss: { _ in },
-            onBuild: {}
+            onBuild: {},
+            resolvesLastLoadFromEnvironment: false
         )
         .padding()
         .environment(\.sizeCategory, .accessibilityExtraExtraExtraLarge)

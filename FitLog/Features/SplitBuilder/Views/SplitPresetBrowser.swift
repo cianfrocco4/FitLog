@@ -10,6 +10,7 @@ import SwiftData
 
 struct SplitPresetBrowser: View {
     @Environment(DataManager.self) var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
@@ -81,6 +82,16 @@ struct SplitPresetBrowser: View {
                 Text(preset.createdAt, style: .date)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+
+                if let lastLoad = lastLoadCaption(for: preset) {
+                    Text(lastLoad)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(FitLogA11yID.splitPresetBrowser.lastLoad)
+                        .accessibilityLabel(lastLoad)
+                        .accessibilityHint("Last working set or last cardio duration for an exercise in this preset")
+                        .accessibilityAddTraits(.isStaticText)
+                }
             }
             .padding(.vertical, 4)
         }
@@ -92,6 +103,16 @@ struct SplitPresetBrowser: View {
                 Label("Delete", systemImage: "trash")
             }
         }
+    }
+
+    private func lastLoadCaption(for preset: SDSplitPresetV2) -> String? {
+        let domain = SplitPresetStore(modelContext: modelContext).toDomain(preset)
+        return ChestnutLastWorkingLoad.caption(
+            forDays: domain.days,
+            from: dataVM.completedSessions,
+            library: dataVM.globalExercises,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
     }
 
     private func selectPreset(_ preset: SDSplitPresetV2) {

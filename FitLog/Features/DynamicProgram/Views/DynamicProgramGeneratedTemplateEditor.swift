@@ -15,6 +15,8 @@ struct DynamicProgramGeneratedTemplateEditor: View {
     let onBalanceAction: (SplitProposalProgramWarning) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(DataManager.self) private var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
     @State private var expandedBlockIds: Set<UUID> = []
 
     var body: some View {
@@ -167,6 +169,15 @@ struct DynamicProgramGeneratedTemplateEditor: View {
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
                                 .fixedSize(horizontal: false, vertical: true)
+                            if let lastLoad = lastLoadCaption(for: day) {
+                                Text(lastLoad)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityIdentifier(FitLogA11yID.generatedProgramDay.lastLoad)
+                                    .accessibilityLabel(lastLoad)
+                                    .accessibilityHint("Last working set or last cardio duration for an exercise on this day")
+                                    .accessibilityAddTraits(.isStaticText)
+                            }
                         }
                         .padding(10)
                         .background(
@@ -175,11 +186,29 @@ struct DynamicProgramGeneratedTemplateEditor: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("\(day.name.isEmpty ? "Untitled day" : day.name), \(day.slots.count) slots")
+                    .accessibilityLabel(dayAccessibilityLabel(day))
                     .accessibilityHint("Opens the day editor")
                 }
             }
         }
+    }
+
+    private func lastLoadCaption(for day: SplitBuilderEditableDay) -> String? {
+        ChestnutLastWorkingLoad.caption(
+            forDay: day,
+            from: dataVM.completedSessions,
+            library: dataVM.globalExercises,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
+    private func dayAccessibilityLabel(_ day: SplitBuilderEditableDay) -> String {
+        let name = day.name.isEmpty ? "Untitled day" : day.name
+        var parts = ["\(name), \(day.slots.count) slots"]
+        if let lastLoad = lastLoadCaption(for: day) {
+            parts.append(lastLoad)
+        }
+        return parts.joined(separator: ", ")
     }
 
     private func dayExercisePreview(_ day: SplitBuilderEditableDay) -> String {
