@@ -10,10 +10,15 @@ import SwiftUI
 struct SlotLibraryPickerSheet: View {
     @Environment(DataManager.self) var dataVM
     @EnvironmentObject private var aiService: AIService
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
 
     let slot: SplitBuilderEditableSlot
     let onSelect: (Exercise) -> Void
+    /// Injected captions skip the live session store (previews / tests).
+    var lastLoadCaptionsByExerciseId: [UUID: String]? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     @State private var searchText = ""
     @State private var showNewExercise = false
@@ -81,6 +86,15 @@ struct SlotLibraryPickerSheet: View {
         Array(filteredExercises.dropFirst(5))
     }
 
+    private var lastLoadCaptions: [UUID: String] {
+        if let lastLoadCaptionsByExerciseId { return lastLoadCaptionsByExerciseId }
+        guard resolvesLastLoadFromEnvironment else { return [:] }
+        return HickoryLastWorkingLoad.captionsByExerciseId(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -125,6 +139,7 @@ struct SlotLibraryPickerSheet: View {
                 }
                 .environment(dataVM)
                 .environmentObject(aiService)
+                .environmentObject(userPreferences)
             }
         }
     }
@@ -144,8 +159,19 @@ struct SlotLibraryPickerSheet: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                if let lastLoad = lastLoadCaptions[exercise.id] {
+                    Text(lastLoad)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(FitLogA11yID.slotLibraryPicker.lastLoad)
+                        .accessibilityLabel(lastLoad)
+                        .accessibilityHint("Last working set or last cardio duration for this exercise")
+                        .accessibilityAddTraits(.isStaticText)
+                }
             }
         }
+        .accessibilityHint("Selects this exercise for the slot")
     }
 }
 

@@ -25,6 +25,7 @@ struct DynamicProgramBlockTemplateEditorSection: View {
 
     @Environment(DataManager.self) private var dataManager
     @EnvironmentObject private var aiService: AIService
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var slotDetailTarget: LegacySlotEditorTarget?
     @State private var slotLibraryTarget: LegacySlotEditorTarget?
@@ -65,6 +66,15 @@ struct DynamicProgramBlockTemplateEditorSection: View {
                         Text("\(day.slots.count) slot\(day.slots.count == 1 ? "" : "s")")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        if let lastLoad = lastLoadCaption(for: day) {
+                            Text(lastLoad)
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier(FitLogA11yID.blockTemplateEditor.lastLoad)
+                                .accessibilityLabel(lastLoad)
+                                .accessibilityHint("Last working set or last cardio duration for an exercise on this day")
+                                .accessibilityAddTraits(.isStaticText)
+                        }
                     }
                 }
             }
@@ -329,6 +339,15 @@ struct DynamicProgramBlockTemplateEditorSection: View {
                 days[dIdx].slots[sIdx] = newSlot
                 onSlotFieldChange()
             }
+        )
+    }
+
+    private func lastLoadCaption(for day: SplitBuilderEditableDay) -> String? {
+        HickoryLastWorkingLoad.caption(
+            forDay: day,
+            from: dataManager.completedSessions,
+            library: dataManager.globalExercises,
+            displayUnit: userPreferences.weightDisplayUnit
         )
     }
 

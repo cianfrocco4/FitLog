@@ -17,6 +17,12 @@ struct SplitApplyConfirmationView: View {
     let dataVM: DataManager
     let onConfirm: (Date) -> Void
     let onCancel: () -> Void
+    /// Last working load or last cardio duration from a completed session.
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
+
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var anchorDate: Date = Date()
     @State private var conflict: SplitConflictDiff?
@@ -98,6 +104,8 @@ struct SplitApplyConfirmationView: View {
                 .foregroundStyle(.secondary)
             Text("\(sessionsPerWeek) session\(sessionsPerWeek == 1 ? "" : "s") per week")
                 .foregroundStyle(.secondary)
+
+            lastLoadCaptionView
 
             if updateTrainingProgram {
                 Label("Your Plan tab will follow this cycle", systemImage: "calendar")
@@ -208,6 +216,34 @@ struct SplitApplyConfirmationView: View {
             }
         }
         anchorDate = today
+    }
+
+    @ViewBuilder
+    private var lastLoadCaptionView: some View {
+        if let lastLoadCaption, !lastLoadCaption.isEmpty {
+            lastLoadLine(lastLoadCaption)
+        } else if resolvesLastLoadFromEnvironment, let caption = resolvedLastLoadCaption {
+            lastLoadLine(caption)
+        }
+    }
+
+    private var resolvedLastLoadCaption: String? {
+        HickoryLastWorkingLoad.caption(
+            forDays: days,
+            from: dataVM.completedSessions,
+            library: dataVM.globalExercises,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
+    private func lastLoadLine(_ caption: String) -> some View {
+        Text(caption)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(FitLogA11yID.splitApplyConfirmation.lastLoad)
+            .accessibilityLabel(caption)
+            .accessibilityHint("Last working set or last cardio duration for an exercise in this split")
+            .accessibilityAddTraits(.isStaticText)
     }
 }
 
