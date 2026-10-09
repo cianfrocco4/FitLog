@@ -14,6 +14,13 @@ struct ProgramBuilderFloatingActionBar: View {
     let isPrimaryDisabled: Bool
     let isLoading: Bool
     let onPrimary: () -> Void
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
+
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,6 +32,16 @@ struct ProgramBuilderFloatingActionBar: View {
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
+                    if let lastLoad = resolvedLastLoadCaption {
+                        Text(lastLoad)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .accessibilityIdentifier(FitLogA11yID.programBuilderActionBar.lastLoad)
+                            .accessibilityLabel(lastLoad)
+                            .accessibilityHint("Last working set or last cardio duration from a completed session")
+                            .accessibilityAddTraits(.isStaticText)
+                    }
                     Text(validationCaption)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -82,5 +99,14 @@ struct ProgramBuilderFloatingActionBar: View {
             return warning
         }
         return "Review before saving"
+    }
+
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return TeakLastWorkingLoad.newestCompletedCaption(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
     }
 }

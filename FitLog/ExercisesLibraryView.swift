@@ -42,6 +42,7 @@ enum ExerciseLibraryBrowseMode: String, CaseIterable {
 struct ExercisesLibraryView: View {
     @Environment(DataManager.self) var dataVM
     @EnvironmentObject private var aiService: AIService
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(ExerciseFormGuideService.self) private var formGuideService
     @State private var showAddSheet = false
     @State private var exerciseToEdit: EditableExerciseItem?
@@ -195,6 +196,7 @@ struct ExercisesLibraryView: View {
                 initialDisplayName: dataVM.resolvedDisplayName(for: item.exercise)
             )
             .environment(dataVM)
+            .environmentObject(userPreferences)
         }
         .sheet(item: $exerciseToEdit, onDismiss: { exerciseToEdit = nil }) { item in
             EditExerciseSheet(exercise: item.exercise)

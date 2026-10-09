@@ -152,6 +152,7 @@ struct ExerciseDetailView: View {
                             initialDisplayName: dataVM.resolvedDisplayName(for: ex)
                         )
                         .environment(dataVM)
+                        .environmentObject(userPreferences)
                     }
                 }
                 .sheet(isPresented: $showFormGuideSheet) {
