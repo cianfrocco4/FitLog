@@ -27,9 +27,15 @@ struct AIProgramChatMessage: Identifiable, Equatable {
 
 struct AIProgramChatBuilderView: View {
     @Bindable var viewModel: DynamicProgramBuilderViewModel
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
+
     @EnvironmentObject private var aiService: AIService
     @Environment(DataManager.self) private var dataManager
     @Environment(EntitlementStore.self) private var entitlementStore
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var messages: [AIProgramChatMessage] = []
     @State private var draft = ""
@@ -132,8 +138,26 @@ struct AIProgramChatBuilderView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let lastLoad = resolvedLastLoadCaption {
+                Text(lastLoad)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier(FitLogA11yID.aiProgramChat.lastLoad)
+                    .accessibilityLabel(lastLoad)
+                    .accessibilityHint("Last working set or last cardio duration from a completed session")
+                    .accessibilityAddTraits(.isStaticText)
+            }
         }
         .padding(.bottom, 4)
+    }
+
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return AlderLastWorkingLoad.newestCompletedCaption(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
     }
 
     private var starterPromptSection: some View {

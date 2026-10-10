@@ -14,7 +14,13 @@ struct CoachProgramGenerationProgressView: View {
     let blockTotal: Int
     let programTitle: String
     let daysPerWeek: Int
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
     @State private var pulsePhase = false
 
     private var showsBlockProgress: Bool {
@@ -85,6 +91,16 @@ struct CoachProgramGenerationProgressView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
+                if let lastLoad = resolvedLastLoadCaption {
+                    Text(lastLoad)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .accessibilityIdentifier(FitLogA11yID.coachGeneration.lastLoad)
+                        .accessibilityLabel(lastLoad)
+                        .accessibilityHint("Last working set or last cardio duration from a completed session")
+                        .accessibilityAddTraits(.isStaticText)
+                }
             }
             Spacer(minLength: 0)
         }
@@ -211,6 +227,15 @@ struct CoachProgramGenerationProgressView: View {
     private var headerTitle: String {
         stage == .ready ? "Program ready" : "Building your program"
     }
+
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return AlderLastWorkingLoad.newestCompletedCaption(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
 }
 
 #Preview("Connecting") {
@@ -221,7 +246,8 @@ struct CoachProgramGenerationProgressView: View {
             blockCompleted: 0,
             blockTotal: 3,
             programTitle: "12-Week Strength Block",
-            daysPerWeek: 4
+            daysPerWeek: 4,
+            resolvesLastLoadFromEnvironment: false
         )
         .padding()
     }
@@ -235,7 +261,8 @@ struct CoachProgramGenerationProgressView: View {
             blockCompleted: 2,
             blockTotal: 3,
             programTitle: "Hypertrophy Mesocycle",
-            daysPerWeek: 5
+            daysPerWeek: 5,
+            resolvesLastLoadFromEnvironment: false
         )
         .padding()
     }
@@ -250,7 +277,8 @@ struct CoachProgramGenerationProgressView: View {
             blockCompleted: 1,
             blockTotal: 1,
             programTitle: "Muscle Builder",
-            daysPerWeek: 4
+            daysPerWeek: 4,
+            resolvesLastLoadFromEnvironment: false
         )
         .padding()
     }

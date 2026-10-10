@@ -16,11 +16,27 @@ struct CardioExerciseFormView: View {
     @Binding var equipment: CardioEquipment
     @Binding var supportsIntervals: Bool
     @Binding var estimatedMETsText: String
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
+
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     var body: some View {
         Section("Exercise Info") {
             TextField("Name", text: $name)
             TextField("Description", text: $description, axis: .vertical)
+            if let lastLoad = resolvedLastLoadCaption {
+                Text(lastLoad)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier(FitLogA11yID.cardioExerciseForm.lastLoad)
+                    .accessibilityLabel(lastLoad)
+                    .accessibilityHint("Last cardio duration from a completed session")
+                    .accessibilityAddTraits(.isStaticText)
+            }
         }
 
         Section("Modality") {
@@ -53,6 +69,27 @@ struct CardioExerciseFormView: View {
             TextField("Estimated METs (optional)", text: $estimatedMETsText)
                 .keyboardType(.decimalPad)
         }
+    }
+
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty,
+           case .linked(let ex) = ExerciseNameResolution.resolve(
+            planName: trimmed,
+            library: dataManager.globalExercises
+           ),
+           let caption = AlderLastWorkingLoad.caption(
+            for: ex.id,
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+           ) {
+            return caption
+        }
+        return AlderLastWorkingLoad.lastCardioDurationCaption(
+            from: dataManager.completedSessions
+        )
     }
 
     /// Builds metadata from current bindings; returns nil when METs text is invalid non-empty input.
@@ -103,7 +140,8 @@ struct CardioExerciseFormView: View {
                 primaryMetric: $metric,
                 equipment: $equipment,
                 supportsIntervals: $intervals,
-                estimatedMETsText: $mets
+                estimatedMETsText: $mets,
+                resolvesLastLoadFromEnvironment: false
             )
         }
         .navigationTitle("New Cardio")
