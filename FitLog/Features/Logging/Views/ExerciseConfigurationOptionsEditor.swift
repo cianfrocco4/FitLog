@@ -11,10 +11,27 @@ import SwiftUI
 /// "Grip: Wide / Medium / Narrow" for their own machines instead of creating near-duplicates.
 struct ExerciseConfigurationOptionsEditor: View {
     @Binding var options: [ExerciseConfigurationOption]
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
+
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var newChoiceByOptionId: [UUID: String] = [:]
 
     var body: some View {
+        if let lastLoad = resolvedLastLoadCaption {
+            Text(lastLoad)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(FitLogA11yID.exerciseSetupOptions.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration from a completed session")
+                .accessibilityAddTraits(.isStaticText)
+        }
+
         ForEach($options) { $option in
             optionEditor(option: $option)
         }
@@ -28,6 +45,15 @@ struct ExerciseConfigurationOptionsEditor: View {
             Label("Add setup option", systemImage: "plus.circle")
         }
         .accessibilityHint("Adds a setting such as grip or seat height that you record with each set")
+    }
+
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return RowanLastWorkingLoad.newestCompletedCaption(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
     }
 
     @ViewBuilder
@@ -114,7 +140,11 @@ struct ExerciseConfigurationOptionsEditor: View {
         var body: some View {
             Form {
                 Section("Setup options") {
-                    ExerciseConfigurationOptionsEditor(options: $options)
+                    ExerciseConfigurationOptionsEditor(
+                        options: $options,
+                        lastLoadCaption: "Last 185 lb × 8 reps",
+                        resolvesLastLoadFromEnvironment: false
+                    )
                 }
             }
         }
@@ -128,7 +158,10 @@ struct ExerciseConfigurationOptionsEditor: View {
         var body: some View {
             Form {
                 Section("Setup options") {
-                    ExerciseConfigurationOptionsEditor(options: $options)
+                    ExerciseConfigurationOptionsEditor(
+                        options: $options,
+                        resolvesLastLoadFromEnvironment: false
+                    )
                 }
             }
         }
