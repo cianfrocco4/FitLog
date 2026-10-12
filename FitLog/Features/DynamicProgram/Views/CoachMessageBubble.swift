@@ -10,6 +10,13 @@ import SwiftUI
 struct CoachMessageBubble: View {
     let message: CoachMessage
     var animateEntrance: Bool = true
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
+
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var appeared = false
 
@@ -17,7 +24,19 @@ struct CoachMessageBubble: View {
         Group {
             switch message.kind {
             case .trainerText(let text):
-                trainerBubble(text)
+                VStack(alignment: .leading, spacing: 6) {
+                    trainerBubble(text)
+                    if let lastLoad = resolvedLastLoadCaption {
+                        Text(lastLoad)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 36)
+                            .accessibilityIdentifier(FitLogA11yID.coachTrainerBubble.lastLoad)
+                            .accessibilityLabel(lastLoad)
+                            .accessibilityHint("Last working set or last cardio duration from a completed session")
+                            .accessibilityAddTraits(.isStaticText)
+                    }
+                }
             case .userReply(let text):
                 userBubble(text)
             case .phaseDivider(let label):
@@ -39,7 +58,17 @@ struct CoachMessageBubble: View {
                 appeared = true
             }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var resolvedLastLoadCaption: String? {
+        guard case .trainerText = message.kind else { return nil }
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return HollyLastWorkingLoad.newestCompletedCaption(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
     }
 
     private func trainerBubble(_ text: String) -> some View {
@@ -235,7 +264,11 @@ struct CoachScheduleInput: View {
 }
 
 #Preview("Trainer bubble") {
-    CoachMessageBubble(message: CoachMessage(kind: .trainerText("Let's build your program.")))
+    CoachMessageBubble(
+        message: CoachMessage(kind: .trainerText("Let's build your program.")),
+        lastLoadCaption: "Last 185 lb × 8 reps",
+        resolvesLastLoadFromEnvironment: false
+    )
         .padding()
 }
 

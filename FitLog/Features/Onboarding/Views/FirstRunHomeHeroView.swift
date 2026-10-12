@@ -11,6 +11,13 @@ struct FirstRunHomeHeroView: View {
     var onNewWorkout: () -> Void
     var onFromTemplate: () -> Void
     var onBuildProgram: () -> Void
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
+
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -22,6 +29,15 @@ struct FirstRunHomeHeroView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if let lastLoad = resolvedLastLoadCaption {
+                    Text(lastLoad)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(FitLogA11yID.firstRunHero.lastLoad)
+                        .accessibilityLabel(lastLoad)
+                        .accessibilityHint("Last working set or last cardio duration from a completed session")
+                        .accessibilityAddTraits(.isStaticText)
+                }
             }
 
             workoutCard
@@ -30,6 +46,15 @@ struct FirstRunHomeHeroView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("firstRun.hero")
         .spotlightAnchor(.firstRunHero)
+    }
+
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return HollyLastWorkingLoad.newestCompletedCaption(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
     }
 
     private var workoutCard: some View {
@@ -118,12 +143,23 @@ struct FirstRunHomeHeroView: View {
 }
 
 #Preview("Light") {
-    FirstRunHomeHeroView(onNewWorkout: {}, onFromTemplate: {}, onBuildProgram: {})
+    FirstRunHomeHeroView(
+        onNewWorkout: {},
+        onFromTemplate: {},
+        onBuildProgram: {},
+        lastLoadCaption: "Last 185 lb × 8 reps",
+        resolvesLastLoadFromEnvironment: false
+    )
         .padding()
 }
 
 #Preview("Dark") {
-    FirstRunHomeHeroView(onNewWorkout: {}, onFromTemplate: {}, onBuildProgram: {})
+    FirstRunHomeHeroView(
+        onNewWorkout: {},
+        onFromTemplate: {},
+        onBuildProgram: {},
+        resolvesLastLoadFromEnvironment: false
+    )
         .padding()
         .preferredColorScheme(.dark)
 }

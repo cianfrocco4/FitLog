@@ -12,6 +12,13 @@ struct CoachChatBubbleView: View {
     let onCopy: () -> Void
     let onRegenerate: (() -> Void)?
     let onFeedback: (CoachMessageFeedback?) -> Void
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
+
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     var body: some View {
         VStack(alignment: message.isUser ? .trailing : .leading, spacing: 6) {
@@ -47,9 +54,22 @@ struct CoachChatBubbleView: View {
 
                 if !message.isUser { Spacer(minLength: 48) }
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(message.isUser ? "You" : "Coach"): \(message.text)")
 
             if !message.isUser {
                 assistantFooter
+            }
+
+            if let lastLoad = resolvedLastLoadCaption {
+                Text(lastLoad)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 36)
+                    .accessibilityIdentifier(FitLogA11yID.coachChatBubble.lastLoad)
+                    .accessibilityLabel(lastLoad)
+                    .accessibilityHint("Last working set or last cardio duration from a completed session")
+                    .accessibilityAddTraits(.isStaticText)
             }
 
             Text(message.created, style: .time)
@@ -66,8 +86,7 @@ struct CoachChatBubbleView: View {
                 Button("Regenerate", systemImage: "arrow.clockwise", action: onRegenerate)
             }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(message.isUser ? "You" : "Coach"): \(message.text)")
+        .accessibilityElement(children: .contain)
     }
 
     @ViewBuilder
@@ -94,6 +113,17 @@ struct CoachChatBubbleView: View {
         .padding(.leading, 36)
     }
 
+    /// Coach apply cards show their own last-load; skip here to avoid a duplicate caption.
+    private var resolvedLastLoadCaption: String? {
+        guard !message.isUser, message.actions.isEmpty else { return nil }
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return HollyLastWorkingLoad.newestCompletedCaption(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
     private var bubbleShape: UnevenRoundedRectangle {
         if message.isUser {
             UnevenRoundedRectangle(
@@ -107,4 +137,31 @@ struct CoachChatBubbleView: View {
             )
         }
     }
+}
+
+#Preview("Coach reply — light") {
+    CoachChatBubbleView(
+        message: CoachChatMessage(
+            role: .assistant,
+            text: "Bench press looked solid. Want to repeat yesterday's working set?"
+        ),
+        onCopy: {},
+        onRegenerate: {},
+        onFeedback: { _ in },
+        lastLoadCaption: "Last 185 lb × 8 reps",
+        resolvesLastLoadFromEnvironment: false
+    )
+    .padding()
+}
+
+#Preview("User message — dark") {
+    CoachChatBubbleView(
+        message: CoachChatMessage(role: .user, text: "What should I train today?"),
+        onCopy: {},
+        onRegenerate: nil,
+        onFeedback: { _ in },
+        resolvesLastLoadFromEnvironment: false
+    )
+    .padding()
+    .preferredColorScheme(.dark)
 }
