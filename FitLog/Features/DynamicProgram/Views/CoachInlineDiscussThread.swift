@@ -17,7 +17,13 @@ struct CoachInlineDiscussThread: View {
     let onApplySuggestion: (CoachFollowUpSuggestedChange) -> Void
     let onDone: () -> Void
     let onReopenDiscuss: () -> Void
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
     @FocusState private var isComposerFocused: Bool
     @State private var showsEarlierMessages = false
 
@@ -36,6 +42,16 @@ struct CoachInlineDiscussThread: View {
                 Rectangle()
                     .fill(Color.secondary.opacity(0.25))
                     .frame(height: 1)
+            }
+
+            if let lastLoad = resolvedLastLoadCaption {
+                Text(lastLoad)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier(FitLogA11yID.coachDiscussThread.lastLoad)
+                    .accessibilityLabel(lastLoad)
+                    .accessibilityHint("Last working set or last cardio duration from a completed session")
+                    .accessibilityAddTraits(.isStaticText)
             }
 
             let visible = thread.visibleMessages
@@ -198,6 +214,18 @@ struct CoachInlineDiscussThread: View {
         case .system: return text
         }
     }
+
+    /// Cardio discuss topics prefer last duration; other topics use newest completed working set.
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        let sessions = dataManager.completedSessions
+        let unit = userPreferences.weightDisplayUnit
+        if topic == .cardio, let cardio = IvyLastWorkingLoad.lastCardioDurationCaption(from: sessions) {
+            return cardio
+        }
+        return IvyLastWorkingLoad.newestCompletedCaption(from: sessions, displayUnit: unit)
+    }
 }
 
 #Preview("Active thread") {
@@ -217,7 +245,9 @@ struct CoachInlineDiscussThread: View {
         onSend: {},
         onApplySuggestion: { _ in },
         onDone: {},
-        onReopenDiscuss: {}
+        onReopenDiscuss: {},
+        lastLoadCaption: "Last 185 lb × 8 reps",
+        resolvesLastLoadFromEnvironment: false
     )
     .padding()
 }
@@ -242,7 +272,9 @@ struct CoachInlineDiscussThread: View {
         onSend: {},
         onApplySuggestion: { _ in },
         onDone: {},
-        onReopenDiscuss: {}
+        onReopenDiscuss: {},
+        lastLoadCaption: "Last 45:00",
+        resolvesLastLoadFromEnvironment: false
     )
     .padding()
 }

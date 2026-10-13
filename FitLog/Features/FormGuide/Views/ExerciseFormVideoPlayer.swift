@@ -15,7 +15,14 @@ struct ExerciseFormVideoPlayer: View {
     var isMuted: Bool = true
     var shouldAutoPlay: Bool = true
 
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
     @State private var playback = FormGuideVideoPlaybackState()
 
     var body: some View {
@@ -43,11 +50,30 @@ struct ExerciseFormVideoPlayer: View {
             if let failureMessage = playback.failureMessage {
                 errorOverlay(message: failureMessage)
             }
+
+            if let lastLoad = resolvedLastLoadCaption {
+                VStack {
+                    Spacer()
+                    Text(lastLoad)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.black.opacity(0.5), in: Capsule())
+                        .padding(8)
+                        .accessibilityIdentifier(FitLogA11yID.formGuideVideo.lastLoad)
+                        .accessibilityLabel(lastLoad)
+                        .accessibilityHint("Last working set or last cardio duration from a completed session")
+                        .accessibilityAddTraits(.isStaticText)
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.secondary.opacity(0.12))
-        .accessibilityElement(children: playback.failureMessage == nil ? .ignore : .contain)
-        .accessibilityLabel(accessibilityLabelText)
+        .accessibilityElement(
+            children: (playback.failureMessage != nil || resolvedLastLoadCaption != nil) ? .contain : .ignore
+        )
+        .accessibilityLabel(formGuideVideoAccessibilityLabel)
     }
 
     private var accessibilityLabelText: String {
@@ -55,6 +81,22 @@ struct ExerciseFormVideoPlayer: View {
             return "Exercise demonstration video failed to load, \(video.angle.displayName) view"
         }
         return "Exercise demonstration video, \(video.angle.displayName) view"
+    }
+
+    private var formGuideVideoAccessibilityLabel: String {
+        if let lastLoad = resolvedLastLoadCaption {
+            return "\(accessibilityLabelText), \(lastLoad)"
+        }
+        return accessibilityLabelText
+    }
+
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return IvyLastWorkingLoad.newestCompletedCaption(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
     }
 
     @ViewBuilder
@@ -474,7 +516,9 @@ private final class FormGuidePlayerView: UIView {
             ogImageURL: URL(string: "https://example.invalid/squat.jpg")
         ),
         requestHeaders: [:],
-        shouldAutoPlay: false
+        shouldAutoPlay: false,
+        lastLoadCaption: "Last 185 lb × 8 reps",
+        resolvesLastLoadFromEnvironment: false
     )
     .frame(height: 220)
     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -491,7 +535,8 @@ private final class FormGuidePlayerView: UIView {
             ogImageURL: nil
         ),
         requestHeaders: [:],
-        shouldAutoPlay: false
+        shouldAutoPlay: false,
+        resolvesLastLoadFromEnvironment: false
     )
     .frame(height: 260)
     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -509,7 +554,9 @@ private final class FormGuidePlayerView: UIView {
             ogImageURL: nil
         ),
         requestHeaders: [:],
-        shouldAutoPlay: false
+        shouldAutoPlay: false,
+        lastLoadCaption: "Last 45:00",
+        resolvesLastLoadFromEnvironment: false
     )
     .frame(height: 220)
     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
