@@ -12,4 +12,16 @@ enum FitLogA11yID {
     static let fromTemplate = "fitlog.fromTemplate"
     static let createWorkout = "fitlog.createWorkout"
     static let quickStartPushA = "fitlog.quickStart.pushA"
+
+    enum setSchemePicker {
+        static let lastLoad = "fitlog.setSchemePicker.lastLoad"
+    }
+
+    enum splitCalendarPreview {
+        static let lastLoad = "fitlog.splitCalendarPreview.lastLoad"
+    }
+
+    enum historyChartCard {
+        static let lastLoad = "fitlog.historyChartCard.lastLoad"
+    }
 }

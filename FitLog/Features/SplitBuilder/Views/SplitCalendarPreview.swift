@@ -13,7 +13,13 @@ struct SplitCalendarPreview: View {
     let preferredWeekdays: [Int]
     let anchorDate: Date
     let workouts: [UUID: Workout]
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
     @State private var previewSchedule: [Date: ResolvedScheduleDay] = [:]
 
     private let calendar = Calendar.current
@@ -24,6 +30,16 @@ struct SplitCalendarPreview: View {
             Text("4-Week Preview")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
+
+            if let lastLoad = resolvedLastLoadCaption {
+                Text(lastLoad)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier(FitLogA11yID.splitCalendarPreview.lastLoad)
+                    .accessibilityLabel(lastLoad)
+                    .accessibilityHint("Last working set or last cardio duration from a completed session")
+                    .accessibilityAddTraits(.isStaticText)
+            }
 
             if previewSchedule.isEmpty {
                 Text("Generating preview...")
@@ -158,6 +174,23 @@ struct SplitCalendarPreview: View {
             weeksAhead: weeksToShow
         )
     }
+
+    /// First planned workout with history, otherwise newest completed session.
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        let sessions = dataManager.completedSessions
+        let unit = userPreferences.weightDisplayUnit
+        let planned = cycleEntries.compactMap { workouts[$0.libraryWorkoutId] }
+        if let caption = FernLastWorkingLoad.caption(
+            forPlanWorkouts: planned,
+            from: sessions,
+            displayUnit: unit
+        ) {
+            return caption
+        }
+        return FernLastWorkingLoad.newestCompletedCaption(from: sessions, displayUnit: unit)
+    }
 }
 
 #Preview {
@@ -167,7 +200,23 @@ struct SplitCalendarPreview: View {
         sessionsPerWeek: 3,
         preferredWeekdays: [2, 4, 6],
         anchorDate: Date(),
-        workouts: [mockWorkout.id: mockWorkout]
+        workouts: [mockWorkout.id: mockWorkout],
+        lastLoadCaption: "Last 185 lb × 8 reps",
+        resolvesLastLoadFromEnvironment: false
+    )
+    .padding()
+}
+
+#Preview("Cardio last duration") {
+    let mockWorkout = Workout(id: UUID(), name: "Zone 2", exercises: [])
+    SplitCalendarPreview(
+        cycleEntries: [.workout(mockWorkout.id)],
+        sessionsPerWeek: 3,
+        preferredWeekdays: [2, 4, 6],
+        anchorDate: Date(),
+        workouts: [mockWorkout.id: mockWorkout],
+        lastLoadCaption: "Last 45:00",
+        resolvesLastLoadFromEnvironment: false
     )
     .padding()
 }
