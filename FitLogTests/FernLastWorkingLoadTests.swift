@@ -620,13 +620,6 @@ struct FernLastWorkingLoadTests {
         )
     }
 
-    @Test func cardioVolumeChartTitlePrefersLastCardioDuration() {
-        #expect(FernLastWorkingLoad.cardioVolumeChartTitle == "Cardio volume")
-        #expect(FernLastWorkingLoad.prefersLastCardioDuration(chartTitle: "Cardio volume"))
-        #expect(!FernLastWorkingLoad.prefersLastCardioDuration(chartTitle: "Volume by muscle"))
-        #expect(!FernLastWorkingLoad.prefersLastCardioDuration(chartTitle: "Strength trend (est. 1RM)"))
-    }
-
     @Test func planWorkoutCaptionUsesFirstLibraryWorkoutWithHistory() {
         let bench = UUID()
         let logged = session(

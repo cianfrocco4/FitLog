@@ -3,7 +3,7 @@
 //  FitLog
 //
 //  Last working load / last cardio duration for set-scheme picking, split
-//  calendar preview, and History cardio volume charts.
+//  calendar preview, and slot grouping.
 //
 
 import Foundation
@@ -188,13 +188,6 @@ enum FernLastWorkingLoad {
             }
         }
         return nil
-    }
-
-    /// History cardio-volume chart title used to attach last cardio duration.
-    static let cardioVolumeChartTitle = "Cardio volume"
-
-    static func prefersLastCardioDuration(chartTitle: String) -> Bool {
-        chartTitle == cardioVolumeChartTitle
     }
 
     /// Override id wins; otherwise link the suggested name through the library.

@@ -11,6 +11,13 @@ struct SlotGroupingEditorView: View {
     @Binding var grouping: ExerciseGrouping?
     let currentSlotId: UUID
     let partnerCandidates: [PartnerCandidate]
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
+
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     struct PartnerCandidate: Identifiable, Hashable {
         let id: UUID
@@ -22,6 +29,16 @@ struct SlotGroupingEditorView: View {
     }
 
     var body: some View {
+        if let lastLoad = resolvedLastLoadCaption {
+            Text(lastLoad)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(FitLogA11yID.slotGrouping.lastLoad)
+                .accessibilityLabel(lastLoad)
+                .accessibilityHint("Last working set or last cardio duration from a completed session")
+                .accessibilityAddTraits(.isStaticText)
+        }
+
         Picker("Grouping", selection: Binding(
             get: { workingKind },
             set: { newKind in
@@ -79,4 +96,61 @@ struct SlotGroupingEditorView: View {
         case .circuit, .giantSet: return "Pick every other slot in the circuit. Order follows the day list."
         }
     }
+
+    /// Newest completed working set (skips warm-ups) or last cardio duration.
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return FernLastWorkingLoad.newestCompletedCaption(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+}
+
+#Preview("Standalone") {
+    struct Host: View {
+        @State private var grouping: ExerciseGrouping?
+        var body: some View {
+            Form {
+                SlotGroupingEditorView(
+                    grouping: $grouping,
+                    currentSlotId: UUID(),
+                    partnerCandidates: [
+                        .init(id: UUID(), label: "Bench Press"),
+                        .init(id: UUID(), label: "Push-up")
+                    ],
+                    lastLoadCaption: "Last 185 lb × 8 reps",
+                    resolvesLastLoadFromEnvironment: false
+                )
+            }
+        }
+    }
+    return Host()
+}
+
+#Preview("Superset") {
+    struct Host: View {
+        let current = UUID()
+        let partner = UUID()
+        @State private var grouping: ExerciseGrouping? = ExerciseGrouping(
+            kind: .superset,
+            partnerSlotIds: []
+        )
+        var body: some View {
+            Form {
+                SlotGroupingEditorView(
+                    grouping: $grouping,
+                    currentSlotId: current,
+                    partnerCandidates: [
+                        .init(id: current, label: "Bench Press"),
+                        .init(id: partner, label: "Push-up")
+                    ],
+                    lastLoadCaption: "Last 45:00",
+                    resolvesLastLoadFromEnvironment: false
+                )
+            }
+        }
+    }
+    return Host()
 }

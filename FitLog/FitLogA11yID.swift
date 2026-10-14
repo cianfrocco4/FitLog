@@ -21,7 +21,7 @@ enum FitLogA11yID {
         static let lastLoad = "fitlog.splitCalendarPreview.lastLoad"
     }
 
-    enum historyChartCard {
-        static let lastLoad = "fitlog.historyChartCard.lastLoad"
+    enum slotGrouping {
+        static let lastLoad = "fitlog.slotGrouping.lastLoad"
     }
 }
