@@ -15,6 +15,10 @@ struct OnboardingFlowView: View {
     @Binding var isPresented: Bool
     /// Called when onboarding ends (including Skip). Use to deep-link into program or workout creation.
     var onPostOnboarding: ((PostOnboardingRoutineAction) -> Void)?
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     @Environment(DataManager.self) private var dataVM
     @EnvironmentObject private var userPreferences: UserPreferences
@@ -106,6 +110,16 @@ struct OnboardingFlowView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
+                if let lastLoad = resolvedLastLoadCaption {
+                    Text(lastLoad)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(FitLogA11yID.onboardingStart.lastLoad)
+                        .accessibilityLabel(lastLoad)
+                        .accessibilityHint("Last working set or last cardio duration from a completed session")
+                        .accessibilityAddTraits(.isStaticText)
+                }
+
                 startPathCard(
                     title: "Plan my week",
                     subtitle: "Build a program so Home and Plan know what to train each day.",
@@ -118,7 +132,7 @@ struct OnboardingFlowView: View {
 
                 startPathCard(
                     title: "Log a workout today",
-                    subtitle: "Create a session from a template or from scratch, then start logging.",
+                    subtitle: "New workout vs From template in one step — templates like Push A are listed first, or build your own.",
                     systemImage: "dumbbell.fill",
                     recommended: false,
                     identifier: "onboarding.logWorkout"
@@ -228,8 +242,35 @@ struct OnboardingFlowView: View {
         onPostOnboarding?(action)
         isPresented = false
     }
+
+    /// Newest completed working set (skips warm-ups) or last cardio duration.
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return MossLastWorkingLoad.newestCompletedCaption(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
 }
 
 #Preview("Welcome") {
-    OnboardingFlowView(isPresented: .constant(true))
+    OnboardingFlowView(isPresented: .constant(true), resolvesLastLoadFromEnvironment: false)
+}
+
+#Preview("Start choice · Light") {
+    OnboardingFlowView(
+        isPresented: .constant(true),
+        lastLoadCaption: "Last 185 lb × 8 reps",
+        resolvesLastLoadFromEnvironment: false
+    )
+}
+
+#Preview("Start choice · Dark") {
+    OnboardingFlowView(
+        isPresented: .constant(true),
+        lastLoadCaption: "Last 45:00",
+        resolvesLastLoadFromEnvironment: false
+    )
+    .preferredColorScheme(.dark)
 }
