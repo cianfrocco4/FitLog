@@ -13,6 +13,10 @@ struct HistorySessionsTab: View {
     @Environment(\.undoManager) private var undoManager
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
     @Bindable var viewModel: HistoryViewModel
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     @State private var pendingStartAgainReplace: PendingWorkoutReplace?
 
@@ -23,6 +27,18 @@ struct HistorySessionsTab: View {
             : [HistorySessionSection(id: "search", title: "Results", sessions: sessions)]
 
         Group {
+            if let lastLoad = resolvedLastLoadCaption {
+                Section {
+                    Text(lastLoad)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(FitLogA11yID.historySessions.lastLoad)
+                        .accessibilityLabel(lastLoad)
+                        .accessibilityHint("Last working set or last cardio duration from a completed session")
+                        .accessibilityAddTraits(.isStaticText)
+                }
+            }
+
             if sessions.isEmpty {
                 Section {
                     emptySessionsContent
@@ -108,5 +124,15 @@ struct HistorySessionsTab: View {
                 fitlogDeleteCompletedSessionWithUndo(session, dataVM: dataVM, undoManager: undoManager)
             }
         }
+    }
+
+    /// Newest completed working set (skips warm-ups) or last cardio duration.
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return SageLastWorkingLoad.newestCompletedCaption(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
     }
 }

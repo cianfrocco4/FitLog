@@ -10,6 +10,13 @@ struct CardioIntervalEditorView: View {
     @Binding var prescription: CardioPrescription
     /// When true, omits the outer `Form` so this view can be embedded in a parent form.
     var embedInParentForm: Bool = false
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
+
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var workSecondsText = ""
     @State private var restSecondsText = ""
@@ -36,6 +43,18 @@ struct CardioIntervalEditorView: View {
 
     @ViewBuilder
     private var editorSections: some View {
+        if let lastLoad = resolvedLastLoadCaption {
+            Section {
+                Text(lastLoad)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier(FitLogA11yID.cardioIntervalEditor.lastLoad)
+                    .accessibilityLabel(lastLoad)
+                    .accessibilityHint("Last working set or last cardio duration from a completed session")
+                    .accessibilityAddTraits(.isStaticText)
+            }
+        }
+
         Section {
             Picker("Prescription type", selection: $prescription.kind) {
                 ForEach(CardioPrescriptionKind.allCases) { kind in
@@ -191,4 +210,60 @@ struct CardioIntervalEditorView: View {
         let total = min * 60 + sec
         return total > 0 ? total : nil
     }
+
+    /// Last cardio duration, else newest completed working set (skips warm-ups).
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return SageLastWorkingLoad.lastCardioDurationCaption(
+            from: dataManager.completedSessions
+        ) ?? SageLastWorkingLoad.newestCompletedCaption(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+}
+
+#Preview("Light") {
+    struct Host: View {
+        @State private var prescription = CardioPrescription(
+            kind: .steadyState,
+            targetDurationSec: 45 * 60,
+            targetZone: .zone2
+        )
+        var body: some View {
+            NavigationStack {
+                CardioIntervalEditorView(
+                    prescription: $prescription,
+                    lastLoadCaption: "Last 45:00",
+                    resolvesLastLoadFromEnvironment: false
+                )
+                .navigationTitle("Zone 2")
+            }
+        }
+    }
+    return Host()
+}
+
+#Preview("Dark · intervals") {
+    struct Host: View {
+        @State private var prescription = CardioPrescription(
+            kind: .intervals,
+            intervals: [
+                CardioIntervalSpec(workDurationSec: 180, restDurationSec: 90, repeatCount: 6)
+            ]
+        )
+        var body: some View {
+            NavigationStack {
+                CardioIntervalEditorView(
+                    prescription: $prescription,
+                    lastLoadCaption: "Last 185 lb × 8 reps",
+                    resolvesLastLoadFromEnvironment: false
+                )
+                .navigationTitle("Intervals")
+            }
+        }
+    }
+    return Host()
+        .preferredColorScheme(.dark)
 }
