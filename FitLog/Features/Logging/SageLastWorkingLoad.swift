@@ -2,8 +2,8 @@
 //  SageLastWorkingLoad.swift
 //  FitLog
 //
-//  Last working load / last cardio duration for in-workout cardio logging, History sessions,
-//  and cardio prescription editing.
+//  Last working load / last cardio duration for History sessions, cardio prescription
+//  editing, and Coach conversation history.
 //
 
 import Foundation

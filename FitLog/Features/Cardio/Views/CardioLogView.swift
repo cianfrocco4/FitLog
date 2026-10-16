@@ -9,13 +9,7 @@ import SwiftUI
 struct CardioLogView: View {
     let exerciseIndex: Int
     let sessionVM: CurrentWorkoutSessionViewModel
-    /// Injected caption skips the live session store (previews / tests).
-    var lastLoadCaption: String? = nil
-    /// Previews set this false so they do not need a live session store.
-    var resolvesLastLoadFromEnvironment: Bool = true
-
     @Environment(DataManager.self) private var dataVM
-    @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var manualMinutes: String = ""
     @State private var manualSeconds: String = ""
@@ -61,16 +55,6 @@ struct CardioLogView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let lastLoad = resolvedLastLoadCaption {
-                Text(lastLoad)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier(FitLogA11yID.cardioLog.lastLoad)
-                    .accessibilityLabel(lastLoad)
-                    .accessibilityHint("Last working set or last cardio duration from a completed session")
-                    .accessibilityAddTraits(.isStaticText)
-            }
-
             if let rx = prescription {
                 CardioPrescriptionRowView(prescription: rx, exercise: resolvedExercise)
             }
@@ -84,31 +68,6 @@ struct CardioLogView: View {
         .sensoryFeedback(.success, trigger: intervalHapticTrigger)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Cardio logging for \(resolvedExercise?.name ?? "exercise")")
-    }
-
-    /// This exercise's last working set (skips warm-ups) or last cardio duration; otherwise newest completed.
-    private var resolvedLastLoadCaption: String? {
-        if let lastLoadCaption { return lastLoadCaption }
-        guard resolvesLastLoadFromEnvironment else { return nil }
-        let sessions = dataVM.completedSessions
-        let unit = userPreferences.weightDisplayUnit
-        if let id = workoutExercise?.exerciseId,
-           let caption = SageLastWorkingLoad.caption(
-            for: id,
-            from: sessions,
-            displayUnit: unit,
-            excludingSessionId: sessionVM.currentSession?.id
-           ) {
-            return caption
-        }
-        return SageLastWorkingLoad.lastCardioDurationCaption(
-            from: sessions,
-            excludingSessionId: sessionVM.currentSession?.id
-        ) ?? SageLastWorkingLoad.newestCompletedCaption(
-            from: sessions,
-            displayUnit: unit,
-            excludingSessionId: sessionVM.currentSession?.id
-        )
     }
 
     @ViewBuilder

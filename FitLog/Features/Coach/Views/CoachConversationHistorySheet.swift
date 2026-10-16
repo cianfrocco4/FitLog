@@ -14,7 +14,13 @@ struct CoachConversationHistorySheet: View {
     let onDelete: (UUID) -> Void
     let onRename: (UUID, String) -> Void
     let onNewChat: () -> Void
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
     @State private var renameTarget: CoachConversationSummary?
     @State private var renameDraft = ""
@@ -22,6 +28,18 @@ struct CoachConversationHistorySheet: View {
     var body: some View {
         NavigationStack {
             List {
+                if let lastLoad = resolvedLastLoadCaption {
+                    Section {
+                        Text(lastLoad)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier(FitLogA11yID.coachConversationHistory.lastLoad)
+                            .accessibilityLabel(lastLoad)
+                            .accessibilityHint("Last working set or last cardio duration from a completed session")
+                            .accessibilityAddTraits(.isStaticText)
+                    }
+                }
+
                 if conversations.isEmpty {
                     ContentUnavailableView(
                         "No past chats",
@@ -110,4 +128,50 @@ struct CoachConversationHistorySheet: View {
             }
         }
     }
+
+    /// Newest completed working set (skips warm-ups) or last cardio duration.
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return SageLastWorkingLoad.newestCompletedCaption(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+}
+
+#Preview("Light") {
+    CoachConversationHistorySheet(
+        conversations: [
+            CoachConversationSummary(
+                id: UUID(),
+                title: "Push week",
+                createdAt: Date().addingTimeInterval(-86_400),
+                updatedAt: Date(),
+                messageCount: 4,
+                previewText: "Let's keep bench at 185."
+            )
+        ],
+        currentID: nil,
+        onSelect: { _ in },
+        onDelete: { _ in },
+        onRename: { _, _ in },
+        onNewChat: {},
+        lastLoadCaption: "Last 185 lb × 8 reps",
+        resolvesLastLoadFromEnvironment: false
+    )
+}
+
+#Preview("Dark · empty") {
+    CoachConversationHistorySheet(
+        conversations: [],
+        currentID: nil,
+        onSelect: { _ in },
+        onDelete: { _ in },
+        onRename: { _, _ in },
+        onNewChat: {},
+        lastLoadCaption: "Last 45:00",
+        resolvesLastLoadFromEnvironment: false
+    )
+    .preferredColorScheme(.dark)
 }
