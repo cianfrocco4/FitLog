@@ -10,10 +10,15 @@ import SwiftUI
 struct SplitBuilderView: View {
     /// When set, opens the wizard on the review step with this program loaded (edit / re-apply).
     var hydrateFromState: DynamicProgramState? = nil
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     @Environment(DataManager.self) private var dataVM
     @Environment(CurrentWorkoutSessionViewModel.self) private var currentVM
     @EnvironmentObject private var aiService: AIService
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
     @Environment(\.fitlogRootTabSelection) private var rootTabSelection
     @Environment(\.fitlogAISplitCoachPrefill) private var coachPrefill
@@ -36,6 +41,20 @@ struct SplitBuilderView: View {
             .environment(currentVM)
             .environmentObject(aiService)
             .environment(\.fitlogRootTabSelection, rootTabSelection)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let lastLoad = resolvedLastLoadCaption {
+                    Text(lastLoad)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .accessibilityIdentifier(FitLogA11yID.splitBuilder.lastLoad)
+                        .accessibilityLabel(lastLoad)
+                        .accessibilityHint("Last working set or last cardio duration from a completed session")
+                        .accessibilityAddTraits(.isStaticText)
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") {
@@ -78,5 +97,15 @@ struct SplitBuilderView: View {
                 }
             }
         }
+    }
+
+    /// Newest completed working set (skips warm-ups) or last cardio duration.
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return OliveLastWorkingLoad.newestCompletedCaption(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
     }
 }

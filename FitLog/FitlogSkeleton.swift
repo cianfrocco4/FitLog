@@ -61,8 +61,25 @@ struct FitlogSkeletonLine: View {
 }
 
 struct FitlogSkeletonCardBlock: View {
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
+
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if let lastLoad = resolvedLastLoadCaption {
+                Text(lastLoad)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier(FitLogA11yID.homeSkeleton.lastLoad)
+                    .accessibilityLabel(lastLoad)
+                    .accessibilityHint("Last working set or last cardio duration from a completed session")
+                    .accessibilityAddTraits(.isStaticText)
+            }
             FitlogSkeletonLine(widthFraction: 0.35, height: 12)
             FitlogSkeletonLine(widthFraction: 0.9, height: 22)
             FitlogSkeletonLine(widthFraction: 0.7, height: 14)
@@ -78,6 +95,16 @@ struct FitlogSkeletonCardBlock: View {
         }
         .padding()
         .background(FitlogPalette.subtleFill.opacity(0.5), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    /// Newest completed working set (skips warm-ups) or last cardio duration.
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return OliveLastWorkingLoad.newestCompletedCaption(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
     }
 }
 
@@ -97,4 +124,21 @@ struct FitlogHistoryKPISkeleton: View {
         }
         .padding(.vertical, 4)
     }
+}
+
+#Preview("Home skeleton · last load") {
+    FitlogSkeletonCardBlock(
+        lastLoadCaption: "Last 185 lb × 8 reps",
+        resolvesLastLoadFromEnvironment: false
+    )
+    .padding()
+}
+
+#Preview("Home skeleton · dark cardio") {
+    FitlogSkeletonCardBlock(
+        lastLoadCaption: "Last 45:00",
+        resolvesLastLoadFromEnvironment: false
+    )
+    .padding()
+    .preferredColorScheme(.dark)
 }

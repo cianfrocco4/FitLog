@@ -47,6 +47,13 @@ struct SpotlightOverlay: View {
     let controller: SpotlightTourController
     let anchors: [SpotlightTarget: CGRect]
     var onFinished: () -> Void
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
+
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var missingSkipSerial = 0
     @AccessibilityFocusState private var tooltipFocused: Bool
@@ -138,6 +145,16 @@ struct SpotlightOverlay: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
+                if let lastLoad = resolvedLastLoadCaption {
+                    Text(lastLoad)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(FitLogA11yID.spotlightTour.lastLoad)
+                        .accessibilityLabel(lastLoad)
+                        .accessibilityHint("Last working set or last cardio duration from a completed session")
+                        .accessibilityAddTraits(.isStaticText)
+                }
+
                 HStack(spacing: 12) {
                     Button("Skip") {
                         controller.skip()
@@ -172,7 +189,7 @@ struct SpotlightOverlay: View {
                     .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
             }
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("\(step.title). \(step.body)")
+            .accessibilityLabel(spotlightAccessibilityLabel(title: step.title, body: step.body))
 
             if !placeBelow {
                 Spacer(minLength: 24)
@@ -180,6 +197,23 @@ struct SpotlightOverlay: View {
         }
         .padding(.top, placeBelow ? 0 : 56)
         .padding(.bottom, placeBelow ? 28 : 0)
+    }
+
+    /// Newest completed working set (skips warm-ups) or last cardio duration.
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return OliveLastWorkingLoad.newestCompletedCaption(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
+    private func spotlightAccessibilityLabel(title: String, body: String) -> String {
+        if let lastLoad = resolvedLastLoadCaption {
+            return "\(title). \(body). \(lastLoad)"
+        }
+        return "\(title). \(body)"
     }
 }
 
@@ -208,9 +242,31 @@ private struct SpotlightCutoutShape: Shape {
             anchors: [
                 .firstRunHero: CGRect(x: 20, y: 140, width: 320, height: 220)
             ],
-            onFinished: {}
+            onFinished: {},
+            lastLoadCaption: "Last 185 lb × 8 reps",
+            resolvesLastLoadFromEnvironment: false
         )
     }
+    .onAppear {
+        controller.start(kind: .explore, alreadyCompleted: false, workoutInProgress: false)
+    }
+}
+
+#Preview("Dark · cardio") {
+    let controller = SpotlightTourController()
+    return ZStack {
+        Color.gray.opacity(0.3)
+        SpotlightOverlay(
+            controller: controller,
+            anchors: [
+                .firstRunHero: CGRect(x: 20, y: 140, width: 320, height: 220)
+            ],
+            onFinished: {},
+            lastLoadCaption: "Last 45:00",
+            resolvesLastLoadFromEnvironment: false
+        )
+    }
+    .preferredColorScheme(.dark)
     .onAppear {
         controller.start(kind: .explore, alreadyCompleted: false, workoutInProgress: false)
     }
