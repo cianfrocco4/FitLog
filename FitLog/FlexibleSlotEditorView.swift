@@ -9,10 +9,15 @@ import SwiftUI
 
 struct FlexibleSlotEditorView: View {
     @Environment(DataManager.self) var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
     let workoutId: UUID
     let slotId: UUID
     /// When true (e.g. just added open slot), focus the label field after load.
     var autoFocusLabelOnAppear: Bool = false
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     @State private var label: String = ""
     @State private var selectedMuscles: [MuscleGroup] = []
@@ -160,10 +165,37 @@ struct FlexibleSlotEditorView: View {
                         .multilineTextAlignment(.trailing)
                 }
             }
+            if let lastLoad = resolvedLastLoadCaption {
+                Text(lastLoad)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier(FitLogA11yID.flexibleSlot.lastLoad)
+                    .accessibilityLabel(lastLoad)
+                    .accessibilityHint("Last working set or last cardio duration from a completed session")
+                    .accessibilityAddTraits(.isStaticText)
+            }
         } footer: {
             Text("If set, starting a workout prefills this slot with that exercise. You can still change it before or during the session.")
                 .font(.caption)
         }
+    }
+
+    /// Linked default exercise wins; otherwise newest completed working set or last cardio duration.
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        if let id = defaultExerciseId,
+           let caption = AmberLastWorkingLoad.caption(
+            for: id,
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+           ) {
+            return caption
+        }
+        return AmberLastWorkingLoad.newestCompletedCaption(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
     }
 
     private var slotPrescriptionSection: some View {

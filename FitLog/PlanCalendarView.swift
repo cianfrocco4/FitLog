@@ -1120,12 +1120,27 @@ struct DayPlanSheet: View {
 
 struct WeekOverrideSheet: View {
     @Environment(DataManager.self) var dataVM
+    @EnvironmentObject private var userPreferences: UserPreferences
     @Environment(\.dismiss) private var dismiss
 
     let weekContaining: Date
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     private var calendar: Calendar { .current }
     private var weekKey: String { TrainingProgramState.isoWeekKey(for: weekContaining, calendar: calendar) }
+
+    /// Newest completed working set (skips warm-ups) or last cardio duration.
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return AmberLastWorkingLoad.newestCompletedCaption(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
 
     /// Weekdays in order for this calendar (e.g. Sun…Sat).
     private var weekDaysOrdered: [(weekday: Int, date: Date)] {
@@ -1147,6 +1162,15 @@ struct WeekOverrideSheet: View {
                     Text("ISO week \(weekKey)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                    if let lastLoad = resolvedLastLoadCaption {
+                        Text(lastLoad)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier(FitLogA11yID.weekOverride.lastLoad)
+                            .accessibilityLabel(lastLoad)
+                            .accessibilityHint("Last working set or last cardio duration from a completed session")
+                            .accessibilityAddTraits(.isStaticText)
+                    }
                 }
 
                 Section("This week only (overrides base plan)") {

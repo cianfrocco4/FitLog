@@ -456,6 +456,11 @@ struct WorkoutCompletionSummaryView: View {
     var onDone: () -> Void
     /// When set, shows a “View in History” action that opens this session in History.
     var onViewInHistory: (() -> Void)? = nil
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
+    @Environment(DataManager.self) private var dataManager
     @EnvironmentObject var userPreferences: UserPreferences
     @State private var appearHapticTick = 0
     #if canImport(UIKit)
@@ -496,6 +501,15 @@ struct WorkoutCompletionSummaryView: View {
                     )
                     if summary.personalRecordCount > 0 {
                         LabeledContent("PR sets (this workout)", value: "\(summary.personalRecordCount)")
+                    }
+                    if let lastLoad = resolvedLastLoadCaption {
+                        Text(lastLoad)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier(FitLogA11yID.finishSummary.lastLoad)
+                            .accessibilityLabel(lastLoad)
+                            .accessibilityHint("Last working set or last cardio duration from a prior completed session")
+                            .accessibilityAddTraits(.isStaticText)
                     }
                 }
 
@@ -626,6 +640,17 @@ struct WorkoutCompletionSummaryView: View {
         }
     }
 
+    /// Prior completed working set (skips this session and warm-ups) or last cardio duration.
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return AmberLastWorkingLoad.newestCompletedCaption(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit,
+            excludingSessionId: summary.id
+        )
+    }
+
     #if canImport(UIKit)
     @MainActor
     private func shareSummaryImage() {
@@ -638,4 +663,53 @@ struct WorkoutCompletionSummaryView: View {
         showImageShareSheet = true
     }
     #endif
+}
+
+#Preview("Finish · last load") {
+    WorkoutCompletionSummaryView(
+        summary: WorkoutCompletionSummary(
+            id: UUID(),
+            workoutName: "Push A",
+            durationSeconds: 2700,
+            totalSets: 18,
+            totalVolumePounds: 12_500,
+            exercisesWithSets: 5,
+            totalResolvedExercises: 6,
+            personalRecordCount: 0,
+            exerciseBreakdown: [],
+            personalRecordHighlights: [],
+            totalCardioDurationSeconds: 0,
+            totalCardioDistanceMeters: 0,
+            cardioSegmentCount: 0
+        ),
+        onDone: {},
+        lastLoadCaption: "Last 185 lb × 8 reps",
+        resolvesLastLoadFromEnvironment: false
+    )
+    .environmentObject(UserPreferences())
+}
+
+#Preview("Finish · dark cardio") {
+    WorkoutCompletionSummaryView(
+        summary: WorkoutCompletionSummary(
+            id: UUID(),
+            workoutName: "Zone 2",
+            durationSeconds: 45 * 60,
+            totalSets: 0,
+            totalVolumePounds: 0,
+            exercisesWithSets: 1,
+            totalResolvedExercises: 1,
+            personalRecordCount: 0,
+            exerciseBreakdown: [],
+            personalRecordHighlights: [],
+            totalCardioDurationSeconds: 45 * 60,
+            totalCardioDistanceMeters: 0,
+            cardioSegmentCount: 1
+        ),
+        onDone: {},
+        lastLoadCaption: "Last 45:00",
+        resolvesLastLoadFromEnvironment: false
+    )
+    .environmentObject(UserPreferences())
+    .preferredColorScheme(.dark)
 }
