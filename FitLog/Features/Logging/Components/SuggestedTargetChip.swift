@@ -18,8 +18,14 @@ struct SuggestedTargetChip: View {
     let onTap: () -> Void
     /// When set, shows a one-tap control that pre-fills and logs immediately.
     var onLogNow: (() -> Void)? = nil
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
+    @Environment(DataManager.self) private var dataManager
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
         HStack(spacing: 8) {
             Button(action: onTap) {
                 HStack(spacing: 6) {
@@ -68,6 +74,25 @@ struct SuggestedTargetChip: View {
                 .accessibilityHint("Logs this weight and reps in one step")
             }
         }
+            if let lastLoad = resolvedLastLoadCaption {
+                Text(lastLoad)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier(FitLogA11yID.suggestedTarget.lastLoad)
+                    .accessibilityLabel(lastLoad)
+                    .accessibilityHint("Last cardio duration from a completed session")
+                    .accessibilityAddTraits(.isStaticText)
+            }
+        }
+    }
+
+    /// Last cardio duration from a completed session (does not duplicate the strength Last: line).
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return JadeLastWorkingLoad.lastCardioDurationCaption(
+            from: dataManager.completedSessions
+        )
     }
 
     // MARK: - Private
@@ -101,7 +126,9 @@ struct SuggestedTargetChip: View {
         lastReps: 8,
         effortStyle: .rpe,
         unit: .pounds,
-        onTap: {}
+        onTap: {},
+        lastLoadCaption: "Last 45:00",
+        resolvesLastLoadFromEnvironment: false
     )
     .padding()
 }
@@ -113,7 +140,10 @@ struct SuggestedTargetChip: View {
         lastReps: 8,
         effortStyle: .rir,
         unit: .kilograms,
-        onTap: {}
+        onTap: {},
+        lastLoadCaption: "Last 45:00",
+        resolvesLastLoadFromEnvironment: false
     )
     .padding()
+    .preferredColorScheme(.dark)
 }

@@ -12,6 +12,12 @@ struct PRCelebrationOverlay: View {
     let event: PersonalRecordEvent
     let unit: WeightDisplayUnit
     let onDismiss: () -> Void
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     @State private var isVisible = false
     @State private var showDetail = false
@@ -38,9 +44,30 @@ struct PRCelebrationOverlay: View {
         }
         .sensoryFeedback(.success, trigger: confettiTrigger)
         .sheet(isPresented: $showDetail) {
-            PRCompareSheet(event: event, unit: unit)
-                .presentationDetents([.medium])
+            PRCompareSheet(
+                event: event,
+                unit: unit,
+                lastLoadCaption: resolvedLastLoadCaption
+            )
+            .presentationDetents([.medium])
         }
+    }
+
+    /// This exercise's last working set (skips warm-ups), else newest completed or last cardio duration.
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        if let caption = JadeLastWorkingLoad.caption(
+            for: event.exerciseId,
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            return caption
+        }
+        return JadeLastWorkingLoad.newestCompletedCaption(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
     }
 
     // MARK: - Banner
@@ -66,6 +93,15 @@ struct PRCelebrationOverlay: View {
                     Text(event.detail)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if let lastLoad = resolvedLastLoadCaption {
+                        Text(lastLoad)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier(FitLogA11yID.prCelebration.lastLoad)
+                            .accessibilityLabel(lastLoad)
+                            .accessibilityHint("Last working set or last cardio duration from a completed session")
+                            .accessibilityAddTraits(.isStaticText)
+                    }
                 }
 
                 Spacer()
@@ -108,6 +144,7 @@ struct PRCelebrationOverlay: View {
 private struct PRCompareSheet: View {
     let event: PersonalRecordEvent
     let unit: WeightDisplayUnit
+    var lastLoadCaption: String? = nil
 
     var body: some View {
         NavigationStack {
@@ -119,6 +156,14 @@ private struct PRCompareSheet: View {
                         Spacer()
                         Text(formattedValue(event.newValue))
                             .fontWeight(.bold)
+                    }
+                    if let lastLoad = lastLoadCaption {
+                        Text(lastLoad)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel(lastLoad)
+                            .accessibilityHint("Last working set or last cardio duration from a completed session")
+                            .accessibilityAddTraits(.isStaticText)
                     }
                     if let prev = event.previousValue {
                         HStack {
@@ -197,7 +242,9 @@ private struct PRCompareSheet: View {
                 kind: .maxWeight, newValue: 225, previousValue: 205
             ),
             unit: .pounds,
-            onDismiss: {}
+            onDismiss: {},
+            lastLoadCaption: "Last 185 lb × 8 reps",
+            resolvesLastLoadFromEnvironment: false
         )
     }
 }
@@ -211,7 +258,9 @@ private struct PRCompareSheet: View {
                 kind: .estimatedOneRM, newValue: 300, previousValue: 285
             ),
             unit: .pounds,
-            onDismiss: {}
+            onDismiss: {},
+            lastLoadCaption: "Last 45:00",
+            resolvesLastLoadFromEnvironment: false
         )
     }
     .preferredColorScheme(.dark)
