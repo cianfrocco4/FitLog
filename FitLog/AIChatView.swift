@@ -23,10 +23,28 @@ struct AIChatView: View {
     @State private var showHistory = false
     @State private var showContextSheet = false
     @State private var showPaywall = false
+    @EnvironmentObject private var userPreferences: UserPreferences
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                if let lastLoad = resolvedLastLoadCaption {
+                    Text(lastLoad)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(FitlogPalette.subtleFill)
+                        .accessibilityIdentifier(FitLogA11yID.coachChat.lastLoad)
+                        .accessibilityLabel(lastLoad)
+                        .accessibilityHint("Last working set or last cardio duration from a completed session")
+                        .accessibilityAddTraits(.isStaticText)
+                }
                 if shouldShowCoachPremiumBanner {
                     premiumRequiredBanner
                 } else if entitlementStore.isPremium, !aiService.isConfigured {
@@ -398,6 +416,16 @@ struct AIChatView: View {
 
     // MARK: - Helpers
 
+    /// Newest completed working set (skips warm-ups) or last cardio duration.
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return PearlLastWorkingLoad.newestCompletedCaption(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
     private func dismissCoachKeyboard() {
         isComposerFocused = false
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
@@ -412,4 +440,27 @@ struct AIChatView: View {
             }
         }
     }
+}
+
+#Preview("Coach last load · strength") {
+    Text("Last 185 lb × 8 reps")
+        .font(.caption.weight(.medium))
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(FitlogPalette.subtleFill)
+        .accessibilityIdentifier(FitLogA11yID.coachChat.lastLoad)
+}
+
+#Preview("Coach last load · dark cardio") {
+    Text("Last 45:00")
+        .font(.caption.weight(.medium))
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(FitlogPalette.subtleFill)
+        .accessibilityIdentifier(FitLogA11yID.coachChat.lastLoad)
+        .preferredColorScheme(.dark)
 }

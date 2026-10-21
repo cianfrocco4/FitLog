@@ -16,10 +16,25 @@ struct MoreTabRootView: View {
 
     @State private var showEraseDataConfirm = false
     @State private var showDeleteAccountConfirm = false
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     var body: some View {
         NavigationStack {
             List {
+                if let lastLoad = resolvedLastLoadCaption {
+                    Section {
+                        Text(lastLoad)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier(FitLogA11yID.moreTab.lastLoad)
+                            .accessibilityLabel(lastLoad)
+                            .accessibilityHint("Last working set or last cardio duration from a completed session")
+                            .accessibilityAddTraits(.isStaticText)
+                    }
+                }
                 NavigationLink {
                     PersonalRecordsView()
                         .environment(dataVM)
@@ -131,4 +146,31 @@ struct MoreTabRootView: View {
             }
         }
     }
+
+    /// Newest completed working set (skips warm-ups) or last cardio duration.
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return PearlLastWorkingLoad.newestCompletedCaption(
+            from: dataVM.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+}
+
+#Preview("More last load · strength") {
+    Text("Last 185 lb × 8 reps")
+        .font(.caption.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding()
+        .accessibilityIdentifier(FitLogA11yID.moreTab.lastLoad)
+}
+
+#Preview("More last load · dark cardio") {
+    Text("Last 45:00")
+        .font(.caption.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding()
+        .accessibilityIdentifier(FitLogA11yID.moreTab.lastLoad)
+        .preferredColorScheme(.dark)
 }
