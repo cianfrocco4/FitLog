@@ -13,17 +13,49 @@ struct SplitCalendarPreview: View {
     let preferredWeekdays: [Int]
     let anchorDate: Date
     let workouts: [UUID: Workout]
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
     @State private var previewSchedule: [Date: ResolvedScheduleDay] = [:]
 
     private let calendar = Calendar.current
     private let weeksToShow = 4
+
+    /// Newest completed working set (skips warm-ups) or last cardio duration.
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        if let caption = OpalLastWorkingLoad.caption(
+            forPlanWorkouts: Array(workouts.values),
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        ) {
+            return caption
+        }
+        return OpalLastWorkingLoad.newestCompletedCaption(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("4-Week Preview")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
+            if let lastLoad = resolvedLastLoadCaption {
+                Text(lastLoad)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier(FitLogA11yID.splitCalendar.lastLoad)
+                    .accessibilityLabel(lastLoad)
+                    .accessibilityHint("Last working set or last cardio duration from a completed session")
+                    .accessibilityAddTraits(.isStaticText)
+            }
 
             if previewSchedule.isEmpty {
                 Text("Generating preview...")
@@ -160,14 +192,31 @@ struct SplitCalendarPreview: View {
     }
 }
 
-#Preview {
+#Preview("Split calendar last load · strength") {
     let mockWorkout = Workout(id: UUID(), name: "Push Day", exercises: [])
     SplitCalendarPreview(
         cycleEntries: [.workout(mockWorkout.id)],
         sessionsPerWeek: 3,
         preferredWeekdays: [2, 4, 6],
         anchorDate: Date(),
-        workouts: [mockWorkout.id: mockWorkout]
+        workouts: [mockWorkout.id: mockWorkout],
+        lastLoadCaption: "Last 185 lb × 8 reps",
+        resolvesLastLoadFromEnvironment: false
     )
     .padding()
+}
+
+#Preview("Split calendar last load · dark cardio") {
+    let mockWorkout = Workout(id: UUID(), name: "Zone 2", exercises: [])
+    SplitCalendarPreview(
+        cycleEntries: [.workout(mockWorkout.id)],
+        sessionsPerWeek: 3,
+        preferredWeekdays: [2, 4, 6],
+        anchorDate: Date(),
+        workouts: [mockWorkout.id: mockWorkout],
+        lastLoadCaption: "Last 45:00",
+        resolvesLastLoadFromEnvironment: false
+    )
+    .padding()
+    .preferredColorScheme(.dark)
 }
