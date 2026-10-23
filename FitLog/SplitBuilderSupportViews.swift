@@ -68,9 +68,17 @@ struct SplitExerciseSuggestSheet: View {
     let initialQuery: String
     let onPick: (Exercise) -> Void
     let onCancel: () -> Void
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Injected per-exercise captions skip the live session store (previews / tests).
+    var lastLoadCaptionsByExerciseId: [UUID: String] = [:]
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
 
     @State private var searchText = ""
     @Environment(\.dismiss) private var dismiss
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
 
     private var sorted: [Exercise] {
         exercises.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -82,13 +90,55 @@ struct SplitExerciseSuggestSheet: View {
         return sorted.filter { $0.name.localizedCaseInsensitiveContains(q) }.prefix(80).map { $0 }
     }
 
+    /// Newest completed working set (skips warm-ups) or last cardio duration.
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return QuartzLastWorkingLoad.newestCompletedCaption(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
+    private var resolvedCaptionsByExerciseId: [UUID: String] {
+        if !lastLoadCaptionsByExerciseId.isEmpty { return lastLoadCaptionsByExerciseId }
+        guard resolvesLastLoadFromEnvironment else { return [:] }
+        return QuartzLastWorkingLoad.captionsByExerciseId(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
     var body: some View {
-        List(filtered) { ex in
-            Button {
-                onPick(ex)
-                dismiss()
-            } label: {
-                Text(ex.name)
+        List {
+            if let lastLoad = resolvedLastLoadCaption {
+                Section {
+                    Text(lastLoad)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(FitLogA11yID.splitSuggest.lastLoad)
+                        .accessibilityLabel(lastLoad)
+                        .accessibilityHint("Last working set or last cardio duration from a completed session")
+                        .accessibilityAddTraits(.isStaticText)
+                }
+            }
+            ForEach(filtered) { ex in
+                Button {
+                    onPick(ex)
+                    dismiss()
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(ex.name)
+                        if let rowLoad = resolvedCaptionsByExerciseId[ex.id] {
+                            Text(rowLoad)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .accessibilityLabel(splitSuggestRowLabel(ex))
+                .accessibilityHint("Uses this exercise as the default for the slot")
+                .accessibilityAddTraits(.isButton)
             }
         }
         .searchable(text: $searchText, prompt: "Search exercises")
@@ -100,18 +150,36 @@ struct SplitExerciseSuggestSheet: View {
                     onCancel()
                     dismiss()
                 }
+                .accessibilityLabel("Cancel")
+                .accessibilityHint("Closes the default exercise picker without changing the slot")
             }
         }
         .onAppear {
             searchText = initialQuery
         }
     }
+
+    private func splitSuggestRowLabel(_ exercise: Exercise) -> String {
+        if let rowLoad = resolvedCaptionsByExerciseId[exercise.id] {
+            return "\(exercise.name), \(rowLoad)"
+        }
+        return exercise.name
+    }
 }
 
 struct SplitLibraryPickerView: View {
     let exercises: [Exercise]
     let onSelect: (Exercise) -> Void
+    /// Injected caption skips the live session store (previews / tests).
+    var lastLoadCaption: String? = nil
+    /// Injected per-exercise captions skip the live session store (previews / tests).
+    var lastLoadCaptionsByExerciseId: [UUID: String] = [:]
+    /// Previews set this false so they do not need a live session store.
+    var resolvesLastLoadFromEnvironment: Bool = true
+
     @Environment(\.dismiss) private var dismiss
+    @Environment(DataManager.self) private var dataManager
+    @EnvironmentObject private var userPreferences: UserPreferences
     @State private var searchText = ""
 
     private var filtered: [Exercise] {
@@ -123,11 +191,54 @@ struct SplitLibraryPickerView: View {
         return sorted.filter { $0.name.localizedCaseInsensitiveContains(q) }
     }
 
+    /// Newest completed working set (skips warm-ups) or last cardio duration.
+    private var resolvedLastLoadCaption: String? {
+        if let lastLoadCaption { return lastLoadCaption }
+        guard resolvesLastLoadFromEnvironment else { return nil }
+        return QuartzLastWorkingLoad.newestCompletedCaption(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
+    private var resolvedCaptionsByExerciseId: [UUID: String] {
+        if !lastLoadCaptionsByExerciseId.isEmpty { return lastLoadCaptionsByExerciseId }
+        guard resolvesLastLoadFromEnvironment else { return [:] }
+        return QuartzLastWorkingLoad.captionsByExerciseId(
+            from: dataManager.completedSessions,
+            displayUnit: userPreferences.weightDisplayUnit
+        )
+    }
+
     var body: some View {
-        List(filtered) { ex in
-            Button(ex.name) {
-                onSelect(ex)
-                dismiss()
+        List {
+            if let lastLoad = resolvedLastLoadCaption {
+                Section {
+                    Text(lastLoad)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel(lastLoad)
+                        .accessibilityHint("Last working set or last cardio duration from a completed session")
+                        .accessibilityAddTraits(.isStaticText)
+                }
+            }
+            ForEach(filtered) { ex in
+                Button {
+                    onSelect(ex)
+                    dismiss()
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(ex.name)
+                        if let rowLoad = resolvedCaptionsByExerciseId[ex.id] {
+                            Text(rowLoad)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .accessibilityLabel(splitLibraryRowLabel(ex))
+                .accessibilityHint("Links this library exercise to the slot")
+                .accessibilityAddTraits(.isButton)
             }
         }
         .searchable(text: $searchText)
@@ -136,8 +247,17 @@ struct SplitLibraryPickerView: View {
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismiss() }
+                    .accessibilityLabel("Cancel")
+                    .accessibilityHint("Closes the exercise linker without changing the slot")
             }
         }
+    }
+
+    private func splitLibraryRowLabel(_ exercise: Exercise) -> String {
+        if let rowLoad = resolvedCaptionsByExerciseId[exercise.id] {
+            return "\(exercise.name), \(rowLoad)"
+        }
+        return exercise.name
     }
 }
 
@@ -176,4 +296,37 @@ enum SplitBuilderSupportText {
             return "Adds “\(name)” as a custom exercise and uses it as the default."
         }
     }
+}
+
+#Preview("Suggest sheet last load · strength") {
+    NavigationStack {
+        SplitExerciseSuggestSheet(
+            exercises: [
+                Exercise(id: UUID(), name: "Bench Press", description: "", targetedMuscles: [.chest])
+            ],
+            initialQuery: "",
+            onPick: { _ in },
+            onCancel: {},
+            lastLoadCaption: "Last 185 lb × 8 reps",
+            lastLoadCaptionsByExerciseId: [:],
+            resolvesLastLoadFromEnvironment: false
+        )
+    }
+}
+
+#Preview("Suggest sheet last load · dark cardio") {
+    NavigationStack {
+        SplitExerciseSuggestSheet(
+            exercises: [
+                Exercise(id: UUID(), name: "Zone 2", description: "", targetedMuscles: [.other])
+            ],
+            initialQuery: "",
+            onPick: { _ in },
+            onCancel: {},
+            lastLoadCaption: "Last 45:00",
+            lastLoadCaptionsByExerciseId: [:],
+            resolvesLastLoadFromEnvironment: false
+        )
+    }
+    .preferredColorScheme(.dark)
 }
