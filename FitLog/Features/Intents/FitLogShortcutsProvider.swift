@@ -15,7 +15,8 @@ struct FitLogShortcutsProvider: AppShortcutsProvider {
             phrases: [
                 "Start workout in \(.applicationName)",
                 "Begin training in \(.applicationName)",
-                "Start lifting in \(.applicationName)"
+                "Start lifting in \(.applicationName)",
+                "Start last workout in \(.applicationName)"
             ],
             shortTitle: "Start Workout",
             systemImageName: "figure.strengthtraining.traditional"

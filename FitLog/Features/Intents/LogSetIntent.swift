@@ -55,7 +55,15 @@ struct LogSetIntent: AppIntent {
             )
         )
 
-        let message = "Queued \(reps) reps at \(Int(weight)) lbs — open \(AppBrand.name) to apply"
+        let lastLoad = TopazLastWorkingLoad.lastLoadCaption(
+            forExerciseName: exercise?.name,
+            snapshot: FitLogIntentBridge.loadLastSavedWorkout()
+        )
+        let message = TopazLastWorkingLoad.queuedLogSetMessage(
+            reps: reps,
+            weightPounds: weight,
+            lastLoadCaption: lastLoad
+        )
         return .result(value: message)
     }
 }

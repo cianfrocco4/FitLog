@@ -2351,12 +2351,18 @@ final class DataManager {
         publishIntentExerciseLibrary()
     }
 
-    /// Publishes exercise names for App Intents / Shortcuts entity queries.
+    /// Publishes exercise names and last saved workout for App Intents / Shortcuts.
     func publishIntentExerciseLibrary() {
         let entries = globalExercises.map {
             FitLogIntentBridge.ExerciseSnapshotEntry(id: $0.id, name: resolvedDisplayName(for: $0))
         }
         FitLogIntentBridge.publishExerciseLibrary(entries)
+        let snapshot = TopazLastWorkingLoad.lastSavedWorkoutSnapshot(
+            library: userWorkouts,
+            sessions: completedSessions,
+            displayUnit: TopazLastWorkingLoad.storedDisplayUnit()
+        )
+        FitLogIntentBridge.publishLastSavedWorkout(snapshot)
     }
 
     /// Recomputes PR rows for one exercise after set delete/edit in an active or completed session.

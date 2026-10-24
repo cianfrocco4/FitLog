@@ -13,6 +13,7 @@ enum FitLogIntentBridge {
         static let pendingStartWorkoutName = "fitlog.intent.pendingStartWorkoutName"
         static let pendingRestTimerSeconds = "fitlog.intent.pendingRestTimerSeconds"
         static let exerciseLibrarySnapshot = "fitlog.intent.exerciseLibrarySnapshot"
+        static let lastSavedWorkoutSnapshot = "fitlog.intent.lastSavedWorkoutSnapshot"
     }
 
     struct PendingLogSet: Codable, Equatable {
@@ -25,6 +26,13 @@ enum FitLogIntentBridge {
     struct ExerciseSnapshotEntry: Codable, Equatable {
         var id: UUID
         var name: String
+    }
+
+    /// Last library workout Siri/Shortcuts can start without a name, plus last-load copy.
+    struct LastSavedWorkoutSnapshot: Codable, Equatable {
+        var name: String
+        var lastLoadCaption: String?
+        var lastLoadByExerciseName: [String: String] = [:]
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -59,6 +67,25 @@ enum FitLogIntentBridge {
             let entries = try? JSONDecoder().decode([ExerciseSnapshotEntry].self, from: data)
         else { return [] }
         return entries
+    }
+
+    static func publishLastSavedWorkout(
+        _ snapshot: LastSavedWorkoutSnapshot?,
+        defaults: UserDefaults = .standard
+    ) {
+        if let snapshot, let data = try? JSONEncoder().encode(snapshot) {
+            defaults.set(data, forKey: Key.lastSavedWorkoutSnapshot)
+        } else {
+            defaults.removeObject(forKey: Key.lastSavedWorkoutSnapshot)
+        }
+    }
+
+    static func loadLastSavedWorkout(defaults: UserDefaults = .standard) -> LastSavedWorkoutSnapshot? {
+        guard
+            let data = defaults.data(forKey: Key.lastSavedWorkoutSnapshot),
+            let snapshot = try? JSONDecoder().decode(LastSavedWorkoutSnapshot.self, from: data)
+        else { return nil }
+        return snapshot
     }
 
     // MARK: - Consume (called from main app)
