@@ -1396,6 +1396,7 @@ final class DataManager {
     func refreshCompletedSessions() {
         completedSessions = sessionStore.loadSessions()
         reconcileSkippedCycleTrainingDays()
+        publishIntentExerciseLibrary()
     }
 
     func appendCompletedSession(_ session: WorkoutSession) {
@@ -1408,6 +1409,7 @@ final class DataManager {
             persistenceFailureReporter.report("Could not save workout history. This session may be missing after you quit the app.")
         }
         reconcileSkippedCycleTrainingDays()
+        publishIntentExerciseLibrary()
     }
 
     /// Template for a new live session from a **completed** session (library + flexible slots when possible).
@@ -1440,6 +1442,7 @@ final class DataManager {
             return false
         }
         reconcileSkippedCycleTrainingDays()
+        publishIntentExerciseLibrary()
         return true
     }
 
@@ -1457,6 +1460,7 @@ final class DataManager {
             return false
         }
         reconcileSkippedCycleTrainingDays()
+        publishIntentExerciseLibrary()
         return true
     }
 
@@ -1465,6 +1469,7 @@ final class DataManager {
         let ok = sessionStore.saveSessions(completedSessions)
         if ok {
             reconcileSkippedCycleTrainingDays()
+            publishIntentExerciseLibrary()
         } else {
             persistenceFailureReporter.report("Could not save workout history.")
         }
@@ -2351,12 +2356,17 @@ final class DataManager {
         publishIntentExerciseLibrary()
     }
 
-    /// Publishes exercise names for App Intents / Shortcuts entity queries.
+    /// Publishes exercise names and last-load captions for App Intents / Shortcuts.
     func publishIntentExerciseLibrary() {
         let entries = globalExercises.map {
             FitLogIntentBridge.ExerciseSnapshotEntry(id: $0.id, name: resolvedDisplayName(for: $0))
         }
         FitLogIntentBridge.publishExerciseLibrary(entries)
+        let snapshot = CitrineLastWorkingLoad.querySnapshot(
+            from: completedSessions,
+            displayUnit: CitrineLastWorkingLoad.storedDisplayUnit()
+        )
+        FitLogIntentBridge.publishLastLoadQuerySnapshot(snapshot)
     }
 
     /// Recomputes PR rows for one exercise after set delete/edit in an active or completed session.

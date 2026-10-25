@@ -40,5 +40,26 @@ struct FitLogShortcutsProvider: AppShortcutsProvider {
             shortTitle: "Rest Timer",
             systemImageName: "timer"
         )
+
+        AppShortcut(
+            intent: LastWorkoutQueryIntent(),
+            phrases: [
+                "Last workout in \(.applicationName)",
+                "What was my last workout in \(.applicationName)"
+            ],
+            shortTitle: "Last Workout",
+            systemImageName: "clock.arrow.circlepath"
+        )
+
+        AppShortcut(
+            intent: LastLoadQueryIntent(),
+            phrases: [
+                "Last weight in \(.applicationName)",
+                "What was my last weight in \(.applicationName)",
+                "Last cardio in \(.applicationName)"
+            ],
+            shortTitle: "Last Weight",
+            systemImageName: "scalemass"
+        )
     }
 }

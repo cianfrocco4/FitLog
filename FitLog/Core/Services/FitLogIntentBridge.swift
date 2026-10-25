@@ -13,6 +13,7 @@ enum FitLogIntentBridge {
         static let pendingStartWorkoutName = "fitlog.intent.pendingStartWorkoutName"
         static let pendingRestTimerSeconds = "fitlog.intent.pendingRestTimerSeconds"
         static let exerciseLibrarySnapshot = "fitlog.intent.exerciseLibrarySnapshot"
+        static let citrineLastLoadSnapshot = "fitlog.intent.citrineLastLoadSnapshot"
     }
 
     struct PendingLogSet: Codable, Equatable {
@@ -25,6 +26,27 @@ enum FitLogIntentBridge {
     struct ExerciseSnapshotEntry: Codable, Equatable {
         var id: UUID
         var name: String
+    }
+
+    /// Published last-load / last-workout snapshot for Siri query intents.
+    /// Distinct from Topaz `LastSavedWorkoutSnapshot` (start / log-set actions).
+    struct LastLoadQuerySnapshot: Codable, Equatable {
+        var lastWorkoutName: String?
+        var newestCaption: String?
+        var lastCardioCaption: String?
+        var captionsByExerciseName: [String: String]
+
+        init(
+            lastWorkoutName: String? = nil,
+            newestCaption: String? = nil,
+            lastCardioCaption: String? = nil,
+            captionsByExerciseName: [String: String] = [:]
+        ) {
+            self.lastWorkoutName = lastWorkoutName
+            self.newestCaption = newestCaption
+            self.lastCardioCaption = lastCardioCaption
+            self.captionsByExerciseName = captionsByExerciseName
+        }
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -59,6 +81,19 @@ enum FitLogIntentBridge {
             let entries = try? JSONDecoder().decode([ExerciseSnapshotEntry].self, from: data)
         else { return [] }
         return entries
+    }
+
+    static func publishLastLoadQuerySnapshot(_ snapshot: LastLoadQuerySnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: Key.citrineLastLoadSnapshot)
+    }
+
+    static func loadLastLoadQuerySnapshot() -> LastLoadQuerySnapshot? {
+        guard
+            let data = defaults.data(forKey: Key.citrineLastLoadSnapshot),
+            let snapshot = try? JSONDecoder().decode(LastLoadQuerySnapshot.self, from: data)
+        else { return nil }
+        return snapshot
     }
 
     // MARK: - Consume (called from main app)

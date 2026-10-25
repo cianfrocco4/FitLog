@@ -20,12 +20,17 @@ struct RestTimerIntent: AppIntent {
         Summary("Start \(\.$durationSeconds) second rest timer")
     }
 
-    func perform() async throws -> some IntentResult {
+    func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
         guard durationSeconds > 0 && durationSeconds <= 600 else {
             throw $durationSeconds.needsValueError("Duration must be between 1 and 600 seconds")
         }
 
         FitLogIntentBridge.queueRestTimer(seconds: durationSeconds)
-        return .result()
+        let snapshot = FitLogIntentBridge.loadLastLoadQuerySnapshot()
+        let message = CitrineLastWorkingLoad.restTimerDialog(
+            durationSeconds: durationSeconds,
+            snapshot: snapshot
+        )
+        return .result(value: message, dialog: IntentDialog(stringLiteral: message))
     }
 }
