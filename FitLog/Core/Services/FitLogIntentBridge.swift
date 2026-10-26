@@ -13,6 +13,8 @@ enum FitLogIntentBridge {
         static let pendingStartWorkoutName = "fitlog.intent.pendingStartWorkoutName"
         static let pendingRestTimerSeconds = "fitlog.intent.pendingRestTimerSeconds"
         static let exerciseLibrarySnapshot = "fitlog.intent.exerciseLibrarySnapshot"
+        /// Distinct from Citrine `citrineLastLoadSnapshot` and Topaz `LastSavedWorkoutSnapshot`.
+        static let rubyRepeatSnapshot = "fitlog.intent.rubyRepeatSnapshot"
     }
 
     struct PendingLogSet: Codable, Equatable {
@@ -25,6 +27,24 @@ enum FitLogIntentBridge {
     struct ExerciseSnapshotEntry: Codable, Equatable {
         var id: UUID
         var name: String
+    }
+
+    /// Last completed workout + last working load for Repeat Yesterday.
+    /// Distinct from Citrine `LastLoadQuerySnapshot` and Topaz start/log-set snapshots.
+    struct RubyRepeatSnapshot: Codable, Equatable {
+        var lastWorkoutName: String?
+        var newestCaption: String?
+        var lastCardioCaption: String?
+
+        init(
+            lastWorkoutName: String? = nil,
+            newestCaption: String? = nil,
+            lastCardioCaption: String? = nil
+        ) {
+            self.lastWorkoutName = lastWorkoutName
+            self.newestCaption = newestCaption
+            self.lastCardioCaption = lastCardioCaption
+        }
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -59,6 +79,19 @@ enum FitLogIntentBridge {
             let entries = try? JSONDecoder().decode([ExerciseSnapshotEntry].self, from: data)
         else { return [] }
         return entries
+    }
+
+    static func publishRubyRepeatSnapshot(_ snapshot: RubyRepeatSnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: Key.rubyRepeatSnapshot)
+    }
+
+    static func loadRubyRepeatSnapshot() -> RubyRepeatSnapshot? {
+        guard
+            let data = defaults.data(forKey: Key.rubyRepeatSnapshot),
+            let snapshot = try? JSONDecoder().decode(RubyRepeatSnapshot.self, from: data)
+        else { return nil }
+        return snapshot
     }
 
     // MARK: - Consume (called from main app)

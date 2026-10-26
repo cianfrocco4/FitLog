@@ -40,5 +40,36 @@ struct FitLogShortcutsProvider: AppShortcutsProvider {
             shortTitle: "Rest Timer",
             systemImageName: "timer"
         )
+
+        AppShortcut(
+            intent: RepeatYesterdayIntent(),
+            phrases: [
+                "Repeat yesterday in \(.applicationName)",
+                "Do yesterday's workout in \(.applicationName)",
+                "Repeat last session in \(.applicationName)"
+            ],
+            shortTitle: "Repeat Yesterday",
+            systemImageName: "arrow.counterclockwise"
+        )
+
+        AppShortcut(
+            intent: ReadinessQueryIntent(),
+            phrases: [
+                "What's my readiness in \(.applicationName)",
+                "Readiness score in \(.applicationName)"
+            ],
+            shortTitle: "Readiness",
+            systemImageName: "heart.text.square"
+        )
+
+        AppShortcut(
+            intent: TodayPlanQueryIntent(),
+            phrases: [
+                "What's today's workout in \(.applicationName)",
+                "Today's plan in \(.applicationName)"
+            ],
+            shortTitle: "Today's Workout",
+            systemImageName: "calendar"
+        )
     }
 }
