@@ -13,6 +13,7 @@ enum FitLogIntentBridge {
         static let pendingStartWorkoutName = "fitlog.intent.pendingStartWorkoutName"
         static let pendingRestTimerSeconds = "fitlog.intent.pendingRestTimerSeconds"
         static let exerciseLibrarySnapshot = "fitlog.intent.exerciseLibrarySnapshot"
+        static let sapphireTodaySnapshot = "fitlog.intent.sapphireTodaySnapshot"
     }
 
     struct PendingLogSet: Codable, Equatable {
@@ -25,6 +26,31 @@ enum FitLogIntentBridge {
     struct ExerciseSnapshotEntry: Codable, Equatable {
         var id: UUID
         var name: String
+    }
+
+    /// Last-load / last-cardio / already-trained snapshot for Sapphire Siri actions.
+    /// Distinct from rubyRepeatSnapshot, citrineLastLoadSnapshot, and topaz LastSavedWorkoutSnapshot.
+    struct SapphireTodaySnapshot: Codable, Equatable {
+        var lastCardioWorkoutName: String?
+        var lastCardioCaption: String?
+        var trainedToday: Bool
+        var trainedTodayWorkoutName: String?
+        /// Lowercased workout name → last working-load or last cardio duration caption.
+        var lastCaptionByWorkoutName: [String: String]
+
+        init(
+            lastCardioWorkoutName: String? = nil,
+            lastCardioCaption: String? = nil,
+            trainedToday: Bool = false,
+            trainedTodayWorkoutName: String? = nil,
+            lastCaptionByWorkoutName: [String: String] = [:]
+        ) {
+            self.lastCardioWorkoutName = lastCardioWorkoutName
+            self.lastCardioCaption = lastCardioCaption
+            self.trainedToday = trainedToday
+            self.trainedTodayWorkoutName = trainedTodayWorkoutName
+            self.lastCaptionByWorkoutName = lastCaptionByWorkoutName
+        }
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -59,6 +85,19 @@ enum FitLogIntentBridge {
             let entries = try? JSONDecoder().decode([ExerciseSnapshotEntry].self, from: data)
         else { return [] }
         return entries
+    }
+
+    static func publishSapphireTodaySnapshot(_ snapshot: SapphireTodaySnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: Key.sapphireTodaySnapshot)
+    }
+
+    static func loadSapphireTodaySnapshot() -> SapphireTodaySnapshot? {
+        guard
+            let data = defaults.data(forKey: Key.sapphireTodaySnapshot),
+            let snapshot = try? JSONDecoder().decode(SapphireTodaySnapshot.self, from: data)
+        else { return nil }
+        return snapshot
     }
 
     // MARK: - Consume (called from main app)

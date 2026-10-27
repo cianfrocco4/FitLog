@@ -21,6 +21,15 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishSapphireTodaySnapshot()
+    }
+
+    func publishSapphireTodaySnapshot() {
+        let snapshot = SapphireAskFitLog.querySnapshot(
+            from: completedSessions,
+            displayUnit: SapphireAskFitLog.storedDisplayUnit()
+        )
+        FitLogIntentBridge.publishSapphireTodaySnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {
