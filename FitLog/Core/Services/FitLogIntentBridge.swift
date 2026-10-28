@@ -13,6 +13,7 @@ enum FitLogIntentBridge {
         static let pendingStartWorkoutName = "fitlog.intent.pendingStartWorkoutName"
         static let pendingRestTimerSeconds = "fitlog.intent.pendingRestTimerSeconds"
         static let exerciseLibrarySnapshot = "fitlog.intent.exerciseLibrarySnapshot"
+        static let emeraldStrengthSnapshot = "fitlog.intent.emeraldStrengthSnapshot"
     }
 
     struct PendingLogSet: Codable, Equatable {
@@ -25,6 +26,28 @@ enum FitLogIntentBridge {
     struct ExerciseSnapshotEntry: Codable, Equatable {
         var id: UUID
         var name: String
+    }
+
+    /// Last-strength / this-week snapshot for Emerald Siri actions.
+    /// Distinct from sapphireTodaySnapshot, rubyRepeatSnapshot, citrineLastLoadSnapshot,
+    /// and topaz LastSavedWorkoutSnapshot.
+    struct EmeraldStrengthSnapshot: Codable, Equatable {
+        var lastStrengthWorkoutName: String?
+        var lastStrengthCaption: String?
+        var thisWeekSessionCount: Int
+        var thisWeekLastWorkoutName: String?
+
+        init(
+            lastStrengthWorkoutName: String? = nil,
+            lastStrengthCaption: String? = nil,
+            thisWeekSessionCount: Int = 0,
+            thisWeekLastWorkoutName: String? = nil
+        ) {
+            self.lastStrengthWorkoutName = lastStrengthWorkoutName
+            self.lastStrengthCaption = lastStrengthCaption
+            self.thisWeekSessionCount = thisWeekSessionCount
+            self.thisWeekLastWorkoutName = thisWeekLastWorkoutName
+        }
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -59,6 +82,19 @@ enum FitLogIntentBridge {
             let entries = try? JSONDecoder().decode([ExerciseSnapshotEntry].self, from: data)
         else { return [] }
         return entries
+    }
+
+    static func publishEmeraldStrengthSnapshot(_ snapshot: EmeraldStrengthSnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: Key.emeraldStrengthSnapshot)
+    }
+
+    static func loadEmeraldStrengthSnapshot() -> EmeraldStrengthSnapshot? {
+        guard
+            let data = defaults.data(forKey: Key.emeraldStrengthSnapshot),
+            let snapshot = try? JSONDecoder().decode(EmeraldStrengthSnapshot.self, from: data)
+        else { return nil }
+        return snapshot
     }
 
     // MARK: - Consume (called from main app)

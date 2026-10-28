@@ -40,5 +40,38 @@ struct FitLogShortcutsProvider: AppShortcutsProvider {
             shortTitle: "Rest Timer",
             systemImageName: "timer"
         )
+
+        AppShortcut(
+            intent: StartLastStrengthIntent(),
+            phrases: [
+                "Start last strength in \(.applicationName)",
+                "Start my last strength workout in \(.applicationName)",
+                "Repeat last strength in \(.applicationName)"
+            ],
+            shortTitle: "Start Last Strength",
+            systemImageName: "dumbbell"
+        )
+
+        AppShortcut(
+            intent: LastStrengthQueryIntent(),
+            phrases: [
+                "Last strength in \(.applicationName)",
+                "What was my last strength in \(.applicationName)",
+                "Last working set in \(.applicationName)"
+            ],
+            shortTitle: "Last Strength",
+            systemImageName: "scalemass"
+        )
+
+        AppShortcut(
+            intent: ThisWeeksTrainingIntent(),
+            phrases: [
+                "This week's training in \(.applicationName)",
+                "How many workouts this week in \(.applicationName)",
+                "Workouts this week in \(.applicationName)"
+            ],
+            shortTitle: "This Week's Training",
+            systemImageName: "calendar.badge.clock"
+        )
     }
 }

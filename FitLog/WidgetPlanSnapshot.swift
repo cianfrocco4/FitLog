@@ -21,6 +21,15 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishEmeraldStrengthSnapshot()
+    }
+
+    func publishEmeraldStrengthSnapshot() {
+        let snapshot = EmeraldAskFitLog.querySnapshot(
+            from: completedSessions,
+            displayUnit: EmeraldAskFitLog.storedDisplayUnit()
+        )
+        FitLogIntentBridge.publishEmeraldStrengthSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {
