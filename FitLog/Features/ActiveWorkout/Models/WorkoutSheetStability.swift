@@ -24,10 +24,12 @@ enum SessionRestOverrideBounds {
     static let range: ClosedRange<Int> = 0...300
     static let step: Int = 15
 
-    /// SwiftUI `Stepper` crashes when `value` is outside `in:` or not aligned to `step`.
-    static func stepperDisplayValue(_ seconds: Int) -> Int {
-        let clamped = min(range.upperBound, max(range.lowerBound, seconds))
-        let aligned = (clamped / step) * step
-        return min(range.upperBound, max(range.lowerBound, aligned))
+    /// Step from the real rest value. Results stay inside `range`; the input is not floored,
+    /// so a 100s rest stays 100s until the user changes it (100 ± 15 → 115 or 85).
+    static func stepped(_ seconds: Int, by direction: Int) -> Int {
+        let delta = direction >= 0 ? step : -step
+        let next = seconds.addingReportingOverflow(delta)
+        let summed = next.overflow ? (direction >= 0 ? range.upperBound : range.lowerBound) : next.partialValue
+        return min(range.upperBound, max(range.lowerBound, summed))
     }
 }

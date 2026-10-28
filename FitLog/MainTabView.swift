@@ -64,11 +64,11 @@ struct MainTabView: View {
             .environment(\.workoutChromeMetrics, workoutChromeMetrics)
             .environment(\.openCurrentWorkoutSheet, {
                 currentVM.pendingPullUpFocus = nil
-                showCurrentWorkoutPullUp = true
+                presentCurrentWorkoutPullUp()
             })
             .environment(\.openPullUpToExerciseLogIndex, { logIndex in
                 currentVM.pendingPullUpFocus = PendingPullUpFocus(exerciseLogIndex: logIndex, presentLogSetSheet: true)
-                showCurrentWorkoutPullUp = true
+                presentCurrentWorkoutPullUp()
             })
             .overlay(alignment: .bottom) {
                 planTabSpotlightProbe
@@ -105,9 +105,7 @@ struct MainTabView: View {
                     selection: $workoutSheetDetent
                 )
                 .presentationDragIndicator(.visible)
-                // Interaction through medium keeps tabs usable while collapsed/medium;
-                // enabling through expanded made the logging surface fight the tab bar.
-                .presentationBackgroundInteraction(.enabled(upThrough: FitlogWorkoutSheetDetent.medium))
+                .presentationBackgroundInteraction(.enabled(upThrough: FitlogWorkoutSheetDetent.expanded))
                 .interactiveDismissDisabled()
         }
         .onChange(of: showCurrentWorkoutPullUp) { _, isOpen in
@@ -127,8 +125,9 @@ struct MainTabView: View {
                 guard showCurrentWorkoutPullUp,
                       WorkoutSheetCollapsePolicy.shouldDismissPullUp(for: workoutSheetDetent)
                 else { return }
+                // Leave the detent at collapsed. Resetting it to expanded in this turn
+                // updates the sheet selection while dismissal is in progress.
                 showCurrentWorkoutPullUp = false
-                workoutSheetDetent = FitlogWorkoutSheetDetent.defaultOpen
             }
         }
         .sheet(item: Binding(
@@ -174,7 +173,7 @@ struct MainTabView: View {
         }
         .onChange(of: currentVM.isInProgress) { wasActive, isActive in
             if isActive && !wasActive {
-                showCurrentWorkoutPullUp = true
+                presentCurrentWorkoutPullUp()
             }
             if !isActive {
                 showCurrentWorkoutPullUp = false
@@ -238,7 +237,7 @@ struct MainTabView: View {
             case .quickLog:
                 rootTab = .home
                 if currentVM.isInProgress {
-                    showCurrentWorkoutPullUp = true
+                    presentCurrentWorkoutPullUp()
                 } else {
                     NotificationCenter.default.post(name: .fitlogPresentNewWorkout, object: nil)
                 }
@@ -252,6 +251,13 @@ struct MainTabView: View {
                 rootTab = tab
             }
         }
+    }
+
+    /// Opens the pull-up already at the expanded detent. The collapsed detent is only
+    /// the dismiss signal, so the selection must move off collapsed before the sheet appears.
+    private func presentCurrentWorkoutPullUp() {
+        workoutSheetDetent = FitlogWorkoutSheetDetent.defaultOpen
+        showCurrentWorkoutPullUp = true
     }
 
     /// Invisible probe matching the Plan tab item so the spotlight can cut out the tab bar.

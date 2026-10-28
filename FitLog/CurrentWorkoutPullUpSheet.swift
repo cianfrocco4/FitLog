@@ -2048,40 +2048,59 @@ struct CurrentWorkoutPullUpSheet: View {
         return nil
     }
 
+    private func sessionRestSeconds(exerciseIndex: Int, planDefault: Int) -> Int {
+        guard let logs = currentVM.currentSession?.exerciseLogs,
+              logs.indices.contains(exerciseIndex)
+        else { return planDefault }
+        return logs[exerciseIndex].sessionRestOverrideSeconds ?? planDefault
+    }
+
     @ViewBuilder
     private func sessionRestOverrideEditor(exerciseIndex: Int, log: ExerciseLog) -> some View {
         let planDefaultRaw = log.workoutExercise.defaultRestTime
-        let planDefaultForStepper = SessionRestOverrideBounds.stepperDisplayValue(planDefaultRaw)
+        let shown = sessionRestSeconds(exerciseIndex: exerciseIndex, planDefault: planDefaultRaw)
         VStack(alignment: .leading, spacing: 6) {
             Text("Default rest (this session)")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-            Stepper(
-                value: Binding(
-                    get: {
-                        guard let logs = currentVM.currentSession?.exerciseLogs,
-                              logs.indices.contains(exerciseIndex)
-                        else { return planDefaultForStepper }
-                        let raw = logs[exerciseIndex].sessionRestOverrideSeconds ?? planDefaultRaw
-                        return SessionRestOverrideBounds.stepperDisplayValue(raw)
-                    },
-                    set: { currentVM.setExerciseLogSessionRestOverride(at: exerciseIndex, seconds: $0) }
-                ),
-                in: SessionRestOverrideBounds.range,
-                step: SessionRestOverrideBounds.step
-            ) {
-                let shown: Int = {
-                    guard let logs = currentVM.currentSession?.exerciseLogs,
-                          logs.indices.contains(exerciseIndex)
-                    else { return planDefaultForStepper }
-                    let raw = logs[exerciseIndex].sessionRestOverrideSeconds ?? planDefaultRaw
-                    return SessionRestOverrideBounds.stepperDisplayValue(raw)
-                }()
-                Text("Next set rest: \(shown)s")
-                    .font(.subheadline)
-                Text("Plan default: \(planDefaultRaw)s")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Button {
+                    currentVM.setExerciseLogSessionRestOverride(
+                        at: exerciseIndex,
+                        seconds: SessionRestOverrideBounds.stepped(shown, by: -1)
+                    )
+                } label: {
+                    Image(systemName: "minus")
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .disabled(shown <= SessionRestOverrideBounds.range.lowerBound)
+                .accessibilityLabel("Decrease rest")
+                .accessibilityHint("Shortens the next-set rest by 15 seconds")
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Next set rest: \(shown)s")
+                        .font(.subheadline)
+                    Text("Plan default: \(planDefaultRaw)s")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .combine)
+
+                Button {
+                    currentVM.setExerciseLogSessionRestOverride(
+                        at: exerciseIndex,
+                        seconds: SessionRestOverrideBounds.stepped(shown, by: 1)
+                    )
+                } label: {
+                    Image(systemName: "plus")
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .disabled(shown >= SessionRestOverrideBounds.range.upperBound)
+                .accessibilityLabel("Increase rest")
+                .accessibilityHint("Lengthens the next-set rest by 15 seconds")
             }
             if log.sessionRestOverrideSeconds != nil {
                 Button("Reset to plan default") {
