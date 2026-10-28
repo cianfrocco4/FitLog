@@ -105,7 +105,9 @@ struct MainTabView: View {
                     selection: $workoutSheetDetent
                 )
                 .presentationDragIndicator(.visible)
-                .presentationBackgroundInteraction(.enabled(upThrough: FitlogWorkoutSheetDetent.expanded))
+                // Interaction through medium keeps tabs usable while collapsed/medium;
+                // enabling through expanded made the logging surface fight the tab bar.
+                .presentationBackgroundInteraction(.enabled(upThrough: FitlogWorkoutSheetDetent.medium))
                 .interactiveDismissDisabled()
         }
         .onChange(of: showCurrentWorkoutPullUp) { _, isOpen in
@@ -116,8 +118,17 @@ struct MainTabView: View {
             }
         }
         .onChange(of: workoutSheetDetent) { _, newDetent in
-            if newDetent == FitlogWorkoutSheetDetent.collapsed {
+            // Collapsed = minimize to the floating bar. Dismissing synchronously while the
+            // detent gesture is still settling races sheet teardown with List unmount and
+            // has crashed mid-workout (see workout feedback: collapse during active session).
+            guard WorkoutSheetCollapsePolicy.shouldDismissPullUp(for: newDetent) else { return }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: WorkoutSheetCollapsePolicy.dismissSettleNanoseconds)
+                guard showCurrentWorkoutPullUp,
+                      WorkoutSheetCollapsePolicy.shouldDismissPullUp(for: workoutSheetDetent)
+                else { return }
                 showCurrentWorkoutPullUp = false
+                workoutSheetDetent = FitlogWorkoutSheetDetent.defaultOpen
             }
         }
         .sheet(item: Binding(

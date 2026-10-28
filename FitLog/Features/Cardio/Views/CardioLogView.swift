@@ -197,46 +197,68 @@ struct CardioLogView: View {
 
     @ViewBuilder
     private var manualEntrySection: some View {
-        DisclosureGroup(isExpanded: $showManualSection) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    TextField("Min", text: $manualMinutes)
-                        .keyboardType(.numberPad)
-                        .textFieldStyle(.roundedBorder)
-                        .accessibilityLabel("Duration minutes")
-                    TextField("Sec", text: $manualSeconds)
-                        .keyboardType(.numberPad)
-                        .textFieldStyle(.roundedBorder)
-                        .accessibilityLabel("Duration seconds")
+        // Button + conditional instead of DisclosureGroup: this view sits inside the
+        // workout List, and DisclosureGroup expansion there has been crash-prone.
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showManualSection.toggle()
                 }
-                TextField("Distance (km)", text: $manualDistanceKm)
-                    .keyboardType(.decimalPad)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("Distance in kilometers")
-                TextField("Avg heart rate", text: $manualHeartRate)
-                    .keyboardType(.numberPad)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("Average heart rate")
-                TextField("Calories", text: $manualCalories)
-                    .keyboardType(.numberPad)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("Calories burned")
-
-                Button {
-                    logManualEntry()
-                } label: {
-                    Label("Log manually", systemImage: "checkmark.circle.fill")
-                        .frame(maxWidth: .infinity)
+            } label: {
+                HStack {
+                    Text("Manual entry")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Spacer(minLength: 8)
+                    Image(systemName: showManualSection ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(FitlogPalette.chartSecondary)
-                .disabled(parsedDurationSeconds == nil)
-                .accessibilityHint("Saves duration and optional distance without using the timer")
+                .contentShape(Rectangle())
             }
-            .padding(.top, 6)
-        } label: {
-            Text("Manual entry")
-                .font(.subheadline.weight(.semibold))
+            .buttonStyle(.plain)
+            .accessibilityLabel("Manual entry")
+            .accessibilityHint(showManualSection ? "Collapses manual cardio entry" : "Expands manual cardio entry")
+            .accessibilityAddTraits(.isButton)
+
+            if showManualSection {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        TextField("Min", text: $manualMinutes)
+                            .keyboardType(.numberPad)
+                            .textFieldStyle(.roundedBorder)
+                            .accessibilityLabel("Duration minutes")
+                        TextField("Sec", text: $manualSeconds)
+                            .keyboardType(.numberPad)
+                            .textFieldStyle(.roundedBorder)
+                            .accessibilityLabel("Duration seconds")
+                    }
+                    TextField("Distance (km)", text: $manualDistanceKm)
+                        .keyboardType(.decimalPad)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Distance in kilometers")
+                    TextField("Avg heart rate", text: $manualHeartRate)
+                        .keyboardType(.numberPad)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Average heart rate")
+                    TextField("Calories", text: $manualCalories)
+                        .keyboardType(.numberPad)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Calories burned")
+
+                    Button {
+                        logManualEntry()
+                    } label: {
+                        Label("Log manually", systemImage: "checkmark.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(FitlogPalette.chartSecondary)
+                    .disabled(parsedDurationSeconds == nil)
+                    .accessibilityHint("Saves duration and optional distance without using the timer")
+                }
+                .padding(.top, 2)
+            }
         }
     }
 
