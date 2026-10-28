@@ -3,7 +3,7 @@
 //  FitLog
 //
 //  Pure helpers that keep the active-workout pull-up sheet from crashing on
-//  collapse / Notes-and-rest expansion (invalid Stepper values).
+//  collapse, and that step session rest without rewriting the displayed seconds.
 //
 
 import Foundation
