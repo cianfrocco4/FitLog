@@ -34,6 +34,8 @@ Subscriptions are managed via **RevenueCat** and App Store In-App Purchases.
 
 See [docs/REVENUECAT_SETUP.md](docs/REVENUECAT_SETUP.md) for subscription configuration. After an App Review IAP / EULA rejection, see [docs/APP_REVIEW_RESOLUTION.md](docs/APP_REVIEW_RESOLUTION.md).
 
+**App Store:** [Workout Log AI](https://apps.apple.com/us/app/workout-log-ai/id6759616774) (`id6759616774`). Search often hides the spaced name — use that link or search **WorkoutLogAI**. Rankings, ratings, and acquisition plan: [docs/GROWTH_AND_ASO_PLAN.md](docs/GROWTH_AND_ASO_PLAN.md).
+
 ## Automated testing (bots + UI)
 
 Cloud Linux agents cannot tap the iPhone UI. On a Mac worker (`fitlog-mac`) you can:
