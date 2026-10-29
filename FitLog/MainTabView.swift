@@ -19,6 +19,8 @@ struct MainTabView: View {
     @Environment(ExerciseFormGuideService.self) private var formGuideService
     @State private var showCurrentWorkoutPullUp = false
     @State private var workoutSheetDetent: PresentationDetent = FitlogWorkoutSheetDetent.defaultOpen
+    /// Invalidates an in-flight collapsed-detent dismiss when the sheet moves or opens again.
+    @State private var pullUpCollapseGeneration = 0
     @State private var showOnboarding = false
     @State private var showPostWorkoutPaywall = false
     @State private var rootTab: FitlogRootTab = .home
@@ -64,11 +66,11 @@ struct MainTabView: View {
             .environment(\.workoutChromeMetrics, workoutChromeMetrics)
             .environment(\.openCurrentWorkoutSheet, {
                 currentVM.pendingPullUpFocus = nil
-                showCurrentWorkoutPullUp = true
+                presentCurrentWorkoutPullUp()
             })
             .environment(\.openPullUpToExerciseLogIndex, { logIndex in
                 currentVM.pendingPullUpFocus = PendingPullUpFocus(exerciseLogIndex: logIndex, presentLogSetSheet: true)
-                showCurrentWorkoutPullUp = true
+                presentCurrentWorkoutPullUp()
             })
             .overlay(alignment: .bottom) {
                 planTabSpotlightProbe
@@ -116,7 +118,20 @@ struct MainTabView: View {
             }
         }
         .onChange(of: workoutSheetDetent) { _, newDetent in
-            if newDetent == FitlogWorkoutSheetDetent.collapsed {
+            // Collapsed = minimize to the floating bar. Dismissing synchronously while the
+            // detent gesture is still settling races sheet teardown with List unmount and
+            // has crashed mid-workout (see workout feedback: collapse during active session).
+            pullUpCollapseGeneration += 1
+            guard WorkoutSheetCollapsePolicy.shouldDismissPullUp(for: newDetent) else { return }
+            let generation = pullUpCollapseGeneration
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: WorkoutSheetCollapsePolicy.dismissSettleNanoseconds)
+                guard generation == pullUpCollapseGeneration,
+                      showCurrentWorkoutPullUp,
+                      WorkoutSheetCollapsePolicy.shouldDismissPullUp(for: workoutSheetDetent)
+                else { return }
+                // Leave the detent at collapsed. Resetting it to expanded in this turn
+                // updates the sheet selection while dismissal is in progress.
                 showCurrentWorkoutPullUp = false
             }
         }
@@ -163,7 +178,7 @@ struct MainTabView: View {
         }
         .onChange(of: currentVM.isInProgress) { wasActive, isActive in
             if isActive && !wasActive {
-                showCurrentWorkoutPullUp = true
+                presentCurrentWorkoutPullUp()
             }
             if !isActive {
                 showCurrentWorkoutPullUp = false
@@ -227,7 +242,7 @@ struct MainTabView: View {
             case .quickLog:
                 rootTab = .home
                 if currentVM.isInProgress {
-                    showCurrentWorkoutPullUp = true
+                    presentCurrentWorkoutPullUp()
                 } else {
                     NotificationCenter.default.post(name: .fitlogPresentNewWorkout, object: nil)
                 }
@@ -241,6 +256,14 @@ struct MainTabView: View {
                 rootTab = tab
             }
         }
+    }
+
+    /// Opens the pull-up already at the expanded detent. The collapsed detent is only
+    /// the dismiss signal, so the selection must move off collapsed before the sheet appears.
+    private func presentCurrentWorkoutPullUp() {
+        pullUpCollapseGeneration += 1
+        workoutSheetDetent = FitlogWorkoutSheetDetent.defaultOpen
+        showCurrentWorkoutPullUp = true
     }
 
     /// Invisible probe matching the Plan tab item so the spotlight can cut out the tab bar.

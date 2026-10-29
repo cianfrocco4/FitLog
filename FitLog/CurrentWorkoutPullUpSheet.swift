@@ -410,10 +410,6 @@ struct CurrentWorkoutPullUpSheet: View {
         }
     }
 
-    private var showsWorkoutList: Bool {
-        sheetDetent == FitlogWorkoutSheetDetent.expanded || sheetDetent == FitlogWorkoutSheetDetent.medium
-    }
-
     private var activeSessionWorkout: Workout? {
         currentVM.currentSession?.workout
     }
@@ -690,18 +686,12 @@ struct CurrentWorkoutPullUpSheet: View {
                                                 .listRowBackground(FitlogPalette.success.opacity(0.04))
                                             }
 
-                                            DisclosureGroup(isExpanded: Binding(
-                                                get: { exerciseDetailMoreExpandedLogId == log.id },
-                                                set: { exerciseDetailMoreExpandedLogId = $0 ? log.id : nil }
-                                            )) {
-                                                exerciseNotesAndRestSection(log: log, exerciseIndex: focusIndex)
-                                            } label: {
-                                                Label("Notes and rest", systemImage: "text.alignleft")
-                                                    .font(.subheadline.weight(.medium))
-                                            }
-                                            .moveDisabled(true)
-                                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
-                                            .listRowBackground(FitlogPalette.success.opacity(0.04))
+                                            // Button + conditional instead of DisclosureGroup. Expanding a
+                                            // disclosure group in this List crashed on cardio rows.
+                                            notesAndRestExpansionRow(log: log, exerciseIndex: focusIndex)
+                                                .moveDisabled(true)
+                                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
+                                                .listRowBackground(FitlogPalette.success.opacity(0.04))
                                         }
                                 }
                                 .id(log.id)
@@ -871,16 +861,11 @@ struct CurrentWorkoutPullUpSheet: View {
                     )
                 }
 
+                // Keep the list mounted at every detent. Swapping to a peek placeholder when
+                // collapsing races MainTabView’s dismiss-on-collapsed and can crash the sheet.
                 ScrollViewReader { scrollProxy in
-                    if showsWorkoutList {
-                        largeSheetWorkoutList(scrollProxy: scrollProxy)
-                            .transition(.opacity)
-                    } else {
-                        compactWorkoutPeekPlaceholder
-                            .transition(.opacity)
-                    }
+                    largeSheetWorkoutList(scrollProxy: scrollProxy)
                 }
-                .animation(.easeInOut(duration: 0.25), value: showsWorkoutList)
             }
             .navigationTitle("Current Workout")
             .navigationBarTitleDisplayMode(.inline)
@@ -1137,29 +1122,6 @@ struct CurrentWorkoutPullUpSheet: View {
             .sensoryFeedback(.success, trigger: inlineLogSuccessTick)
             .sensoryFeedback(.selection, trigger: exerciseSwipeTick)
         }
-    }
-
-    @ViewBuilder
-    private var compactWorkoutPeekPlaceholder: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "arrow.up.circle.fill")
-                .font(.system(size: 44))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.secondary)
-            Text("Swipe up for full log")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Text("Rest timer and exercise pills stay visible. Expand the sheet to log sets.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Compact workout view. Swipe the sheet up to expand and log sets.")
     }
 
     private func undoDeletionSnackBar(undo: PendingUndoSet) -> some View {
@@ -1972,7 +1934,43 @@ struct CurrentWorkoutPullUpSheet: View {
     }
 
     @ViewBuilder
-    private func exerciseNotesAndRestSection(log: ExerciseLog, exerciseIndex: Int) -> some View {
+    private func notesAndRestExpansionRow(log: ExerciseLog, exerciseIndex: Int) -> some View {
+        let isExpanded = exerciseDetailMoreExpandedLogId == log.id
+        let isCardio = CardioWorkoutExerciseHelpers.isCardioLoggingRow(
+            log.workoutExercise,
+            exercises: dataVM.globalExercises
+        )
+        let title = isCardio ? "Notes" : "Notes and rest"
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    exerciseDetailMoreExpandedLogId = isExpanded ? nil : log.id
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Label(title, systemImage: "text.alignleft")
+                        .font(.subheadline.weight(.medium))
+                    Spacer(minLength: 8)
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(title)
+            .accessibilityHint(isExpanded ? "Collapses \(title.lowercased())" : "Expands \(title.lowercased())")
+            .accessibilityAddTraits(.isButton)
+
+            if isExpanded {
+                exerciseNotesAndRestSection(log: log, exerciseIndex: exerciseIndex, isCardio: isCardio)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private func exerciseNotesAndRestSection(log: ExerciseLog, exerciseIndex: Int, isCardio: Bool) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             TextField("Notes for this exercise", text: Binding(
                 get: {
@@ -1997,7 +1995,13 @@ struct CurrentWorkoutPullUpSheet: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
 
-            sessionRestOverrideEditor(exerciseIndex: exerciseIndex, log: log)
+            if isCardio {
+                Text("Between cardio segments, use the timer controls above. Rest between strength sets is unchanged.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            } else {
+                sessionRestOverrideEditor(exerciseIndex: exerciseIndex, log: log)
+            }
 
             if !log.workoutExercise.recommendedConfigBySet.isEmpty {
                 recommendedConfigurationRow(for: log.workoutExercise, includeListRowInsets: false)
@@ -2043,37 +2047,65 @@ struct CurrentWorkoutPullUpSheet: View {
         return nil
     }
 
+    private func sessionRestSeconds(exerciseIndex: Int, planDefault: Int) -> Int {
+        guard let logs = currentVM.currentSession?.exerciseLogs,
+              logs.indices.contains(exerciseIndex)
+        else { return planDefault }
+        return logs[exerciseIndex].sessionRestOverrideSeconds ?? planDefault
+    }
+
     @ViewBuilder
     private func sessionRestOverrideEditor(exerciseIndex: Int, log: ExerciseLog) -> some View {
-        let planDefault = log.workoutExercise.defaultRestTime
+        let planDefaultRaw = log.workoutExercise.defaultRestTime
+        let shown = sessionRestSeconds(exerciseIndex: exerciseIndex, planDefault: planDefaultRaw)
+        let decreased = SessionRestOverrideBounds.stepped(shown, by: -1)
+        let increased = SessionRestOverrideBounds.stepped(shown, by: 1)
         VStack(alignment: .leading, spacing: 6) {
             Text("Default rest (this session)")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-            Stepper(
-                value: Binding(
-                    get: {
-                        guard let logs = currentVM.currentSession?.exerciseLogs,
-                              logs.indices.contains(exerciseIndex)
-                        else { return planDefault }
-                        return logs[exerciseIndex].sessionRestOverrideSeconds ?? planDefault
-                    },
-                    set: { currentVM.setExerciseLogSessionRestOverride(at: exerciseIndex, seconds: $0) }
-                ),
-                in: 0...300,
-                step: 15
-            ) {
-                let shown: Int = {
-                    guard let logs = currentVM.currentSession?.exerciseLogs,
-                          logs.indices.contains(exerciseIndex)
-                    else { return planDefault }
-                    return logs[exerciseIndex].sessionRestOverrideSeconds ?? planDefault
-                }()
-                Text("Next set rest: \(shown)s")
-                    .font(.subheadline)
-                Text("Plan default: \(planDefault)s")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Button {
+                    guard decreased < shown else { return }
+                    currentVM.setExerciseLogSessionRestOverride(at: exerciseIndex, seconds: decreased)
+                } label: {
+                    Image(systemName: "minus")
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .disabled(decreased >= shown)
+                .accessibilityLabel("Decrease rest")
+                .accessibilityHint(
+                    decreased < shown
+                        ? "Shortens the next-set rest by \(shown - decreased) seconds"
+                        : "Rest is already at the minimum"
+                )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Next set rest: \(shown)s")
+                        .font(.subheadline)
+                    Text("Plan default: \(planDefaultRaw)s")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .combine)
+
+                Button {
+                    guard increased > shown else { return }
+                    currentVM.setExerciseLogSessionRestOverride(at: exerciseIndex, seconds: increased)
+                } label: {
+                    Image(systemName: "plus")
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .disabled(increased <= shown)
+                .accessibilityLabel("Increase rest")
+                .accessibilityHint(
+                    increased > shown
+                        ? "Lengthens the next-set rest by \(increased - shown) seconds"
+                        : "Rest is already at the maximum"
+                )
             }
             if log.sessionRestOverrideSeconds != nil {
                 Button("Reset to plan default") {

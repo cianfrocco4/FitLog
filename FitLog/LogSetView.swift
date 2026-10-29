@@ -386,12 +386,7 @@ struct LogSetView: View {
                     }
 
                     if effectiveRestAfterSet {
-                        Stepper(
-                            "Rest after set: \(restTime)s",
-                            value: $restTime,
-                            in: 0...300,
-                            step: 15
-                        )
+                        restAfterSetStepper
                     }
 
                     if dropSetEnabled {
@@ -710,6 +705,22 @@ struct LogSetView: View {
         if isSupersetContext && !autoRestAfterSet {
             restTime = 0
         }
+    }
+
+    /// Value-bound `Stepper` crashes when rest is outside its range or off the 15s grid.
+    /// Plan rest can be 600s, so step the real seconds and ignore a tap that would move the wrong way.
+    @ViewBuilder
+    private var restAfterSetStepper: some View {
+        let decreased = SessionRestOverrideBounds.stepped(restTime, by: -1)
+        let increased = SessionRestOverrideBounds.stepped(restTime, by: 1)
+        let decrement: (() -> Void)? = decreased < restTime ? { restTime = decreased } : nil
+        let increment: (() -> Void)? = increased > restTime ? { restTime = increased } : nil
+        Stepper(
+            "Rest after set: \(restTime)s",
+            onIncrement: increment,
+            onDecrement: decrement
+        )
+        .accessibilityHint("Adjusts rest after this set in steps of up to 15 seconds, between 0 and 600.")
     }
 
     /// Rest duration for this exercise (matches prefill priority: current session > history > default).

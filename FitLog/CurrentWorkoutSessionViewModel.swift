@@ -669,7 +669,7 @@ final class CurrentWorkoutSessionViewModel {
     /// Session-only default rest for the next set when this exercise has no logged sets yet (does not change the library workout).
     func setExerciseLogSessionRestOverride(at index: Int, seconds: Int) {
         guard var session = currentSession, session.exerciseLogs.indices.contains(index) else { return }
-        let clamped = min(300, max(0, seconds))
+        let clamped = SessionRestOverrideBounds.clamped(seconds)
         let planDefault = session.exerciseLogs[index].workoutExercise.defaultRestTime
         session.exerciseLogs[index].sessionRestOverrideSeconds = (clamped == planDefault) ? nil : clamped
         currentSession = session
