@@ -21,8 +21,14 @@ enum WorkoutSheetCollapsePolicy {
 }
 
 enum SessionRestOverrideBounds {
-    static let range: ClosedRange<Int> = 0...300
+    /// Same limits as the plan editor. Capping session rest at 300 made one minus tap
+    /// on a 600s plan rest store 300s.
+    static let range: ClosedRange<Int> = 0...600
     static let step: Int = 15
+
+    static func clamped(_ seconds: Int) -> Int {
+        min(range.upperBound, max(range.lowerBound, seconds))
+    }
 
     /// Step from the real rest value. Results stay inside `range`; the input is not floored,
     /// so a 100s rest stays 100s until the user changes it (100 ± 15 → 115 or 85).
@@ -30,6 +36,6 @@ enum SessionRestOverrideBounds {
         let delta = direction >= 0 ? step : -step
         let next = seconds.addingReportingOverflow(delta)
         let summed = next.overflow ? (direction >= 0 ? range.upperBound : range.lowerBound) : next.partialValue
-        return min(range.upperBound, max(range.lowerBound, summed))
+        return clamped(summed)
     }
 }

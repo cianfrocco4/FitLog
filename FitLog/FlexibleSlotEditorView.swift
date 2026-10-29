@@ -168,8 +168,13 @@ struct FlexibleSlotEditorView: View {
 
     private var slotPrescriptionSection: some View {
         Section("Prescription") {
-            Stepper("Rest: \(defaultRestTime) sec", value: $defaultRestTime, in: 0...600, step: 15)
-                .onChange(of: defaultRestTime) { _, _ in persistFromState() }
+            Stepper(
+                "Rest: \(defaultRestTime) sec",
+                value: $defaultRestTime,
+                in: SessionRestOverrideBounds.range,
+                step: SessionRestOverrideBounds.step
+            )
+            .onChange(of: defaultRestTime) { _, _ in persistFromState() }
             Stepper("Sets: \(recommendedSets)", value: $recommendedSets, in: 1...10)
                 .onChange(of: recommendedSets) { _, _ in persistFromState() }
             TextField("Reps (e.g. 8-12)", text: $recommendedReps)
@@ -222,7 +227,7 @@ struct FlexibleSlotEditorView: View {
         s.exerciseRole = exerciseRole
         s.movementPattern = movementPattern
         s.defaultExerciseId = defaultExerciseId
-        s.defaultRestTime = min(max(0, defaultRestTime), 600)
+        s.defaultRestTime = SessionRestOverrideBounds.clamped(defaultRestTime)
         s.recommendedSets = min(max(1, recommendedSets), 10)
         let repsTrimmed = recommendedReps.trimmingCharacters(in: .whitespacesAndNewlines)
         s.recommendedReps = repsTrimmed.isEmpty ? "8-12" : repsTrimmed

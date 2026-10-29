@@ -686,9 +686,8 @@ struct CurrentWorkoutPullUpSheet: View {
                                                 .listRowBackground(FitlogPalette.success.opacity(0.04))
                                             }
 
-                                            // Avoid DisclosureGroup here: CardioLogView already uses one for
-                                            // Manual entry, and nested DisclosureGroups inside List have
-                                            // crashed when expanding Notes and rest on a cardio row.
+                                            // Button + conditional instead of DisclosureGroup. Expanding a
+                                            // disclosure group in this List crashed on cardio rows.
                                             notesAndRestExpansionRow(log: log, exerciseIndex: focusIndex)
                                                 .moveDisabled(true)
                                                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
@@ -2059,24 +2058,28 @@ struct CurrentWorkoutPullUpSheet: View {
     private func sessionRestOverrideEditor(exerciseIndex: Int, log: ExerciseLog) -> some View {
         let planDefaultRaw = log.workoutExercise.defaultRestTime
         let shown = sessionRestSeconds(exerciseIndex: exerciseIndex, planDefault: planDefaultRaw)
+        let decreased = SessionRestOverrideBounds.stepped(shown, by: -1)
+        let increased = SessionRestOverrideBounds.stepped(shown, by: 1)
         VStack(alignment: .leading, spacing: 6) {
             Text("Default rest (this session)")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             HStack(spacing: 12) {
                 Button {
-                    currentVM.setExerciseLogSessionRestOverride(
-                        at: exerciseIndex,
-                        seconds: SessionRestOverrideBounds.stepped(shown, by: -1)
-                    )
+                    guard decreased < shown else { return }
+                    currentVM.setExerciseLogSessionRestOverride(at: exerciseIndex, seconds: decreased)
                 } label: {
                     Image(systemName: "minus")
                         .frame(minWidth: 44, minHeight: 44)
                 }
                 .buttonStyle(.bordered)
-                .disabled(shown <= SessionRestOverrideBounds.range.lowerBound)
+                .disabled(decreased >= shown)
                 .accessibilityLabel("Decrease rest")
-                .accessibilityHint("Shortens the next-set rest by 15 seconds")
+                .accessibilityHint(
+                    decreased < shown
+                        ? "Shortens the next-set rest by \(shown - decreased) seconds"
+                        : "Rest is already at the minimum"
+                )
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Next set rest: \(shown)s")
@@ -2089,18 +2092,20 @@ struct CurrentWorkoutPullUpSheet: View {
                 .accessibilityElement(children: .combine)
 
                 Button {
-                    currentVM.setExerciseLogSessionRestOverride(
-                        at: exerciseIndex,
-                        seconds: SessionRestOverrideBounds.stepped(shown, by: 1)
-                    )
+                    guard increased > shown else { return }
+                    currentVM.setExerciseLogSessionRestOverride(at: exerciseIndex, seconds: increased)
                 } label: {
                     Image(systemName: "plus")
                         .frame(minWidth: 44, minHeight: 44)
                 }
                 .buttonStyle(.bordered)
-                .disabled(shown >= SessionRestOverrideBounds.range.upperBound)
+                .disabled(increased <= shown)
                 .accessibilityLabel("Increase rest")
-                .accessibilityHint("Lengthens the next-set rest by 15 seconds")
+                .accessibilityHint(
+                    increased > shown
+                        ? "Lengthens the next-set rest by \(increased - shown) seconds"
+                        : "Rest is already at the maximum"
+                )
             }
             if log.sessionRestOverrideSeconds != nil {
                 Button("Reset to plan default") {
