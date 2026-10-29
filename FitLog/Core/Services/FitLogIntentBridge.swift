@@ -13,6 +13,7 @@ enum FitLogIntentBridge {
         static let pendingStartWorkoutName = "fitlog.intent.pendingStartWorkoutName"
         static let pendingRestTimerSeconds = "fitlog.intent.pendingRestTimerSeconds"
         static let exerciseLibrarySnapshot = "fitlog.intent.exerciseLibrarySnapshot"
+        static let amethystTomorrowSnapshot = "fitlog.intent.amethystTomorrowSnapshot"
     }
 
     struct PendingLogSet: Codable, Equatable {
@@ -25,6 +26,28 @@ enum FitLogIntentBridge {
     struct ExerciseSnapshotEntry: Codable, Equatable {
         var id: UUID
         var name: String
+    }
+
+    /// Tomorrow's plan / last-session duration snapshot for Amethyst Siri actions.
+    /// Distinct from emeraldStrengthSnapshot, sapphireTodaySnapshot, rubyRepeatSnapshot,
+    /// citrineLastLoadSnapshot, and topaz LastSavedWorkoutSnapshot.
+    struct AmethystTomorrowSnapshot: Codable, Equatable {
+        var tomorrowPlanTitle: String?
+        var lastCaptionByWorkoutName: [String: String]
+        var lastSessionWorkoutName: String?
+        var lastSessionDurationSeconds: Int
+
+        init(
+            tomorrowPlanTitle: String? = nil,
+            lastCaptionByWorkoutName: [String: String] = [:],
+            lastSessionWorkoutName: String? = nil,
+            lastSessionDurationSeconds: Int = 0
+        ) {
+            self.tomorrowPlanTitle = tomorrowPlanTitle
+            self.lastCaptionByWorkoutName = lastCaptionByWorkoutName
+            self.lastSessionWorkoutName = lastSessionWorkoutName
+            self.lastSessionDurationSeconds = lastSessionDurationSeconds
+        }
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -59,6 +82,19 @@ enum FitLogIntentBridge {
             let entries = try? JSONDecoder().decode([ExerciseSnapshotEntry].self, from: data)
         else { return [] }
         return entries
+    }
+
+    static func publishAmethystTomorrowSnapshot(_ snapshot: AmethystTomorrowSnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: Key.amethystTomorrowSnapshot)
+    }
+
+    static func loadAmethystTomorrowSnapshot() -> AmethystTomorrowSnapshot? {
+        guard
+            let data = defaults.data(forKey: Key.amethystTomorrowSnapshot),
+            let snapshot = try? JSONDecoder().decode(AmethystTomorrowSnapshot.self, from: data)
+        else { return nil }
+        return snapshot
     }
 
     // MARK: - Consume (called from main app)

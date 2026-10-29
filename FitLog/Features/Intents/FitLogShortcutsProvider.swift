@@ -40,5 +40,38 @@ struct FitLogShortcutsProvider: AppShortcutsProvider {
             shortTitle: "Rest Timer",
             systemImageName: "timer"
         )
+
+        AppShortcut(
+            intent: StartTomorrowsWorkoutIntent(),
+            phrases: [
+                "Start tomorrow's workout in \(.applicationName)",
+                "Start tomorrow's plan in \(.applicationName)",
+                "Do tomorrow's workout in \(.applicationName)"
+            ],
+            shortTitle: "Start Tomorrow's Workout",
+            systemImageName: "calendar.badge.plus"
+        )
+
+        AppShortcut(
+            intent: TomorrowsWorkoutQueryIntent(),
+            phrases: [
+                "What's tomorrow's workout in \(.applicationName)",
+                "Tomorrow's plan in \(.applicationName)",
+                "What am I training tomorrow in \(.applicationName)"
+            ],
+            shortTitle: "Tomorrow's Workout",
+            systemImageName: "calendar"
+        )
+
+        AppShortcut(
+            intent: LastSessionDurationIntent(),
+            phrases: [
+                "How long was my last session in \(.applicationName)",
+                "Last session duration in \(.applicationName)",
+                "How long did I train last in \(.applicationName)"
+            ],
+            shortTitle: "Last Session Duration",
+            systemImageName: "stopwatch"
+        )
     }
 }

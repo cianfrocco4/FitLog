@@ -21,10 +21,26 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishAmethystTomorrowSnapshot()
+    }
+
+    func publishAmethystTomorrowSnapshot() {
+        let calendar = Calendar.current
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+        let snapshot = AmethystAskFitLog.querySnapshot(
+            from: completedSessions,
+            tomorrowPlanTitle: resolvedPlanTitle(for: tomorrow),
+            displayUnit: AmethystAskFitLog.storedDisplayUnit()
+        )
+        FitLogIntentBridge.publishAmethystTomorrowSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {
-        let day = resolvedScheduleDay(for: Date())
+        resolvedPlanTitle(for: Date())
+    }
+
+    private func resolvedPlanTitle(for date: Date) -> String? {
+        let day = resolvedScheduleDay(for: date)
         switch day {
         case .rest:
             return "Rest day"
