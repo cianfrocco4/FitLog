@@ -13,6 +13,7 @@ enum FitLogIntentBridge {
         static let pendingStartWorkoutName = "fitlog.intent.pendingStartWorkoutName"
         static let pendingRestTimerSeconds = "fitlog.intent.pendingRestTimerSeconds"
         static let exerciseLibrarySnapshot = "fitlog.intent.exerciseLibrarySnapshot"
+        static let garnetLibrarySnapshot = "fitlog.intent.garnetLibrarySnapshot"
     }
 
     struct PendingLogSet: Codable, Equatable {
@@ -25,6 +26,26 @@ enum FitLogIntentBridge {
     struct ExerciseSnapshotEntry: Codable, Equatable {
         var id: UUID
         var name: String
+    }
+
+    /// Saved-library rotation snapshot for Garnet Siri actions.
+    /// Distinct from amethystTomorrowSnapshot, emeraldStrengthSnapshot,
+    /// sapphireTodaySnapshot, rubyRepeatSnapshot, citrineLastLoadSnapshot,
+    /// and topaz LastSavedWorkoutSnapshot.
+    struct GarnetLibrarySnapshot: Codable, Equatable {
+        var savedWorkoutNames: [String]
+        var lastCompletedWorkoutName: String?
+        var lastCaptionByWorkoutName: [String: String]
+
+        init(
+            savedWorkoutNames: [String] = [],
+            lastCompletedWorkoutName: String? = nil,
+            lastCaptionByWorkoutName: [String: String] = [:]
+        ) {
+            self.savedWorkoutNames = savedWorkoutNames
+            self.lastCompletedWorkoutName = lastCompletedWorkoutName
+            self.lastCaptionByWorkoutName = lastCaptionByWorkoutName
+        }
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -59,6 +80,19 @@ enum FitLogIntentBridge {
             let entries = try? JSONDecoder().decode([ExerciseSnapshotEntry].self, from: data)
         else { return [] }
         return entries
+    }
+
+    static func publishGarnetLibrarySnapshot(_ snapshot: GarnetLibrarySnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: Key.garnetLibrarySnapshot)
+    }
+
+    static func loadGarnetLibrarySnapshot() -> GarnetLibrarySnapshot? {
+        guard
+            let data = defaults.data(forKey: Key.garnetLibrarySnapshot),
+            let snapshot = try? JSONDecoder().decode(GarnetLibrarySnapshot.self, from: data)
+        else { return nil }
+        return snapshot
     }
 
     // MARK: - Consume (called from main app)

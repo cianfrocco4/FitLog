@@ -40,5 +40,38 @@ struct FitLogShortcutsProvider: AppShortcutsProvider {
             shortTitle: "Rest Timer",
             systemImageName: "timer"
         )
+
+        AppShortcut(
+            intent: StartNextSavedWorkoutIntent(),
+            phrases: [
+                "Start next saved workout in \(.applicationName)",
+                "Start a different workout in \(.applicationName)",
+                "Start the next library workout in \(.applicationName)"
+            ],
+            shortTitle: "Start Next Saved Workout",
+            systemImageName: "arrow.triangle.2.circlepath"
+        )
+
+        AppShortcut(
+            intent: NextSavedWorkoutQueryIntent(),
+            phrases: [
+                "What's my next saved workout in \(.applicationName)",
+                "Next saved workout in \(.applicationName)",
+                "What should I train next in \(.applicationName)"
+            ],
+            shortTitle: "Next Saved Workout",
+            systemImageName: "arrow.right.circle"
+        )
+
+        AppShortcut(
+            intent: SavedWorkoutsQueryIntent(),
+            phrases: [
+                "What workouts do I have in \(.applicationName)",
+                "My saved workouts in \(.applicationName)",
+                "List my workouts in \(.applicationName)"
+            ],
+            shortTitle: "My Saved Workouts",
+            systemImageName: "list.bullet"
+        )
     }
 }

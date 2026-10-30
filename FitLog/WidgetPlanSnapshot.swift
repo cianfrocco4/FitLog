@@ -21,6 +21,19 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishGarnetLibrarySnapshot()
+    }
+
+    func publishGarnetLibrarySnapshot() {
+        let names = userWorkouts
+            .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let snapshot = GarnetAskFitLog.querySnapshot(
+            from: completedSessions,
+            savedWorkoutNames: names,
+            displayUnit: GarnetAskFitLog.storedDisplayUnit()
+        )
+        FitLogIntentBridge.publishGarnetLibrarySnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {
