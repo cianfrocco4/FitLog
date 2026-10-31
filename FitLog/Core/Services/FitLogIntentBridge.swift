@@ -13,6 +13,7 @@ enum FitLogIntentBridge {
         static let pendingStartWorkoutName = "fitlog.intent.pendingStartWorkoutName"
         static let pendingRestTimerSeconds = "fitlog.intent.pendingRestTimerSeconds"
         static let exerciseLibrarySnapshot = "fitlog.intent.exerciseLibrarySnapshot"
+        static let onyxNextPlanSnapshot = "fitlog.intent.onyxNextPlanSnapshot"
     }
 
     struct PendingLogSet: Codable, Equatable {
@@ -25,6 +26,37 @@ enum FitLogIntentBridge {
     struct ExerciseSnapshotEntry: Codable, Equatable {
         var id: UUID
         var name: String
+    }
+
+    /// Assigned training day after today (rest / unscheduled skipped).
+    struct OnyxUpcomingTraining: Codable, Equatable {
+        var weekdayLabel: String
+        var workoutName: String
+
+        init(weekdayLabel: String = "", workoutName: String = "") {
+            self.weekdayLabel = weekdayLabel
+            self.workoutName = workoutName
+        }
+    }
+
+    /// Next assigned plan day / this-week plan snapshot for Onyx Siri actions.
+    /// Distinct from garnetLibrarySnapshot, amethystTomorrowSnapshot,
+    /// emeraldStrengthSnapshot, sapphireTodaySnapshot, rubyRepeatSnapshot,
+    /// citrineLastLoadSnapshot, and topaz LastSavedWorkoutSnapshot.
+    struct OnyxNextPlanSnapshot: Codable, Equatable {
+        var upcomingTrainingDays: [OnyxUpcomingTraining]
+        var thisWeekPlanLines: [String]
+        var lastCaptionByWorkoutName: [String: String]
+
+        init(
+            upcomingTrainingDays: [OnyxUpcomingTraining] = [],
+            thisWeekPlanLines: [String] = [],
+            lastCaptionByWorkoutName: [String: String] = [:]
+        ) {
+            self.upcomingTrainingDays = upcomingTrainingDays
+            self.thisWeekPlanLines = thisWeekPlanLines
+            self.lastCaptionByWorkoutName = lastCaptionByWorkoutName
+        }
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -59,6 +91,19 @@ enum FitLogIntentBridge {
             let entries = try? JSONDecoder().decode([ExerciseSnapshotEntry].self, from: data)
         else { return [] }
         return entries
+    }
+
+    static func publishOnyxNextPlanSnapshot(_ snapshot: OnyxNextPlanSnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: Key.onyxNextPlanSnapshot)
+    }
+
+    static func loadOnyxNextPlanSnapshot() -> OnyxNextPlanSnapshot? {
+        guard
+            let data = defaults.data(forKey: Key.onyxNextPlanSnapshot),
+            let snapshot = try? JSONDecoder().decode(OnyxNextPlanSnapshot.self, from: data)
+        else { return nil }
+        return snapshot
     }
 
     // MARK: - Consume (called from main app)
