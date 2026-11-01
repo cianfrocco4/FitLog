@@ -32,6 +32,14 @@ struct CurrentWorkoutCollapsedBar: View {
         return "\(log.workingSetCount)/\(log.workoutExercise.recommendedSets) sets"
     }
 
+    private var isFinishReady: Bool {
+        guard let session = currentVM.currentSession else { return false }
+        return WorkoutFinishReadyPolicy.shouldOfferFinish(
+            logs: session.exerciseLogs,
+            completedExerciseIds: session.completedExerciseIds
+        )
+    }
+
     var body: some View {
         VStack(spacing: 6) {
             Capsule()
@@ -39,7 +47,7 @@ struct CurrentWorkoutCollapsedBar: View {
                 .frame(width: 36, height: 4)
 
             if showSwipeHint {
-                Text("Swipe up to log sets")
+                Text(isFinishReady ? "All sets logged — swipe up to finish" : "Swipe up to log sets")
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.secondary)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -92,8 +100,16 @@ struct CurrentWorkoutCollapsedBar: View {
                     .clipShape(RoundedRectangle(cornerRadius: 20))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Open workout logging")
-                .accessibilityHint("Swipe up or tap to open exercise logging")
+                .accessibilityLabel(
+                    isFinishReady
+                        ? "Open workout logging, all sets logged"
+                        : "Open workout logging"
+                )
+                .accessibilityHint(
+                    isFinishReady
+                        ? "Swipe up or tap to finish and save this workout"
+                        : "Swipe up or tap to open exercise logging"
+                )
 
                 HStack(spacing: 8) {
                     Text(currentVM.workoutElapsedFormatted)

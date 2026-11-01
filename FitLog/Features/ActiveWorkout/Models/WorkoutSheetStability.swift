@@ -2,8 +2,9 @@
 //  WorkoutSheetStability.swift
 //  FitLog
 //
-//  Pure helpers that keep the active-workout pull-up sheet from crashing on
-//  collapse, and that step session rest without rewriting the displayed seconds.
+//  Pure helpers that keep the active-workout pull-up sheet readable and stable:
+//  collapse dismiss, opaque presentation fill, finish-ready detection, and
+//  session rest steps that do not rewrite the displayed seconds.
 //
 
 import Foundation
@@ -18,6 +19,48 @@ enum WorkoutSheetCollapsePolicy {
 
     /// Delay before tearing down the sheet so SwiftUI can finish the detent animation.
     static let dismissSettleNanoseconds: UInt64 = 150_000_000
+}
+
+enum WorkoutSheetPresentationStyle {
+    /// Solid fill so logging copy stays readable over the tab bar (user feedback:
+    /// the default glass sheet is hard to digest mid-set).
+    static var background: Color { Color(.systemBackground) }
+}
+
+enum WorkoutFinishReadyPolicy {
+    static let bannerTitle = "All sets logged"
+    static let bannerSubtitle = "Finish to save this workout to History."
+    static let bannerAccessibilityLabel = "All sets logged. Finish to save this workout to History."
+
+    /// True when every startable row has its prescribed work in (or was marked done),
+    /// there is at least one startable row, and no open placeholders remain.
+    static func shouldOfferFinish(
+        logs: [ExerciseLog],
+        completedExerciseIds: [UUID]
+    ) -> Bool {
+        guard !logs.isEmpty else { return false }
+        if logs.contains(where: { $0.workoutExercise.isSlotPlaceholder }) { return false }
+        let completed = Set(completedExerciseIds)
+        return logs.allSatisfy { isRowReady($0, completedExerciseIds: completed) }
+    }
+
+    static func isRowReady(
+        _ log: ExerciseLog,
+        completedExerciseIds: Set<UUID>
+    ) -> Bool {
+        if log.workoutExercise.isSlotPlaceholder { return false }
+        if let id = log.workoutExercise.exerciseId, completedExerciseIds.contains(id) {
+            return true
+        }
+        if log.meetsRecommendedSets { return true }
+        return hasCompletedCardioWork(log)
+    }
+
+    static func hasCompletedCardioWork(_ log: ExerciseLog) -> Bool {
+        log.loggedSets.contains { set in
+            set.countsTowardCardioTotals && (set.cardioMetrics?.durationSec ?? 0) > 0
+        }
+    }
 }
 
 enum SessionRestOverrideBounds {

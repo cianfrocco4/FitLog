@@ -824,6 +824,7 @@ struct CurrentWorkoutPullUpSheet: View {
 
                 unresolvedSlotsBanner
                 restCompleteNextUpBanner
+                finishReadyBanner
 
                 if let logs = currentVM.currentSession?.exerciseLogs, !logs.isEmpty {
                     WorkoutExercisePillStrip(
@@ -867,6 +868,8 @@ struct CurrentWorkoutPullUpSheet: View {
                     largeSheetWorkoutList(scrollProxy: scrollProxy)
                 }
             }
+            .animation(.easeInOut(duration: 0.25), value: isFinishReady)
+            .sensoryFeedback(.success, trigger: isFinishReady) { _, newValue in newValue }
             .navigationTitle("Current Workout")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -891,8 +894,13 @@ struct CurrentWorkoutPullUpSheet: View {
                         handleFinishTap()
                     }
                     .fontWeight(.semibold)
+                    .foregroundStyle(isFinishReady ? FitlogPalette.success : Color.accentColor)
                     .accessibilityLabel("Finish workout")
-                    .accessibilityHint("Starts finish checks; saves to history if you confirm")
+                    .accessibilityHint(
+                        isFinishReady
+                            ? "All sets are logged. Starts finish checks; saves to History if you confirm"
+                            : "Starts finish checks; saves to history if you confirm"
+                    )
                 }
             }
             .sheet(item: $logSetSheetSelection) { selection in
@@ -3124,6 +3132,22 @@ struct CurrentWorkoutPullUpSheet: View {
             .accessibilityLabel(msg)
             .accessibilityAddTraits(.updatesFrequently)
         }
+    }
+
+    @ViewBuilder
+    private var finishReadyBanner: some View {
+        if isFinishReady {
+            WorkoutFinishReadyBanner(onFinish: handleFinishTap)
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    private var isFinishReady: Bool {
+        guard let session = currentVM.currentSession else { return false }
+        return WorkoutFinishReadyPolicy.shouldOfferFinish(
+            logs: session.exerciseLogs,
+            completedExerciseIds: session.completedExerciseIds
+        )
     }
 
     private func supersetLetter(for log: ExerciseLog) -> String? {
