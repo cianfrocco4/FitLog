@@ -38,10 +38,14 @@ enum PriorWorkoutSubstitutionLookup {
             ?? currentLog.workoutExercise.templateSlotId
             ?? libraryWorkout?.templateSlotId(forWorkoutExerciseRow: currentLog.workoutExercise.id)
 
-        guard let latest = completedSessions
-            .filter { belongs($0, library: libraryWorkout, sessionWorkoutId: session.workout.id) }
-            .max(by: { ($0.endTime ?? .distantPast) < ($1.endTime ?? .distantPast) })
-        else { return nil }
+        let matchingSessions = completedSessions.filter {
+            belongs($0, library: libraryWorkout, sessionWorkoutId: session.workout.id)
+        }
+        guard let latest = matchingSessions.max(by: {
+            ($0.endTime ?? .distantPast) < ($1.endTime ?? .distantPast)
+        }) else {
+            return nil
+        }
 
         guard let historical = matchingLog(
             in: latest,
@@ -49,9 +53,11 @@ enum PriorWorkoutSubstitutionLookup {
             exerciseIndex: exerciseIndex,
             slotId: slotId,
             libraryExerciseCount: libraryWorkout?.exercises.count
-        ), !historical.loggedSets.isEmpty,
-        let performedId = historical.workoutExercise.exerciseId
-        else { return nil }
+        ) else {
+            return nil
+        }
+        guard !historical.loggedSets.isEmpty else { return nil }
+        guard let performedId = historical.workoutExercise.exerciseId else { return nil }
 
         let plannedId = plannedExerciseId(
             library: libraryWorkout,
