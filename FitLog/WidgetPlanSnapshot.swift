@@ -21,6 +21,18 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishPeridotFinishSnapshot()
+    }
+
+    func publishPeridotFinishSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = PeridotAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            completedSessions: completedSessions,
+            displayUnit: PeridotAskFitLog.storedDisplayUnit()
+        )
+        FitLogIntentBridge.publishPeridotFinishSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {

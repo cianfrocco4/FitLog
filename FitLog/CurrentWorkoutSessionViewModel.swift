@@ -159,6 +159,7 @@ final class CurrentWorkoutSessionViewModel {
         clearInactivityReminder()
         clearPersistedActiveSession()
         pendingWorkoutCompletionSummary = summary
+        dataManager.publishPeridotFinishSnapshot()
     }
 
     private func normalizeConcreteSnapshotsOnExerciseLogs(_ logs: inout [ExerciseLog]) {
@@ -189,6 +190,7 @@ final class CurrentWorkoutSessionViewModel {
         workoutPausedAt = nil
         clearInactivityReminder()
         clearPersistedActiveSession()
+        dataManager.publishPeridotFinishSnapshot()
     }
     
     func pauseWorkout() {
@@ -267,6 +269,7 @@ final class CurrentWorkoutSessionViewModel {
             )
         }
         saveTimerState()
+        dataManager.publishPeridotFinishSnapshot()
     }
 
     private func saveTimerState() {
@@ -1815,6 +1818,13 @@ final class CurrentWorkoutSessionViewModel {
 
         if let pendingLog = FitLogIntentBridge.consumePendingLogSet() {
             applyPendingLogSet(pendingLog)
+        }
+
+        if FitLogIntentBridge.consumePendingFinishWorkout() {
+            let loggedSets = currentSession?.exerciseLogs.reduce(0) { $0 + $1.loggedSets.count } ?? 0
+            if isInProgress, loggedSets > 0 {
+                finishWorkoutFromUI(showCompletionSummary: true)
+            }
         }
     }
 

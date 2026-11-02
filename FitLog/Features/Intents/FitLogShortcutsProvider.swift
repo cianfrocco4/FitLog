@@ -40,5 +40,38 @@ struct FitLogShortcutsProvider: AppShortcutsProvider {
             shortTitle: "Rest Timer",
             systemImageName: "timer"
         )
+
+        AppShortcut(
+            intent: FinishWorkoutIntent(),
+            phrases: [
+                "Finish workout in \(.applicationName)",
+                "Done with workout in \(.applicationName)",
+                "Save my workout in \(.applicationName)"
+            ],
+            shortTitle: "Finish Workout",
+            systemImageName: "flag.checkered"
+        )
+
+        AppShortcut(
+            intent: InProgressWorkoutQueryIntent(),
+            phrases: [
+                "Is my workout in progress in \(.applicationName)",
+                "What's my current workout in \(.applicationName)",
+                "Do I have a workout open in \(.applicationName)"
+            ],
+            shortTitle: "In-Progress Workout",
+            systemImageName: "figure.strengthtraining.traditional"
+        )
+
+        AppShortcut(
+            intent: LastFinishedWorkoutQueryIntent(),
+            phrases: [
+                "Last finished workout in \(.applicationName)",
+                "What's in History in \(.applicationName)",
+                "Did I save my last workout in \(.applicationName)"
+            ],
+            shortTitle: "Last Finished Workout",
+            systemImageName: "clock.arrow.circlepath"
+        )
     }
 }

@@ -12,7 +12,9 @@ enum FitLogIntentBridge {
         static let pendingLogSet = "fitlog.intent.pendingLogSet"
         static let pendingStartWorkoutName = "fitlog.intent.pendingStartWorkoutName"
         static let pendingRestTimerSeconds = "fitlog.intent.pendingRestTimerSeconds"
+        static let pendingFinishWorkout = "fitlog.intent.pendingFinishWorkout"
         static let exerciseLibrarySnapshot = "fitlog.intent.exerciseLibrarySnapshot"
+        static let peridotFinishSnapshot = "fitlog.intent.peridotFinishSnapshot"
     }
 
     struct PendingLogSet: Codable, Equatable {
@@ -25,6 +27,32 @@ enum FitLogIntentBridge {
     struct ExerciseSnapshotEntry: Codable, Equatable {
         var id: UUID
         var name: String
+    }
+
+    /// In-progress + last-finished snapshot for Peridot Siri finish actions.
+    /// Distinct from onyxNextPlanSnapshot, garnetLibrarySnapshot,
+    /// amethystTomorrowSnapshot, emeraldStrengthSnapshot, sapphireTodaySnapshot,
+    /// rubyRepeatSnapshot, citrineLastLoadSnapshot, and topaz LastSavedWorkoutSnapshot.
+    struct PeridotFinishSnapshot: Codable, Equatable {
+        var inProgressWorkoutName: String?
+        var inProgressLoggedSetCount: Int
+        var inProgressCaption: String?
+        var lastFinishedWorkoutName: String?
+        var lastFinishedCaption: String?
+
+        init(
+            inProgressWorkoutName: String? = nil,
+            inProgressLoggedSetCount: Int = 0,
+            inProgressCaption: String? = nil,
+            lastFinishedWorkoutName: String? = nil,
+            lastFinishedCaption: String? = nil
+        ) {
+            self.inProgressWorkoutName = inProgressWorkoutName
+            self.inProgressLoggedSetCount = inProgressLoggedSetCount
+            self.inProgressCaption = inProgressCaption
+            self.lastFinishedWorkoutName = lastFinishedWorkoutName
+            self.lastFinishedCaption = lastFinishedCaption
+        }
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -46,6 +74,23 @@ enum FitLogIntentBridge {
 
     static func queueRestTimer(seconds: Int) {
         defaults.set(seconds, forKey: Key.pendingRestTimerSeconds)
+    }
+
+    static func queueFinishWorkout() {
+        defaults.set(true, forKey: Key.pendingFinishWorkout)
+    }
+
+    static func publishPeridotFinishSnapshot(_ snapshot: PeridotFinishSnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: Key.peridotFinishSnapshot)
+    }
+
+    static func loadPeridotFinishSnapshot() -> PeridotFinishSnapshot? {
+        guard
+            let data = defaults.data(forKey: Key.peridotFinishSnapshot),
+            let snapshot = try? JSONDecoder().decode(PeridotFinishSnapshot.self, from: data)
+        else { return nil }
+        return snapshot
     }
 
     static func publishExerciseLibrary(_ exercises: [ExerciseSnapshotEntry]) {
@@ -83,5 +128,12 @@ enum FitLogIntentBridge {
         guard let value = defaults.object(forKey: Key.pendingRestTimerSeconds) as? Int else { return nil }
         defaults.removeObject(forKey: Key.pendingRestTimerSeconds)
         return value
+    }
+
+    static func consumePendingFinishWorkout() -> Bool {
+        guard defaults.object(forKey: Key.pendingFinishWorkout) != nil else { return false }
+        let queued = defaults.bool(forKey: Key.pendingFinishWorkout)
+        defaults.removeObject(forKey: Key.pendingFinishWorkout)
+        return queued
     }
 }
