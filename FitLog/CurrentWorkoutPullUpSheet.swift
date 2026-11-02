@@ -51,6 +51,27 @@ private struct ResolveSlotExerciseSheet: View {
         return dataVM.resolveExercise(for: snap)
     }
 
+    private var priorSubstitution: PriorWorkoutSubstitution? {
+        guard isSwapExercise,
+              let session = currentVM.currentSession,
+              let index = session.exerciseLogs.firstIndex(where: { $0.workoutExercise.id == workoutExerciseId })
+        else { return nil }
+        let log = session.exerciseLogs[index]
+        let library = PriorWorkoutSubstitutionLookup.libraryWorkout(for: session) { dataVM.workout(id: $0) }
+        return PriorWorkoutSubstitutionLookup.lastSubstitution(
+            for: log,
+            exerciseIndex: index,
+            session: session,
+            libraryWorkout: library,
+            completedSessions: dataVM.completedSessions
+        )
+    }
+
+    private var priorSubstitutionExercise: Exercise? {
+        guard let id = priorSubstitution?.exerciseId else { return nil }
+        return dataVM.globalExercises.first { $0.id == id }
+    }
+
     private var templateSlot: TemplateSlot? {
         guard let slotId = templateSlotId,
               let origin = currentVM.currentSession?.sessionPlanOrigin,
@@ -95,9 +116,12 @@ private struct ResolveSlotExerciseSheet: View {
         let baseline = exerciseBeingSwapped
         let slot = templateSlot
         let excludeId = baseline?.id
+        let pinnedPriorId: UUID? = searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? priorSubstitution?.exerciseId
+            : nil
         return dataVM.globalExercises
             .filter { matchesSearch($0) && $0.id != excludeId }
-            .map { ex -> (Exercise, Int) in
+            .map { ex -> (exercise: Exercise, score: Int) in
                 let score: Int
                 if let b = baseline {
                     score = ExerciseSwapSimilarity.score(
@@ -114,9 +138,10 @@ private struct ResolveSlotExerciseSheet: View {
                 } else {
                     score = matchesSlot(ex) ? 40 : 0
                 }
-                return (ex, score)
+                return (exercise: ex, score: score)
             }
             .sorted { $0.score > $1.score }
+            .filter { pinnedPriorId == nil || $0.exercise.id != pinnedPriorId }
     }
 
     /// Groups consecutive same-tier rows (list stays strongest → weakest within each tier).
@@ -139,13 +164,20 @@ private struct ResolveSlotExerciseSheet: View {
         List {
             if isSwapExercise {
                 swapContextSection
+                if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let prior = priorSubstitution {
+                    priorSubstitutionSection(prior)
+                }
 
                 if exerciseBeingSwapped != nil || templateSlot != nil {
                     let groups = swapGroupedSections()
                     ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                         Section {
                             ForEach(group.items, id: \.0.id) { item in
-                                swapSuggestionButton(item.0)
+                                swapSuggestionButton(
+                                    item.0,
+                                    showsLastSwap: item.0.id == priorSubstitution?.exerciseId
+                                )
                             }
                         } header: {
                             Text(group.tier)
@@ -154,7 +186,10 @@ private struct ResolveSlotExerciseSheet: View {
                 } else {
                     Section {
                         ForEach(swapRankedExercises, id: \.exercise.id) { item in
-                            swapSuggestionButton(item.exercise)
+                            swapSuggestionButton(
+                                item.exercise,
+                                showsLastSwap: item.exercise.id == priorSubstitution?.exerciseId
+                            )
                         }
                     } header: {
                         Text("Exercises")
@@ -284,29 +319,64 @@ private struct ResolveSlotExerciseSheet: View {
         }
     }
 
-    private func swapSuggestionButton(_ ex: Exercise) -> some View {
+    @ViewBuilder
+    private func priorSubstitutionSection(_ prior: PriorWorkoutSubstitution) -> some View {
+        let name = priorSubstitutionExercise.map { dataVM.resolvedDisplayName(for: $0) } ?? prior.exerciseName
+        Section {
+            if let exercise = priorSubstitutionExercise {
+                swapSuggestionButton(exercise, showsLastSwap: true)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(name)
+                        .fontWeight(.medium)
+                    Text("No longer in your library, so it cannot be swapped in again.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        } header: {
+            Text("Last time in this workout")
+        } footer: {
+            Text("You swapped to \(name) the last time you completed this workout.")
+        }
+    }
+
+    private func swapSuggestionButton(_ ex: Exercise, showsLastSwap: Bool = false) -> some View {
         Button {
             currentVM.resolveSlotPlaceholder(workoutExerciseId: workoutExerciseId, exercise: ex)
             dismiss()
         } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(dataVM.resolvedDisplayName(for: ex))
-                    .font(.body.weight(.medium))
-                Text(ExerciseSwapSimilarity.matchSummary(
-                    candidate: ex,
-                    baseline: exerciseBeingSwapped,
-                    slot: templateSlot,
-                    slotMuscleMatch: matchesSlot(ex)
-                ))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                if !ex.targetedMuscles.isEmpty {
-                    Text(ex.targetedMuscles.map(\.rawValue).joined(separator: ", "))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(dataVM.resolvedDisplayName(for: ex))
+                        .font(.body.weight(.medium))
+                    Text(ExerciseSwapSimilarity.matchSummary(
+                        candidate: ex,
+                        baseline: exerciseBeingSwapped,
+                        slot: templateSlot,
+                        slotMuscleMatch: matchesSlot(ex)
+                    ))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    if !ex.targetedMuscles.isEmpty {
+                        Text(ex.targetedMuscles.map(\.rawValue).joined(separator: ", "))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                Spacer(minLength: 8)
+                if showsLastSwap {
+                    LastSessionSwapBadge()
                 }
             }
         }
+        .accessibilityLabel(
+            showsLastSwap
+                ? "Swap to \(dataVM.resolvedDisplayName(for: ex)). Last time you completed this workout you swapped to this exercise."
+                : "Swap to \(dataVM.resolvedDisplayName(for: ex))"
+        )
+        .accessibilityHint("Replaces the current exercise")
     }
 }
 
@@ -728,6 +798,8 @@ struct CurrentWorkoutPullUpSheet: View {
                         }
                     }
                     .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .background(Color(.systemBackground))
                     .scrollDismissesKeyboard(.interactively)
                     .toolbar {
                         ToolbarItemGroup(placement: .keyboard) {
@@ -869,6 +941,8 @@ struct CurrentWorkoutPullUpSheet: View {
             }
             .navigationTitle("Current Workout")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Color(.systemBackground), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Discard") {
@@ -951,7 +1025,8 @@ struct CurrentWorkoutPullUpSheet: View {
                             var draft = draftStore.configurationByLogId[log.id] ?? [:]
                             draft[field] = value
                             draftStore.configurationByLogId[log.id] = draft
-                        }
+                        },
+                        priorSubstitution: priorSubstitution(for: log, exerciseIndex: sel.index)
                     ) { newExercise in
                         currentVM.swapExercise(atIndex: sel.index, to: newExercise)
                     }
@@ -1121,7 +1196,22 @@ struct CurrentWorkoutPullUpSheet: View {
             }
             .sensoryFeedback(.success, trigger: inlineLogSuccessTick)
             .sensoryFeedback(.selection, trigger: exerciseSwipeTick)
+            // Solid background. The system sheet glass made this pull-up hard to read.
+            .background(Color(.systemBackground).ignoresSafeArea())
+            .presentationBackground(Color(.systemBackground))
         }
+    }
+
+    private func priorSubstitution(for log: ExerciseLog, exerciseIndex: Int) -> PriorWorkoutSubstitution? {
+        guard let session = currentVM.currentSession else { return nil }
+        let library = PriorWorkoutSubstitutionLookup.libraryWorkout(for: session) { dataVM.workout(id: $0) }
+        return PriorWorkoutSubstitutionLookup.lastSubstitution(
+            for: log,
+            exerciseIndex: exerciseIndex,
+            session: session,
+            libraryWorkout: library,
+            completedSessions: dataVM.completedSessions
+        )
     }
 
     private func undoDeletionSnackBar(undo: PendingUndoSet) -> some View {
