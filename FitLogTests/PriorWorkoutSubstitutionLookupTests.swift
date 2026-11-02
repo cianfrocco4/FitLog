@@ -247,7 +247,7 @@ struct PriorWorkoutSubstitutionLookupTests {
     }
 
     private func loggedSet() -> LoggedSet {
-        LoggedSet(id: UUID(), weight: 100, reps: 8, restTime: 90, timestamp: Date())
+        LoggedSet(id: UUID(), weight: 100, reps: 8, restTime: 90, timestamp: Date(), setType: .working)
     }
 
     private func liveSession(
