@@ -107,6 +107,7 @@ struct MainTabView: View {
                     selection: $workoutSheetDetent
                 )
                 .presentationDragIndicator(.visible)
+                .presentationBackground(Color(.systemBackground))
                 .presentationBackgroundInteraction(.enabled(upThrough: FitlogWorkoutSheetDetent.expanded))
                 .interactiveDismissDisabled()
         }

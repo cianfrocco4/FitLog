@@ -16,6 +16,8 @@ struct InlineSwapSheet: View {
     var setupFields: [ExerciseSetupField] = []
     var setupValues: [String: String] = [:]
     var onChangeSetup: ((String, String) -> Void)? = nil
+    /// Exercise used instead of the plan the last time this workout was completed.
+    var priorSubstitution: PriorWorkoutSubstitution? = nil
     let onConfirm: (Exercise) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -40,12 +42,26 @@ struct InlineSwapSheet: View {
         }
     }
 
+    /// Pinned above the ranked list when search is empty, so it is not listed twice.
+    private var exercisesForRanking: [Exercise] {
+        guard searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let priorId = priorSubstitution?.exerciseId else {
+            return filteredExercises
+        }
+        return filteredExercises.filter { $0.id != priorId }
+    }
+
+    private var priorSubstitutionExercise: Exercise? {
+        guard let priorSubstitution else { return nil }
+        return allExercises.first { $0.id == priorSubstitution.exerciseId }
+    }
+
     private var rankedSections: [(tier: String, exercises: [Exercise])] {
         guard let baseline = baselineExercise else {
-            let sorted = filteredExercises.sorted { ($0.name) < ($1.name) }
+            let sorted = exercisesForRanking.sorted { ($0.name) < ($1.name) }
             return sorted.isEmpty ? [] : [("All exercises", sorted)]
         }
-        let scored = filteredExercises.map { ex in
+        let scored = exercisesForRanking.map { ex in
             (ex, ExerciseSwapSimilarity.score(candidate: ex, baseline: baseline, slotMuscleMatch: false))
         }
         let tiers = ["Strong matches", "Good matches", "Partial matches", "Weaker matches"]
@@ -118,10 +134,18 @@ struct InlineSwapSheet: View {
                     }
                 }
 
+                if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let prior = priorSubstitution {
+                    priorSubstitutionSection(prior)
+                }
+
                 ForEach(rankedSections, id: \.tier) { section in
                     Section(section.tier) {
                         ForEach(section.exercises) { exercise in
-                            swapRow(exercise: exercise)
+                            swapRow(
+                                exercise: exercise,
+                                showsLastSwap: exercise.id == priorSubstitution?.exerciseId
+                            )
                         }
                     }
                 }
@@ -174,7 +198,30 @@ struct InlineSwapSheet: View {
     }
 
     @ViewBuilder
-    private func swapRow(exercise: Exercise) -> some View {
+    private func priorSubstitutionSection(_ prior: PriorWorkoutSubstitution) -> some View {
+        let name = priorSubstitutionExercise.map { displayNames[$0.id] ?? $0.name } ?? prior.exerciseName
+        Section {
+            if let exercise = priorSubstitutionExercise {
+                swapRow(exercise: exercise, showsLastSwap: true)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(name)
+                        .fontWeight(.medium)
+                    Text("No longer in your library, so it cannot be swapped in again.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        } header: {
+            Text("Last time in this workout")
+        } footer: {
+            Text("You swapped to \(name) the last time you completed this workout.")
+        }
+    }
+
+    @ViewBuilder
+    private func swapRow(exercise: Exercise, showsLastSwap: Bool = false) -> some View {
         let score = baselineExercise.map {
             ExerciseSwapSimilarity.score(candidate: exercise, baseline: $0, slotMuscleMatch: false)
         }
@@ -203,6 +250,9 @@ struct InlineSwapSheet: View {
                     }
                 }
                 Spacer(minLength: 8)
+                if showsLastSwap {
+                    LastSessionSwapBadge()
+                }
                 if let score, let badge = ExerciseSwapSimilarity.fitBadge(score: score) {
                     Text(badge)
                         .font(.caption2.weight(.semibold))
@@ -218,7 +268,16 @@ struct InlineSwapSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Swap to \(displayNames[exercise.id] ?? exercise.name)")
+        .accessibilityLabel(swapAccessibilityLabel(for: exercise, showsLastSwap: showsLastSwap))
+        .accessibilityHint("Replaces the current exercise")
+    }
+
+    private func swapAccessibilityLabel(for exercise: Exercise, showsLastSwap: Bool) -> String {
+        let name = displayNames[exercise.id] ?? exercise.name
+        if showsLastSwap {
+            return "Swap to \(name). Last time you completed this workout you swapped to this exercise."
+        }
+        return "Swap to \(name)"
     }
 
     private func requestSwap(to exercise: Exercise) {
