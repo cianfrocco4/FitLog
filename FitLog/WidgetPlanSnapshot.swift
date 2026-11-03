@@ -21,6 +21,18 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishLapisHistorySnapshot()
+    }
+
+    func publishLapisHistorySnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = LapisAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            completedSessions: completedSessions,
+            displayUnit: LapisAskFitLog.storedDisplayUnit()
+        )
+        FitLogIntentBridge.publishLapisHistorySnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {

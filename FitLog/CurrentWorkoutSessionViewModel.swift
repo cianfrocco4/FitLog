@@ -159,6 +159,7 @@ final class CurrentWorkoutSessionViewModel {
         clearInactivityReminder()
         clearPersistedActiveSession()
         pendingWorkoutCompletionSummary = summary
+        dataManager.publishLapisHistorySnapshot()
     }
 
     private func normalizeConcreteSnapshotsOnExerciseLogs(_ logs: inout [ExerciseLog]) {
@@ -189,6 +190,7 @@ final class CurrentWorkoutSessionViewModel {
         workoutPausedAt = nil
         clearInactivityReminder()
         clearPersistedActiveSession()
+        dataManager.publishLapisHistorySnapshot()
     }
     
     func pauseWorkout() {
@@ -267,6 +269,7 @@ final class CurrentWorkoutSessionViewModel {
             )
         }
         saveTimerState()
+        dataManager.publishLapisHistorySnapshot()
     }
 
     private func saveTimerState() {
@@ -1815,6 +1818,22 @@ final class CurrentWorkoutSessionViewModel {
 
         if let pendingLog = FitLogIntentBridge.consumePendingLogSet() {
             applyPendingLogSet(pendingLog)
+        }
+
+        if FitLogIntentBridge.consumePendingResumeWorkout() {
+            if isInProgress {
+                if pendingPullUpFocus == nil,
+                   let index = currentSession?.exerciseLogs.firstIndex(where: {
+                       !$0.workoutExercise.isSlotPlaceholder
+                   }) {
+                    pendingPullUpFocus = PendingPullUpFocus(
+                        exerciseLogIndex: index,
+                        presentLogSetSheet: false
+                    )
+                }
+                NotificationCenter.default.post(name: .fitlogRevealInProgressWorkout, object: nil)
+            }
+            dataManager.publishLapisHistorySnapshot()
         }
     }
 

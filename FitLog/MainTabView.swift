@@ -234,6 +234,11 @@ struct MainTabView: View {
             spotlightTour.reset()
             pendingFirstRunSheet = false
         }
+        .onReceive(NotificationCenter.default.publisher(for: .fitlogRevealInProgressWorkout)) { _ in
+            guard currentVM.isInProgress else { return }
+            rootTab = .home
+            presentCurrentWorkoutPullUp()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .fitlogStartPendingSpotlight)) { _ in
             startPendingSpotlight()
         }

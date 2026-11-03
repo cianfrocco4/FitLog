@@ -56,6 +56,8 @@ extension Notification.Name {
     static let fitlogOpenHistorySession = Notification.Name("fitlogOpenHistorySession")
     /// Opens Home → Readiness detail (e.g. readiness widget tap).
     static let fitlogOpenReadinessDetail = Notification.Name("fitlogOpenReadinessDetail")
+    /// Re-opens the in-progress workout pull-up (Lapis Siri Resume Workout).
+    static let fitlogRevealInProgressWorkout = Notification.Name("fitlogRevealInProgressWorkout")
 }
 
 enum FitLogDeepLink: Equatable {
