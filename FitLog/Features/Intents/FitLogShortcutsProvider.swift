@@ -40,5 +40,38 @@ struct FitLogShortcutsProvider: AppShortcutsProvider {
             shortTitle: "Rest Timer",
             systemImageName: "timer"
         )
+
+        AppShortcut(
+            intent: RepeatLastSetIntent(),
+            phrases: [
+                "Repeat last set in \(.applicationName)",
+                "Log that set again in \(.applicationName)",
+                "Same set again in \(.applicationName)"
+            ],
+            shortTitle: "Repeat Last Set",
+            systemImageName: "repeat"
+        )
+
+        AppShortcut(
+            intent: SetsRemainingQueryIntent(),
+            phrases: [
+                "Sets remaining in \(.applicationName)",
+                "How many sets left in \(.applicationName)",
+                "What's left in my workout in \(.applicationName)"
+            ],
+            shortTitle: "Sets Remaining",
+            systemImageName: "number"
+        )
+
+        AppShortcut(
+            intent: NextExerciseQueryIntent(),
+            phrases: [
+                "Next exercise in \(.applicationName)",
+                "What's next in my workout in \(.applicationName)",
+                "What exercise is next in \(.applicationName)"
+            ],
+            shortTitle: "Next Exercise",
+            systemImageName: "arrow.right.circle"
+        )
     }
 }

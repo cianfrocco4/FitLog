@@ -159,6 +159,7 @@ final class CurrentWorkoutSessionViewModel {
         clearInactivityReminder()
         clearPersistedActiveSession()
         pendingWorkoutCompletionSummary = summary
+        dataManager.publishJasperSessionSnapshot()
     }
 
     private func normalizeConcreteSnapshotsOnExerciseLogs(_ logs: inout [ExerciseLog]) {
@@ -189,6 +190,7 @@ final class CurrentWorkoutSessionViewModel {
         workoutPausedAt = nil
         clearInactivityReminder()
         clearPersistedActiveSession()
+        dataManager.publishJasperSessionSnapshot()
     }
     
     func pauseWorkout() {
@@ -267,6 +269,7 @@ final class CurrentWorkoutSessionViewModel {
             )
         }
         saveTimerState()
+        dataManager.publishJasperSessionSnapshot()
     }
 
     private func saveTimerState() {
@@ -1816,6 +1819,26 @@ final class CurrentWorkoutSessionViewModel {
         if let pendingLog = FitLogIntentBridge.consumePendingLogSet() {
             applyPendingLogSet(pendingLog)
         }
+
+        if FitLogIntentBridge.consumePendingRepeatLastSet() {
+            applyRepeatLastSet()
+            dataManager.publishJasperSessionSnapshot()
+        }
+    }
+
+    private func applyRepeatLastSet() {
+        guard let session = currentSession else { return }
+        guard let repeatable = JasperAskFitLog.lastRepeatableWorkingSet(in: session) else { return }
+        _ = logSet(
+            exerciseIndex: repeatable.exerciseIndex,
+            weight: repeatable.set.weight,
+            reps: repeatable.set.reps,
+            restTime: max(0, repeatable.set.restTime),
+            setType: .working,
+            configuration: repeatable.set.configuration,
+            dropSegments: repeatable.set.dropSegments,
+            rpe: repeatable.set.rpe
+        )
     }
 
     private func applyPendingLogSet(_ payload: FitLogIntentBridge.PendingLogSet) {
