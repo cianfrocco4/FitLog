@@ -39,6 +39,50 @@ struct FitLogTests {
         #expect(engine.defaultCycleEntry(for: wed, program: program) == .workout(idPull))
     }
 
+    @Test func trainingScheduleEngine_phaseOffsetSkipsToNextWorkout() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.firstWeekday = 1
+        let engine = TrainingScheduleEngine(calendar: cal)
+        let idPush = UUID(), idPull = UUID(), idLegs = UUID()
+        let anchor = cal.date(from: DateComponents(year: 2026, month: 3, day: 16))!
+        let dayKey = TrainingProgramState.dayKey(for: anchor, calendar: cal)
+        let program = TrainingProgramState(
+            cycleEntries: [.workout(idPush), .workout(idPull), .workout(idLegs)],
+            sessionsPerWeek: 3,
+            preferredWeekdays: [2, 4, 6],
+            anchorDayKey: dayKey,
+            cyclePhaseOffset: 1,
+            skippedCycleTrainingDayKeys: [],
+            dayOverrides: [:],
+            weekOverrides: [:]
+        )
+        #expect(engine.defaultCycleEntry(for: anchor, program: program) == .workout(idPull))
+        let wed = cal.date(byAdding: .day, value: 2, to: anchor)!
+        #expect(engine.defaultCycleEntry(for: wed, program: program) == .workout(idLegs))
+    }
+
+    @Test func periodizationEngine_rotationPhaseOffsetAdvancesTemplate() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.firstWeekday = 1
+        let (anchor, mon, _, _, templates, workoutIds) = Self.monWedFriFixture(calendar: cal)
+        var state = Self.dynamicState(
+            anchor: anchor,
+            templates: templates,
+            workoutIds: workoutIds,
+            calendar: cal
+        )
+        let engine = PeriodizationEngine(calendar: cal)
+        #expect(engine.cycleTemplateIndex(on: mon, state: state, templatesCount: 3) == 0)
+        state.rotationPhaseOffset = 1
+        #expect(engine.cycleTemplateIndex(on: mon, state: state, templatesCount: 3) == 1)
+        let resolved = engine.baseResolvedDay(on: mon, state: state)
+        guard case .training(let template) = resolved else {
+            Issue.record("Expected the next template")
+            return
+        }
+        #expect(template.dayName == "Pull")
+    }
+
     @Test func trainingScheduleEngine_assignsCycleOnPreferredTrainingDays() {
         var cal = Calendar(identifier: .gregorian)
         cal.firstWeekday = 1

@@ -354,6 +354,8 @@ struct DynamicProgramState: Codable, Equatable, Sendable {
     var skippedProgramTrainingDayKeys: Set<String>
     /// Maps each `BlockWeeklyTemplate.id` to a library `Workout.id` after templates are materialized (apply / builder).
     var materializedTemplateWorkoutIds: [UUID: UUID]
+    /// Added to the training-day ordinal so skipping today's workout advances the whole rotation.
+    var rotationPhaseOffset: Int
 
     init(
         program: DynamicProgram,
@@ -363,7 +365,8 @@ struct DynamicProgramState: Codable, Equatable, Sendable {
         blockShiftDays: [UUID: Int] = [:],
         completedBlockIds: Set<UUID> = [],
         skippedProgramTrainingDayKeys: Set<String> = [],
-        materializedTemplateWorkoutIds: [UUID: UUID] = [:]
+        materializedTemplateWorkoutIds: [UUID: UUID] = [:],
+        rotationPhaseOffset: Int = 0
     ) {
         self.program = program
         self.anchorDate = anchorDate
@@ -373,6 +376,39 @@ struct DynamicProgramState: Codable, Equatable, Sendable {
         self.completedBlockIds = completedBlockIds
         self.skippedProgramTrainingDayKeys = skippedProgramTrainingDayKeys
         self.materializedTemplateWorkoutIds = materializedTemplateWorkoutIds
+        self.rotationPhaseOffset = rotationPhaseOffset
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case program, anchorDate, busyDayKeys, missedSessionDayKeys, blockShiftDays
+        case completedBlockIds, skippedProgramTrainingDayKeys, materializedTemplateWorkoutIds
+        case rotationPhaseOffset
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        program = try c.decode(DynamicProgram.self, forKey: .program)
+        anchorDate = try c.decode(Date.self, forKey: .anchorDate)
+        busyDayKeys = try c.decodeIfPresent(Set<String>.self, forKey: .busyDayKeys) ?? []
+        missedSessionDayKeys = try c.decodeIfPresent(Set<String>.self, forKey: .missedSessionDayKeys) ?? []
+        blockShiftDays = try c.decodeIfPresent([UUID: Int].self, forKey: .blockShiftDays) ?? [:]
+        completedBlockIds = try c.decodeIfPresent(Set<UUID>.self, forKey: .completedBlockIds) ?? []
+        skippedProgramTrainingDayKeys = try c.decodeIfPresent(Set<String>.self, forKey: .skippedProgramTrainingDayKeys) ?? []
+        materializedTemplateWorkoutIds = try c.decodeIfPresent([UUID: UUID].self, forKey: .materializedTemplateWorkoutIds) ?? [:]
+        rotationPhaseOffset = try c.decodeIfPresent(Int.self, forKey: .rotationPhaseOffset) ?? 0
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(program, forKey: .program)
+        try c.encode(anchorDate, forKey: .anchorDate)
+        try c.encode(busyDayKeys, forKey: .busyDayKeys)
+        try c.encode(missedSessionDayKeys, forKey: .missedSessionDayKeys)
+        try c.encode(blockShiftDays, forKey: .blockShiftDays)
+        try c.encode(completedBlockIds, forKey: .completedBlockIds)
+        try c.encode(skippedProgramTrainingDayKeys, forKey: .skippedProgramTrainingDayKeys)
+        try c.encode(materializedTemplateWorkoutIds, forKey: .materializedTemplateWorkoutIds)
+        try c.encode(rotationPhaseOffset, forKey: .rotationPhaseOffset)
     }
 }
 

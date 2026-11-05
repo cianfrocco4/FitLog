@@ -60,6 +60,7 @@ struct HomeView: View {
     @State private var homeUnresolvedExerciseNames: [String] = []
     @State private var showHomeFinisherQuickAdd = false
     @State private var homeFinisherQuickAddLogCountBefore: Int?
+    @State private var showSkipRotationConfirm = false
 
     private var homeRefreshKey: String {
         let cycleSig = dataVM.trainingProgram.cycleEntries.map(\.cacheKey).joined(separator: ",")
@@ -69,9 +70,9 @@ struct HomeView: View {
             let busySig = d.busyDayKeys.sorted().joined(separator: ",")
             let missedSig = d.missedSessionDayKeys.sorted().joined(separator: ",")
             let skippedSig = d.skippedProgramTrainingDayKeys.sorted().joined(separator: ",")
-            return "dyn:\(d.program.id.uuidString)-\(Int(d.anchorDate.timeIntervalSince1970))-\(d.materializedTemplateWorkoutIds.count)-\(busySig)-\(missedSig)-\(skippedSig)-\(shiftSig)"
+            return "dyn:\(d.program.id.uuidString)-\(Int(d.anchorDate.timeIntervalSince1970))-\(d.materializedTemplateWorkoutIds.count)-\(busySig)-\(missedSig)-\(skippedSig)-\(shiftSig)-\(d.rotationPhaseOffset)"
         }()
-        return "\(dayMonitor.currentDayKey)-\(dataVM.completedSessions.count)-\(cycleSig)-\(dataVM.trainingProgram.anchorDayKey)-\(dataVM.trainingProgram.dayOverrides.count)-\(dataVM.trainingProgram.weekOverrides.count)-\(userPreferences.dismissedProgramAssignmentBanner)-\(userPreferences.dismissedCardioGetStartedBanner)-\(dynSig)"
+        return "\(dayMonitor.currentDayKey)-\(dataVM.completedSessions.count)-\(cycleSig)-\(dataVM.trainingProgram.anchorDayKey)-\(dataVM.trainingProgram.cyclePhaseOffset)-\(dataVM.trainingProgram.dayOverrides.count)-\(dataVM.trainingProgram.weekOverrides.count)-\(userPreferences.dismissedProgramAssignmentBanner)-\(userPreferences.dismissedCardioGetStartedBanner)-\(dynSig)"
     }
 
     private var homeGreetingFirstName: String? {
@@ -1294,7 +1295,10 @@ struct HomeView: View {
                 if let workout = dataVM.userWorkouts.first(where: { $0.id == id }) {
                     let sessionWorkout = workout.hasFlexibleSlots ? dataVM.sessionInstance(from: workout) : workout
                     let thisPlanActive = currentVM.isActiveSessionMatching(workout: sessionWorkout, planRef: ref)
-                    let subtitle = "\(workout.listDetailSubtitle) · from your plan"
+                    let duration = WorkoutDurationEstimate.make(workout: workout, library: dataVM.globalExercises).summary
+                    let durationSuffix = duration.isEmpty ? "" : " · \(duration)"
+                    let subtitle = "\(workout.listDetailSubtitle)\(durationSuffix) · from your plan"
+                    let skip = dataVM.rotationSkipPreview()
                     TodayWorkoutCard(
                         title: workout.name,
                         subtitle: subtitle,
@@ -1305,8 +1309,24 @@ struct HomeView: View {
                         onResumeCompletedToday: { resumeTodayPlanFromLastCompletedSession(workout) },
                         openActiveWorkout: { openCurrentWorkoutSheet?() },
                         onViewWorkoutDetail: { todayPlanDetailRoute = .plannedWorkout(id) },
-                        detailLabel: "View workout"
+                        detailLabel: "View workout",
+                        skipTitle: skip.map { "Skip to \($0.nextName)" },
+                        onSkipToNext: skip == nil ? nil : { showSkipRotationConfirm = true }
                     )
+                    .confirmationDialog(
+                        "Skip \(workout.name)?",
+                        isPresented: $showSkipRotationConfirm,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Skip to \(skip?.nextName ?? "the next workout")", role: .destructive) {
+                            dataVM.skipPlannedWorkoutAndAdvanceRotation()
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        if let skip {
+                            Text("\(skip.currentName) comes out of today's plan. \(skip.nextName) becomes today's workout, and the rest of your rotation moves up with it.")
+                        }
+                    }
                     Button {
                         showDailyAdjust = true
                     } label: {
@@ -1401,8 +1421,8 @@ private struct HomeWorkoutListRow: View {
     let onStartLibrary: (Workout) -> Void
 
     private var exerciseCount: Int { workout.exercises.count }
-    private var estimatedMinutes: Int {
-        HomeWorkoutFormatting.estimatedDurationMinutes(exerciseCount: exerciseCount)
+    private var durationSummary: String {
+        WorkoutDurationEstimate.make(workout: workout, library: dataVM.globalExercises).summary
     }
     private var lastDoneText: String {
         HomeWorkoutFormatting.lastDoneLabel(
@@ -1438,7 +1458,9 @@ private struct HomeWorkoutListRow: View {
                         Text(workout.name)
                             .font(.headline)
                         if exerciseCount > 0 {
-                            Text("\(exerciseCount) exercises · ~\(estimatedMinutes) min")
+                            Text(durationSummary.isEmpty
+                                 ? "\(exerciseCount) exercises"
+                                 : "\(exerciseCount) exercises · \(durationSummary)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
@@ -1584,6 +1606,8 @@ private struct TodayWorkoutCard: View {
     let openActiveWorkout: () -> Void
     let onViewWorkoutDetail: () -> Void
     let detailLabel: String
+    var skipTitle: String? = nil
+    var onSkipToNext: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1648,6 +1672,17 @@ private struct TodayWorkoutCard: View {
                     primaryHint: "Starts today’s planned workout",
                     primaryAction: onStartPlanWorkout
                 )
+            }
+
+            if !isThisPlanActive, !isCompleted, let skipTitle, let onSkipToNext {
+                Button(action: onSkipToNext) {
+                    Text(skipTitle)
+                        .font(.subheadline.weight(.medium))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel(skipTitle)
+                .accessibilityHint("Skips this planned workout and makes the next one in your rotation today's workout")
             }
         }
     }

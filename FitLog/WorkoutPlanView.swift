@@ -530,6 +530,10 @@ struct WorkoutPlanView: View {
             }
             LabeledContent("Exercises", value: "\(workout.exercises.count)")
             LabeledContent("Planned sets (sum)", value: "\(workoutTotalRecommendedSets)")
+            let duration = WorkoutDurationEstimate.make(workout: workout, library: dataVM.globalExercises).summary
+            if !duration.isEmpty {
+                LabeledContent("Estimated time", value: duration)
+            }
             if workout.workoutKind == .strength || workout.workoutKind == .hybrid {
                 LabeledContent("Top muscles (by sets)", value: workoutPrimaryMuscleSummary)
             }

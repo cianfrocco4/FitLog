@@ -80,8 +80,9 @@ final class DynamicProgramCodableMigrationTests: XCTestCase {
         let blob = versionedEncode(state)
         let payload = try JSONDecoder().decode(VersionedPayload<DynamicProgramState>.self, from: blob)
         XCTAssertEqual(payload.schemaVersion, currentSchemaVersion)
-        XCTAssertEqual(currentSchemaVersion, 7)
+        XCTAssertEqual(currentSchemaVersion, 8)
         let roundTrip = try XCTUnwrap(versionedDecode(DynamicProgramState.self, from: blob))
+        XCTAssertEqual(roundTrip.rotationPhaseOffset, 0)
         let restored = try XCTUnwrap(roundTrip.program.blocks.first?.phaseGoal)
         XCTAssertEqual(restored.title, "Build muscle")
         XCTAssertEqual(restored.targets.first(where: { $0.kind == .weeklyHardSets })?.value, 16)
@@ -170,5 +171,35 @@ final class DynamicProgramCodableMigrationTests: XCTestCase {
         XCTAssertNil(SetScheme(kind: .rpeBased, rpeTarget: 8).validationMessageIfInvalid())
         XCTAssertNotNil(SetScheme(kind: .rpeBased, rpeTarget: 15).validationMessageIfInvalid())
         XCTAssertNil(SetScheme(kind: .fixed).validationMessageIfInvalid())
+    }
+
+    func testRotationPhaseOffsetDefaultsWhenKeyIsMissing() throws {
+        let program = DynamicProgram(
+            name: "Legacy",
+            blocks: [
+                ProgramBlock(
+                    name: "Block",
+                    focus: BlockFocus(kind: .general, emphasisLabel: ""),
+                    durationWeeks: 4,
+                    weeklyTemplates: [BlockWeeklyTemplate(dayName: "Push", focus: "", slots: [])]
+                )
+            ],
+            defaultSessionsPerWeek: 3
+        )
+        let state = DynamicProgramState(
+            program: program,
+            anchorDate: Date(timeIntervalSince1970: 1_700_000_000),
+            rotationPhaseOffset: 2
+        )
+        let blob = versionedEncode(state)
+        let roundTrip = try XCTUnwrap(versionedDecode(DynamicProgramState.self, from: blob))
+        XCTAssertEqual(roundTrip.rotationPhaseOffset, 2)
+
+        let json = try XCTUnwrap(String(data: blob, encoding: .utf8))
+        let stripped = json.replacingOccurrences(of: ",\"rotationPhaseOffset\":2", with: "")
+        XCTAssertFalse(stripped.contains("rotationPhaseOffset"))
+        let decoded = try XCTUnwrap(versionedDecode(DynamicProgramState.self, from: Data(stripped.utf8)))
+        XCTAssertEqual(decoded.rotationPhaseOffset, 0)
+        XCTAssertEqual(decoded.program.name, "Legacy")
     }
 }

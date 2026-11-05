@@ -17,6 +17,7 @@ struct WorkoutExerciseActionsBar: View {
     /// Present only for template slots, where the plan itself can be changed.
     let canChangePlanSlot: Bool
     let onSwap: () -> Void
+    let onSkip: () -> Void
     let onRepeatLastSet: () -> Void
     let onFocusExercise: () -> Void
     let onToggleSuperset: () -> Void
@@ -37,6 +38,17 @@ struct WorkoutExerciseActionsBar: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Swap \(exerciseName) for this session")
             .accessibilityHint("Replaces this exercise for today without changing your plan")
+
+            Button(action: onSkip) {
+                Label("Skip", systemImage: "forward.end")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 36)
+                    .background(Color.secondary.opacity(0.12), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Skip \(exerciseName)")
+            .accessibilityHint("Marks this exercise skipped and opens the next one")
 
             Button(action: onRepeatLastSet) {
                 Label("Repeat last", systemImage: "arrow.counterclockwise")
@@ -89,6 +101,7 @@ struct WorkoutExerciseActionsBar: View {
         showsEndSupersetRound: false,
         canChangePlanSlot: true,
         onSwap: {},
+        onSkip: {},
         onRepeatLastSet: {},
         onFocusExercise: {},
         onToggleSuperset: {},
@@ -108,6 +121,7 @@ struct WorkoutExerciseActionsBar: View {
         showsEndSupersetRound: true,
         canChangePlanSlot: false,
         onSwap: {},
+        onSkip: {},
         onRepeatLastSet: {},
         onFocusExercise: {},
         onToggleSuperset: {},

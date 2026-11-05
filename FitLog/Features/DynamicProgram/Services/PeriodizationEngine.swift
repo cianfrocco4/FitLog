@@ -309,7 +309,7 @@ struct PeriodizationEngine: Sendable {
 
         guard let ord = trainingDayOrdinal(on: date, state: state), ord > 0 else { return nil }
         let n = templatesCount
-        let phase = 0
+        let phase = state.rotationPhaseOffset
         let idx = ((ord - 1 + phase) % n + n) % n
         return idx
     }
