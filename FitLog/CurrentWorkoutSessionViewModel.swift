@@ -159,6 +159,7 @@ final class CurrentWorkoutSessionViewModel {
         clearInactivityReminder()
         clearPersistedActiveSession()
         pendingWorkoutCompletionSummary = summary
+        dataManager.publishTourmalineSessionSnapshot()
     }
 
     private func normalizeConcreteSnapshotsOnExerciseLogs(_ logs: inout [ExerciseLog]) {
@@ -189,6 +190,7 @@ final class CurrentWorkoutSessionViewModel {
         workoutPausedAt = nil
         clearInactivityReminder()
         clearPersistedActiveSession()
+        dataManager.publishTourmalineSessionSnapshot()
     }
     
     func pauseWorkout() {
@@ -267,6 +269,7 @@ final class CurrentWorkoutSessionViewModel {
             )
         }
         saveTimerState()
+        dataManager.publishTourmalineSessionSnapshot()
     }
 
     private func saveTimerState() {
@@ -1816,6 +1819,26 @@ final class CurrentWorkoutSessionViewModel {
         if let pendingLog = FitLogIntentBridge.consumePendingLogSet() {
             applyPendingLogSet(pendingLog)
         }
+
+        if FitLogIntentBridge.consumePendingUseLastCardioDuration() {
+            applyUseLastCardioDuration()
+            dataManager.publishTourmalineSessionSnapshot()
+        }
+    }
+
+    private func applyUseLastCardioDuration() {
+        guard let session = currentSession else { return }
+        guard let applyable = TourmalineAskFitLog.applyableLastCardio(
+            in: session,
+            completedSessions: dataManager.completedSessions
+        ) else { return }
+        logCardioSet(
+            exerciseIndex: applyable.exerciseIndex,
+            durationSec: applyable.durationSec,
+            distanceM: nil,
+            setType: .steadyState,
+            source: .manual
+        )
     }
 
     private func applyPendingLogSet(_ payload: FitLogIntentBridge.PendingLogSet) {

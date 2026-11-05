@@ -40,5 +40,38 @@ struct FitLogShortcutsProvider: AppShortcutsProvider {
             shortTitle: "Rest Timer",
             systemImageName: "timer"
         )
+
+        AppShortcut(
+            intent: UseLastCardioDurationIntent(),
+            phrases: [
+                "Use last cardio duration in \(.applicationName)",
+                "Log last cardio time in \(.applicationName)",
+                "Repeat last cardio duration in \(.applicationName)"
+            ],
+            shortTitle: "Last Cardio Duration",
+            systemImageName: "clock"
+        )
+
+        AppShortcut(
+            intent: LastSetQueryIntent(),
+            phrases: [
+                "Last set in \(.applicationName)",
+                "What was my last set in \(.applicationName)",
+                "What did I just log in \(.applicationName)"
+            ],
+            shortTitle: "Last Set",
+            systemImageName: "list.bullet"
+        )
+
+        AppShortcut(
+            intent: CurrentExerciseQueryIntent(),
+            phrases: [
+                "Current exercise in \(.applicationName)",
+                "What exercise am I on in \(.applicationName)",
+                "What's my current exercise in \(.applicationName)"
+            ],
+            shortTitle: "Current Exercise",
+            systemImageName: "target"
+        )
     }
 }

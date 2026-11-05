@@ -12,7 +12,9 @@ enum FitLogIntentBridge {
         static let pendingLogSet = "fitlog.intent.pendingLogSet"
         static let pendingStartWorkoutName = "fitlog.intent.pendingStartWorkoutName"
         static let pendingRestTimerSeconds = "fitlog.intent.pendingRestTimerSeconds"
+        static let pendingUseLastCardioDuration = "fitlog.intent.pendingUseLastCardioDuration"
         static let exerciseLibrarySnapshot = "fitlog.intent.exerciseLibrarySnapshot"
+        static let tourmalineSessionSnapshot = "fitlog.intent.tourmalineSessionSnapshot"
     }
 
     struct PendingLogSet: Codable, Equatable {
@@ -25,6 +27,42 @@ enum FitLogIntentBridge {
     struct ExerciseSnapshotEntry: Codable, Equatable {
         var id: UUID
         var name: String
+    }
+
+    /// In-progress snapshot for Tourmaline Siri use-last-cardio / last-set / current-exercise.
+    /// Distinct from jasperSessionSnapshot, lapisHistorySnapshot, peridotFinishSnapshot,
+    /// onyxNextPlanSnapshot, garnetLibrarySnapshot, amethystTomorrowSnapshot,
+    /// emeraldStrengthSnapshot, sapphireTodaySnapshot, rubyRepeatSnapshot,
+    /// citrineLastLoadSnapshot, and topaz LastSavedWorkoutSnapshot.
+    struct TourmalineSessionSnapshot: Codable, Equatable {
+        var inProgressWorkoutName: String?
+        var lastSetExerciseName: String?
+        var lastSetCaption: String?
+        var currentExerciseName: String?
+        var currentExerciseCaption: String?
+        var lastCardioExerciseName: String?
+        var lastCardioCaption: String?
+        var canApplyLastCardio: Bool
+
+        init(
+            inProgressWorkoutName: String? = nil,
+            lastSetExerciseName: String? = nil,
+            lastSetCaption: String? = nil,
+            currentExerciseName: String? = nil,
+            currentExerciseCaption: String? = nil,
+            lastCardioExerciseName: String? = nil,
+            lastCardioCaption: String? = nil,
+            canApplyLastCardio: Bool = false
+        ) {
+            self.inProgressWorkoutName = inProgressWorkoutName
+            self.lastSetExerciseName = lastSetExerciseName
+            self.lastSetCaption = lastSetCaption
+            self.currentExerciseName = currentExerciseName
+            self.currentExerciseCaption = currentExerciseCaption
+            self.lastCardioExerciseName = lastCardioExerciseName
+            self.lastCardioCaption = lastCardioCaption
+            self.canApplyLastCardio = canApplyLastCardio
+        }
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -46,6 +84,23 @@ enum FitLogIntentBridge {
 
     static func queueRestTimer(seconds: Int) {
         defaults.set(seconds, forKey: Key.pendingRestTimerSeconds)
+    }
+
+    static func queueUseLastCardioDuration() {
+        defaults.set(true, forKey: Key.pendingUseLastCardioDuration)
+    }
+
+    static func publishTourmalineSessionSnapshot(_ snapshot: TourmalineSessionSnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: Key.tourmalineSessionSnapshot)
+    }
+
+    static func loadTourmalineSessionSnapshot() -> TourmalineSessionSnapshot? {
+        guard
+            let data = defaults.data(forKey: Key.tourmalineSessionSnapshot),
+            let snapshot = try? JSONDecoder().decode(TourmalineSessionSnapshot.self, from: data)
+        else { return nil }
+        return snapshot
     }
 
     static func publishExerciseLibrary(_ exercises: [ExerciseSnapshotEntry]) {
@@ -83,5 +138,12 @@ enum FitLogIntentBridge {
         guard let value = defaults.object(forKey: Key.pendingRestTimerSeconds) as? Int else { return nil }
         defaults.removeObject(forKey: Key.pendingRestTimerSeconds)
         return value
+    }
+
+    static func consumePendingUseLastCardioDuration() -> Bool {
+        guard defaults.object(forKey: Key.pendingUseLastCardioDuration) != nil else { return false }
+        let queued = defaults.bool(forKey: Key.pendingUseLastCardioDuration)
+        defaults.removeObject(forKey: Key.pendingUseLastCardioDuration)
+        return queued
     }
 }
