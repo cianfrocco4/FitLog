@@ -33,12 +33,15 @@ struct VersionedPayload<T: Codable>: Codable {
 ///   7 – `ProgramBlock.phaseGoal` (optional `ProgramPhaseGoal` process targets); decode uses
 ///       `decodeIfPresent` for backward compatibility. SwiftData schema stays at V6 — goals live
 ///       inside the `SDDynamicProgramV2.stateData` JSON blob.
+///   8 – `DynamicProgramState.rotationPhaseOffset` (skip today's planned workout and advance the
+///       rotation). Missing on older blobs; decode uses `decodeIfPresent` and defaults to 0.
+///       SwiftData schema is unchanged — the offset lives in the program JSON blob.
 ///
 /// **AI split builder wizard defaults** use a separate, versioned UserDefaults envelope
 /// (`SplitBuilderPreferencesStore`) — not `VersionedPayload` / SwiftData — so workout and program
 /// data are unaffected if wizard prefs are reset or migrated independently. That store keeps its
 /// own private schema counter and must not be bumped in sympathy with this constant.
-let currentSchemaVersion = 7
+let currentSchemaVersion = 8
 
 /// Encode a value wrapped in a VersionedPayload.
 func versionedEncode<T: Codable>(_ value: T) -> Data {

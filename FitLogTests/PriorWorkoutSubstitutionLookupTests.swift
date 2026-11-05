@@ -220,6 +220,81 @@ struct PriorWorkoutSubstitutionLookupTests {
         #expect(found == nil)
     }
 
+    @Test func lastPerformanceIncludesSwapWarmupAndSetup() {
+        let libraryId = UUID()
+        let rowId = UUID()
+        let bench = exercise("Bench Press")
+        let dumbbell = exercise("Dumbbell Bench Press")
+        let library = workout(id: libraryId, exercises: [concrete(bench, id: rowId)])
+        var completed = completedSession(
+            libraryId: libraryId,
+            exercises: [concrete(dumbbell, id: rowId)],
+            end: Date(timeIntervalSince1970: 2_000)
+        )
+        completed.exerciseLogs[0].workoutExercise.configurationFields = ["Grip"]
+        completed.exerciseLogs[0].loggedSets = [
+            LoggedSet(
+                id: UUID(),
+                weight: 65,
+                reps: 10,
+                restTime: 60,
+                timestamp: Date(timeIntervalSince1970: 1_900),
+                setType: .warmup,
+                configuration: ["Grip": "Neutral"]
+            ),
+            LoggedSet(
+                id: UUID(),
+                weight: 90,
+                reps: 8,
+                restTime: 90,
+                timestamp: Date(timeIntervalSince1970: 1_950),
+                setType: .working,
+                configuration: ["Grip": "Neutral"]
+            )
+        ]
+        let live = liveSession(libraryId: libraryId, exercises: [concrete(bench, id: rowId)])
+
+        let performance = PriorWorkoutSubstitutionLookup.lastPerformance(
+            for: live.exerciseLogs[0],
+            exerciseIndex: 0,
+            session: live,
+            libraryWorkout: library,
+            completedSessions: [completed]
+        )
+
+        #expect(performance?.wasSwapped == true)
+        #expect(performance?.plannedName == "Bench Press")
+        #expect(performance?.performedName == "Dumbbell Bench Press")
+        #expect(performance?.sets.count == 2)
+        #expect(performance?.sets.first?.setType == .warmup)
+        #expect(performance?.sharedSetupSummary == "Grip: Neutral")
+    }
+
+    @Test func lastPerformanceWithoutSwapStillReturnsSets() {
+        let libraryId = UUID()
+        let rowId = UUID()
+        let bench = exercise("Bench Press")
+        let library = workout(id: libraryId, exercises: [concrete(bench, id: rowId)])
+        let completed = completedSession(
+            libraryId: libraryId,
+            exercises: [concrete(bench, id: rowId)],
+            end: Date(timeIntervalSince1970: 2_000)
+        )
+        let live = liveSession(libraryId: libraryId, exercises: [concrete(bench, id: rowId)])
+
+        let performance = PriorWorkoutSubstitutionLookup.lastPerformance(
+            for: live.exerciseLogs[0],
+            exerciseIndex: 0,
+            session: live,
+            libraryWorkout: library,
+            completedSessions: [completed]
+        )
+
+        #expect(performance?.wasSwapped == false)
+        #expect(performance?.performedName == "Bench Press")
+        #expect(performance?.sets.count == 1)
+    }
+
     private func exercise(_ name: String) -> Exercise {
         Exercise(id: UUID(), name: name, description: "", targetedMuscles: [.chest])
     }

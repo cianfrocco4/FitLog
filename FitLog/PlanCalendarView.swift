@@ -50,7 +50,7 @@ struct PlanCalendarView: View {
         let dynSig: String = {
             guard let d = dataVM.dynamicProgramState else { return "dyn:none" }
             let shiftSig = d.blockShiftDays.map { "\($0.key.uuidString):\($0.value)" }.sorted().joined(separator: ",")
-            return "dyn:\(d.program.id.uuidString)-\(Int(d.anchorDate.timeIntervalSince1970))-\(d.materializedTemplateWorkoutIds.count)-\(d.program.blocks.count)-\(d.busyDayKeys.count)-\(d.missedSessionDayKeys.count)-\(shiftSig)"
+            return "dyn:\(d.program.id.uuidString)-\(Int(d.anchorDate.timeIntervalSince1970))-\(d.materializedTemplateWorkoutIds.count)-\(d.program.blocks.count)-\(d.busyDayKeys.count)-\(d.missedSessionDayKeys.count)-\(shiftSig)-\(d.rotationPhaseOffset)"
         }()
         return "\(dayMonitor.currentDayKey)-\(cycleSig)-\(p.sessionsPerWeek)-\(weekdaysSig)-\(p.anchorDayKey)-\(p.cyclePhaseOffset)-\(skipSig)-\(p.dayOverrides.count)-\(p.weekOverrides.count)-\(p.frozenCalendarDays.count)-\(dataVM.completedSessions.count)-\(dynSig)"
     }
@@ -785,6 +785,7 @@ struct DayPlanSheet: View {
     @State private var showMoveReplaceConfirm = false
     @State private var pendingMoveTargetDate: Date?
     @State private var moveWorkoutFeedbackSerial = 0
+    @State private var showSkipRotationConfirm = false
 
     private var calendar: Calendar { .current }
     private var dayKey: String { TrainingProgramState.dayKey(for: date, calendar: calendar) }
@@ -909,6 +910,13 @@ struct DayPlanSheet: View {
                             }
                             .accessibilityHint("Reschedules this workout to a different day and marks this day as rest.")
                         }
+
+                        if calendar.isDateInToday(date), let skip = dataVM.rotationSkipPreview(on: date, calendar: calendar) {
+                            Button("Skip to \(skip.nextName)") {
+                                showSkipRotationConfirm = true
+                            }
+                            .accessibilityHint("Skips this planned workout and advances your rotation so the next workout is today.")
+                        }
                     }
                 }
 
@@ -929,6 +937,21 @@ struct DayPlanSheet: View {
             }
             .navigationTitle("Day")
             .navigationBarTitleDisplayMode(.inline)
+            .confirmationDialog(
+                "Skip this workout?",
+                isPresented: $showSkipRotationConfirm,
+                titleVisibility: .visible
+            ) {
+                let skip = dataVM.rotationSkipPreview(on: date, calendar: calendar)
+                Button("Skip to \(skip?.nextName ?? "the next workout")", role: .destructive) {
+                    dataVM.skipPlannedWorkoutAndAdvanceRotation(on: date, calendar: calendar)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                if let skip = dataVM.rotationSkipPreview(on: date, calendar: calendar) {
+                    Text("\(skip.currentName) comes out of today's plan. \(skip.nextName) becomes today's workout, and the rest of your rotation moves up with it.")
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }

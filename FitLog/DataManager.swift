@@ -1972,7 +1972,7 @@ final class DataManager {
             }
             if !templates.isEmpty, refs.count == templates.count {
                 p.cycleEntries = refs
-                p.cyclePhaseOffset = 0
+                p.cyclePhaseOffset = s.rotationPhaseOffset
             }
         }
         // When today falls before the anchor or after the program end, `blockPlacement` is nil and
@@ -1993,7 +1993,7 @@ final class DataManager {
             }
             if !templates.isEmpty, refs.count == templates.count {
                 p.cycleEntries = refs
-                p.cyclePhaseOffset = 0
+                p.cyclePhaseOffset = s.rotationPhaseOffset
             }
         }
         if !p.cycleEntries.isEmpty {
@@ -2087,6 +2087,74 @@ final class DataManager {
         p.anchorDayKey = TrainingProgramState.dayKey(for: date)
         normalizeCycleDerivedFields(&p)
         applyTrainingProgramAfterFreezingPast(p)
+    }
+
+    /// The workout that would land on `date` after skipping the current planned one.
+    /// Nil when today is pinned by a day or week override, the rotation has a single workout, or nothing is planned.
+    func rotationSkipPreview(on date: Date = Date(), calendar: Calendar = .current) -> (currentName: String, nextName: String)? {
+        if TrainingScheduleEngine(calendar: calendar).resolveOverriddenDay(date: date, program: trainingProgram) != nil {
+            return nil
+        }
+        guard case .workout(let current) = resolvedScheduleDay(for: date, calendar: calendar) else { return nil }
+        let length = rotationLength(on: date, calendar: calendar)
+        guard length > 1, let next = nextRotationWorkout(on: date, calendar: calendar) else { return nil }
+        let currentName = planLabel(for: current)
+        let nextName = planLabel(for: next)
+        guard currentName != nextName else { return nil }
+        return (currentName, nextName)
+    }
+
+    /// Skips the planned workout on `date` by advancing the rotation one step and clearing a same-day override.
+    func skipPlannedWorkoutAndAdvanceRotation(on date: Date = Date(), calendar: Calendar = .current) {
+        guard rotationSkipPreview(on: date, calendar: calendar) != nil else { return }
+        let key = TrainingProgramState.dayKey(for: date, calendar: calendar)
+        if var dyn = dynamicProgramState {
+            let count = max(1, rotationLength(on: date, calendar: calendar))
+            dyn.rotationPhaseOffset = (dyn.rotationPhaseOffset + 1) % count
+            dynamicProgramState = dyn
+            var program = trainingProgram
+            program.dayOverrides.removeValue(forKey: key)
+            trainingProgram = program
+            saveDynamicProgramState()
+            return
+        }
+        var program = trainingProgram
+        let count = program.cycleEntries.count
+        guard count > 1 else { return }
+        program.cyclePhaseOffset = (program.cyclePhaseOffset + 1) % count
+        program.dayOverrides.removeValue(forKey: key)
+        normalizeCycleDerivedFields(&program)
+        applyTrainingProgramAfterFreezingPast(program)
+    }
+
+    private func rotationLength(on date: Date, calendar: Calendar) -> Int {
+        if let dyn = dynamicProgramState {
+            return PeriodizationEngine(calendar: calendar)
+                .blockPlacement(on: date, state: dyn)?
+                .block.weeklyTemplates.count ?? 0
+        }
+        return trainingProgram.cycleEntries.count
+    }
+
+    private func nextRotationWorkout(on date: Date, calendar: Calendar) -> WorkoutPlanRef? {
+        if var dyn = dynamicProgramState {
+            dyn.rotationPhaseOffset += 1
+            let resolved = PeriodizationEngine(calendar: calendar).resolvedTemplateDay(on: date, state: dyn)
+            let template: BlockWeeklyTemplate?
+            switch resolved {
+            case .training(let day), .flex(let day):
+                template = day
+            case .rest, .unscheduled:
+                template = nil
+            }
+            guard let template, let workoutId = dyn.materializedTemplateWorkoutIds[template.id] else { return nil }
+            return .workout(workoutId)
+        }
+        var program = trainingProgram
+        program.cyclePhaseOffset += 1
+        let resolved = TrainingScheduleEngine(calendar: calendar).resolve(date: date, program: program)
+        guard case .workout(let ref) = resolved else { return nil }
+        return ref
     }
 
     /// Sets the rotation anchor to this calendar day and phase so the chosen workout is “day 1” of the cycle for future default assignments.

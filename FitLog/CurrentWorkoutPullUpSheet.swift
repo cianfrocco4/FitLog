@@ -417,6 +417,10 @@ struct CurrentWorkoutPullUpSheet: View {
     @FocusState private var numericFieldFocus: PullUpNumericFieldFocus?
     
     @State private var expandedExerciseIndex: Int? = nil
+    /// Exercise that has met its plan and should move on when rest ends.
+    @State private var pendingAutoAdvanceLogId: UUID?
+    /// User chose to stay and log extra sets, so rest ending does not leave the exercise.
+    @State private var autoAdvanceHeldLogIds: Set<UUID> = []
     @State private var logSetSheetSelection: LogSetSheetSelection?
     @State private var resolveSlotSelection: ResolveSlotWE?
     @State private var showFinishConfirmation = false
@@ -725,6 +729,24 @@ struct CurrentWorkoutPullUpSheet: View {
                                                 .listRowSeparator(.hidden)
                                                 .listRowBackground(FitlogPalette.success.opacity(0.04))
 
+                                            if let performance = priorPerformance(for: log, exerciseIndex: focusIndex) {
+                                                LastSessionExerciseReviewCard(
+                                                    performance: performance,
+                                                    unit: userPreferences.weightDisplayUnit,
+                                                    showsSetup: log.loggedSets.isEmpty,
+                                                    onSelectSet: CardioWorkoutExerciseHelpers.isCardioLoggingRow(
+                                                        log.workoutExercise,
+                                                        exercises: dataVM.globalExercises
+                                                    ) ? nil : { set in
+                                                        prefillInlineDraft(from: set, logId: log.id)
+                                                    }
+                                                )
+                                                .moveDisabled(true)
+                                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                                                .listRowSeparator(.hidden)
+                                                .listRowBackground(FitlogPalette.success.opacity(0.04))
+                                            }
+
                                             planAndCompletionRow(log: log)
                                                 .moveDisabled(true)
                                                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
@@ -749,7 +771,8 @@ struct CurrentWorkoutPullUpSheet: View {
                                                 currentAndPreviousSetsSection(
                                                     exerciseIndex: focusIndex,
                                                     log: log,
-                                                    previousLog: lastCompletedLog(for: log)
+                                                    previousSets: priorPerformance(for: log, exerciseIndex: focusIndex)?.sets
+                                                        ?? lastCompletedLog(for: log)?.loggedSets
                                                 )
                                                 .moveDisabled(true)
                                                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 6, trailing: 16))
@@ -865,7 +888,13 @@ struct CurrentWorkoutPullUpSheet: View {
                         remainingSeconds: currentVM.remainingRestTime,
                         totalSeconds: max(currentVM.restCountdownTotalSeconds, currentVM.remainingRestTime),
                         onAdjust: { currentVM.adjustRestCountdown(by: $0) },
-                        onSkip: { currentVM.cancelRestTimer() }
+                        onSkip: {
+                            let shouldContinue = pendingAutoAdvanceLogId != nil
+                            currentVM.cancelRestTimer()
+                            if shouldContinue {
+                                applyPendingAutoAdvanceIfNeeded()
+                            }
+                        }
                     )
                     .padding(.horizontal)
                     .padding(.vertical, 8)
@@ -1181,6 +1210,9 @@ struct CurrentWorkoutPullUpSheet: View {
                 guard isShowing else { return }
                 handleRestCompleteAutoAdvance()
             }
+            .onChange(of: focusedWorkProgress) { oldValue, newValue in
+                armAutoAdvanceIfWorkIncreased(from: oldValue, to: newValue)
+            }
             .onChange(of: sheetDetent) { _, newDetent in
                 if newDetent == FitlogWorkoutSheetDetent.expanded {
                     if expandedExerciseIndex == nil {
@@ -1427,7 +1459,10 @@ struct CurrentWorkoutPullUpSheet: View {
     }
 
     private func handleRestCompleteAutoAdvance() {
-        advanceToNextExerciseAfterRestIfNeeded()
+        let moved = applyPendingAutoAdvanceIfNeeded()
+        if !moved && !focusedExerciseIsHeldForExtraSets() {
+            advanceToNextExerciseAfterRestIfNeeded()
+        }
         let name: String? = {
             guard let idx = expandedExerciseIndex,
                   let logs = currentVM.currentSession?.exerciseLogs,
@@ -1442,6 +1477,97 @@ struct CurrentWorkoutPullUpSheet: View {
             restCompleteBannerMessage = nil
             currentVM.showRestCompleteAlert = false
         }
+    }
+
+    /// `"logId|workingSetCount"` for the focused row, so a set log can be told apart from switching exercises.
+    private var focusedWorkProgress: String {
+        guard let logs = currentVM.currentSession?.exerciseLogs else { return "" }
+        let index = effectiveFocusedExerciseIndex(in: logs)
+        guard logs.indices.contains(index) else { return "" }
+        let log = logs[index]
+        return "\(log.id.uuidString)|\(log.workingSetCount)"
+    }
+
+    private func armAutoAdvanceIfWorkIncreased(from oldValue: String, to newValue: String) {
+        let oldParts = oldValue.split(separator: "|", maxSplits: 1).map(String.init)
+        let newParts = newValue.split(separator: "|", maxSplits: 1).map(String.init)
+        guard oldParts.count == 2, newParts.count == 2, oldParts[0] == newParts[0] else { return }
+        guard let oldCount = Int(oldParts[1]), let newCount = Int(newParts[1]) else { return }
+        guard let logId = UUID(uuidString: newParts[0]) else { return }
+        guard let logs = currentVM.currentSession?.exerciseLogs,
+              let index = logs.firstIndex(where: { $0.id == logId })
+        else { return }
+        let log = logs[index]
+        let recommended = log.workoutExercise.recommendedSets
+        if recommended <= 0 || newCount < recommended || newCount <= oldCount {
+            if pendingAutoAdvanceLogId == log.id {
+                pendingAutoAdvanceLogId = nil
+            }
+            return
+        }
+        guard !autoAdvanceHeldLogIds.contains(log.id) else { return }
+        guard !log.workoutExercise.isSlotPlaceholder else { return }
+
+        if currentVM.remainingRestTime <= 0 {
+            moveOnFromExercise(at: index, markFinished: !isSupersetLoggingContext(exerciseIndex: index))
+        } else {
+            pendingAutoAdvanceLogId = log.id
+        }
+    }
+
+    private func focusedExerciseIsHeldForExtraSets() -> Bool {
+        guard let logs = currentVM.currentSession?.exerciseLogs else { return false }
+        let index = effectiveFocusedExerciseIndex(in: logs)
+        guard logs.indices.contains(index) else { return false }
+        return autoAdvanceHeldLogIds.contains(logs[index].id)
+    }
+
+    @discardableResult
+    private func applyPendingAutoAdvanceIfNeeded() -> Bool {
+        guard let pending = pendingAutoAdvanceLogId,
+              let logs = currentVM.currentSession?.exerciseLogs,
+              let index = logs.firstIndex(where: { $0.id == pending })
+        else { return false }
+        pendingAutoAdvanceLogId = nil
+        let keepRound = isSupersetLoggingContext(exerciseIndex: index)
+        moveOnFromExercise(at: index, markFinished: !keepRound)
+        return true
+    }
+
+    private func finishExerciseAndMoveOn(log: ExerciseLog) {
+        guard let logs = currentVM.currentSession?.exerciseLogs,
+              let index = logs.firstIndex(where: { $0.id == log.id })
+        else { return }
+        pendingAutoAdvanceLogId = nil
+        moveOnFromExercise(at: index, markFinished: true)
+    }
+
+    /// Leaves the exercise. `markFinished` records it complete. Superset rounds stay intact until an explicit skip or Done.
+    private func moveOnFromExercise(at index: Int, markFinished: Bool) {
+        guard let logs = currentVM.currentSession?.exerciseLogs, logs.indices.contains(index) else { return }
+        let nextIndex = nextFocusIndex(after: index, logs: logs)
+        if markFinished, let exerciseId = logs[index].workoutExercise.exerciseId {
+            currentVM.markExerciseCompleted(exerciseId: exerciseId)
+        }
+        guard let nextIndex, logs.indices.contains(nextIndex) else { return }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            expandedExerciseIndex = nextIndex
+        }
+        if let nextId = logs[nextIndex].workoutExercise.exerciseId {
+            currentVM.setPrimaryExercise(exerciseId: nextId)
+        }
+    }
+
+    private func priorPerformance(for log: ExerciseLog, exerciseIndex: Int) -> PriorWorkoutPerformance? {
+        guard let session = currentVM.currentSession else { return nil }
+        let library = PriorWorkoutSubstitutionLookup.libraryWorkout(for: session) { dataVM.workout(id: $0) }
+        return PriorWorkoutSubstitutionLookup.lastPerformance(
+            for: log,
+            exerciseIndex: exerciseIndex,
+            session: session,
+            libraryWorkout: library,
+            completedSessions: dataVM.completedSessions
+        )
     }
 
     private func advanceToNextExerciseAfterRestIfNeeded() {
@@ -1964,6 +2090,7 @@ struct CurrentWorkoutPullUpSheet: View {
             showsEndSupersetRound: isSupersetRoundActive,
             canChangePlanSlot: slotId != nil,
             onSwap: { swapSheetExerciseIndex = exerciseIndex },
+            onSkip: { finishExerciseAndMoveOn(log: log) },
             onRepeatLastSet: {
                 currentVM.repeatLastSet(exerciseIndex: exerciseIndex)
                 syncInlineDraftAfterLog(for: log.id, exerciseIndex: exerciseIndex)
@@ -1979,8 +2106,7 @@ struct CurrentWorkoutPullUpSheet: View {
             },
             onEndSupersetRound: { currentVM.endSupersetRound() },
             onMarkCompleted: {
-                guard let exId = log.workoutExercise.exerciseId else { return }
-                currentVM.markExerciseCompleted(exerciseId: exId)
+                finishExerciseAndMoveOn(log: log)
             },
             onChangePlanSlot: {
                 guard let slotId else { return }
@@ -3265,31 +3391,46 @@ struct CurrentWorkoutPullUpSheet: View {
 
     @ViewBuilder
     private func planAndCompletionRow(log: ExerciseLog) -> some View {
-        HStack(spacing: 12) {
-            setProgressIndicatorStrip(log: log)
-            Spacer(minLength: 8)
-            if let exId = log.workoutExercise.exerciseId {
-                if isExerciseCompleted(log) {
-                    Button {
-                        currentVM.markExerciseNotCompleted(exerciseId: exId)
-                    } label: {
-                        Label("Undo done", systemImage: "arrow.uturn.backward.circle")
-                            .labelStyle(.titleAndIcon)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                setProgressIndicatorStrip(log: log)
+                Spacer(minLength: 8)
+                if let exId = log.workoutExercise.exerciseId {
+                    if isExerciseCompleted(log) {
+                        Button {
+                            currentVM.markExerciseNotCompleted(exerciseId: exId)
+                        } label: {
+                            Label("Undo done", systemImage: "arrow.uturn.backward.circle")
+                                .labelStyle(.titleAndIcon)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .tint(.orange)
+                    } else if pendingAutoAdvanceLogId != log.id {
+                        Button {
+                            finishExerciseAndMoveOn(log: log)
+                        } label: {
+                            Label("Done", systemImage: "checkmark.circle.fill")
+                                .labelStyle(.titleAndIcon)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .tint(.green)
+                        .accessibilityHint("Finishes this exercise and opens the next one")
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .tint(.orange)
-                } else {
-                    Button {
-                        currentVM.markExerciseCompleted(exerciseId: exId)
-                    } label: {
-                        Label("Done", systemImage: "checkmark.circle.fill")
-                            .labelStyle(.titleAndIcon)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .tint(.green)
                 }
+            }
+            if pendingAutoAdvanceLogId == log.id {
+                Text("Last set logged. Next exercise starts when rest ends.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Stay for another set") {
+                    autoAdvanceHeldLogIds.insert(log.id)
+                    pendingAutoAdvanceLogId = nil
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityHint("Keeps you on this exercise so you can log more than the plan")
             }
         }
     }
@@ -3298,18 +3439,18 @@ struct CurrentWorkoutPullUpSheet: View {
     private func currentAndPreviousSetsSection(
         exerciseIndex: Int,
         log: ExerciseLog,
-        previousLog: ExerciseLog?
+        previousSets: [LoggedSet]?
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Sets")
                     .font(.subheadline.weight(.semibold))
                 Spacer()
-                if let previousLog {
+                if let previousSets, !previousSets.isEmpty {
                     matchOrBeatPreviousRow(
                         log: log,
                         exerciseIndex: exerciseIndex,
-                        previousLog: previousLog,
+                        previousSets: previousSets,
                         includeListRowInsets: false
                     )
                 }
@@ -3323,10 +3464,6 @@ struct CurrentWorkoutPullUpSheet: View {
                 unit: userPreferences.weightDisplayUnit,
                 suggestion: chartSuggestion
             )
-
-            if let previousLog {
-                previousSessionSummaryRow(previousLog: previousLog, includeListRowInsets: false)
-            }
         }
     }
 
@@ -3362,12 +3499,12 @@ struct CurrentWorkoutPullUpSheet: View {
     private func matchOrBeatPreviousRow(
         log: ExerciseLog,
         exerciseIndex: Int,
-        previousLog: ExerciseLog,
+        previousSets: [LoggedSet],
         includeListRowInsets: Bool = true
     ) -> some View {
         let content = HStack(spacing: 10) {
             Button("Match previous") {
-                applyMatchPrevious(log: log, exerciseIndex: exerciseIndex, previousLog: previousLog)
+                applyMatchPrevious(log: log, exerciseIndex: exerciseIndex, previousSets: previousSets)
             }
             .buttonStyle(.bordered)
             if let sug = dataVM.progressionSuggestion(for: log.workoutExercise), sug.direction == .increase {
@@ -3388,9 +3525,9 @@ struct CurrentWorkoutPullUpSheet: View {
         }
     }
 
-    private func applyMatchPrevious(log: ExerciseLog, exerciseIndex: Int, previousLog: ExerciseLog) {
+    private func applyMatchPrevious(log: ExerciseLog, exerciseIndex: Int, previousSets: [LoggedSet]) {
         let lid = log.id
-        let workingSets = previousLog.loggedSets
+        let workingSets = previousSets
             .filter { $0.countsTowardLoadPRMetrics }
             .sorted { $0.timestamp < $1.timestamp }
         let nextIdx = currentVM.currentSession?.exerciseLogs[exerciseIndex].loggedSets.count ?? 0
@@ -3527,57 +3664,6 @@ struct CurrentWorkoutPullUpSheet: View {
 
         // 2. Fall back to any workout that includes this exercise.
         return latestLog(in: allSessions)
-    }
-    
-    private func previousSessionSummaryRow(previousLog: ExerciseLog, includeListRowInsets: Bool = true) -> some View {
-        let we = previousLog.workoutExercise
-        let body = VStack(alignment: .leading, spacing: 6) {
-            Text("Last time for this exercise")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-            ForEach(previousLog.loggedSets.indices, id: \.self) { prevIndex in
-                let prevSet = previousLog.loggedSets[prevIndex]
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack {
-                        Text("Set \(prevIndex + 1)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        if let badge = prevSet.setTypeBadgeLabel {
-                            Text(badge)
-                                .font(.caption2)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(chipColor(for: prevSet.setType).opacity(0.18))
-                                .foregroundStyle(chipColor(for: prevSet.setType))
-                                .clipShape(Capsule())
-                        }
-                        Spacer()
-                        Text(prevSet.weightRepsDisplaySummary(displayUnit: userPreferences.weightDisplayUnit))
-                            .font(.caption)
-                        Text("• \(prevSet.restTime)s rest")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    if !prevSet.configurationSummary(fieldNames: we.configurationFields).isEmpty {
-                        Text(prevSet.configurationSummary(fieldNames: we.configurationFields))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.systemGray6))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-
-        return Group {
-            if includeListRowInsets {
-                body.listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-            } else {
-                body
-            }
-        }
     }
 
     private func setRow(set: LoggedSet, workoutExercise: WorkoutExercise) -> some View {
