@@ -1028,7 +1028,11 @@ final class CurrentWorkoutSessionViewModel {
         }
         let capped = min(600, max(0, currentRemaining + delta))
         if capped == 0 {
+            // Hitting zero ends rest the same way the countdown does. Cancelling here
+            // clears the completion signal, so the logger never applies a pending advance.
             cancelRestTimer()
+            Self.playRestCompleteFeedback()
+            showRestCompleteAlert = true
             return
         }
         remainingRestTime = capped

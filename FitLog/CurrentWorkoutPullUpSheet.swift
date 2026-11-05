@@ -1460,7 +1460,7 @@ struct CurrentWorkoutPullUpSheet: View {
 
     private func handleRestCompleteAutoAdvance() {
         let moved = applyPendingAutoAdvanceIfNeeded()
-        if !moved && !focusedExerciseIsHeldForExtraSets() {
+        if !moved && !restEndLeaveIsHeld() {
             advanceToNextExerciseAfterRestIfNeeded()
         }
         let name: String? = {
@@ -1515,11 +1515,21 @@ struct CurrentWorkoutPullUpSheet: View {
         }
     }
 
-    private func focusedExerciseIsHeldForExtraSets() -> Bool {
+    /// Stay blocks leaving that exercise when rest ends, including when another row is expanded.
+    /// The fallback leaves `primaryActiveExerciseId`, which Stay does not change.
+    private func restEndLeaveIsHeld() -> Bool {
         guard let logs = currentVM.currentSession?.exerciseLogs else { return false }
-        let index = effectiveFocusedExerciseIndex(in: logs)
-        guard logs.indices.contains(index) else { return false }
-        return autoAdvanceHeldLogIds.contains(logs[index].id)
+        let focusedIndex = effectiveFocusedExerciseIndex(in: logs)
+        if logs.indices.contains(focusedIndex),
+           autoAdvanceHeldLogIds.contains(logs[focusedIndex].id) {
+            return true
+        }
+        if let primaryIndex = primaryExerciseLogIndex,
+           logs.indices.contains(primaryIndex),
+           autoAdvanceHeldLogIds.contains(logs[primaryIndex].id) {
+            return true
+        }
+        return false
     }
 
     @discardableResult
