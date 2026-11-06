@@ -40,5 +40,38 @@ struct FitLogShortcutsProvider: AppShortcutsProvider {
             shortTitle: "Rest Timer",
             systemImageName: "timer"
         )
+
+        AppShortcut(
+            intent: UseLastWeightIntent(),
+            phrases: [
+                "Use last weight in \(.applicationName)",
+                "Log last weight in \(.applicationName)",
+                "Reuse last working weight in \(.applicationName)"
+            ],
+            shortTitle: "Last Weight",
+            systemImageName: "scalemass"
+        )
+
+        AppShortcut(
+            intent: SkipRestIntent(),
+            phrases: [
+                "Skip rest in \(.applicationName)",
+                "Skip rest timer in \(.applicationName)",
+                "End rest in \(.applicationName)"
+            ],
+            shortTitle: "Skip Rest",
+            systemImageName: "forward.end"
+        )
+
+        AppShortcut(
+            intent: RestRemainingQueryIntent(),
+            phrases: [
+                "Rest remaining in \(.applicationName)",
+                "How much rest is left in \(.applicationName)",
+                "What's my rest time in \(.applicationName)"
+            ],
+            shortTitle: "Rest Remaining",
+            systemImageName: "hourglass"
+        )
     }
 }

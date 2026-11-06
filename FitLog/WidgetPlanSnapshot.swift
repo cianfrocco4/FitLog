@@ -21,6 +21,19 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishAquamarineSessionSnapshot()
+    }
+
+    func publishAquamarineSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = AquamarineAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            completedSessions: completedSessions,
+            displayUnit: AquamarineAskFitLog.storedDisplayUnit(),
+            restEndsAt: FitLogIntentBridge.loadRestEndsAt()
+        )
+        FitLogIntentBridge.publishAquamarineSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {

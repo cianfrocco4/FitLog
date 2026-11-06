@@ -12,7 +12,11 @@ enum FitLogIntentBridge {
         static let pendingLogSet = "fitlog.intent.pendingLogSet"
         static let pendingStartWorkoutName = "fitlog.intent.pendingStartWorkoutName"
         static let pendingRestTimerSeconds = "fitlog.intent.pendingRestTimerSeconds"
+        static let pendingUseLastWeight = "fitlog.intent.pendingUseLastWeight"
+        static let pendingSkipRest = "fitlog.intent.pendingSkipRest"
         static let exerciseLibrarySnapshot = "fitlog.intent.exerciseLibrarySnapshot"
+        static let aquamarineSessionSnapshot = "fitlog.intent.aquamarineSessionSnapshot"
+        static let aquamarineRestEndsAt = "fitlog.intent.aquamarineRestEndsAt"
     }
 
     struct PendingLogSet: Codable, Equatable {
@@ -25,6 +29,37 @@ enum FitLogIntentBridge {
     struct ExerciseSnapshotEntry: Codable, Equatable {
         var id: UUID
         var name: String
+    }
+
+    /// In-progress snapshot for Aquamarine Siri use-last-weight / skip-rest / rest-remaining.
+    /// Distinct from tourmalineSessionSnapshot, jasperSessionSnapshot, lapisHistorySnapshot,
+    /// peridotFinishSnapshot, onyxNextPlanSnapshot, garnetLibrarySnapshot,
+    /// amethystTomorrowSnapshot, emeraldStrengthSnapshot, sapphireTodaySnapshot,
+    /// rubyRepeatSnapshot, citrineLastLoadSnapshot, and topaz LastSavedWorkoutSnapshot.
+    struct AquamarineSessionSnapshot: Codable, Equatable {
+        var inProgressWorkoutName: String?
+        var lastWeightExerciseName: String?
+        var lastWeightCaption: String?
+        var canApplyLastWeight: Bool
+        var restEndsAtEpoch: TimeInterval?
+
+        var restEndsAt: Date? {
+            restEndsAtEpoch.map { Date(timeIntervalSince1970: $0) }
+        }
+
+        init(
+            inProgressWorkoutName: String? = nil,
+            lastWeightExerciseName: String? = nil,
+            lastWeightCaption: String? = nil,
+            canApplyLastWeight: Bool = false,
+            restEndsAtEpoch: TimeInterval? = nil
+        ) {
+            self.inProgressWorkoutName = inProgressWorkoutName
+            self.lastWeightExerciseName = lastWeightExerciseName
+            self.lastWeightCaption = lastWeightCaption
+            self.canApplyLastWeight = canApplyLastWeight
+            self.restEndsAtEpoch = restEndsAtEpoch
+        }
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -46,6 +81,42 @@ enum FitLogIntentBridge {
 
     static func queueRestTimer(seconds: Int) {
         defaults.set(seconds, forKey: Key.pendingRestTimerSeconds)
+    }
+
+    static func queueUseLastWeight() {
+        defaults.set(true, forKey: Key.pendingUseLastWeight)
+    }
+
+    static func queueSkipRest() {
+        defaults.set(true, forKey: Key.pendingSkipRest)
+    }
+
+    static func publishRestEndsAt(_ date: Date?) {
+        if let date {
+            defaults.set(date.timeIntervalSince1970, forKey: Key.aquamarineRestEndsAt)
+        } else {
+            defaults.removeObject(forKey: Key.aquamarineRestEndsAt)
+        }
+    }
+
+    static func loadRestEndsAt() -> Date? {
+        guard let epoch = defaults.object(forKey: Key.aquamarineRestEndsAt) as? NSNumber else {
+            return nil
+        }
+        return Date(timeIntervalSince1970: epoch.doubleValue)
+    }
+
+    static func publishAquamarineSessionSnapshot(_ snapshot: AquamarineSessionSnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: Key.aquamarineSessionSnapshot)
+    }
+
+    static func loadAquamarineSessionSnapshot() -> AquamarineSessionSnapshot? {
+        guard
+            let data = defaults.data(forKey: Key.aquamarineSessionSnapshot),
+            let snapshot = try? JSONDecoder().decode(AquamarineSessionSnapshot.self, from: data)
+        else { return nil }
+        return snapshot
     }
 
     static func publishExerciseLibrary(_ exercises: [ExerciseSnapshotEntry]) {
@@ -83,5 +154,19 @@ enum FitLogIntentBridge {
         guard let value = defaults.object(forKey: Key.pendingRestTimerSeconds) as? Int else { return nil }
         defaults.removeObject(forKey: Key.pendingRestTimerSeconds)
         return value
+    }
+
+    static func consumePendingUseLastWeight() -> Bool {
+        guard defaults.object(forKey: Key.pendingUseLastWeight) != nil else { return false }
+        let queued = defaults.bool(forKey: Key.pendingUseLastWeight)
+        defaults.removeObject(forKey: Key.pendingUseLastWeight)
+        return queued
+    }
+
+    static func consumePendingSkipRest() -> Bool {
+        guard defaults.object(forKey: Key.pendingSkipRest) != nil else { return false }
+        let queued = defaults.bool(forKey: Key.pendingSkipRest)
+        defaults.removeObject(forKey: Key.pendingSkipRest)
+        return queued
     }
 }

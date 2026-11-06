@@ -159,6 +159,7 @@ final class CurrentWorkoutSessionViewModel {
         clearInactivityReminder()
         clearPersistedActiveSession()
         pendingWorkoutCompletionSummary = summary
+        publishAquamarineIntentState()
     }
 
     private func normalizeConcreteSnapshotsOnExerciseLogs(_ logs: inout [ExerciseLog]) {
@@ -189,6 +190,7 @@ final class CurrentWorkoutSessionViewModel {
         workoutPausedAt = nil
         clearInactivityReminder()
         clearPersistedActiveSession()
+        publishAquamarineIntentState()
     }
     
     func pauseWorkout() {
@@ -267,6 +269,7 @@ final class CurrentWorkoutSessionViewModel {
             )
         }
         saveTimerState()
+        publishAquamarineIntentState()
     }
 
     private func saveTimerState() {
@@ -951,6 +954,7 @@ final class CurrentWorkoutSessionViewModel {
 
         guard cappedSeconds > 0 else {
             restCountdownTotalSeconds = 0
+            publishAquamarineIntentState()
             return
         }
 
@@ -988,9 +992,11 @@ final class CurrentWorkoutSessionViewModel {
                     RestTimerLiveActivityCoordinator.shared.endRestActivity()
                     Self.playRestCompleteFeedback()
                     self.showRestCompleteAlert = true
+                    self.publishAquamarineIntentState()
                 }
             }
         }
+        publishAquamarineIntentState()
     }
 
     private static func playRestCompleteFeedback() {
@@ -1011,9 +1017,11 @@ final class CurrentWorkoutSessionViewModel {
         restCountdownTotalSeconds = 0
         showRestCompleteAlert = false
         clearRestCompletionNotification()
+        persistAquamarineRestEndsAt()
         Task { @MainActor in
             RestTimerLiveActivityCoordinator.shared.endRestActivity()
         }
+        dataManager.publishAquamarineSessionSnapshot()
     }
 
     /// Nudge the active rest countdown (e.g. +15 / −15) without restarting the timer tick loop.
@@ -1043,6 +1051,7 @@ final class CurrentWorkoutSessionViewModel {
                 workoutName: title
             )
         }
+        publishAquamarineIntentState()
     }
 
     private func clearRestCompletionNotification() {
@@ -1155,6 +1164,7 @@ final class CurrentWorkoutSessionViewModel {
                 }
                 Self.playRestCompleteFeedback()
                 showRestCompleteAlert = true
+                publishAquamarineIntentState()
             }
             backgroundDate = nil
             wasTimerRunning = false
@@ -1816,6 +1826,40 @@ final class CurrentWorkoutSessionViewModel {
         if let pendingLog = FitLogIntentBridge.consumePendingLogSet() {
             applyPendingLogSet(pendingLog)
         }
+
+        if FitLogIntentBridge.consumePendingUseLastWeight() {
+            applyUseLastWeight()
+            publishAquamarineIntentState()
+        }
+
+        if FitLogIntentBridge.consumePendingSkipRest() {
+            cancelRestTimer()
+            publishAquamarineIntentState()
+        }
+    }
+
+    private func applyUseLastWeight() {
+        guard let session = currentSession else { return }
+        guard let applyable = AquamarineAskFitLog.applyableLastWeight(
+            in: session,
+            completedSessions: dataManager.completedSessions,
+            displayUnit: AquamarineAskFitLog.storedDisplayUnit()
+        ) else { return }
+        logSet(
+            exerciseIndex: applyable.exerciseIndex,
+            weight: applyable.weight,
+            reps: applyable.reps,
+            restTime: applyable.restTime
+        )
+    }
+
+    private func persistAquamarineRestEndsAt() {
+        FitLogIntentBridge.publishRestEndsAt(restEndsAt)
+    }
+
+    private func publishAquamarineIntentState() {
+        persistAquamarineRestEndsAt()
+        dataManager.publishAquamarineSessionSnapshot()
     }
 
     private func applyPendingLogSet(_ payload: FitLogIntentBridge.PendingLogSet) {
