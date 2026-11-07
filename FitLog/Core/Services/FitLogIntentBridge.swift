@@ -12,7 +12,9 @@ enum FitLogIntentBridge {
         static let pendingLogSet = "fitlog.intent.pendingLogSet"
         static let pendingStartWorkoutName = "fitlog.intent.pendingStartWorkoutName"
         static let pendingRestTimerSeconds = "fitlog.intent.pendingRestTimerSeconds"
+        static let pendingUndoLastSet = "fitlog.intent.pendingUndoLastSet"
         static let exerciseLibrarySnapshot = "fitlog.intent.exerciseLibrarySnapshot"
+        static let tanzaniteSessionSnapshot = "fitlog.intent.tanzaniteSessionSnapshot"
     }
 
     struct PendingLogSet: Codable, Equatable {
@@ -25,6 +27,44 @@ enum FitLogIntentBridge {
     struct ExerciseSnapshotEntry: Codable, Equatable {
         var id: UUID
         var name: String
+    }
+
+    /// In-progress snapshot for Tanzanite Siri undo-last-set / sets-logged / elapsed.
+    /// Distinct from aquamarineSessionSnapshot, tourmalineSessionSnapshot,
+    /// jasperSessionSnapshot, lapisHistorySnapshot, peridotFinishSnapshot,
+    /// onyxNextPlanSnapshot, garnetLibrarySnapshot, amethystTomorrowSnapshot,
+    /// emeraldStrengthSnapshot, sapphireTodaySnapshot, rubyRepeatSnapshot,
+    /// citrineLastLoadSnapshot, and topaz LastSavedWorkoutSnapshot.
+    struct TanzaniteSessionSnapshot: Codable, Equatable {
+        var inProgressWorkoutName: String?
+        var undoExerciseName: String?
+        var undoCaption: String?
+        var canUndoLastSet: Bool
+        var loggedSetCount: Int
+        var workingSetCount: Int
+        var startTimeEpoch: TimeInterval?
+
+        var startTime: Date? {
+            startTimeEpoch.map { Date(timeIntervalSince1970: $0) }
+        }
+
+        init(
+            inProgressWorkoutName: String? = nil,
+            undoExerciseName: String? = nil,
+            undoCaption: String? = nil,
+            canUndoLastSet: Bool = false,
+            loggedSetCount: Int = 0,
+            workingSetCount: Int = 0,
+            startTimeEpoch: TimeInterval? = nil
+        ) {
+            self.inProgressWorkoutName = inProgressWorkoutName
+            self.undoExerciseName = undoExerciseName
+            self.undoCaption = undoCaption
+            self.canUndoLastSet = canUndoLastSet
+            self.loggedSetCount = loggedSetCount
+            self.workingSetCount = workingSetCount
+            self.startTimeEpoch = startTimeEpoch
+        }
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -46,6 +86,23 @@ enum FitLogIntentBridge {
 
     static func queueRestTimer(seconds: Int) {
         defaults.set(seconds, forKey: Key.pendingRestTimerSeconds)
+    }
+
+    static func queueUndoLastSet() {
+        defaults.set(true, forKey: Key.pendingUndoLastSet)
+    }
+
+    static func publishTanzaniteSessionSnapshot(_ snapshot: TanzaniteSessionSnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: Key.tanzaniteSessionSnapshot)
+    }
+
+    static func loadTanzaniteSessionSnapshot() -> TanzaniteSessionSnapshot? {
+        guard
+            let data = defaults.data(forKey: Key.tanzaniteSessionSnapshot),
+            let snapshot = try? JSONDecoder().decode(TanzaniteSessionSnapshot.self, from: data)
+        else { return nil }
+        return snapshot
     }
 
     static func publishExerciseLibrary(_ exercises: [ExerciseSnapshotEntry]) {
@@ -83,5 +140,12 @@ enum FitLogIntentBridge {
         guard let value = defaults.object(forKey: Key.pendingRestTimerSeconds) as? Int else { return nil }
         defaults.removeObject(forKey: Key.pendingRestTimerSeconds)
         return value
+    }
+
+    static func consumePendingUndoLastSet() -> Bool {
+        guard defaults.object(forKey: Key.pendingUndoLastSet) != nil else { return false }
+        let queued = defaults.bool(forKey: Key.pendingUndoLastSet)
+        defaults.removeObject(forKey: Key.pendingUndoLastSet)
+        return queued
     }
 }

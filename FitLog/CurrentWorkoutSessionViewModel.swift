@@ -159,6 +159,7 @@ final class CurrentWorkoutSessionViewModel {
         clearInactivityReminder()
         clearPersistedActiveSession()
         pendingWorkoutCompletionSummary = summary
+        publishTanzaniteIntentState()
     }
 
     private func normalizeConcreteSnapshotsOnExerciseLogs(_ logs: inout [ExerciseLog]) {
@@ -189,6 +190,7 @@ final class CurrentWorkoutSessionViewModel {
         workoutPausedAt = nil
         clearInactivityReminder()
         clearPersistedActiveSession()
+        publishTanzaniteIntentState()
     }
     
     func pauseWorkout() {
@@ -267,6 +269,7 @@ final class CurrentWorkoutSessionViewModel {
             )
         }
         saveTimerState()
+        publishTanzaniteIntentState()
     }
 
     private func saveTimerState() {
@@ -301,6 +304,7 @@ final class CurrentWorkoutSessionViewModel {
             migrateLoadedCardioTimersIfNeeded()
             updateWorkoutElapsed()
             if workoutPausedAt == nil { startWorkoutTimer() }
+            publishTanzaniteIntentState()
             return
         }
         // Migration path: legacy UserDefaults JSON (users upgrading from pre-Phase B builds)
@@ -322,6 +326,7 @@ final class CurrentWorkoutSessionViewModel {
         migrateLoadedCardioTimersIfNeeded()
         updateWorkoutElapsed()
         if workoutPausedAt == nil { startWorkoutTimer() }
+        publishTanzaniteIntentState()
     }
 
     /// Sync the current session's workout and exercise logs with an updated workout definition.
@@ -1816,6 +1821,26 @@ final class CurrentWorkoutSessionViewModel {
         if let pendingLog = FitLogIntentBridge.consumePendingLogSet() {
             applyPendingLogSet(pendingLog)
         }
+
+        if FitLogIntentBridge.consumePendingUndoLastSet() {
+            applyUndoLastSet()
+        }
+    }
+
+    private func applyUndoLastSet() {
+        guard let session = currentSession else { return }
+        guard let target = TanzaniteAskFitLog.undoableLastSet(
+            in: session,
+            displayUnit: TanzaniteAskFitLog.storedDisplayUnit()
+        ) else { return }
+        if remainingRestTime > 0 || restTimer != nil || restEndsAt != nil {
+            cancelRestTimer()
+        }
+        deleteSet(exerciseIndex: target.exerciseIndex, setIndex: target.setIndex)
+    }
+
+    private func publishTanzaniteIntentState() {
+        dataManager.publishTanzaniteSessionSnapshot()
     }
 
     private func applyPendingLogSet(_ payload: FitLogIntentBridge.PendingLogSet) {

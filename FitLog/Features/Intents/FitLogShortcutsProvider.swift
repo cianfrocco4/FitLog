@@ -40,5 +40,38 @@ struct FitLogShortcutsProvider: AppShortcutsProvider {
             shortTitle: "Rest Timer",
             systemImageName: "timer"
         )
+
+        AppShortcut(
+            intent: UndoLastSetIntent(),
+            phrases: [
+                "Undo last set in \(.applicationName)",
+                "Undo set in \(.applicationName)",
+                "Delete last set in \(.applicationName)"
+            ],
+            shortTitle: "Undo Last Set",
+            systemImageName: "arrow.uturn.backward"
+        )
+
+        AppShortcut(
+            intent: SetsLoggedQueryIntent(),
+            phrases: [
+                "Sets logged in \(.applicationName)",
+                "How many sets have I logged in \(.applicationName)",
+                "What's my set count in \(.applicationName)"
+            ],
+            shortTitle: "Sets Logged",
+            systemImageName: "number"
+        )
+
+        AppShortcut(
+            intent: ElapsedWorkoutQueryIntent(),
+            phrases: [
+                "Workout elapsed in \(.applicationName)",
+                "How long have I been working out in \(.applicationName)",
+                "What's my workout time in \(.applicationName)"
+            ],
+            shortTitle: "Elapsed Workout",
+            systemImageName: "clock"
+        )
     }
 }

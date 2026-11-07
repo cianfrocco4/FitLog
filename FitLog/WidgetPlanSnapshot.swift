@@ -21,6 +21,17 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishTanzaniteSessionSnapshot()
+    }
+
+    func publishTanzaniteSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = TanzaniteAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            displayUnit: TanzaniteAskFitLog.storedDisplayUnit()
+        )
+        FitLogIntentBridge.publishTanzaniteSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {
