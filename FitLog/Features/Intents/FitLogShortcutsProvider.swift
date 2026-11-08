@@ -40,5 +40,38 @@ struct FitLogShortcutsProvider: AppShortcutsProvider {
             shortTitle: "Rest Timer",
             systemImageName: "timer"
         )
+
+        AppShortcut(
+            intent: SkipRemainingSetsIntent(),
+            phrases: [
+                "Skip remaining sets in \(.applicationName)",
+                "Skip this exercise in \(.applicationName)",
+                "Mark exercise done in \(.applicationName)"
+            ],
+            shortTitle: "Skip Remaining",
+            systemImageName: "forward.end"
+        )
+
+        AppShortcut(
+            intent: NextSetQueryIntent(),
+            phrases: [
+                "Next set in \(.applicationName)",
+                "What's my next set in \(.applicationName)",
+                "Which set am I on in \(.applicationName)"
+            ],
+            shortTitle: "Next Set",
+            systemImageName: "list.number"
+        )
+
+        AppShortcut(
+            intent: ReadyToFinishQueryIntent(),
+            phrases: [
+                "Ready to finish in \(.applicationName)",
+                "Am I ready to finish in \(.applicationName)",
+                "Are all sets logged in \(.applicationName)"
+            ],
+            shortTitle: "Ready to Finish",
+            systemImageName: "flag.checkered"
+        )
     }
 }

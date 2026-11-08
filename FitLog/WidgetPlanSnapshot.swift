@@ -21,6 +21,17 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishMoonstoneSessionSnapshot()
+    }
+
+    func publishMoonstoneSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = MoonstoneAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            displayUnit: MoonstoneAskFitLog.storedDisplayUnit()
+        )
+        FitLogIntentBridge.publishMoonstoneSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {

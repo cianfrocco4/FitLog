@@ -12,7 +12,9 @@ enum FitLogIntentBridge {
         static let pendingLogSet = "fitlog.intent.pendingLogSet"
         static let pendingStartWorkoutName = "fitlog.intent.pendingStartWorkoutName"
         static let pendingRestTimerSeconds = "fitlog.intent.pendingRestTimerSeconds"
+        static let pendingSkipRemainingSets = "fitlog.intent.pendingSkipRemainingSets"
         static let exerciseLibrarySnapshot = "fitlog.intent.exerciseLibrarySnapshot"
+        static let moonstoneSessionSnapshot = "fitlog.intent.moonstoneSessionSnapshot"
     }
 
     struct PendingLogSet: Codable, Equatable {
@@ -25,6 +27,61 @@ enum FitLogIntentBridge {
     struct ExerciseSnapshotEntry: Codable, Equatable {
         var id: UUID
         var name: String
+    }
+
+    /// In-progress snapshot for Moonstone Siri skip-remaining / next-set / ready-to-finish.
+    /// Distinct from tanzaniteSessionSnapshot, aquamarineSessionSnapshot,
+    /// tourmalineSessionSnapshot, jasperSessionSnapshot, lapisHistorySnapshot,
+    /// peridotFinishSnapshot, onyxNextPlanSnapshot, garnetLibrarySnapshot,
+    /// amethystTomorrowSnapshot, emeraldStrengthSnapshot, sapphireTodaySnapshot,
+    /// rubyRepeatSnapshot, citrineLastLoadSnapshot, and topaz LastSavedWorkoutSnapshot.
+    struct MoonstoneSessionSnapshot: Codable, Equatable {
+        var inProgressWorkoutName: String?
+        var skipExerciseName: String?
+        var skipCaption: String?
+        var nextAfterSkipName: String?
+        var nextAfterSkipCaption: String?
+        var canSkipRemaining: Bool
+        var nextSetExerciseName: String?
+        var nextSetNumber: Int
+        var nextSetOf: Int
+        var nextSetLastCaption: String?
+        var isCardioNextSet: Bool
+        var remainingIncompleteCount: Int
+        var hasOpenPlaceholder: Bool
+        var isReadyToFinish: Bool
+
+        init(
+            inProgressWorkoutName: String? = nil,
+            skipExerciseName: String? = nil,
+            skipCaption: String? = nil,
+            nextAfterSkipName: String? = nil,
+            nextAfterSkipCaption: String? = nil,
+            canSkipRemaining: Bool = false,
+            nextSetExerciseName: String? = nil,
+            nextSetNumber: Int = 0,
+            nextSetOf: Int = 0,
+            nextSetLastCaption: String? = nil,
+            isCardioNextSet: Bool = false,
+            remainingIncompleteCount: Int = 0,
+            hasOpenPlaceholder: Bool = false,
+            isReadyToFinish: Bool = false
+        ) {
+            self.inProgressWorkoutName = inProgressWorkoutName
+            self.skipExerciseName = skipExerciseName
+            self.skipCaption = skipCaption
+            self.nextAfterSkipName = nextAfterSkipName
+            self.nextAfterSkipCaption = nextAfterSkipCaption
+            self.canSkipRemaining = canSkipRemaining
+            self.nextSetExerciseName = nextSetExerciseName
+            self.nextSetNumber = nextSetNumber
+            self.nextSetOf = nextSetOf
+            self.nextSetLastCaption = nextSetLastCaption
+            self.isCardioNextSet = isCardioNextSet
+            self.remainingIncompleteCount = remainingIncompleteCount
+            self.hasOpenPlaceholder = hasOpenPlaceholder
+            self.isReadyToFinish = isReadyToFinish
+        }
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -46,6 +103,23 @@ enum FitLogIntentBridge {
 
     static func queueRestTimer(seconds: Int) {
         defaults.set(seconds, forKey: Key.pendingRestTimerSeconds)
+    }
+
+    static func queueSkipRemainingSets() {
+        defaults.set(true, forKey: Key.pendingSkipRemainingSets)
+    }
+
+    static func publishMoonstoneSessionSnapshot(_ snapshot: MoonstoneSessionSnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: Key.moonstoneSessionSnapshot)
+    }
+
+    static func loadMoonstoneSessionSnapshot() -> MoonstoneSessionSnapshot? {
+        guard
+            let data = defaults.data(forKey: Key.moonstoneSessionSnapshot),
+            let snapshot = try? JSONDecoder().decode(MoonstoneSessionSnapshot.self, from: data)
+        else { return nil }
+        return snapshot
     }
 
     static func publishExerciseLibrary(_ exercises: [ExerciseSnapshotEntry]) {
@@ -83,5 +157,12 @@ enum FitLogIntentBridge {
         guard let value = defaults.object(forKey: Key.pendingRestTimerSeconds) as? Int else { return nil }
         defaults.removeObject(forKey: Key.pendingRestTimerSeconds)
         return value
+    }
+
+    static func consumePendingSkipRemainingSets() -> Bool {
+        guard defaults.object(forKey: Key.pendingSkipRemainingSets) != nil else { return false }
+        let queued = defaults.bool(forKey: Key.pendingSkipRemainingSets)
+        defaults.removeObject(forKey: Key.pendingSkipRemainingSets)
+        return queued
     }
 }

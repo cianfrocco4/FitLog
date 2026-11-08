@@ -159,6 +159,7 @@ final class CurrentWorkoutSessionViewModel {
         clearInactivityReminder()
         clearPersistedActiveSession()
         pendingWorkoutCompletionSummary = summary
+        publishMoonstoneIntentState()
     }
 
     private func normalizeConcreteSnapshotsOnExerciseLogs(_ logs: inout [ExerciseLog]) {
@@ -189,6 +190,7 @@ final class CurrentWorkoutSessionViewModel {
         workoutPausedAt = nil
         clearInactivityReminder()
         clearPersistedActiveSession()
+        publishMoonstoneIntentState()
     }
     
     func pauseWorkout() {
@@ -267,6 +269,7 @@ final class CurrentWorkoutSessionViewModel {
             )
         }
         saveTimerState()
+        publishMoonstoneIntentState()
     }
 
     private func saveTimerState() {
@@ -301,6 +304,7 @@ final class CurrentWorkoutSessionViewModel {
             migrateLoadedCardioTimersIfNeeded()
             updateWorkoutElapsed()
             if workoutPausedAt == nil { startWorkoutTimer() }
+            publishMoonstoneIntentState()
             return
         }
         // Migration path: legacy UserDefaults JSON (users upgrading from pre-Phase B builds)
@@ -322,6 +326,7 @@ final class CurrentWorkoutSessionViewModel {
         migrateLoadedCardioTimersIfNeeded()
         updateWorkoutElapsed()
         if workoutPausedAt == nil { startWorkoutTimer() }
+        publishMoonstoneIntentState()
     }
 
     /// Sync the current session's workout and exercise logs with an updated workout definition.
@@ -1816,6 +1821,29 @@ final class CurrentWorkoutSessionViewModel {
         if let pendingLog = FitLogIntentBridge.consumePendingLogSet() {
             applyPendingLogSet(pendingLog)
         }
+
+        if FitLogIntentBridge.consumePendingSkipRemainingSets() {
+            applySkipRemainingSets()
+        }
+    }
+
+    private func applySkipRemainingSets() {
+        guard let session = currentSession else { return }
+        guard let target = MoonstoneAskFitLog.skipRemainingTarget(
+            in: session,
+            displayUnit: MoonstoneAskFitLog.storedDisplayUnit()
+        ) else { return }
+        if remainingRestTime > 0 || restTimer != nil || restEndsAt != nil {
+            cancelRestTimer()
+        }
+        markExerciseCompleted(exerciseId: target.exerciseId)
+        if let nextId = target.nextExerciseId {
+            setPrimaryExercise(exerciseId: nextId)
+        }
+    }
+
+    private func publishMoonstoneIntentState() {
+        dataManager.publishMoonstoneSessionSnapshot()
     }
 
     private func applyPendingLogSet(_ payload: FitLogIntentBridge.PendingLogSet) {
