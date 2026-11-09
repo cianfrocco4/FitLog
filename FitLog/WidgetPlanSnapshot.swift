@@ -21,6 +21,17 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishAlexandriteSessionSnapshot()
+    }
+
+    func publishAlexandriteSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = AlexandriteAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            displayUnit: AlexandriteAskFitLog.storedDisplayUnit()
+        )
+        FitLogIntentBridge.publishAlexandriteSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {

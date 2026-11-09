@@ -12,7 +12,9 @@ enum FitLogIntentBridge {
         static let pendingLogSet = "fitlog.intent.pendingLogSet"
         static let pendingStartWorkoutName = "fitlog.intent.pendingStartWorkoutName"
         static let pendingRestTimerSeconds = "fitlog.intent.pendingRestTimerSeconds"
+        static let pendingFocusNextExercise = "fitlog.intent.pendingFocusNextExercise"
         static let exerciseLibrarySnapshot = "fitlog.intent.exerciseLibrarySnapshot"
+        static let alexandriteSessionSnapshot = "fitlog.intent.alexandriteSessionSnapshot"
     }
 
     struct PendingLogSet: Codable, Equatable {
@@ -25,6 +27,56 @@ enum FitLogIntentBridge {
     struct ExerciseSnapshotEntry: Codable, Equatable {
         var id: UUID
         var name: String
+    }
+
+    /// In-progress snapshot for Alexandrite Siri go-to-next / remaining /
+    /// current-workout. Distinct from moonstoneSessionSnapshot,
+    /// tanzaniteSessionSnapshot, aquamarineSessionSnapshot,
+    /// tourmalineSessionSnapshot, jasperSessionSnapshot, lapisHistorySnapshot,
+    /// peridotFinishSnapshot, onyxNextPlanSnapshot, garnetLibrarySnapshot,
+    /// amethystTomorrowSnapshot, emeraldStrengthSnapshot, sapphireTodaySnapshot,
+    /// rubyRepeatSnapshot, citrineLastLoadSnapshot, and topaz LastSavedWorkoutSnapshot.
+    struct AlexandriteSessionSnapshot: Codable, Equatable {
+        var inProgressWorkoutName: String?
+        var focusedExerciseName: String?
+        var focusedCaption: String?
+        var focusedIsIncomplete: Bool
+        var nextExerciseName: String?
+        var nextExerciseCaption: String?
+        var canFocusNext: Bool
+        var remainingExerciseNames: [String]
+        var remainingCount: Int
+        var firstRemainingCaption: String?
+        var hasOpenPlaceholder: Bool
+        var isReadyToFinish: Bool
+
+        init(
+            inProgressWorkoutName: String? = nil,
+            focusedExerciseName: String? = nil,
+            focusedCaption: String? = nil,
+            focusedIsIncomplete: Bool = false,
+            nextExerciseName: String? = nil,
+            nextExerciseCaption: String? = nil,
+            canFocusNext: Bool = false,
+            remainingExerciseNames: [String] = [],
+            remainingCount: Int = 0,
+            firstRemainingCaption: String? = nil,
+            hasOpenPlaceholder: Bool = false,
+            isReadyToFinish: Bool = false
+        ) {
+            self.inProgressWorkoutName = inProgressWorkoutName
+            self.focusedExerciseName = focusedExerciseName
+            self.focusedCaption = focusedCaption
+            self.focusedIsIncomplete = focusedIsIncomplete
+            self.nextExerciseName = nextExerciseName
+            self.nextExerciseCaption = nextExerciseCaption
+            self.canFocusNext = canFocusNext
+            self.remainingExerciseNames = remainingExerciseNames
+            self.remainingCount = remainingCount
+            self.firstRemainingCaption = firstRemainingCaption
+            self.hasOpenPlaceholder = hasOpenPlaceholder
+            self.isReadyToFinish = isReadyToFinish
+        }
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -46,6 +98,23 @@ enum FitLogIntentBridge {
 
     static func queueRestTimer(seconds: Int) {
         defaults.set(seconds, forKey: Key.pendingRestTimerSeconds)
+    }
+
+    static func queueFocusNextExercise() {
+        defaults.set(true, forKey: Key.pendingFocusNextExercise)
+    }
+
+    static func publishAlexandriteSessionSnapshot(_ snapshot: AlexandriteSessionSnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: Key.alexandriteSessionSnapshot)
+    }
+
+    static func loadAlexandriteSessionSnapshot() -> AlexandriteSessionSnapshot? {
+        guard
+            let data = defaults.data(forKey: Key.alexandriteSessionSnapshot),
+            let snapshot = try? JSONDecoder().decode(AlexandriteSessionSnapshot.self, from: data)
+        else { return nil }
+        return snapshot
     }
 
     static func publishExerciseLibrary(_ exercises: [ExerciseSnapshotEntry]) {
@@ -83,5 +152,12 @@ enum FitLogIntentBridge {
         guard let value = defaults.object(forKey: Key.pendingRestTimerSeconds) as? Int else { return nil }
         defaults.removeObject(forKey: Key.pendingRestTimerSeconds)
         return value
+    }
+
+    static func consumePendingFocusNextExercise() -> Bool {
+        guard defaults.object(forKey: Key.pendingFocusNextExercise) != nil else { return false }
+        let queued = defaults.bool(forKey: Key.pendingFocusNextExercise)
+        defaults.removeObject(forKey: Key.pendingFocusNextExercise)
+        return queued
     }
 }

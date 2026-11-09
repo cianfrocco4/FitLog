@@ -40,5 +40,38 @@ struct FitLogShortcutsProvider: AppShortcutsProvider {
             shortTitle: "Rest Timer",
             systemImageName: "timer"
         )
+
+        AppShortcut(
+            intent: FocusNextExerciseIntent(),
+            phrases: [
+                "Go to next exercise in \(.applicationName)",
+                "Switch to next exercise in \(.applicationName)",
+                "Focus next exercise in \(.applicationName)"
+            ],
+            shortTitle: "Go to Next",
+            systemImageName: "arrow.right.circle"
+        )
+
+        AppShortcut(
+            intent: RemainingExercisesQueryIntent(),
+            phrases: [
+                "What's left in \(.applicationName)",
+                "Remaining exercises in \(.applicationName)",
+                "Which exercises are left in \(.applicationName)"
+            ],
+            shortTitle: "What's Left",
+            systemImageName: "list.bullet"
+        )
+
+        AppShortcut(
+            intent: CurrentWorkoutQueryIntent(),
+            phrases: [
+                "Current workout in \(.applicationName)",
+                "What's my current workout in \(.applicationName)",
+                "What workout am I doing in \(.applicationName)"
+            ],
+            shortTitle: "Current Workout",
+            systemImageName: "dumbbell"
+        )
     }
 }
