@@ -159,6 +159,7 @@ final class CurrentWorkoutSessionViewModel {
         clearInactivityReminder()
         clearPersistedActiveSession()
         pendingWorkoutCompletionSummary = summary
+        publishSpinelIntentState()
     }
 
     private func normalizeConcreteSnapshotsOnExerciseLogs(_ logs: inout [ExerciseLog]) {
@@ -189,6 +190,7 @@ final class CurrentWorkoutSessionViewModel {
         workoutPausedAt = nil
         clearInactivityReminder()
         clearPersistedActiveSession()
+        publishSpinelIntentState()
     }
     
     func pauseWorkout() {
@@ -267,6 +269,7 @@ final class CurrentWorkoutSessionViewModel {
             )
         }
         saveTimerState()
+        publishSpinelIntentState()
     }
 
     private func saveTimerState() {
@@ -301,6 +304,7 @@ final class CurrentWorkoutSessionViewModel {
             migrateLoadedCardioTimersIfNeeded()
             updateWorkoutElapsed()
             if workoutPausedAt == nil { startWorkoutTimer() }
+            publishSpinelIntentState()
             return
         }
         // Migration path: legacy UserDefaults JSON (users upgrading from pre-Phase B builds)
@@ -322,6 +326,7 @@ final class CurrentWorkoutSessionViewModel {
         migrateLoadedCardioTimersIfNeeded()
         updateWorkoutElapsed()
         if workoutPausedAt == nil { startWorkoutTimer() }
+        publishSpinelIntentState()
     }
 
     /// Sync the current session's workout and exercise logs with an updated workout definition.
@@ -1816,6 +1821,23 @@ final class CurrentWorkoutSessionViewModel {
         if let pendingLog = FitLogIntentBridge.consumePendingLogSet() {
             applyPendingLogSet(pendingLog)
         }
+
+        if FitLogIntentBridge.consumePendingFocusPreviousExercise() {
+            applyFocusPreviousExercise()
+        }
+    }
+
+    private func applyFocusPreviousExercise() {
+        guard let session = currentSession else { return }
+        guard let target = SpinelAskFitLog.focusPreviousTarget(
+            in: session,
+            displayUnit: SpinelAskFitLog.storedDisplayUnit()
+        ) else { return }
+        setPrimaryExercise(exerciseId: target.exerciseId)
+    }
+
+    private func publishSpinelIntentState() {
+        dataManager.publishSpinelSessionSnapshot()
     }
 
     private func applyPendingLogSet(_ payload: FitLogIntentBridge.PendingLogSet) {

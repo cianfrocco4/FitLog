@@ -21,6 +21,17 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishSpinelSessionSnapshot()
+    }
+
+    func publishSpinelSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = SpinelAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            displayUnit: SpinelAskFitLog.storedDisplayUnit()
+        )
+        FitLogIntentBridge.publishSpinelSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {

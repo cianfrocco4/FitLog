@@ -40,5 +40,38 @@ struct FitLogShortcutsProvider: AppShortcutsProvider {
             shortTitle: "Rest Timer",
             systemImageName: "timer"
         )
+
+        AppShortcut(
+            intent: FocusPreviousExerciseIntent(),
+            phrases: [
+                "Go to previous exercise in \(.applicationName)",
+                "Switch to previous exercise in \(.applicationName)",
+                "Focus previous exercise in \(.applicationName)"
+            ],
+            shortTitle: "Go to Previous",
+            systemImageName: "arrow.left.circle"
+        )
+
+        AppShortcut(
+            intent: PreviousExerciseQueryIntent(),
+            phrases: [
+                "Previous exercise in \(.applicationName)",
+                "What's the previous exercise in \(.applicationName)",
+                "Which exercise was previous in \(.applicationName)"
+            ],
+            shortTitle: "Previous Exercise",
+            systemImageName: "arrow.uturn.backward"
+        )
+
+        AppShortcut(
+            intent: ThisExerciseSetsQueryIntent(),
+            phrases: [
+                "This exercise sets in \(.applicationName)",
+                "How many sets on this exercise in \(.applicationName)",
+                "Sets on this exercise in \(.applicationName)"
+            ],
+            shortTitle: "This Exercise Sets",
+            systemImageName: "number"
+        )
     }
 }

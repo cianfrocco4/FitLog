@@ -12,7 +12,9 @@ enum FitLogIntentBridge {
         static let pendingLogSet = "fitlog.intent.pendingLogSet"
         static let pendingStartWorkoutName = "fitlog.intent.pendingStartWorkoutName"
         static let pendingRestTimerSeconds = "fitlog.intent.pendingRestTimerSeconds"
+        static let pendingFocusPreviousExercise = "fitlog.intent.pendingFocusPreviousExercise"
         static let exerciseLibrarySnapshot = "fitlog.intent.exerciseLibrarySnapshot"
+        static let spinelSessionSnapshot = "fitlog.intent.spinelSessionSnapshot"
     }
 
     struct PendingLogSet: Codable, Equatable {
@@ -25,6 +27,57 @@ enum FitLogIntentBridge {
     struct ExerciseSnapshotEntry: Codable, Equatable {
         var id: UUID
         var name: String
+    }
+
+    /// In-progress snapshot for Spinel Siri go-to-previous / previous-exercise /
+    /// this-exercise-sets. Distinct from alexandriteSessionSnapshot,
+    /// moonstoneSessionSnapshot, tanzaniteSessionSnapshot,
+    /// aquamarineSessionSnapshot, tourmalineSessionSnapshot,
+    /// jasperSessionSnapshot, lapisHistorySnapshot, peridotFinishSnapshot,
+    /// onyxNextPlanSnapshot, garnetLibrarySnapshot, amethystTomorrowSnapshot,
+    /// emeraldStrengthSnapshot, sapphireTodaySnapshot, rubyRepeatSnapshot,
+    /// citrineLastLoadSnapshot, and topaz LastSavedWorkoutSnapshot.
+    struct SpinelSessionSnapshot: Codable, Equatable {
+        var inProgressWorkoutName: String?
+        var focusedExerciseName: String?
+        var focusedCaption: String?
+        var focusedIsIncomplete: Bool
+        var focusedIsCardio: Bool
+        var focusedWorkingSetsLogged: Int
+        var focusedRecommendedSets: Int
+        var previousExerciseName: String?
+        var previousExerciseCaption: String?
+        var canFocusPrevious: Bool
+        var hasOpenPlaceholder: Bool
+        var isReadyToFinish: Bool
+
+        init(
+            inProgressWorkoutName: String? = nil,
+            focusedExerciseName: String? = nil,
+            focusedCaption: String? = nil,
+            focusedIsIncomplete: Bool = false,
+            focusedIsCardio: Bool = false,
+            focusedWorkingSetsLogged: Int = 0,
+            focusedRecommendedSets: Int = 0,
+            previousExerciseName: String? = nil,
+            previousExerciseCaption: String? = nil,
+            canFocusPrevious: Bool = false,
+            hasOpenPlaceholder: Bool = false,
+            isReadyToFinish: Bool = false
+        ) {
+            self.inProgressWorkoutName = inProgressWorkoutName
+            self.focusedExerciseName = focusedExerciseName
+            self.focusedCaption = focusedCaption
+            self.focusedIsIncomplete = focusedIsIncomplete
+            self.focusedIsCardio = focusedIsCardio
+            self.focusedWorkingSetsLogged = focusedWorkingSetsLogged
+            self.focusedRecommendedSets = focusedRecommendedSets
+            self.previousExerciseName = previousExerciseName
+            self.previousExerciseCaption = previousExerciseCaption
+            self.canFocusPrevious = canFocusPrevious
+            self.hasOpenPlaceholder = hasOpenPlaceholder
+            self.isReadyToFinish = isReadyToFinish
+        }
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -46,6 +99,23 @@ enum FitLogIntentBridge {
 
     static func queueRestTimer(seconds: Int) {
         defaults.set(seconds, forKey: Key.pendingRestTimerSeconds)
+    }
+
+    static func queueFocusPreviousExercise() {
+        defaults.set(true, forKey: Key.pendingFocusPreviousExercise)
+    }
+
+    static func publishSpinelSessionSnapshot(_ snapshot: SpinelSessionSnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: Key.spinelSessionSnapshot)
+    }
+
+    static func loadSpinelSessionSnapshot() -> SpinelSessionSnapshot? {
+        guard
+            let data = defaults.data(forKey: Key.spinelSessionSnapshot),
+            let snapshot = try? JSONDecoder().decode(SpinelSessionSnapshot.self, from: data)
+        else { return nil }
+        return snapshot
     }
 
     static func publishExerciseLibrary(_ exercises: [ExerciseSnapshotEntry]) {
@@ -83,5 +153,12 @@ enum FitLogIntentBridge {
         guard let value = defaults.object(forKey: Key.pendingRestTimerSeconds) as? Int else { return nil }
         defaults.removeObject(forKey: Key.pendingRestTimerSeconds)
         return value
+    }
+
+    static func consumePendingFocusPreviousExercise() -> Bool {
+        guard defaults.object(forKey: Key.pendingFocusPreviousExercise) != nil else { return false }
+        let queued = defaults.bool(forKey: Key.pendingFocusPreviousExercise)
+        defaults.removeObject(forKey: Key.pendingFocusPreviousExercise)
+        return queued
     }
 }
