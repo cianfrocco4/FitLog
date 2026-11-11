@@ -21,6 +21,17 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishZirconSessionSnapshot()
+    }
+
+    func publishZirconSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = ZirconAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            restEndsAt: FitLogIntentBridge.loadZirconRestEndsAt()
+        )
+        FitLogIntentBridge.publishZirconSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {
