@@ -21,6 +21,18 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishObsidianSessionSnapshot()
+    }
+
+    func publishObsidianSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = ObsidianAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            restEndsAt: FitLogIntentBridge.loadObsidianRestEndsAt(),
+            displayUnit: ObsidianAskFitLog.storedDisplayUnit()
+        )
+        FitLogIntentBridge.publishObsidianSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {

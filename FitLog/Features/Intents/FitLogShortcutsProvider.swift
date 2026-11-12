@@ -40,5 +40,38 @@ struct FitLogShortcutsProvider: AppShortcutsProvider {
             shortTitle: "Rest Timer",
             systemImageName: "timer"
         )
+
+        AppShortcut(
+            intent: SubtractRestTimeIntent(),
+            phrases: [
+                "Subtract rest time in \(.applicationName)",
+                "Take 30 seconds off rest in \(.applicationName)",
+                "Give me less rest in \(.applicationName)"
+            ],
+            shortTitle: "Subtract Rest Time",
+            systemImageName: "minus.circle"
+        )
+
+        AppShortcut(
+            intent: NextExerciseTargetQueryIntent(),
+            phrases: [
+                "Next exercise target in \(.applicationName)",
+                "What's the target for the next exercise in \(.applicationName)",
+                "What should I do next in \(.applicationName)"
+            ],
+            shortTitle: "Next Exercise Target",
+            systemImageName: "target"
+        )
+
+        AppShortcut(
+            intent: NextExerciseLastWorkingQueryIntent(),
+            phrases: [
+                "Next exercise last working in \(.applicationName)",
+                "What did I last lift on the next exercise in \(.applicationName)",
+                "Last working set on next exercise in \(.applicationName)"
+            ],
+            shortTitle: "Next Exercise Last Working",
+            systemImageName: "clock.arrow.circlepath"
+        )
     }
 }
