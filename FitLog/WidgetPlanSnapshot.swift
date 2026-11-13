@@ -21,6 +21,18 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishFluoriteSessionSnapshot()
+    }
+
+    func publishFluoriteSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = FluoriteAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            restEndsAt: FitLogIntentBridge.loadFluoriteRestEndsAt(),
+            displayUnit: FluoriteAskFitLog.storedDisplayUnit()
+        )
+        FitLogIntentBridge.publishFluoriteSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {

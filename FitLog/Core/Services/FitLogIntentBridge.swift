@@ -12,7 +12,10 @@ enum FitLogIntentBridge {
         static let pendingLogSet = "fitlog.intent.pendingLogSet"
         static let pendingStartWorkoutName = "fitlog.intent.pendingStartWorkoutName"
         static let pendingRestTimerSeconds = "fitlog.intent.pendingRestTimerSeconds"
+        static let pendingResetRestTime = "fitlog.intent.pendingResetRestTime"
         static let exerciseLibrarySnapshot = "fitlog.intent.exerciseLibrarySnapshot"
+        static let fluoriteSessionSnapshot = "fitlog.intent.fluoriteSessionSnapshot"
+        static let fluoriteRestEndsAt = "fitlog.intent.fluoriteRestEndsAt"
     }
 
     struct PendingLogSet: Codable, Equatable {
@@ -25,6 +28,63 @@ enum FitLogIntentBridge {
     struct ExerciseSnapshotEntry: Codable, Equatable {
         var id: UUID
         var name: String
+    }
+
+    /// In-progress snapshot for Fluorite Siri reset-rest / previous-exercise-target /
+    /// this-exercise-last-working. Distinct from obsidianSessionSnapshot,
+    /// zirconSessionSnapshot, spinelSessionSnapshot,
+    /// alexandriteSessionSnapshot, moonstoneSessionSnapshot,
+    /// tanzaniteSessionSnapshot, aquamarineSessionSnapshot,
+    /// tourmalineSessionSnapshot, jasperSessionSnapshot,
+    /// lapisHistorySnapshot, peridotFinishSnapshot,
+    /// onyxNextPlanSnapshot, garnetLibrarySnapshot,
+    /// amethystTomorrowSnapshot, emeraldStrengthSnapshot,
+    /// sapphireTodaySnapshot, rubyRepeatSnapshot,
+    /// citrineLastLoadSnapshot, and topaz LastSavedWorkoutSnapshot.
+    struct FluoriteSessionSnapshot: Codable, Equatable {
+        var inProgressWorkoutName: String?
+        var focusedExerciseName: String?
+        var focusedIsCardio: Bool
+        var focusedIsIncomplete: Bool
+        var focusedLastWorkingCaption: String?
+        var focusedPrescribedRestSeconds: Int?
+        var previousExerciseName: String?
+        var previousIsCardio: Bool
+        var previousTargetCaption: String?
+        var canResetRest: Bool
+        var restEndsAtEpoch: TimeInterval?
+        var hasOpenPlaceholder: Bool
+        var isReadyToFinish: Bool
+
+        init(
+            inProgressWorkoutName: String? = nil,
+            focusedExerciseName: String? = nil,
+            focusedIsCardio: Bool = false,
+            focusedIsIncomplete: Bool = false,
+            focusedLastWorkingCaption: String? = nil,
+            focusedPrescribedRestSeconds: Int? = nil,
+            previousExerciseName: String? = nil,
+            previousIsCardio: Bool = false,
+            previousTargetCaption: String? = nil,
+            canResetRest: Bool = false,
+            restEndsAtEpoch: TimeInterval? = nil,
+            hasOpenPlaceholder: Bool = false,
+            isReadyToFinish: Bool = false
+        ) {
+            self.inProgressWorkoutName = inProgressWorkoutName
+            self.focusedExerciseName = focusedExerciseName
+            self.focusedIsCardio = focusedIsCardio
+            self.focusedIsIncomplete = focusedIsIncomplete
+            self.focusedLastWorkingCaption = focusedLastWorkingCaption
+            self.focusedPrescribedRestSeconds = focusedPrescribedRestSeconds
+            self.previousExerciseName = previousExerciseName
+            self.previousIsCardio = previousIsCardio
+            self.previousTargetCaption = previousTargetCaption
+            self.canResetRest = canResetRest
+            self.restEndsAtEpoch = restEndsAtEpoch
+            self.hasOpenPlaceholder = hasOpenPlaceholder
+            self.isReadyToFinish = isReadyToFinish
+        }
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -46,6 +106,38 @@ enum FitLogIntentBridge {
 
     static func queueRestTimer(seconds: Int) {
         defaults.set(seconds, forKey: Key.pendingRestTimerSeconds)
+    }
+
+    static func queueResetRestTime() {
+        defaults.set(true, forKey: Key.pendingResetRestTime)
+    }
+
+    static func publishFluoriteRestEndsAt(_ date: Date?) {
+        if let date, FluoriteAskFitLog.remainingRestSeconds(restEndsAt: date) != nil {
+            defaults.set(date.timeIntervalSince1970, forKey: Key.fluoriteRestEndsAt)
+        } else {
+            defaults.removeObject(forKey: Key.fluoriteRestEndsAt)
+        }
+    }
+
+    static func loadFluoriteRestEndsAt() -> Date? {
+        guard let epoch = defaults.object(forKey: Key.fluoriteRestEndsAt) as? Double else {
+            return nil
+        }
+        return Date(timeIntervalSince1970: epoch)
+    }
+
+    static func publishFluoriteSessionSnapshot(_ snapshot: FluoriteSessionSnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: Key.fluoriteSessionSnapshot)
+    }
+
+    static func loadFluoriteSessionSnapshot() -> FluoriteSessionSnapshot? {
+        guard
+            let data = defaults.data(forKey: Key.fluoriteSessionSnapshot),
+            let snapshot = try? JSONDecoder().decode(FluoriteSessionSnapshot.self, from: data)
+        else { return nil }
+        return snapshot
     }
 
     static func publishExerciseLibrary(_ exercises: [ExerciseSnapshotEntry]) {
@@ -83,5 +175,12 @@ enum FitLogIntentBridge {
         guard let value = defaults.object(forKey: Key.pendingRestTimerSeconds) as? Int else { return nil }
         defaults.removeObject(forKey: Key.pendingRestTimerSeconds)
         return value
+    }
+
+    static func consumePendingResetRestTime() -> Bool {
+        guard defaults.object(forKey: Key.pendingResetRestTime) != nil else { return false }
+        let queued = defaults.bool(forKey: Key.pendingResetRestTime)
+        defaults.removeObject(forKey: Key.pendingResetRestTime)
+        return queued
     }
 }
