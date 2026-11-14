@@ -21,6 +21,18 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishJadeSessionSnapshot()
+    }
+
+    func publishJadeSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = JadeAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            restEndsAt: FitLogIntentBridge.loadJadeRestEndsAt(),
+            displayUnit: JadeAskFitLog.storedDisplayUnit()
+        )
+        FitLogIntentBridge.publishJadeSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {
