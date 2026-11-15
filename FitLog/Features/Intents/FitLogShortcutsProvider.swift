@@ -40,5 +40,38 @@ struct FitLogShortcutsProvider: AppShortcutsProvider {
             shortTitle: "Rest Timer",
             systemImageName: "timer"
         )
+
+        AppShortcut(
+            intent: DoubleRestTimeIntent(),
+            phrases: [
+                "Double rest time in \(.applicationName)",
+                "Double the rest timer in \(.applicationName)",
+                "Give me double rest in \(.applicationName)"
+            ],
+            shortTitle: "Double Rest Time",
+            systemImageName: "timer"
+        )
+
+        AppShortcut(
+            intent: NextExerciseRemainingSetsQueryIntent(),
+            phrases: [
+                "Next exercise remaining sets in \(.applicationName)",
+                "How many sets left on the next exercise in \(.applicationName)",
+                "Sets left on the next exercise in \(.applicationName)"
+            ],
+            shortTitle: "Next Exercise Remaining Sets",
+            systemImageName: "list.number"
+        )
+
+        AppShortcut(
+            intent: ThisExerciseLastRestQueryIntent(),
+            phrases: [
+                "This exercise last rest in \(.applicationName)",
+                "How long did I rest on this exercise in \(.applicationName)",
+                "Last rest on this exercise in \(.applicationName)"
+            ],
+            shortTitle: "This Exercise Last Rest",
+            systemImageName: "clock.arrow.circlepath"
+        )
     }
 }

@@ -21,6 +21,17 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishAmberSessionSnapshot()
+    }
+
+    func publishAmberSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = AmberAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            restEndsAt: FitLogIntentBridge.loadAmberRestEndsAt()
+        )
+        FitLogIntentBridge.publishAmberSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {
