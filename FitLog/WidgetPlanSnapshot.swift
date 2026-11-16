@@ -21,6 +21,17 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishCoralSessionSnapshot()
+    }
+
+    func publishCoralSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = CoralAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            restEndsAt: FitLogIntentBridge.loadCoralRestEndsAt()
+        )
+        FitLogIntentBridge.publishCoralSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {
