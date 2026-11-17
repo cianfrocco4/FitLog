@@ -21,6 +21,17 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishTurquoiseSessionSnapshot()
+    }
+
+    func publishTurquoiseSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = TurquoiseAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            restEndsAt: FitLogIntentBridge.loadTurquoiseRestEndsAt()
+        )
+        FitLogIntentBridge.publishTurquoiseSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {
