@@ -21,6 +21,17 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishLarimarSessionSnapshot()
+    }
+
+    func publishLarimarSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = LarimarAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            restEndsAt: FitLogIntentBridge.loadLarimarRestEndsAt()
+        )
+        FitLogIntentBridge.publishLarimarSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {

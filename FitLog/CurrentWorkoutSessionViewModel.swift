@@ -159,6 +159,7 @@ final class CurrentWorkoutSessionViewModel {
         clearInactivityReminder()
         clearPersistedActiveSession()
         pendingWorkoutCompletionSummary = summary
+        publishLarimarIntentState()
     }
 
     private func normalizeConcreteSnapshotsOnExerciseLogs(_ logs: inout [ExerciseLog]) {
@@ -189,6 +190,7 @@ final class CurrentWorkoutSessionViewModel {
         workoutPausedAt = nil
         clearInactivityReminder()
         clearPersistedActiveSession()
+        publishLarimarIntentState()
     }
     
     func pauseWorkout() {
@@ -267,6 +269,7 @@ final class CurrentWorkoutSessionViewModel {
             )
         }
         saveTimerState()
+        publishLarimarIntentState()
     }
 
     private func saveTimerState() {
@@ -301,6 +304,7 @@ final class CurrentWorkoutSessionViewModel {
             migrateLoadedCardioTimersIfNeeded()
             updateWorkoutElapsed()
             if workoutPausedAt == nil { startWorkoutTimer() }
+            publishLarimarIntentState()
             return
         }
         // Migration path: legacy UserDefaults JSON (users upgrading from pre-Phase B builds)
@@ -322,6 +326,7 @@ final class CurrentWorkoutSessionViewModel {
         migrateLoadedCardioTimersIfNeeded()
         updateWorkoutElapsed()
         if workoutPausedAt == nil { startWorkoutTimer() }
+        publishLarimarIntentState()
     }
 
     /// Sync the current session's workout and exercise logs with an updated workout definition.
@@ -951,6 +956,7 @@ final class CurrentWorkoutSessionViewModel {
 
         guard cappedSeconds > 0 else {
             restCountdownTotalSeconds = 0
+            publishLarimarIntentState()
             return
         }
 
@@ -988,9 +994,11 @@ final class CurrentWorkoutSessionViewModel {
                     RestTimerLiveActivityCoordinator.shared.endRestActivity()
                     Self.playRestCompleteFeedback()
                     self.showRestCompleteAlert = true
+                    self.publishLarimarIntentState()
                 }
             }
         }
+        publishLarimarIntentState()
     }
 
     private static func playRestCompleteFeedback() {
@@ -1014,6 +1022,7 @@ final class CurrentWorkoutSessionViewModel {
         Task { @MainActor in
             RestTimerLiveActivityCoordinator.shared.endRestActivity()
         }
+        publishLarimarIntentState()
     }
 
     /// Nudge the active rest countdown (e.g. +15 / −15) without restarting the timer tick loop.
@@ -1043,6 +1052,7 @@ final class CurrentWorkoutSessionViewModel {
                 workoutName: title
             )
         }
+        publishLarimarIntentState()
     }
 
     private func clearRestCompletionNotification() {
@@ -1813,9 +1823,38 @@ final class CurrentWorkoutSessionViewModel {
             scheduleRestNotification(seconds: restSeconds)
         }
 
+        if FitLogIntentBridge.consumePendingUseNextLastRestTime() {
+            applyPendingUseNextLastRestTime()
+        }
+
         if let pendingLog = FitLogIntentBridge.consumePendingLogSet() {
             applyPendingLogSet(pendingLog)
         }
+    }
+
+    private func applyPendingUseNextLastRestTime() {
+        guard isInProgress else { return }
+        let remaining: Int
+        if let endsAt = restEndsAt {
+            remaining = max(0, Int(ceil(endsAt.timeIntervalSinceNow)))
+        } else {
+            remaining = remainingRestTime
+        }
+        guard remaining > 0 else { return }
+        let snapshot = LarimarAskFitLog.querySnapshot(
+            inProgress: currentSession,
+            restEndsAt: restEndsAt
+        )
+        guard let target = LarimarAskFitLog.nextLastRestTargetSeconds(snapshot: snapshot) else { return }
+        guard LarimarAskFitLog.canUseNextLastRest(snapshot: snapshot) else { return }
+        let delta = target - remaining
+        guard delta != 0 else { return }
+        adjustRestCountdown(by: delta)
+    }
+
+    private func publishLarimarIntentState() {
+        FitLogIntentBridge.publishLarimarRestEndsAt(restEndsAt)
+        dataManager.publishLarimarSessionSnapshot()
     }
 
     private func applyPendingLogSet(_ payload: FitLogIntentBridge.PendingLogSet) {
