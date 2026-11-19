@@ -12,7 +12,10 @@ enum FitLogIntentBridge {
         static let pendingLogSet = "fitlog.intent.pendingLogSet"
         static let pendingStartWorkoutName = "fitlog.intent.pendingStartWorkoutName"
         static let pendingRestTimerSeconds = "fitlog.intent.pendingRestTimerSeconds"
+        static let pendingUseThisWorkoutLastRestTime = "fitlog.intent.pendingUseThisWorkoutLastRestTime"
         static let exerciseLibrarySnapshot = "fitlog.intent.exerciseLibrarySnapshot"
+        static let sunstoneSessionSnapshot = "fitlog.intent.sunstoneSessionSnapshot"
+        static let sunstoneRestEndsAt = "fitlog.intent.sunstoneRestEndsAt"
     }
 
     struct PendingLogSet: Codable, Equatable {
@@ -25,6 +28,62 @@ enum FitLogIntentBridge {
     struct ExerciseSnapshotEntry: Codable, Equatable {
         var id: UUID
         var name: String
+    }
+
+    /// In-progress snapshot for Sunstone Siri use-this-workout-last-rest /
+    /// this-workout-remaining-sets / this-workout-last-working.
+    /// Distinct from larimarSessionSnapshot, turquoiseSessionSnapshot,
+    /// coralSessionSnapshot, amberSessionSnapshot, jadeSessionSnapshot,
+    /// fluoriteSessionSnapshot, obsidianSessionSnapshot,
+    /// zirconSessionSnapshot, spinelSessionSnapshot,
+    /// alexandriteSessionSnapshot, moonstoneSessionSnapshot,
+    /// tanzaniteSessionSnapshot, aquamarineSessionSnapshot,
+    /// tourmalineSessionSnapshot, jasperSessionSnapshot,
+    /// lapisHistorySnapshot, peridotFinishSnapshot, onyxNextPlanSnapshot,
+    /// garnetLibrarySnapshot, amethystTomorrowSnapshot,
+    /// emeraldStrengthSnapshot, sapphireTodaySnapshot, rubyRepeatSnapshot,
+    /// citrineLastLoadSnapshot, and topaz LastSavedWorkoutSnapshot.
+    struct SunstoneSessionSnapshot: Codable, Equatable {
+        var inProgressWorkoutName: String?
+        var focusedExerciseName: String?
+        var focusedIsIncomplete: Bool
+        var remainingSetCount: Int
+        var sessionLastRestSeconds: Int?
+        var sessionLastRestExerciseName: String?
+        var sessionLastWorkingCaption: String?
+        var sessionLastWorkingExerciseName: String?
+        var canUseThisWorkoutLastRest: Bool
+        var restEndsAtEpoch: TimeInterval?
+        var hasOpenPlaceholder: Bool
+        var isReadyToFinish: Bool
+
+        init(
+            inProgressWorkoutName: String? = nil,
+            focusedExerciseName: String? = nil,
+            focusedIsIncomplete: Bool = false,
+            remainingSetCount: Int = 0,
+            sessionLastRestSeconds: Int? = nil,
+            sessionLastRestExerciseName: String? = nil,
+            sessionLastWorkingCaption: String? = nil,
+            sessionLastWorkingExerciseName: String? = nil,
+            canUseThisWorkoutLastRest: Bool = false,
+            restEndsAtEpoch: TimeInterval? = nil,
+            hasOpenPlaceholder: Bool = false,
+            isReadyToFinish: Bool = false
+        ) {
+            self.inProgressWorkoutName = inProgressWorkoutName
+            self.focusedExerciseName = focusedExerciseName
+            self.focusedIsIncomplete = focusedIsIncomplete
+            self.remainingSetCount = remainingSetCount
+            self.sessionLastRestSeconds = sessionLastRestSeconds
+            self.sessionLastRestExerciseName = sessionLastRestExerciseName
+            self.sessionLastWorkingCaption = sessionLastWorkingCaption
+            self.sessionLastWorkingExerciseName = sessionLastWorkingExerciseName
+            self.canUseThisWorkoutLastRest = canUseThisWorkoutLastRest
+            self.restEndsAtEpoch = restEndsAtEpoch
+            self.hasOpenPlaceholder = hasOpenPlaceholder
+            self.isReadyToFinish = isReadyToFinish
+        }
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -46,6 +105,38 @@ enum FitLogIntentBridge {
 
     static func queueRestTimer(seconds: Int) {
         defaults.set(seconds, forKey: Key.pendingRestTimerSeconds)
+    }
+
+    static func queueUseThisWorkoutLastRestTime() {
+        defaults.set(true, forKey: Key.pendingUseThisWorkoutLastRestTime)
+    }
+
+    static func publishSunstoneRestEndsAt(_ date: Date?) {
+        if let date, SunstoneAskFitLog.remainingRestSeconds(restEndsAt: date) != nil {
+            defaults.set(date.timeIntervalSince1970, forKey: Key.sunstoneRestEndsAt)
+        } else {
+            defaults.removeObject(forKey: Key.sunstoneRestEndsAt)
+        }
+    }
+
+    static func loadSunstoneRestEndsAt() -> Date? {
+        guard let epoch = defaults.object(forKey: Key.sunstoneRestEndsAt) as? Double else {
+            return nil
+        }
+        return Date(timeIntervalSince1970: epoch)
+    }
+
+    static func publishSunstoneSessionSnapshot(_ snapshot: SunstoneSessionSnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: Key.sunstoneSessionSnapshot)
+    }
+
+    static func loadSunstoneSessionSnapshot() -> SunstoneSessionSnapshot? {
+        guard
+            let data = defaults.data(forKey: Key.sunstoneSessionSnapshot),
+            let snapshot = try? JSONDecoder().decode(SunstoneSessionSnapshot.self, from: data)
+        else { return nil }
+        return snapshot
     }
 
     static func publishExerciseLibrary(_ exercises: [ExerciseSnapshotEntry]) {
@@ -83,5 +174,12 @@ enum FitLogIntentBridge {
         guard let value = defaults.object(forKey: Key.pendingRestTimerSeconds) as? Int else { return nil }
         defaults.removeObject(forKey: Key.pendingRestTimerSeconds)
         return value
+    }
+
+    static func consumePendingUseThisWorkoutLastRestTime() -> Bool {
+        guard defaults.object(forKey: Key.pendingUseThisWorkoutLastRestTime) != nil else { return false }
+        let queued = defaults.bool(forKey: Key.pendingUseThisWorkoutLastRestTime)
+        defaults.removeObject(forKey: Key.pendingUseThisWorkoutLastRestTime)
+        return queued
     }
 }

@@ -21,6 +21,18 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishSunstoneSessionSnapshot()
+    }
+
+    func publishSunstoneSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = SunstoneAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            restEndsAt: FitLogIntentBridge.loadSunstoneRestEndsAt(),
+            displayUnit: SunstoneAskFitLog.storedDisplayUnit()
+        )
+        FitLogIntentBridge.publishSunstoneSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {
