@@ -21,6 +21,17 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishHematiteSessionSnapshot()
+    }
+
+    func publishHematiteSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = HematiteAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            restEndsAt: FitLogIntentBridge.loadHematiteRestEndsAt()
+        )
+        FitLogIntentBridge.publishHematiteSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {
