@@ -12,7 +12,10 @@ enum FitLogIntentBridge {
         static let pendingLogSet = "fitlog.intent.pendingLogSet"
         static let pendingStartWorkoutName = "fitlog.intent.pendingStartWorkoutName"
         static let pendingRestTimerSeconds = "fitlog.intent.pendingRestTimerSeconds"
+        static let pendingUseNextPrescribedRestTime = "fitlog.intent.pendingUseNextPrescribedRestTime"
         static let exerciseLibrarySnapshot = "fitlog.intent.exerciseLibrarySnapshot"
+        static let malachiteSessionSnapshot = "fitlog.intent.malachiteSessionSnapshot"
+        static let malachiteRestEndsAt = "fitlog.intent.malachiteRestEndsAt"
     }
 
     struct PendingLogSet: Codable, Equatable {
@@ -25,6 +28,66 @@ enum FitLogIntentBridge {
     struct ExerciseSnapshotEntry: Codable, Equatable {
         var id: UUID
         var name: String
+    }
+
+    /// In-progress snapshot for Malachite Siri use-next-prescribed-rest /
+    /// this-workout-last-prescribed-rest / this-workout-sets-completed.
+    /// Distinct from hematiteSessionSnapshot, sunstoneSessionSnapshot,
+    /// larimarSessionSnapshot, turquoiseSessionSnapshot,
+    /// coralSessionSnapshot, amberSessionSnapshot, jadeSessionSnapshot,
+    /// fluoriteSessionSnapshot, obsidianSessionSnapshot,
+    /// zirconSessionSnapshot, spinelSessionSnapshot,
+    /// alexandriteSessionSnapshot, moonstoneSessionSnapshot,
+    /// tanzaniteSessionSnapshot, aquamarineSessionSnapshot,
+    /// tourmalineSessionSnapshot, jasperSessionSnapshot,
+    /// lapisHistorySnapshot, peridotFinishSnapshot, onyxNextPlanSnapshot,
+    /// garnetLibrarySnapshot, amethystTomorrowSnapshot,
+    /// emeraldStrengthSnapshot, sapphireTodaySnapshot, rubyRepeatSnapshot,
+    /// citrineLastLoadSnapshot, and topaz LastSavedWorkoutSnapshot.
+    struct MalachiteSessionSnapshot: Codable, Equatable {
+        var inProgressWorkoutName: String?
+        var focusedExerciseName: String?
+        var focusedIsIncomplete: Bool
+        var nextExerciseName: String?
+        var nextIsCardio: Bool
+        var nextPrescribedRestSeconds: Int?
+        var lastCompletedExerciseName: String?
+        var lastCompletedPrescribedRestSeconds: Int?
+        var completedSetCount: Int
+        var canUseNextPrescribedRest: Bool
+        var restEndsAtEpoch: TimeInterval?
+        var hasOpenPlaceholder: Bool
+        var isReadyToFinish: Bool
+
+        init(
+            inProgressWorkoutName: String? = nil,
+            focusedExerciseName: String? = nil,
+            focusedIsIncomplete: Bool = false,
+            nextExerciseName: String? = nil,
+            nextIsCardio: Bool = false,
+            nextPrescribedRestSeconds: Int? = nil,
+            lastCompletedExerciseName: String? = nil,
+            lastCompletedPrescribedRestSeconds: Int? = nil,
+            completedSetCount: Int = 0,
+            canUseNextPrescribedRest: Bool = false,
+            restEndsAtEpoch: TimeInterval? = nil,
+            hasOpenPlaceholder: Bool = false,
+            isReadyToFinish: Bool = false
+        ) {
+            self.inProgressWorkoutName = inProgressWorkoutName
+            self.focusedExerciseName = focusedExerciseName
+            self.focusedIsIncomplete = focusedIsIncomplete
+            self.nextExerciseName = nextExerciseName
+            self.nextIsCardio = nextIsCardio
+            self.nextPrescribedRestSeconds = nextPrescribedRestSeconds
+            self.lastCompletedExerciseName = lastCompletedExerciseName
+            self.lastCompletedPrescribedRestSeconds = lastCompletedPrescribedRestSeconds
+            self.completedSetCount = completedSetCount
+            self.canUseNextPrescribedRest = canUseNextPrescribedRest
+            self.restEndsAtEpoch = restEndsAtEpoch
+            self.hasOpenPlaceholder = hasOpenPlaceholder
+            self.isReadyToFinish = isReadyToFinish
+        }
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -46,6 +109,38 @@ enum FitLogIntentBridge {
 
     static func queueRestTimer(seconds: Int) {
         defaults.set(seconds, forKey: Key.pendingRestTimerSeconds)
+    }
+
+    static func queueUseNextPrescribedRestTime() {
+        defaults.set(true, forKey: Key.pendingUseNextPrescribedRestTime)
+    }
+
+    static func publishMalachiteRestEndsAt(_ date: Date?) {
+        if let date, MalachiteAskFitLog.remainingRestSeconds(restEndsAt: date) != nil {
+            defaults.set(date.timeIntervalSince1970, forKey: Key.malachiteRestEndsAt)
+        } else {
+            defaults.removeObject(forKey: Key.malachiteRestEndsAt)
+        }
+    }
+
+    static func loadMalachiteRestEndsAt() -> Date? {
+        guard let epoch = defaults.object(forKey: Key.malachiteRestEndsAt) as? Double else {
+            return nil
+        }
+        return Date(timeIntervalSince1970: epoch)
+    }
+
+    static func publishMalachiteSessionSnapshot(_ snapshot: MalachiteSessionSnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: Key.malachiteSessionSnapshot)
+    }
+
+    static func loadMalachiteSessionSnapshot() -> MalachiteSessionSnapshot? {
+        guard
+            let data = defaults.data(forKey: Key.malachiteSessionSnapshot),
+            let snapshot = try? JSONDecoder().decode(MalachiteSessionSnapshot.self, from: data)
+        else { return nil }
+        return snapshot
     }
 
     static func publishExerciseLibrary(_ exercises: [ExerciseSnapshotEntry]) {
@@ -83,5 +178,12 @@ enum FitLogIntentBridge {
         guard let value = defaults.object(forKey: Key.pendingRestTimerSeconds) as? Int else { return nil }
         defaults.removeObject(forKey: Key.pendingRestTimerSeconds)
         return value
+    }
+
+    static func consumePendingUseNextPrescribedRestTime() -> Bool {
+        guard defaults.object(forKey: Key.pendingUseNextPrescribedRestTime) != nil else { return false }
+        let queued = defaults.bool(forKey: Key.pendingUseNextPrescribedRestTime)
+        defaults.removeObject(forKey: Key.pendingUseNextPrescribedRestTime)
+        return queued
     }
 }

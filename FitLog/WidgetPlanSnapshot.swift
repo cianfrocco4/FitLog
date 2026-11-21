@@ -21,6 +21,17 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishMalachiteSessionSnapshot()
+    }
+
+    func publishMalachiteSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = MalachiteAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            restEndsAt: FitLogIntentBridge.loadMalachiteRestEndsAt()
+        )
+        FitLogIntentBridge.publishMalachiteSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {
