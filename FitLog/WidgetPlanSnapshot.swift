@@ -21,6 +21,17 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishAzuriteSessionSnapshot()
+    }
+
+    func publishAzuriteSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = AzuriteAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            restEndsAt: FitLogIntentBridge.loadAzuriteRestEndsAt()
+        )
+        FitLogIntentBridge.publishAzuriteSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {
