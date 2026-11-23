@@ -21,6 +21,17 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishIoliteSessionSnapshot()
+    }
+
+    func publishIoliteSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = IoliteAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            restEndsAt: FitLogIntentBridge.loadIoliteRestEndsAt()
+        )
+        FitLogIntentBridge.publishIoliteSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {
