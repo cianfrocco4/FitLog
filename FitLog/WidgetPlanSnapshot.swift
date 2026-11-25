@@ -21,6 +21,17 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishBerylSessionSnapshot()
+    }
+
+    func publishBerylSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = BerylAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            restEndsAt: FitLogIntentBridge.loadBerylRestEndsAt()
+        )
+        FitLogIntentBridge.publishBerylSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {

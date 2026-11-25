@@ -159,6 +159,7 @@ final class CurrentWorkoutSessionViewModel {
         clearInactivityReminder()
         clearPersistedActiveSession()
         pendingWorkoutCompletionSummary = summary
+        publishBerylIntentState()
     }
 
     private func normalizeConcreteSnapshotsOnExerciseLogs(_ logs: inout [ExerciseLog]) {
@@ -189,6 +190,7 @@ final class CurrentWorkoutSessionViewModel {
         workoutPausedAt = nil
         clearInactivityReminder()
         clearPersistedActiveSession()
+        publishBerylIntentState()
     }
     
     func pauseWorkout() {
@@ -267,6 +269,7 @@ final class CurrentWorkoutSessionViewModel {
             )
         }
         saveTimerState()
+        publishBerylIntentState()
     }
 
     private func saveTimerState() {
@@ -301,6 +304,7 @@ final class CurrentWorkoutSessionViewModel {
             migrateLoadedCardioTimersIfNeeded()
             updateWorkoutElapsed()
             if workoutPausedAt == nil { startWorkoutTimer() }
+            publishBerylIntentState()
             return
         }
         // Migration path: legacy UserDefaults JSON (users upgrading from pre-Phase B builds)
@@ -322,6 +326,7 @@ final class CurrentWorkoutSessionViewModel {
         migrateLoadedCardioTimersIfNeeded()
         updateWorkoutElapsed()
         if workoutPausedAt == nil { startWorkoutTimer() }
+        publishBerylIntentState()
     }
 
     /// Sync the current session's workout and exercise logs with an updated workout definition.
@@ -951,6 +956,7 @@ final class CurrentWorkoutSessionViewModel {
 
         guard cappedSeconds > 0 else {
             restCountdownTotalSeconds = 0
+            publishBerylIntentState()
             return
         }
 
@@ -988,9 +994,11 @@ final class CurrentWorkoutSessionViewModel {
                     RestTimerLiveActivityCoordinator.shared.endRestActivity()
                     Self.playRestCompleteFeedback()
                     self.showRestCompleteAlert = true
+                    self.publishBerylIntentState()
                 }
             }
         }
+        publishBerylIntentState()
     }
 
     private static func playRestCompleteFeedback() {
@@ -1014,6 +1022,7 @@ final class CurrentWorkoutSessionViewModel {
         Task { @MainActor in
             RestTimerLiveActivityCoordinator.shared.endRestActivity()
         }
+        publishBerylIntentState()
     }
 
     /// Nudge the active rest countdown (e.g. +15 / −15) without restarting the timer tick loop.
@@ -1043,6 +1052,7 @@ final class CurrentWorkoutSessionViewModel {
                 workoutName: title
             )
         }
+        publishBerylIntentState()
     }
 
     private func clearRestCompletionNotification() {
@@ -1813,9 +1823,38 @@ final class CurrentWorkoutSessionViewModel {
             scheduleRestNotification(seconds: restSeconds)
         }
 
+        if FitLogIntentBridge.consumePendingUsePreviousExerciseLastWorkingRestTime() {
+            applyPendingUsePreviousExerciseLastWorkingRestTime()
+        }
+
         if let pendingLog = FitLogIntentBridge.consumePendingLogSet() {
             applyPendingLogSet(pendingLog)
         }
+    }
+
+    private func applyPendingUsePreviousExerciseLastWorkingRestTime() {
+        guard isInProgress else { return }
+        let remaining: Int
+        if let endsAt = restEndsAt {
+            remaining = max(0, Int(ceil(endsAt.timeIntervalSinceNow)))
+        } else {
+            remaining = remainingRestTime
+        }
+        guard remaining > 0 else { return }
+        let snapshot = BerylAskFitLog.querySnapshot(
+            inProgress: currentSession,
+            restEndsAt: restEndsAt
+        )
+        guard let target = BerylAskFitLog.lastWorkingRestTargetSeconds(snapshot: snapshot) else { return }
+        guard BerylAskFitLog.canUseLastWorkingRest(snapshot: snapshot) else { return }
+        let delta = target - remaining
+        guard delta != 0 else { return }
+        adjustRestCountdown(by: delta)
+    }
+
+    private func publishBerylIntentState() {
+        FitLogIntentBridge.publishBerylRestEndsAt(restEndsAt)
+        dataManager.publishBerylSessionSnapshot()
     }
 
     private func applyPendingLogSet(_ payload: FitLogIntentBridge.PendingLogSet) {
