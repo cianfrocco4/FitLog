@@ -21,6 +21,17 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishMorganiteSessionSnapshot()
+    }
+
+    func publishMorganiteSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = MorganiteAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            restEndsAt: FitLogIntentBridge.loadMorganiteRestEndsAt()
+        )
+        FitLogIntentBridge.publishMorganiteSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {

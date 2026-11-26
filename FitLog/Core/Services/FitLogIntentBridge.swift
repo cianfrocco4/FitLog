@@ -12,7 +12,10 @@ enum FitLogIntentBridge {
         static let pendingLogSet = "fitlog.intent.pendingLogSet"
         static let pendingStartWorkoutName = "fitlog.intent.pendingStartWorkoutName"
         static let pendingRestTimerSeconds = "fitlog.intent.pendingRestTimerSeconds"
+        static let pendingUseNextExerciseLastWorkingRestTime = "fitlog.intent.pendingUseNextExerciseLastWorkingRestTime"
         static let exerciseLibrarySnapshot = "fitlog.intent.exerciseLibrarySnapshot"
+        static let morganiteSessionSnapshot = "fitlog.intent.morganiteSessionSnapshot"
+        static let morganiteRestEndsAt = "fitlog.intent.morganiteRestEndsAt"
     }
 
     struct PendingLogSet: Codable, Equatable {
@@ -25,6 +28,72 @@ enum FitLogIntentBridge {
     struct ExerciseSnapshotEntry: Codable, Equatable {
         var id: UUID
         var name: String
+    }
+
+    /// In-progress snapshot for Morganite Siri use-next-exercise-last-working-rest /
+    /// next-exercise-last-working-rest / next-exercise-working-sets-logged.
+    /// Distinct from berylSessionSnapshot, kyaniteSessionSnapshot,
+    /// ioliteSessionSnapshot, azuriteSessionSnapshot,
+    /// malachiteSessionSnapshot, hematiteSessionSnapshot,
+    /// sunstoneSessionSnapshot, larimarSessionSnapshot,
+    /// turquoiseSessionSnapshot, coralSessionSnapshot,
+    /// amberSessionSnapshot, jadeSessionSnapshot,
+    /// fluoriteSessionSnapshot, obsidianSessionSnapshot,
+    /// zirconSessionSnapshot, spinelSessionSnapshot,
+    /// alexandriteSessionSnapshot, moonstoneSessionSnapshot,
+    /// tanzaniteSessionSnapshot, aquamarineSessionSnapshot,
+    /// tourmalineSessionSnapshot, jasperSessionSnapshot,
+    /// lapisHistorySnapshot, peridotFinishSnapshot, onyxNextPlanSnapshot,
+    /// garnetLibrarySnapshot, amethystTomorrowSnapshot,
+    /// emeraldStrengthSnapshot, sapphireTodaySnapshot, rubyRepeatSnapshot,
+    /// citrineLastLoadSnapshot, and topaz LastSavedWorkoutSnapshot.
+    struct MorganiteSessionSnapshot: Codable, Equatable {
+        var inProgressWorkoutName: String?
+        var focusedExerciseName: String?
+        var focusedIsIncomplete: Bool
+        var focusedIsPlaceholder: Bool
+        var nextExerciseName: String?
+        var nextIsIncomplete: Bool
+        var nextIsPlaceholder: Bool
+        var lastWorkingRestSeconds: Int?
+        var lastWorkingRestExerciseName: String?
+        var workingSetsLogged: Int
+        var canUseLastWorkingRest: Bool
+        var restEndsAtEpoch: TimeInterval?
+        var hasOpenPlaceholder: Bool
+        var isReadyToFinish: Bool
+
+        init(
+            inProgressWorkoutName: String? = nil,
+            focusedExerciseName: String? = nil,
+            focusedIsIncomplete: Bool = false,
+            focusedIsPlaceholder: Bool = false,
+            nextExerciseName: String? = nil,
+            nextIsIncomplete: Bool = false,
+            nextIsPlaceholder: Bool = false,
+            lastWorkingRestSeconds: Int? = nil,
+            lastWorkingRestExerciseName: String? = nil,
+            workingSetsLogged: Int = 0,
+            canUseLastWorkingRest: Bool = false,
+            restEndsAtEpoch: TimeInterval? = nil,
+            hasOpenPlaceholder: Bool = false,
+            isReadyToFinish: Bool = false
+        ) {
+            self.inProgressWorkoutName = inProgressWorkoutName
+            self.focusedExerciseName = focusedExerciseName
+            self.focusedIsIncomplete = focusedIsIncomplete
+            self.focusedIsPlaceholder = focusedIsPlaceholder
+            self.nextExerciseName = nextExerciseName
+            self.nextIsIncomplete = nextIsIncomplete
+            self.nextIsPlaceholder = nextIsPlaceholder
+            self.lastWorkingRestSeconds = lastWorkingRestSeconds
+            self.lastWorkingRestExerciseName = lastWorkingRestExerciseName
+            self.workingSetsLogged = workingSetsLogged
+            self.canUseLastWorkingRest = canUseLastWorkingRest
+            self.restEndsAtEpoch = restEndsAtEpoch
+            self.hasOpenPlaceholder = hasOpenPlaceholder
+            self.isReadyToFinish = isReadyToFinish
+        }
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -46,6 +115,38 @@ enum FitLogIntentBridge {
 
     static func queueRestTimer(seconds: Int) {
         defaults.set(seconds, forKey: Key.pendingRestTimerSeconds)
+    }
+
+    static func queueUseNextExerciseLastWorkingRestTime() {
+        defaults.set(true, forKey: Key.pendingUseNextExerciseLastWorkingRestTime)
+    }
+
+    static func publishMorganiteRestEndsAt(_ date: Date?) {
+        if let date, MorganiteAskFitLog.remainingRestSeconds(restEndsAt: date) != nil {
+            defaults.set(date.timeIntervalSince1970, forKey: Key.morganiteRestEndsAt)
+        } else {
+            defaults.removeObject(forKey: Key.morganiteRestEndsAt)
+        }
+    }
+
+    static func loadMorganiteRestEndsAt() -> Date? {
+        guard let epoch = defaults.object(forKey: Key.morganiteRestEndsAt) as? Double else {
+            return nil
+        }
+        return Date(timeIntervalSince1970: epoch)
+    }
+
+    static func publishMorganiteSessionSnapshot(_ snapshot: MorganiteSessionSnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: Key.morganiteSessionSnapshot)
+    }
+
+    static func loadMorganiteSessionSnapshot() -> MorganiteSessionSnapshot? {
+        guard
+            let data = defaults.data(forKey: Key.morganiteSessionSnapshot),
+            let snapshot = try? JSONDecoder().decode(MorganiteSessionSnapshot.self, from: data)
+        else { return nil }
+        return snapshot
     }
 
     static func publishExerciseLibrary(_ exercises: [ExerciseSnapshotEntry]) {
@@ -83,5 +184,12 @@ enum FitLogIntentBridge {
         guard let value = defaults.object(forKey: Key.pendingRestTimerSeconds) as? Int else { return nil }
         defaults.removeObject(forKey: Key.pendingRestTimerSeconds)
         return value
+    }
+
+    static func consumePendingUseNextExerciseLastWorkingRestTime() -> Bool {
+        guard defaults.object(forKey: Key.pendingUseNextExerciseLastWorkingRestTime) != nil else { return false }
+        let queued = defaults.bool(forKey: Key.pendingUseNextExerciseLastWorkingRestTime)
+        defaults.removeObject(forKey: Key.pendingUseNextExerciseLastWorkingRestTime)
+        return queued
     }
 }
