@@ -40,5 +40,38 @@ struct FitLogShortcutsProvider: AppShortcutsProvider {
             shortTitle: "Rest Timer",
             systemImageName: "timer"
         )
+
+        AppShortcut(
+            intent: UseThisWorkoutLastWarmupRestTimeIntent(),
+            phrases: [
+                "Use this workout last warmup rest in \(.applicationName)",
+                "Set rest to this workout last warmup rest in \(.applicationName)",
+                "Use last warmup rest in \(.applicationName)"
+            ],
+            shortTitle: "Use This Workout Last Warmup Rest Time",
+            systemImageName: "clock.arrow.circlepath"
+        )
+
+        AppShortcut(
+            intent: ThisWorkoutLastWarmupRestQueryIntent(),
+            phrases: [
+                "This workout last warmup rest in \(.applicationName)",
+                "What was last warmup rest this workout in \(.applicationName)",
+                "Last warmup rest this workout in \(.applicationName)"
+            ],
+            shortTitle: "This Workout Last Warmup Rest",
+            systemImageName: "timer"
+        )
+
+        AppShortcut(
+            intent: ThisWorkoutWarmupSetsLoggedQueryIntent(),
+            phrases: [
+                "This workout warmup sets logged in \(.applicationName)",
+                "How many warmup sets this workout in \(.applicationName)",
+                "Warmup sets logged this workout in \(.applicationName)"
+            ],
+            shortTitle: "This Workout Warmup Sets Logged",
+            systemImageName: "checkmark.circle"
+        )
     }
 }
