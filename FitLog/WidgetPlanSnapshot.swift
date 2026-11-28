@@ -21,6 +21,17 @@ extension DataManager {
         if WidgetSnapshotStore.writeIfChanged(payload) {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        publishHiddeniteSessionSnapshot()
+    }
+
+    func publishHiddeniteSessionSnapshot() {
+        let active = sessionStore.loadActiveSession()
+        let inProgress = (active?.endTime == nil) ? active : nil
+        let snapshot = HiddeniteAskFitLog.querySnapshot(
+            inProgress: inProgress,
+            restEndsAt: FitLogIntentBridge.loadHiddeniteRestEndsAt()
+        )
+        FitLogIntentBridge.publishHiddeniteSessionSnapshot(snapshot)
     }
 
     private func resolvedTodayPlanTitle() -> String? {
